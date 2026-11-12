@@ -69,6 +69,7 @@ sutura-catalog-okf = { workspace = true }
 sutura-catalog-datacontract = { workspace = true }
 sutura-catalog-openmetadata = { workspace = true }
 sutura-catalog-cube = { workspace = true }
+sutura-catalog-foundry = { workspace = true }
 # EXPERIMENTAL: a DECLARING catalog over an HTTP API an OpenAPI document and a mapping file describe,
 # opened over its synthetic fixture registry - `#1727`.
 sutura-catalog-openapi = { workspace = true }

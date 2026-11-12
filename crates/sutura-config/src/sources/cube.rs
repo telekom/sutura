@@ -69,9 +69,13 @@ pub(super) fn refuse_elsewhere(
         alias,
         kind,
         [
-            // A `node` entry reads `endpoint` too; `token_file` stays Cube's alone.
-            ("endpoint", kind != SourceKind::Node && written(entry.endpoint)),
-            ("token_file", written(entry.token_file)),
+            // A `node` entry reads `endpoint` too, and a Foundry source reads both keys through
+            // its own placement module; `token_file` stays refused everywhere else.
+            (
+                "endpoint",
+                !matches!(kind, SourceKind::Node | SourceKind::Foundry) && written(entry.endpoint),
+            ),
+            ("token_file", kind != SourceKind::Foundry && written(entry.token_file)),
         ],
     )
 }
@@ -111,6 +115,7 @@ mod tests {
             data_dir: None,
             billing_project: None,
             dataset: None,
+            ontology: None,
             max_bytes_billed: None,
             posture: "shared-service-user",
             acknowledged_because: Some("one deployment token reaching the metrics layer for everybody who asks"),

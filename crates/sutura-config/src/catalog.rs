@@ -12,8 +12,10 @@ use std::path::{Path, PathBuf};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
+pub mod foundry;
 pub mod platform;
 pub mod rdbms;
+pub use crate::catalog::foundry::{ClientCredentialsSettings, FoundryAuth, FoundrySettings, InvalidFoundryCatalog};
 pub use crate::catalog::platform::{DataHubPlatform, InvalidDataHubPlatform};
 pub use crate::catalog::rdbms::{
     CatalogConnection, CatalogEnvironment, Dialect, DictionarySource, DocumentationSchema, InvalidConnection,
@@ -85,6 +87,12 @@ pub enum CatalogKind {
     /// **Openable behind `sutura-cli`'s default-off `cube` feature; a build without it refuses this
     /// kind by name**, the stand [`Self::Openmetadata`] makes. It takes the same reader fields.
     Cube,
+    /// **Experimental.** A Foundry ontology's metadata API, decided by `sutura-catalog-foundry` over
+    /// its `OntologyReader` port, with the `foundry:` block's own keys ([`FoundrySettings`]).
+    ///
+    /// Openable behind `sutura-cli`'s default-off `foundry` feature, which no release turns on; a
+    /// build without it refuses this kind by name.
+    Foundry,
     /// EXPERIMENTAL: an HTTP metadata API that a pinned `OpenAPI` document and a mapping file in
     /// `dir` describe, decided by `sutura-catalog-openapi` over its `AnswerReader` port.
     ///
@@ -109,6 +117,7 @@ impl CatalogKind {
         "openmetadata",
         "rdbms",
         "cube",
+        "foundry",
         "openapi",
     ];
 
@@ -122,6 +131,7 @@ impl CatalogKind {
             "openmetadata" => Ok(Self::Openmetadata),
             "rdbms" => Ok(Self::Rdbms),
             "cube" => Ok(Self::Cube),
+            "foundry" => Ok(Self::Foundry),
             "openapi" => Ok(Self::OpenApi),
             other => Err(UnknownCatalogKind {
                 found: String::from(other),
@@ -141,6 +151,7 @@ impl CatalogKind {
             Self::Openmetadata => "openmetadata",
             Self::Rdbms => "rdbms",
             Self::Cube => "cube",
+            Self::Foundry => "foundry",
             Self::OpenApi => "openapi",
         }
     }
@@ -184,6 +195,8 @@ pub struct CatalogSettings {
     refresh_seconds: Option<u64>,
     /// `catalog.kind: rdbms` only, all or nothing. `None` for every other kind.
     rdbms: Option<RdbmsSettings>,
+    /// `catalog.kind: foundry` only, all or nothing. `None` for every other kind.
+    foundry: Option<FoundrySettings>,
 }
 
 /// Why a catalog configuration is not usable.
@@ -257,6 +270,16 @@ pub enum InvalidCatalogSettings {
     /// A platform was written with no source.
     #[error("`catalogs.{name}.platforms.{platform}` names no source - write a declared `sources:` alias")]
     PlatformWithoutSource { name: SourceName, platform: DataHubPlatform },
+    /// A `catalog.kind: foundry` entry's own keys are not usable.
+    #[error("`catalogs.{name}` is `kind: foundry` and is not usable")]
+    Foundry {
+        name: SourceName,
+        #[source]
+        cause: InvalidFoundryCatalog,
+    },
+    /// A catalog of another kind wrote the `foundry:` block, which nothing would read.
+    #[error("`catalogs.{name}.foundry` is read only when `kind` is `foundry` - remove it, or write `kind: foundry`")]
+    FoundryOnOtherKind { name: SourceName },
     /// A catalog of another kind wrote `platforms`, a key nothing would read.
     #[error("`catalogs.{name}.platforms` is read only when `kind` is `datahub` - remove it, or write `kind: datahub`")]
     PlatformsOnOtherKind { name: SourceName },
@@ -293,7 +316,7 @@ impl CatalogSettings {
                 name: "catalogs[].data_dir",
             });
         }
-        if kind != CatalogKind::Rdbms {
+        if !matches!(kind, CatalogKind::Rdbms | CatalogKind::Foundry) {
             if dir.is_none() {
                 return Err(InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
             }
@@ -317,6 +340,7 @@ impl CatalogSettings {
             max_response_bytes: None,
             refresh_seconds: None,
             rdbms: None,
+            foundry: None,
         })
     }
 
@@ -355,6 +379,29 @@ impl CatalogSettings {
     #[inline]
     pub const fn rdbms(&self) -> Option<&RdbmsSettings> {
         self.rdbms.as_ref()
+    }
+
+    /// Adds a `catalog.kind: foundry` entry's endpoint and its `foundry:` settings. The endpoint
+    /// is checked as [`Self::with_http_reader`] checks it; the token comes from `foundry`.
+    pub fn with_foundry(mut self, endpoint: String, foundry: FoundrySettings) -> Result<Self, InvalidCatalogSettings> {
+        if endpoint.trim().is_empty() {
+            return Err(InvalidCatalogSettings::MissingForReader {
+                kind: self.kind.as_str(),
+                field: "endpoint",
+            });
+        }
+        if endpoint.contains('@') {
+            return Err(InvalidCatalogSettings::CredentialsInEndpoint { name: self.name });
+        }
+        self.endpoint = Some(endpoint);
+        self.foundry = Some(foundry);
+        Ok(self)
+    }
+
+    /// The foundry-only settings, `Some` exactly for a `kind: foundry` entry read from settings.
+    #[inline]
+    pub const fn foundry(&self) -> Option<&FoundrySettings> {
+        self.foundry.as_ref()
     }
 
     /// Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.
@@ -471,13 +518,13 @@ impl CatalogSettings {
         self.kind
     }
 
-    /// The declared catalog directory. Required for every kind except `rdbms`.
+    /// The declared catalog directory. Required for every kind except `rdbms` and `foundry`.
     #[inline]
     pub fn dir(&self) -> Option<&Path> {
         self.dir.as_deref()
     }
 
-    /// The declared data directory. Required for every kind except `rdbms`.
+    /// The declared data directory. Required for every kind except `rdbms` and `foundry`.
     #[inline]
     pub fn data_dir(&self) -> Option<&Path> {
         self.data_dir.as_deref()

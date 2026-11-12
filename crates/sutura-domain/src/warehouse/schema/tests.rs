@@ -192,3 +192,31 @@ fn each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread() {
         assert_eq!(dialect.arrow(&declared), expected, "{dialect:?} reads {spelling}");
     }
 }
+
+#[test]
+fn foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmapped() {
+    let cases = [
+        ("byte", Some(DataType::Int8)),
+        ("short", Some(DataType::Int16)),
+        ("integer", Some(DataType::Int32)),
+        ("long", Some(DataType::Int64)),
+        ("float", Some(DataType::Float32)),
+        ("double", Some(DataType::Float64)),
+        ("boolean", Some(DataType::Boolean)),
+        ("string", Some(DataType::Utf8)),
+        ("date", Some(DataType::Date32)),
+        (
+            "timestamp",
+            Some(DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))),
+        ),
+        ("decimal(12, 2)", Some(DataType::Decimal128(12, 2))),
+        ("binary", Some(DataType::Binary)),
+        ("array", None),
+        ("struct", None),
+        ("decimal", None),
+    ];
+    for (spelling, expected) in cases {
+        let declared = ColumnType::parse(spelling).expect("a property type word is a type");
+        assert_eq!(TypeDialect::Foundry.arrow(&declared), expected, "{spelling}");
+    }
+}

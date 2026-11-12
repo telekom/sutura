@@ -1,0 +1,287 @@
+{
+  "data": [
+    {
+      "apiName": "Aircraft",
+      "displayName": "Aircraft",
+      "status": "ACTIVE",
+      "description": "One airframe, identified by its registration.",
+      "pluralDisplayName": "Aircraft",
+      "icon": {
+        "type": "blueprint",
+        "name": "airplane",
+        "color": "#4C90F0"
+      },
+      "primaryKey": "tailNumber",
+      "properties": {
+        "tailNumber": {
+          "displayName": "Tail number",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000001",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The registration painted on the airframe."
+        },
+        "model": {
+          "displayName": "Model",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000002",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The manufacturer's model designation."
+        },
+        "seatCount": {
+          "displayName": "Seat count",
+          "dataType": {
+            "type": "integer"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000003",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "How many passenger seats are installed."
+        },
+        "firstFlightDate": {
+          "displayName": "First flight",
+          "dataType": {
+            "type": "date"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000004",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL"
+        }
+      },
+      "rid": "ri.ontology.main.object-type.00000000-0000-0000-0000-000000000005",
+      "titleProperty": "tailNumber",
+      "visibility": "NORMAL"
+    },
+    {
+      "apiName": "Airport",
+      "displayName": "Airport",
+      "status": "ACTIVE",
+      "description": "An airport that flights depart from or arrive at.",
+      "pluralDisplayName": "Airports",
+      "icon": {
+        "type": "blueprint",
+        "name": "office",
+        "color": "#4C90F0"
+      },
+      "primaryKey": "airportCode",
+      "properties": {
+        "airportCode": {
+          "displayName": "Airport code",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000006",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The three-letter location code."
+        },
+        "name": {
+          "displayName": "Name",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000007",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The airport's own name."
+        },
+        "city": {
+          "displayName": "City",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000008",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL"
+        },
+        "elevationFeet": {
+          "displayName": "Elevation",
+          "dataType": {
+            "type": "integer"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000009",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The elevation of the field, in feet."
+        }
+      },
+      "rid": "ri.ontology.main.object-type.00000000-0000-0000-0000-000000000010",
+      "titleProperty": "name",
+      "visibility": "NORMAL"
+    },
+    {
+      "apiName": "Employee",
+      "displayName": "Employee",
+      "status": "ACTIVE",
+      "pluralDisplayName": "Employees",
+      "icon": {
+        "type": "blueprint",
+        "name": "person",
+        "color": "#4C90F0"
+      },
+      "primaryKey": "employeeId",
+      "properties": {
+        "employeeId": {
+          "displayName": "Employee ID",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000011",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The identifier assigned when the employee was hired."
+        },
+        "fullName": {
+          "displayName": "Full name",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000012",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL"
+        },
+        "role": {
+          "displayName": "Role",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000013",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The role the employee is rostered in."
+        }
+      },
+      "rid": "ri.ontology.main.object-type.00000000-0000-0000-0000-000000000014",
+      "titleProperty": "fullName",
+      "visibility": "NORMAL"
+    },
+    {
+      "apiName": "Flight",
+      "displayName": "Flight",
+      "status": "ACTIVE",
+      "description": "One scheduled flight between two airports.",
+      "pluralDisplayName": "Flights",
+      "icon": {
+        "type": "blueprint",
+        "name": "airplane",
+        "color": "#4C90F0"
+      },
+      "primaryKey": "flightId",
+      "properties": {
+        "flightId": {
+          "displayName": "Flight ID",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000015",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The carrier code, flight number and departure date."
+        },
+        "departureAirportCode": {
+          "displayName": "Departure airport",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000016",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The code of the airport the flight leaves."
+        },
+        "arrivalAirportCode": {
+          "displayName": "Arrival airport",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000017",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The code of the airport the flight lands at."
+        },
+        "tailNumber": {
+          "displayName": "Tail number",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000018",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The aircraft that flies it."
+        },
+        "scheduledDeparture": {
+          "displayName": "Scheduled departure",
+          "dataType": {
+            "type": "timestamp"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000019",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL"
+        },
+        "distanceMiles": {
+          "displayName": "Distance",
+          "dataType": {
+            "type": "double"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000020",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "The great-circle distance, in miles."
+        },
+        "cancelled": {
+          "displayName": "Cancelled",
+          "dataType": {
+            "type": "boolean"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000021",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL",
+          "description": "Whether the flight was cancelled."
+        }
+      },
+      "rid": "ri.ontology.main.object-type.00000000-0000-0000-0000-000000000022",
+      "titleProperty": "flightId",
+      "visibility": "NORMAL"
+    }
+  ]
+}

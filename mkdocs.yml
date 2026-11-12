@@ -182,6 +182,7 @@ exclude_docs: |
   how-a-join-key-is-compared.md
   what-a-bpmn-file-actually-carries.md
   what-a-data-contract-can-carry.md
+  what-foundry-can-carry.md
   what-an-openapi-catalog-can-carry.md
   what-an-rdf-graph-can-carry.md
   what-okf-can-carry.md
@@ -228,6 +229,7 @@ nav:
           - Metadata platforms:
               - DataHub: integrations/catalogs/datahub.md
               - OpenMetadata: integrations/catalogs/openmetadata.md
+              - Foundry (experimental): integrations/catalogs/foundry.md
               - OpenAPI (experimental): integrations/catalogs/openapi.md
           - Databases:
               - RDBMS dictionary: integrations/catalogs/rdbms.md
@@ -244,6 +246,7 @@ nav:
               - ClickHouse: integrations/data-systems/clickhouse.md
               - Cube: integrations/data-systems/cube.md
               - DuckDB: integrations/data-systems/duckdb.md
+              - Foundry (experimental): integrations/data-systems/foundry.md
               - Oracle: integrations/data-systems/oracle.md
               - PostgreSQL: integrations/data-systems/postgres.md
           - Storage:

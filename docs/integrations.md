@@ -20,6 +20,7 @@ a page here. [Inbound identity](integrations/identity.md) describes how sutura v
 | [OpenMetadata](integrations/catalogs/openmetadata.md)  | `openmetadata`          | Tables, types, descriptions, joins            |
 | [RDBMS dictionary](integrations/catalogs/rdbms.md)     | `rdbms`                 | Tables, types, descriptions                   |
 | [Cube](integrations/data-systems/cube.md#catalog)      | `cube`                  | Models, types, descriptions                   |
+| [Foundry](integrations/catalogs/foundry.md)            | `foundry`               | Experimental: models, types, joins            |
 | [OpenAPI](integrations/catalogs/openapi.md)            | `openapi`               | Experimental: tables, types, joins            |
 | [Wren](integrations/catalogs/wren.md)                  | none: an import command | A markdown catalog to review                  |
 
@@ -35,8 +36,8 @@ The catalogs are a list under `catalogs:`. Every entry has these keys:
 | ----------------- | ------- | ---------- | ------------------------------------------------------------------------------- |
 | `name`            | string  | required   | The name of the entry                                                           |
 | `kind`            | string  | `markdown` | The catalog kind                                                                |
-| `dir`             | path    | required   | The directory that a file catalog reads. Optional for `rdbms`                   |
-| `data_dir`        | path    | required   | Required, and not read by any catalog. Optional for `rdbms`                     |
+| `dir`             | path    | required   | The directory that a file catalog reads. Optional for `rdbms` and `foundry`     |
+| `data_dir`        | path    | required   | Required, and not read by any catalog. Optional for `rdbms` and `foundry`       |
 | `version`         | string  | required   | The label of the snapshot, for example a commit ID. Up to 128 characters        |
 | `refresh_seconds` | integer | 900        | `sutura serve` reads all entries again at the shortest of these. `0` is refused |
 
@@ -53,6 +54,7 @@ All entries must have the same `version`. A key that sutura does not know is an 
 | [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller                    |
 | [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user. The caller's own token is built and not verified |
 | [Cube](integrations/data-systems/cube.md)                     | `cube`       | Cube receives one token, or each caller's own token                 |
+| [Foundry](integrations/data-systems/foundry.md)               | `foundry`    | Experimental: one deployment token                                  |
 
 Cube runs its warehouse query with the database identity in its own driver settings
 (`CUBEJS_DB_USER` in the example), not with the caller's identity.
@@ -69,7 +71,7 @@ Every entry has these keys:
 
 | Key                     | Type   | Default  | Meaning                                                                                                                                                                                            |
 | ----------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse`, `oracle` or `cube`                                                                                                                        |
+| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse`, `oracle`, `cube` or `foundry`                                                                                                             |
 | `posture`               | string | required | `shared-service-user`: one identity for every caller. `impersonation-at-source`: the caller's own identity (BigQuery and ClickHouse; on Oracle it is built and not verified, so not supported yet) |
 | `acknowledged_because`  | text   | not set  | Your reason to serve one identity to every caller. Required for a shared source when `security.identity` is `multi-user`                                                                           |
 | `verification_identity` | text   | not set  | The identity that checks anchors at startup. Only on an `impersonation-at-source` source                                                                                                           |

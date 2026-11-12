@@ -105,6 +105,9 @@ pub(crate) struct RawSource {
     /// The removed default dataset, refused at load: a table path names its project and dataset.
     #[serde(default)]
     pub(crate) dataset: Option<String>,
+    /// The Foundry ontology API name or resource identifier for `kind: foundry`.
+    #[serde(default)]
+    pub(crate) ontology: Option<String>,
     /// Who a `bigquery` source's jobs are billed to.
     #[serde(default)]
     pub(crate) billing: Option<RawBilling>,
@@ -802,6 +805,9 @@ pub(crate) struct RawCatalog {
     /// catalog read has no caller to run as.
     #[serde(default)]
     pub(crate) connection: Option<RawCatalogConnection>,
+    /// `catalog.kind: foundry` only: the ontology and the client-credentials grant.
+    #[serde(default)]
+    pub(crate) foundry: Option<crate::catalog::foundry::RawFoundry>,
 }
 
 /// An rdbms catalog's `connection:` block, as read: the keys `sources.<alias>` uses for

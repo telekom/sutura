@@ -258,6 +258,8 @@ mod tests {
             Opened::Duckdb(_) => None,
             #[cfg(feature = "cube")]
             Opened::Cube(_) => None,
+            #[cfg(feature = "foundry")]
+            Opened::Foundry(_) => None,
         }
         .expect("this fixture declares a files source")
     }

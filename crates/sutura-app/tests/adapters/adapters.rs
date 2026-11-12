@@ -309,6 +309,19 @@ impl CatalogUnderTest for sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::
     }
 }
 
+/// An ontology: Foundry, opened over answers written from its public API reference.
+///
+/// It supplies the physical model, the descriptions and the foreign-key joins of its link types;
+/// object-type metadata carries no measure. The universal cells hold because the bundle is
+/// measured against the declaration.
+impl CatalogUnderTest for sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::fixture::FixtureReader> {
+    const NAME: &'static str = "foundry-catalog";
+
+    fn open() -> Self {
+        sutura_catalog_foundry::fixture::over_fixture_source(source(), version())
+    }
+}
+
 /// EXPERIMENTAL: an HTTP metadata API within the closed mapping vocabulary, configured by an
 /// `OpenAPI` document and a mapping file, opened over the crate's synthetic registry fixture.
 /// It supplies the physical model, the descriptions and many-to-one joins; the universal cells hold because the bundle is measured against the
@@ -895,6 +908,14 @@ macro_rules! registered {
             declaring,
             sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::fixture::FixtureReader>
         );
+        // `sutura-catalog-foundry`, EXPERIMENTAL: a Foundry ontology read as a DECLARING source - the
+        // object types, their properties and their foreign-key links, over answers written from the
+        // public API reference - `github.com/telekom/sutura#1727`. Universal cells only.
+        $cell!(
+            foundry,
+            declaring,
+            sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::fixture::FixtureReader>
+        );
         // `sutura-catalog-openapi`, EXPERIMENTAL: a DECLARING adapter within its closed mapping
         // vocabulary, configured by an OpenAPI document, over its synthetic fixture registry -
         // `github.com/telekom/sutura#1727`. Universal cells only.
@@ -958,6 +979,7 @@ macro_rules! registered {
         // says nothing about a real Oracle agreeing with the number. What else backs this dialect's
         // goldens is `golden/dialects.rs::evidence`'s declaration.
         $cell!(oracle, sutura_sql::Dialect::Oracle, polyglot_sql::DialectType::Oracle);
+        $cell!(foundry, sutura_sql::Dialect::Foundry, polyglot_sql::DialectType::Spark);
     };
 }
 pub(crate) use registered;

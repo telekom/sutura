@@ -60,16 +60,11 @@ pub mod address_domains;
 pub mod billing;
 /// Which one of the three caller-identity blocks an `impersonation-at-source` source declares.
 pub mod caller_identity;
-/// The `clickhouse` entry's own keys, read and refused.
-///
-/// **Its own file because `cargo xtask max-lines` fails at 1000 lines rather than warning**, and
-/// this one crosses it if a fourth kind's key reading lives here. The split follows the seam the
-/// composition roots already use - one file per kind - so the arm in [`parse_placement`] stays one
-/// call and the reading stays beside the kind it is about.
+/// The `clickhouse` entry's own keys, read and refused; kept separate to stay below the line cap.
 mod clickhouse;
-/// The `cube` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod cube;
-/// The `node` entry's own keys.
+/// The `foundry` entry's own keys, read and refused.
+mod foundry;
 mod node;
 /// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod oracle;
@@ -171,6 +166,8 @@ pub enum SourceKind {
     /// node's endpoint and the `delegation` each caller's token is exchanged through for that
     /// node's audience; the entry is always `impersonation-at-source`.
     Node,
+    /// A Foundry ontology SQL endpoint, queried over its synchronous Ontology SQL API.
+    Foundry,
 }
 
 /// The configured word did not name a kind of data system.
@@ -191,6 +188,7 @@ impl SourceKind {
         "duckdb",
         "cube",
         "node",
+        "foundry",
     ];
 
     /// Reads the configured word.
@@ -204,6 +202,7 @@ impl SourceKind {
             "duckdb" => Ok(Self::Duckdb),
             "cube" => Ok(Self::Cube),
             "node" => Ok(Self::Node),
+            "foundry" => Ok(Self::Foundry),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -223,6 +222,7 @@ impl SourceKind {
             Self::Duckdb => "duckdb",
             Self::Cube => "cube",
             Self::Node => "node",
+            Self::Foundry => "foundry",
         }
     }
 }
@@ -719,6 +719,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) data_dir: Option<&'raw str>,
     pub(crate) billing_project: Option<&'raw str>,
     pub(crate) dataset: Option<&'raw str>,
+    pub(crate) ontology: Option<&'raw str>,
     pub(crate) max_bytes_billed: Option<u64>,
     pub(crate) posture: &'raw str,
     pub(crate) acknowledged_because: Option<&'raw str>,

@@ -83,6 +83,9 @@ pub(crate) enum AnyWarehouse {
     /// Another sutura node that runs this source's legs, boxed for [`Self::BigQuery`]'s reason.
     #[cfg(feature = "node")]
     Node(Box<sutura_exec_node::NodeWarehouse>),
+    /// A Foundry Ontology SQL source, boxed because its HTTP agent is larger than the files engine.
+    #[cfg(feature = "foundry")]
+    Foundry(Box<super::FoundrySource>),
     /// A fake that records the labels it is handed, so a test sees what this enum forwards.
     #[cfg(all(test, feature = "bigquery"))]
     Recorded(Box<recorded::Recorder>),
@@ -118,6 +121,9 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "node")]
     #[error(transparent)]
     Node(sutura_exec_node::NodeError),
+    #[cfg(feature = "foundry")]
+    #[error(transparent)]
+    Foundry(<super::FoundrySource as Warehouse>::Error),
     /// A split's forwarded token was exchanged from a credential other than the one the request
     /// presented for the leg's source: the leg is refused, never granted or read.
     #[cfg(all(feature = "bigquery", feature = "postgres", feature = "distributed"))]
@@ -145,6 +151,8 @@ macro_rules! any {
             AnyWarehouse::Cube(warehouse) => warehouse.$method($($arg),*),
             #[cfg(feature = "node")]
             AnyWarehouse::Node(warehouse) => warehouse.$method($($arg),*),
+            #[cfg(feature = "foundry")]
+            AnyWarehouse::Foundry(warehouse) => warehouse.$method($($arg),*),
             #[cfg(all(test, feature = "bigquery"))]
             AnyWarehouse::Recorded(warehouse) => warehouse.$method($($arg),*),
         }
@@ -171,6 +179,8 @@ macro_rules! any_wrapped {
             AnyWarehouse::Cube(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Cube),
             #[cfg(feature = "node")]
             AnyWarehouse::Node(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Node),
+            #[cfg(feature = "foundry")]
+            AnyWarehouse::Foundry(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Foundry),
             #[cfg(all(test, feature = "bigquery"))]
             AnyWarehouse::Recorded(warehouse) => $wrap(warehouse.$method($($arg),*), |never| match never {}),
         }
@@ -227,6 +237,8 @@ macro_rules! any_predicate {
             (AnyWarehouse::Cube(warehouse), AnyWarehouseError::Cube(cause)) => warehouse.$method(cause),
             #[cfg(feature = "node")]
             (AnyWarehouse::Node(warehouse), AnyWarehouseError::Node(cause)) => warehouse.$method(cause),
+            #[cfg(feature = "foundry")]
+            (AnyWarehouse::Foundry(warehouse), AnyWarehouseError::Foundry(cause)) => warehouse.$method(cause),
             // Unreachable, and therefore ABSENT, on the DEFAULT feature set: with none of
             // `bigquery`, `postgres`, `clickhouse`, `oracle`, `duckdb` or `cube` linked, `AnyWarehouse` and `AnyWarehouseError`
             // each have the one `Files` variant, so the arm above is exhaustive on its own and
@@ -239,7 +251,8 @@ macro_rules! any_predicate {
                 feature = "oracle",
                 feature = "duckdb",
                 feature = "cube",
-                feature = "node"
+                feature = "node",
+                feature = "foundry"
             ))]
             _ => $default,
         }
@@ -434,6 +447,10 @@ impl Warehouse for AnyWarehouse {
             Self::Node(warehouse) => warehouse
                 .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::Node)),
+            #[cfg(feature = "foundry")]
+            Self::Foundry(warehouse) => warehouse
+                .execute_raw(statement, presented, deadline)
+                .map(|result| result.map_err(AnyWarehouseError::Foundry)),
             #[cfg(all(test, feature = "bigquery"))]
             Self::Recorded(warehouse) => warehouse
                 .execute_raw(statement, presented, deadline)
@@ -459,6 +476,7 @@ pub(crate) struct Grouped<'a> {
     pub(crate) duckdb: Vec<&'a SourceName>,
     pub(crate) cube: Vec<&'a SourceName>,
     pub(crate) node: Vec<&'a SourceName>,
+    pub(crate) foundry: Vec<&'a SourceName>,
 }
 
 /// Sorts every declared source into its kind, one [`super::configured_source`] lookup per source -
@@ -478,6 +496,7 @@ pub(crate) fn group_by_kind<'a>(
             sutura_config::SourceKind::Duckdb => grouped.duckdb.push(source),
             sutura_config::SourceKind::Cube => grouped.cube.push(source),
             sutura_config::SourceKind::Node => grouped.node.push(source),
+            sutura_config::SourceKind::Foundry => grouped.foundry.push(source),
         }
     }
     Ok(grouped)
@@ -558,6 +577,13 @@ pub(crate) fn open_mixed(
         )?);
         trust_into(&mut attached, pinned, &grouped.node);
     }
+    if !grouped.foundry.is_empty() {
+        engines = Some(accumulate(
+            engines,
+            foundry_group(&grouped.foundry, registry, outbound, runtime)?,
+        )?);
+        trust_into(&mut attached, pinned, &grouped.foundry);
+    }
 
     // Unreachable: `open_engine` calls this function only when more than one group, or a `node`
     // group, is non-empty, so at least one of the branches above ran. Written as a fallback rather than
@@ -632,7 +658,7 @@ mod groups;
     any(feature = "postgres", feature = "clickhouse", feature = "oracle")
 ))]
 pub(super) mod split;
-use groups::{bigquery_group, clickhouse_group, cube_group, duckdb_group, oracle_group, postgres_group};
+use groups::{bigquery_group, clickhouse_group, cube_group, duckdb_group, foundry_group, oracle_group, postgres_group};
 
 /// The labels this enum forwards, observed through a fake variant.
 #[cfg(test)]

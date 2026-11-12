@@ -1,14 +1,8 @@
-# sutura - workspace root.
+# sutura workspace. `crates/sutura-domain` holds domain types and ports; adapters depend
+# on it, never on each other. `just hygiene` checks boundaries and typed contracts.
 #
-# The directory layout IS the architecture: `crates/sutura-domain` is the hexagon's interior -
-# domain types today, plus a port trait for each adapter as adapters land - every other crate
-# is an adapter that depends on it, and nothing depends on an adapter. That rule is
-# machine-checked - `cargo xtask check-boundaries`, which also fails a library crate whose
-# types or errors stop being a typed contract.
-#
-# Crates arrive with the milestone that needs them rather than as empty placeholders: an
-# empty crate is a compile target and a maintenance surface for no value. So does a port
-# trait: with no adapter to invert, its signature is a guess.
+# Crates and ports arrive with their first implementor: an empty crate adds maintenance,
+# and a port without an adapter guesses its signature.
 
 [workspace]
 resolver = "3"
@@ -27,6 +21,9 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
+  # EXPERIMENTAL declaring source over a Foundry ontology's metadata API; capabilities and limits are
+  # in docs/what-foundry-can-carry.md - `github.com/telekom/sutura#1727`.
+  "crates/sutura-catalog-foundry",
   "crates/sutura-catalog-openapi", # EXPERIMENTAL: declaring source configured by an OpenAPI document - `#1727`.
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
@@ -49,6 +46,7 @@ members = [
   # implementor that speaks to the endpoint, because no test in this repository can verify one.
   # `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory and `docs/adr/0017` carry the argument.
   "crates/sutura-exec-bigquery",
+  "crates/sutura-exec-foundry",
   "crates/sutura-exec-datafusion",
   # A network data system over an existing `Dialect::Postgres` rendering. THE DATA SOURCE, not an
   # engine, and shipped (`nix/shipped.nix` lists its feature): it proves the Postgres statement we
@@ -132,6 +130,7 @@ sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
+sutura-catalog-foundry = { path = "crates/sutura-catalog-foundry" }
 sutura-catalog-openapi = { path = "crates/sutura-catalog-openapi" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
@@ -144,8 +143,8 @@ sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 # build, unconditionally where the edge is dev-only and does not propagate - and the four cross builds
 # - which pass `--package sutura-cli` and share an unscoped dependency derivation with the checks - are
 # unchanged. `cargo xtask unused-deps` is what keeps a line here honest in either direction: the entry
-# left this table when nothing linked the crate, and it is back because something does.
 sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
+sutura-exec-foundry = { path = "crates/sutura-exec-foundry" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
 # `sutura-exec-oracle` IS in this table because `sutura-app` inherits it
@@ -315,6 +314,7 @@ polyglot-sql = { version = "0.14.0", default-features = false, features = [
   "dialect-clickhouse",
   "dialect-bigquery",
   "dialect-oracle",
+  "dialect-spark",
 ] }
 
 # The in-process engine, for the adapter that executes a plan without rendering it. It has no

@@ -486,9 +486,7 @@ fn census(dialect: Dialect) -> BTreeMap<Family, usize> {
 /// the tree by [`every_dialect_declares_what_backs_its_goldens`], so one that goes stale is a red
 /// rather than a sentence nobody re-read.
 ///
-/// **One arm, because every dialect now executes somewhere.** A dialect whose goldens only render
-/// needs a second arm that says so, and it is absent rather than reserved: the workspace denies
-/// `dead_code`, so a variant nothing constructs does not compile.
+/// Foundry is render-only until a real tenant runs the corpus.
 #[derive(Debug, Clone, Copy)]
 enum Evidence {
     /// A venue in this workspace ran the corpus for this dialect: every one of
@@ -497,6 +495,8 @@ enum Evidence {
     /// **Does not reach** whether those rows are the right ANSWER - that comparison against the
     /// engine is `golden/data_systems.rs`, a different axis. This one only knows a venue answered.
     Executed,
+    /// Statements are pinned and parsed; no live data system has run this corpus.
+    Rendered,
 }
 
 /// What backs each dialect's goldens.
@@ -521,6 +521,7 @@ fn evidence(dialect: Dialect) -> Evidence {
         // reaches it. Oracle's runs the example corpus only, over a database a developer can also
         // start by hand.
         Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse | Dialect::BigQuery | Dialect::Oracle => Evidence::Executed,
+        Dialect::Foundry => Evidence::Rendered,
     }
 }
 
@@ -557,7 +558,9 @@ fn every_dialect_declares_what_backs_its_goldens() {
             );
         }
 
-        let Evidence::Executed = evidence(dialect);
+        if matches!(evidence(dialect), Evidence::Rendered) {
+            continue;
+        }
         let empty: Vec<Family> = Family::EXECUTION.into_iter().filter(|family| held(*family) == 0).collect();
         assert!(
             empty.is_empty(),

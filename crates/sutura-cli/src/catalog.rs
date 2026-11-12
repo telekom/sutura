@@ -35,6 +35,8 @@ use sutura_catalog_local::LocalCatalog;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 use sutura_http::LocalService;
 
+mod foundry;
+
 /// The service either composition root builds over one opened catalog kind.
 ///
 /// Named because the concrete type is over `clippy::type_complexity`: the warehouse and the broker
@@ -63,6 +65,9 @@ pub(crate) enum OpenedCatalogs {
     /// arm's reason: it links an outbound TLS stack.
     #[cfg(feature = "cube")]
     Cube(Vec<sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::http::HttpMetaReader>>),
+    /// EXPERIMENTAL: a Foundry ontology, behind this crate's default-off `foundry` feature.
+    #[cfg(feature = "foundry")]
+    Foundry(Vec<sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::http::HttpOntologyReader>>),
     /// EXPERIMENTAL: an `OpenAPI`-described metadata API, behind the default-off `openapi` feature.
     #[cfg(feature = "openapi")]
     OpenApi(Vec<crate::openapi::OpenApiSource>),
@@ -78,6 +83,31 @@ pub(crate) enum OpenedCatalogs {
     #[cfg(feature = "rdbms")]
     Rdbms(Vec<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::AnyDictionaryReader>>),
 }
+
+/// `$body` with `$catalogs` bound to whichever monomorphic vector `$opened` holds - the one match
+/// over [`OpenedCatalogs`], so a new kind is one arm here rather than one per caller.
+macro_rules! with_opened {
+    ($opened:expr, $catalogs:ident => $body:expr) => {
+        match $opened {
+            $crate::catalog::OpenedCatalogs::Markdown($catalogs) => $body,
+            #[cfg(feature = "datahub")]
+            $crate::catalog::OpenedCatalogs::Datahub($catalogs) => $body,
+            $crate::catalog::OpenedCatalogs::Okf($catalogs) => $body,
+            #[cfg(feature = "openmetadata")]
+            $crate::catalog::OpenedCatalogs::Openmetadata($catalogs) => $body,
+            #[cfg(feature = "cube")]
+            $crate::catalog::OpenedCatalogs::Cube($catalogs) => $body,
+            #[cfg(feature = "foundry")]
+            $crate::catalog::OpenedCatalogs::Foundry($catalogs) => $body,
+            #[cfg(feature = "openapi")]
+            $crate::catalog::OpenedCatalogs::OpenApi($catalogs) => $body,
+            $crate::catalog::OpenedCatalogs::DataContract($catalogs) => $body,
+            #[cfg(feature = "rdbms")]
+            $crate::catalog::OpenedCatalogs::Rdbms($catalogs) => $body,
+        }
+    };
+}
+pub(crate) use with_opened;
 
 /// Opens every catalog the settings declare.
 ///
@@ -135,6 +165,7 @@ pub(crate) fn open_catalog(
         // the not-linked refusal `open_openmetadata_catalogs` returns.
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
         sutura_config::CatalogKind::Cube => open_cube_catalogs(catalogs, outbound),
+        sutura_config::CatalogKind::Foundry => foundry::open_foundry_catalogs(catalogs, outbound),
         #[cfg(feature = "openapi")]
         sutura_config::CatalogKind::OpenApi => catalogs
             .each()
@@ -161,21 +192,7 @@ pub(crate) fn open_catalog(
 /// same opened catalogs to `LocalService::start_composed`, which loads them itself - the two
 /// bundles are the same values, which is what "validate what you serve" needs.
 pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, String> {
-    match catalogs {
-        OpenedCatalogs::Markdown(catalogs) => load_each(catalogs),
-        #[cfg(feature = "datahub")]
-        OpenedCatalogs::Datahub(catalogs) => load_each(catalogs),
-        OpenedCatalogs::Okf(catalogs) => load_each(catalogs),
-        #[cfg(feature = "openmetadata")]
-        OpenedCatalogs::Openmetadata(catalogs) => load_each(catalogs),
-        #[cfg(feature = "cube")]
-        OpenedCatalogs::Cube(catalogs) => load_each(catalogs),
-        #[cfg(feature = "openapi")]
-        OpenedCatalogs::OpenApi(catalogs) => load_each(catalogs),
-        OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
-        #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => load_each(catalogs),
-    }
+    with_opened!(catalogs, catalogs => load_each(catalogs))
 }
 
 /// The combiner that runs every stage of a combine on this node.
@@ -238,34 +255,14 @@ where
             .spend_budget()
             .map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())),
     );
-    // Every arm is the same call over a different monomorphic catalog vector.
-    macro_rules! start {
-        ($catalogs:expr) => {
-            LocalService::start_composed(
-                $catalogs,
-                engines,
-                sutura_runtime::TracingAuditSink::new(),
-                broker,
-                combiner,
-                working_set_bytes,
-            )
-        };
-    }
-    let service = match catalogs {
-        OpenedCatalogs::Markdown(catalogs) => start!(catalogs),
-        #[cfg(feature = "datahub")]
-        OpenedCatalogs::Datahub(catalogs) => start!(catalogs),
-        OpenedCatalogs::Okf(catalogs) => start!(catalogs),
-        #[cfg(feature = "openmetadata")]
-        OpenedCatalogs::Openmetadata(catalogs) => start!(catalogs),
-        #[cfg(feature = "cube")]
-        OpenedCatalogs::Cube(catalogs) => start!(catalogs),
-        #[cfg(feature = "openapi")]
-        OpenedCatalogs::OpenApi(catalogs) => start!(catalogs),
-        OpenedCatalogs::DataContract(catalogs) => start!(catalogs),
-        #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => start!(catalogs),
-    }
+    let service = with_opened!(catalogs, catalogs => LocalService::start_composed(
+        catalogs,
+        engines,
+        sutura_runtime::TracingAuditSink::new(),
+        broker,
+        combiner,
+        working_set_bytes,
+    ))
     .map(|service| {
         let mut service = service.with_spend_ledger(spend_ledger).with_ceilings(settings.ceilings());
         let tools = settings.tools();

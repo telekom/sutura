@@ -156,7 +156,8 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
                     | crate::sources::placement::SourcePlacement::Oracle { .. }
                     | crate::sources::placement::SourcePlacement::Cube { .. }
                     | crate::sources::placement::SourcePlacement::Node { .. }
-                    | crate::sources::placement::SourcePlacement::Duckdb { .. } => {
+                    | crate::sources::placement::SourcePlacement::Duckdb { .. }
+                    | crate::sources::placement::SourcePlacement::Foundry { .. } => {
                         panic!("the fixture tree declares files sources");
                     }
                 }

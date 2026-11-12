@@ -104,6 +104,9 @@ mod cube;
 /// The ONE DuckDB composition, reached by both composition roots below - `oracle`'s shape.
 #[cfg(feature = "duckdb")]
 mod duckdb;
+/// The EXPERIMENTAL Foundry source composition, shared by `serve` and `query`/`mcp`.
+#[cfg(feature = "foundry")]
+mod foundry;
 mod import;
 mod mcp;
 /// The EXPERIMENTAL `openapi` catalog composition, reached through `crate::catalog`.
@@ -112,11 +115,12 @@ mod openapi;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The secret-file read the `bigquery`, `clickhouse`, `cube`, `openapi`, `oracle`, `postgres` and `rdbms` builds share.
+/// The secret-file read shared by the outbound readers.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "openapi",
     feature = "oracle",
@@ -140,6 +144,7 @@ mod postgres;
     feature = "clickhouse",
     feature = "cube",
     feature = "datahub",
+    feature = "foundry",
     feature = "node",
     feature = "openapi",
     feature = "openmetadata",

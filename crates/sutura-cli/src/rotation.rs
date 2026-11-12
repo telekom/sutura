@@ -20,6 +20,7 @@
     feature = "clickhouse",
     feature = "cube",
     feature = "datahub",
+    feature = "foundry",
     feature = "node",
     feature = "openapi",
     feature = "openmetadata",

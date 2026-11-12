@@ -276,6 +276,7 @@ mod tests {
             data_dir: None,
             billing_project: None,
             dataset: None,
+            ontology: None,
             max_bytes_billed: Some(1024 * 1024 * 1024),
             posture: "impersonation-at-source",
             acknowledged_because: None,
@@ -440,6 +441,7 @@ mod tests {
             data_dir: Some("/srv/sutura/data"),
             billing_project: None,
             dataset: None,
+            ontology: None,
             max_bytes_billed: None,
             ..bigquery_impersonating_entry()
         };

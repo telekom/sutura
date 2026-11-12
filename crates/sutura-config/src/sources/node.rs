@@ -83,6 +83,7 @@ mod tests {
             data_dir: None,
             billing_project: None,
             dataset: None,
+            ontology: None,
             max_bytes_billed: None,
             posture: "impersonation-at-source",
             acknowledged_because: None,

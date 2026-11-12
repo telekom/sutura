@@ -125,9 +125,10 @@ mod settings;
 pub use crate::api::ApiSettings;
 pub use crate::audience::{AudienceMapping, InvalidAudienceMapping};
 pub use crate::catalog::{
-    CatalogConnection, CatalogEnvironment, CatalogKind, CatalogSettings, Catalogs, Dialect, DictionarySource,
-    DocumentationSchema, InvalidCatalogSettings, InvalidConnection, InvalidDocumentationSchema, InvalidRdbmsCatalog,
-    LiveRowPredicate, OracleCatalogConnection, PostgresCatalogConnection, PredicateOperator, RdbmsSettings, UnknownCatalogKind,
+    CatalogConnection, CatalogEnvironment, CatalogKind, CatalogSettings, Catalogs, ClientCredentialsSettings, Dialect,
+    DictionarySource, DocumentationSchema, FoundryAuth, FoundrySettings, InvalidCatalogSettings, InvalidConnection,
+    InvalidDocumentationSchema, InvalidFoundryCatalog, InvalidRdbmsCatalog, LiveRowPredicate, OracleCatalogConnection,
+    PostgresCatalogConnection, PredicateOperator, RdbmsSettings, UnknownCatalogKind,
 };
 pub use crate::credentials::declared::{DeclaredPrincipalBroker, DeclaredPrincipalsUnusable};
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
