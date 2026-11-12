@@ -4,7 +4,7 @@ use core::convert::Infallible;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use base64::Engine as _;
@@ -39,6 +39,7 @@ use sutura_domain::warehouse::{ResultBatches, Warehouse as _};
 use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation, WorkloadPool};
 use sutura_exec_bigquery::{BigQueryWarehouse, JobBilling};
 use sutura_exec_datafusion::{DataFusionCombiner, DataFusionWarehouse, NodeIdentity, Nodes, TaskGrant};
+use tokio::sync::Mutex;
 
 fn live(name: &str) -> String {
     assert!(
@@ -229,15 +230,17 @@ struct Actual {
 
 impl LegRunner for Actual {
     type Error = Infallible;
+    #[expect(clippy::panic_in_result_fn, reason = "an infallible fixture refuses a misrouted or repeated leg")]
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Infallible> {
         assert_eq!(leg.source(), &source("facts"));
-        Ok(self.fact.lock().unwrap().take().expect("one real files fact"))
+        let mut fact = self.fact.try_lock().expect("the fixture fact is uncontended");
+        Ok(fact.take().expect("one real files fact"))
     }
+    #[expect(clippy::panic_in_result_fn, reason = "an infallible fixture refuses a misrouted or repeated leg")]
     fn lookup(&self, leg: &LegPlan, _: LinkCast) -> Result<Looked<'_>, Infallible> {
         assert_eq!(leg.source(), &source("warehouse"));
-        Ok(Looked::Granted(
-            self.grant.lock().unwrap().take().expect("one real BigQuery split"),
-        ))
+        let mut grant = self.grant.try_lock().expect("the fixture grant is uncontended");
+        Ok(Looked::Granted(grant.take().expect("one real BigQuery split")))
     }
 }
 
@@ -330,6 +333,7 @@ fn listening(
 }
 
 #[test]
+#[expect(clippy::create_dir, reason = "the fixture requires a fresh temporary directory")]
 #[ignore = "needs the existing CI pool assertions, native BigQuery driver and split table"]
 fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
     let (pinned, plan) = plan();
