@@ -47,6 +47,8 @@ const TRANSIT_HEADER: &str = "x-transit-proof";
 // the declarations and the header maps. Its own module because this file was eight lines under the
 // limit `cargo xtask max-lines` enforces and cannot exempt, at the banner it already carried.
 mod fixtures;
+#[cfg(test)]
+mod multi_verifier;
 mod token_bytes;
 
 use fixtures::{

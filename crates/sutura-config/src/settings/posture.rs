@@ -662,7 +662,7 @@ pub enum NotFitToServe {
     ///
     /// **The same boundary as [`Self::DeploymentTokenSharesTheHeader`], applied per entry.** When
     /// the deployment bearer token also lives in `Authorization`, any verifier reading that header
-    /// would see—and try to verify—the deployment token as a caller assertion. The index names the
+    /// would see-and try to verify-the deployment token as a caller assertion. The index names the
     /// `also_accept` entry that introduced the collision.
     #[error(
         "security.also_accept[{index}] reads the Authorization header, and security.access_token \

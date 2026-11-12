@@ -5,10 +5,6 @@
 //! caller reaches, and that a deployment declaring an identity with no gate attached does not get a
 //! router at all. Whether the validator is correct is `super`'s job and `super::review`'s.
 //!
-//! A file of its own because `super`'s reached the thousand-line limit `cargo xtask max-lines`
-//! enforces, and this is the group that stands on its own: it needs the real `Settings`, the real
-//! `ServiceState` and a call through the router, none of which anything else there touches.
-//!
 //! **The tokens here come from `sutura_dev::issuer` and not from `super`'s fixtures**, which is the
 //! line this crate now draws: a test that goes through the ROUTER mints from the shared mock issuer,
 //! and `super` keeps its own in-place key pair and encoder for the gate-level unit tests.

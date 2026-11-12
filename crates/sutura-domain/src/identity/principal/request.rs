@@ -165,14 +165,8 @@ pub struct RequestContext {
     named_payer: Option<crate::identity::BillingAccount>,
     /// The id drawn for the request, where the transport drew one.
     correlation: Option<crate::identity::CorrelationId>,
-    /// Whether the transport that admitted this caller was a behind-gateway (non-challenging)
-    /// verifier (`github.com/telekom/sutura#1884`).
-    ///
-    /// A gateway proof is a credential the gateway minted, not the caller's own direct token.
-    /// The gateway has already performed any credential exchange; repeating it here would exchange
-    /// a gateway-minted intermediate assertion rather than the caller's own one. The credential
-    /// broker reads this to refuse delegation for gateway-admitted callers.
-    gateway_admitted: bool,
+    /// Configured admission provenance, also read to refuse gateway credential exchange.
+    verifier: Option<crate::identity::AdmittingVerifier>,
 }
 
 impl RequestContext {
@@ -189,7 +183,7 @@ impl RequestContext {
             groups: crate::identity::CallerGroups::default(),
             named_payer: None,
             correlation: None,
-            gateway_admitted: false,
+            verifier: None,
         }
     }
 
@@ -228,7 +222,7 @@ impl RequestContext {
             groups: crate::identity::CallerGroups::default(),
             named_payer: None,
             correlation: None,
-            gateway_admitted: false,
+            verifier: None,
         }
     }
 
@@ -275,26 +269,26 @@ impl RequestContext {
         self.named_payer.as_ref()
     }
 
-    /// The same context, tagged as admitted by a behind-gateway (non-challenging) verifier.
-    ///
-    /// A gateway proof is a credential the gateway minted, not the caller's own direct token. The
-    /// credential broker reads [`Self::is_gateway_admitted`] to refuse delegation for such callers.
+    /// The verifier that admitted this caller, absent for a deployment-local context.
     #[inline]
     #[must_use]
-    pub const fn admitted_via_gateway(mut self) -> Self {
-        self.gateway_admitted = true;
+    pub fn admitted_by(mut self, verifier: crate::identity::AdmittingVerifier) -> Self {
+        self.verifier = Some(verifier);
         self
     }
 
-    /// Whether this caller was admitted by a behind-gateway verifier.
-    ///
-    /// `true` causes the credential broker to refuse delegation exchange: the gateway has already
-    /// performed any exchange on the caller's behalf, and re-exchanging a gateway-minted assertion
-    /// would bypass the caller's own identity boundary.
     #[inline]
     #[must_use]
-    pub const fn is_gateway_admitted(&self) -> bool {
-        self.gateway_admitted
+    pub const fn verifier(&self) -> Option<&crate::identity::AdmittingVerifier> {
+        self.verifier.as_ref()
+    }
+
+    /// Gateway assertions cannot be exchanged as direct caller credentials.
+    #[inline]
+    #[must_use]
+    pub fn is_gateway_admitted(&self) -> bool {
+        self.verifier()
+            .is_some_and(|verifier| verifier.mode() == crate::identity::VerifierMode::Gateway)
     }
 
     /// The caller's verified address: what a `domain_delegation` source runs the question as.

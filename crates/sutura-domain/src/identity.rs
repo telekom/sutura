@@ -45,6 +45,7 @@ mod delegated_as;
 mod delegation;
 mod principal;
 mod source_token;
+mod verifier;
 
 pub use crate::identity::address::{InvalidAddress, VerifiedAddress};
 pub use crate::identity::billing::{BillTo, BillingAccount, CallerGroups, UnusableBillingAccount};
@@ -64,6 +65,7 @@ pub use crate::identity::principal::{
     OAuthClient, PrincipalChain, RequestContext, Subject, SubjectId, SubjectKey, TaskId,
 };
 pub use crate::identity::source_token::SourceToken;
+pub use crate::identity::verifier::{AdmittingVerifier, VerifierMode};
 
 /// An opaque secret that nothing can render.
 ///

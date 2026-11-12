@@ -350,7 +350,7 @@ mod tests {
         S: sutura_app::surface::Surface,
     {
         let (client_side, server_side) = tokio::io::duplex(64 * 1024);
-        let server = rmcp::serve_server(
+        let server = Box::pin(rmcp::serve_server(
             sutura_mcp::AgentSurface::new(
                 service,
                 sutura_mcp::Asking::TheProcessOwner {
@@ -363,7 +363,7 @@ mod tests {
                 operator_instructions,
             ),
             server_side,
-        );
+        ));
         let client = rmcp::serve_client((), client_side);
         let (server, client) = tokio::join!(server, client);
         let running: rmcp::service::RunningService<rmcp::RoleServer, _> = server.expect("the server initializes");

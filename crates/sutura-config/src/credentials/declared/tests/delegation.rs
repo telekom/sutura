@@ -381,7 +381,10 @@ fn an_address_outside_the_domains_is_refused_before_any_exchange() {
 
 /// A caller the multi-verifier gate admitted via a non-challenging (behind-gateway) verifier.
 fn gateway_caller(raw: &str) -> RequestContext {
-    asking(raw).admitted_via_gateway()
+    asking(raw).admitted_by(sutura_domain::identity::AdmittingVerifier::of(
+        String::from("https://gateway.example.com"),
+        sutura_domain::identity::VerifierMode::Gateway,
+    ))
 }
 
 /// A gateway-admitted caller is refused at every exchange-touching source without reaching the

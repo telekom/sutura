@@ -383,6 +383,7 @@ struct Claims {
 /// differently, and every field on it is a control.
 #[derive(Debug)]
 pub struct TokenValidator {
+    verifier: sutura_domain::identity::AdmittingVerifier,
     max_token_bytes: sutura_config::inbound::MaxTokenBytes,
     validation: Validation,
     audience: TokenAudience,
@@ -417,6 +418,10 @@ impl TokenValidator {
         check_size(token, self.max_token_bytes.bytes())
     }
 
+    pub(crate) const fn max_token_bytes(&self) -> usize {
+        self.max_token_bytes.bytes()
+    }
+
     /// Builds the validation from a declaration `sutura-config` already accepted or refused.
     ///
     /// Every line here is a control, so each one says what it is for. What is **not** here is equally
@@ -443,6 +448,15 @@ impl TokenValidator {
         validation.validate_nbf = true;
         validation.leeway = LEEWAY_SECONDS;
         Self {
+            verifier: sutura_domain::identity::AdmittingVerifier::of(
+                String::from(requirement.issuer().as_str()),
+                match requirement.location() {
+                    sutura_config::TokenLocation::AuthorizationBearer => sutura_domain::identity::VerifierMode::Direct,
+                    sutura_config::TokenLocation::GatewayBearer | sutura_config::TokenLocation::Header { .. } => {
+                        sutura_domain::identity::VerifierMode::Gateway
+                    }
+                },
+            ),
             max_token_bytes: requirement.max_token_bytes(),
             validation,
             audience: requirement.audience().clone(),
@@ -530,6 +544,7 @@ impl TokenValidator {
             sutura_domain::identity::Secret::new(token),
             u64::try_from(claims.exp).unwrap_or(0),
             client,
+            self.verifier.clone(),
         )
         .addressed(address);
         // LAST, so an assertion any check above refuses never takes a place in the store.

@@ -288,7 +288,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // exchange runs below, after every refusal.
             //
             // **A gateway-admitted caller is also refused here (`github.com/telekom/sutura#1884`).**
-            // A gateway proof is a credential the gateway minted — not the caller's own direct
+            // A gateway proof is a credential the gateway minted - not the caller's own direct
             // assertion. The gateway has already performed any credential exchange; re-exchanging its
             // intermediate assertion would bypass the caller's own identity boundary.
             if let Some(delegation) = self.authenticating.get(source) {

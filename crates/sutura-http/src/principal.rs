@@ -64,15 +64,11 @@ pub(crate) fn established() -> RequestContext {
 /// field in `docs/adr/0008`'s `Caller` shape. A deployment that verifies nothing keeps [`established`]
 /// and no assertion, because the deployment's own identity has no credential of its own to exchange.
 pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {
-    let ctx = RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone(), caller.expires())
+    RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone(), caller.expires())
         .addressed(caller.address().cloned())
         .grouped(sutura_domain::identity::CallerGroups::of(caller.groups().iter()))
-        .naming_client(caller.client().clone());
-    if caller.is_gateway_admitted() {
-        ctx.admitted_via_gateway()
-    } else {
-        ctx
-    }
+        .naming_client(caller.client().clone())
+        .admitted_by(caller.verifier().clone())
 }
 
 #[cfg(test)]
@@ -118,6 +114,10 @@ mod tests {
             sutura_domain::identity::Secret::new("the-assertion-the-gate-verified"),
             4_102_444_800,
             sutura_domain::identity::ClientClaims::default(),
+            sutura_domain::identity::AdmittingVerifier::of(
+                String::from(crate::testing::ISSUER),
+                sutura_domain::identity::VerifierMode::Direct,
+            ),
         );
         let context = of_verified(&caller);
         assert_eq!(context.chain().subject().established(), "verified");

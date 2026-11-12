@@ -865,7 +865,7 @@ fn also_accept_overlapping_audience_is_refused_naming_the_index() {
 #[test]
 fn an_also_accept_direct_entry_whose_audience_is_its_issuer_does_not_start() {
     // A secondary `direct` verifier whose `resource` (= audience) equals its `authorization_server`
-    // (= issuer) would accept any token the issuer minted for itself — including tokens for other
+    // (= issuer) would accept any token the issuer minted for itself - including tokens for other
     // services that happen to reach this deployment. The check is the per-entry equivalent of
     // `InboundAudienceIsTheIssuer` for the primary verifier.
     let same_url = "https://secondary.example.com";

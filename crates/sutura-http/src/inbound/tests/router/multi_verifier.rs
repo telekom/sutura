@@ -88,17 +88,10 @@ async fn a_gateway_caller_in_the_secondary_header_is_admitted() {
 
 #[tokio::test]
 async fn a_token_for_the_secondary_issuer_in_the_wrong_header_is_refused() {
-    // If the primary header (`Authorization`) carries a token whose `iss` matches the secondary
-    // verifier, the gate selects the secondary and tries to read from its configured header
-    // (`X-Transit-Proof`). If that header is absent, the request is refused — the token cannot
-    // be verified because it was not presented in the right place.
     let primary = an_issuer();
     let secondary =
         MockIssuer::generating(GATEWAY_ISSUER, GATEWAY_AUDIENCE, "gw-key").expect("the secondary issuer generates a key pair");
     let app = app_multi_verifier(&primary, &secondary);
-    // A gateway assertion presented in Authorization (which is the primary's header, not the
-    // secondary's). The gate sees iss=GATEWAY_ISSUER, selects the secondary verifier, then tries
-    // to read from X-Transit-Proof which is absent → refused.
     let misrouted = gateway_assertion(&secondary, "gateway-caller@example.com");
     assert_eq!(
         status_of(&app, ("POST", "/v1/query"), Some(&misrouted), None, None).await,
@@ -108,18 +101,13 @@ async fn a_token_for_the_secondary_issuer_in_the_wrong_header_is_refused() {
 }
 
 #[tokio::test]
-async fn both_headers_present_with_tokens_for_distinct_issuers_routes_by_the_primary_issuer() {
-    // If both headers are present, `iss` routing selects the verifier for whoever sent the
-    // primary header token. The secondary header token for a different issuer does not interfere
-    // as long as the primary header's `iss` resolves to a configured verifier.
+async fn competing_primary_and_secondary_proofs_are_refused() {
     let primary = an_issuer();
     let secondary =
         MockIssuer::generating(GATEWAY_ISSUER, GATEWAY_AUDIENCE, "gw-key").expect("the secondary issuer generates a key pair");
     let app = app_multi_verifier(&primary, &secondary);
     let direct_token = assertion_from(&primary, "direct-caller@example.com");
     let gateway_assertion = gateway_assertion(&secondary, "gateway-caller@example.com");
-    // Both Authorization (direct token) and X-Transit-Proof (gateway assertion) are present.
-    // The gate reads Authorization first, finds iss=primary, selects the primary verifier, admits.
     assert_eq!(
         status_of(
             &app,
@@ -129,7 +117,7 @@ async fn both_headers_present_with_tokens_for_distinct_issuers_routes_by_the_pri
             None
         )
         .await,
-        StatusCode::OK,
-        "when both headers carry valid tokens, the primary header's issuer routes the request"
+        StatusCode::UNAUTHORIZED,
+        "the request must present one proof location"
     );
 }

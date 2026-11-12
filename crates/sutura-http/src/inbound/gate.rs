@@ -37,7 +37,7 @@
 //! The log says - through the `#[source]` chain on `TokenRejected` - and the caller does not, because
 //! "the signature verified and the audience did not" tells somebody which half of a forgery to fix.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -196,7 +196,7 @@ impl InboundGate {
         let (header, bearer_prefixed, challenges) = match requirement.location() {
             TokenLocation::AuthorizationBearer => (String::from(AUTHORIZATION), true, true),
             TokenLocation::GatewayBearer => (String::from(AUTHORIZATION), true, false),
-            TokenLocation::Header { name } => (String::from(name.as_str()), false, false),
+            TokenLocation::Header { name } => (name.as_str().to_ascii_lowercase(), false, false),
         };
         Self {
             realm: String::from(
@@ -337,75 +337,58 @@ impl InboundGate {
             // Single-verifier fast path: skip the issuer peek entirely.
             let presented = self.presented(headers)?;
             self.validator.check_size(presented)?;
-            let caller = self.establish_token(presented, now).await?;
-            return Ok(if self.challenges {
-                caller
-            } else {
-                caller.admitted_via_gateway()
-            });
+            return self.establish_token(presented, now).await;
         }
         let (gate, presented) = self.select_gate(headers)?;
         gate.validator.check_size(presented)?;
-        let caller = gate.establish_token(presented, now).await?;
-        Ok(if gate.challenges {
-            caller
-        } else {
-            caller.admitted_via_gateway()
-        })
+        gate.establish_token(presented, now).await
     }
 
-    /// Finds the verifier and the already-extracted token for a multi-verifier request.
+    /// Reads each distinct location once, refusing competing proofs before issuer selection.
     ///
-    /// **Two cases, depending on what the headers carry:**
-    ///
-    /// - Primary header present: peek at `iss` to pick the verifier among all gates that share that
-    ///   header. If the iss-selected gate uses a different header, re-read from that gate's location.
-    ///
-    /// - Primary header absent: try every secondary gate whose header differs from the primary in turn.
-    ///   Exactly one must have a token; two or more is [`TokenRejected::AmbiguousProof`].
-    ///
-    /// The returned `presented` str is borrowed from the headers for the lifetime `'h`.
+    /// Until the issuer is known, the largest bound at this location limits decoding. The selected
+    /// verifier's own bound is checked before reading the key id or verifying the signature.
     fn select_gate<'h>(&self, headers: &'h HeaderMap) -> Result<SelectedGate<'_, 'h>, TokenRejected> {
-        match self.presented(headers) {
-            Ok(primary_presented) => {
-                // Primary header has a token. Peek at `iss` to route.
-                let iss = unverified_issuer(primary_presented).ok_or(TokenRejected::UnknownIssuer)?;
-                if iss == self.issuer {
-                    return Ok((self, primary_presented));
-                }
-                let gate = self.also_accept.get(iss.as_str()).ok_or(TokenRejected::UnknownIssuer)?;
-                if gate.header == self.header {
-                    // Same header as primary; reuse the already-read token.
-                    return Ok((gate, primary_presented));
-                }
-                // The selected gate declares a different header. Re-read from that location.
-                let gate_presented = gate.presented(headers)?;
-                Ok((gate, gate_presented))
+        let mut locations = BTreeSet::new();
+        let mut found = None;
+        for gate in self.gates() {
+            if !locations.insert((gate.header.as_str(), gate.bearer_prefixed)) {
+                continue;
             }
-            Err(TokenRejected::Absent { .. }) => {
-                // Primary header is absent. Try secondary gates that use a different location.
-                let mut found: Option<SelectedGate<'_, 'h>> = None;
-                for gate in self.also_accept.values() {
-                    if gate.header == self.header {
-                        continue; // same header as primary — already tried above, was absent
+            match gate.presented(headers) {
+                Ok(presented) => {
+                    let largest = self
+                        .gates()
+                        .filter(|candidate| candidate.same_location(gate))
+                        .max_by_key(|candidate| candidate.validator.max_token_bytes())
+                        .unwrap_or(gate);
+                    largest.validator.check_size(presented)?;
+                    if found.is_some() {
+                        return Err(TokenRejected::AmbiguousProof);
                     }
-                    match gate.presented(headers) {
-                        Ok(presented) => {
-                            if found.is_some() {
-                                return Err(TokenRejected::AmbiguousProof);
-                            }
-                            found = Some((gate, presented));
-                        }
-                        Err(TokenRejected::Absent { .. }) => {}
-                        Err(e) => return Err(e),
-                    }
+                    found = Some((gate, presented));
                 }
-                found.ok_or(TokenRejected::Absent {
-                    location: self.header.clone(),
-                })
+                Err(TokenRejected::Absent { .. }) => {}
+                Err(cause) => return Err(cause),
             }
-            Err(e) => Err(e),
         }
+        let (location, presented) = found.ok_or_else(|| TokenRejected::Absent {
+            location: self.header.clone(),
+        })?;
+        let issuer = unverified_issuer(presented).ok_or(TokenRejected::UnknownIssuer)?;
+        let gate = self
+            .gates()
+            .find(|gate| gate.same_location(location) && gate.issuer == issuer)
+            .ok_or(TokenRejected::UnknownIssuer)?;
+        Ok((gate, presented))
+    }
+
+    fn gates(&self) -> impl Iterator<Item = &Self> {
+        std::iter::once(self).chain(self.also_accept.values())
+    }
+
+    fn same_location(&self, other: &Self) -> bool {
+        self.header == other.header && self.bearer_prefixed == other.bearer_prefixed
     }
 
     /// Verifies an already-extracted token against this gate's validator and key set.
@@ -546,10 +529,8 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
 /// gap: `iss` selects a verifier, not a permission. The selected verifier then checks the signature,
 /// expiry, issuer match and audience with the keys it built at startup for that issuer.
 ///
-/// A minimal inline struct deserializes only `iss`, so a JSON payload that lacks it returns `None`
-/// and the dispatcher will refuse with `UnknownIssuer`. The function is infallible in the sense that
-/// any parse failure returns `None` rather than an error: the subsequent `establish_token` call will
-/// produce the specific rejection when the caller passes `UnknownIssuer`.
+/// The location's byte bound has already passed. A minimal struct reads only `iss`; any malformed
+/// payload or absent issuer is refused as `UnknownIssuer`, before key lookup.
 fn unverified_issuer(token: &str) -> Option<String> {
     use base64::Engine as _;
     #[derive(serde::Deserialize)]
