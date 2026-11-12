@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof, query-complete-prepare, query-complete-vendor-lock]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof, query-complete-prepare, query-complete-vendor-lock, oracle-beta6-proof, slides-npm-lock]
       source_tree:
         description: Exact source tree for query completion operations
         required: false
@@ -106,7 +106,7 @@ jobs:
           set -euo pipefail
           test "$SOURCE_SHA" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain)"
-          if test "$OPERATION" = query-complete-prepare || test "$OPERATION" = query-complete-vendor-lock; then
+          if test "$OPERATION" = query-complete-prepare || test "$OPERATION" = query-complete-vendor-lock || test "$OPERATION" = oracle-beta6-proof || test "$OPERATION" = slides-npm-lock; then
             test "$SOURCE_TREE" = "$(git rev-parse HEAD^{tree})"
           fi
           mkdir -p /tmp/oracle-export
@@ -190,6 +190,27 @@ jobs:
           git show "$GITHUB_WORKFLOW_SHA:.github/scripts/prepare-query-vendor-lock.py" > /tmp/prepare-query-vendor-lock.py
           sha256sum /tmp/prepare-query-vendor-lock.py > /tmp/oracle-export/query-vendor-script.sha256
           python3 /tmp/prepare-query-vendor-lock.py
+
+      - name: Regenerate the slides npm dependency lock and hash
+        if: inputs.operation == 'slides-npm-lock'
+        run: |
+          nix shell --inputs-from . nixpkgs#nodejs_26 --command npm --prefix slides/2026-introducing-sutura update @hono/node-server --package-lock-only --ignore-scripts
+          nix run --inputs-from . nixpkgs#prefetch-npm-deps -- slides/2026-introducing-sutura/package-lock.json > /tmp/oracle-export/npm-deps-hash
+          python3 - <<'PY'
+          import re
+          import subprocess
+          from pathlib import Path
+
+          deps_hash = Path('/tmp/oracle-export/npm-deps-hash').read_text().strip()
+          assert re.fullmatch(r'sha256-[A-Za-z0-9+/]{43}=', deps_hash)
+          path = Path('nix/slides.nix')
+          updated, count = re.subn(r'npmDepsHash = "sha256-[^"]+";', f'npmDepsHash = "{deps_hash}";', path.read_text())
+          assert count == 1
+          path.write_text(updated)
+          assert set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()) == {'nix/slides.nix', 'slides/2026-introducing-sutura/package-lock.json'}
+          PY
+          nix build .#checks.x86_64-linux.slides --no-link
+          nix run .#osv-scanner -- scan source --lockfile slides/2026-introducing-sutura/package-lock.json
 
       - name: Resolve with the pinned generator
         if: inputs.operation == 'lock-format' || inputs.operation == 'main-forward-lock'
@@ -411,6 +432,18 @@ jobs:
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
         run: nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate
+
+      - name: Prove released UTC metadata against the old predicate
+        if: inputs.operation == 'oracle-beta6-proof'
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          BASE_SHA: ${{ inputs.main_sha }}
+          ORACLE_PROOF_OUTPUT: /tmp/oracle-export
+        run: |
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-beta6-proof.py" > /tmp/oracle-beta6-proof.py
+          sha256sum /tmp/oracle-beta6-proof.py > /tmp/oracle-export/utc-proof-script.sha256
+          nix develop .#checks.x86_64-linux.nextest --command python3 /tmp/oracle-beta6-proof.py
 
       - name: Rebuild the PostgreSQL VM check with explicit bounds
         if: inputs.operation == 'postgres-diagnostic'
