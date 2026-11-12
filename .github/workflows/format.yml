@@ -44,9 +44,9 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof, query-complete-prepare]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof, query-complete-prepare, query-complete-vendor-lock]
       source_tree:
-        description: Exact source tree for query completion preparation
+        description: Exact source tree for query completion operations
         required: false
         type: string
       main_sha:
@@ -106,7 +106,7 @@ jobs:
           set -euo pipefail
           test "$SOURCE_SHA" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain)"
-          if test "$OPERATION" = query-complete-prepare; then
+          if test "$OPERATION" = query-complete-prepare || test "$OPERATION" = query-complete-vendor-lock; then
             test "$SOURCE_TREE" = "$(git rev-parse HEAD^{tree})"
           fi
           mkdir -p /tmp/oracle-export
@@ -180,6 +180,16 @@ jobs:
           git show "$GITHUB_WORKFLOW_SHA:.github/scripts/prepare-query-completion.py" > /tmp/prepare-query-completion.py
           sha256sum /tmp/prepare-query-completion.py > /tmp/oracle-export/query-preparation-script.sha256
           python3 /tmp/prepare-query-completion.py
+
+      - name: Prepare isolated query vendor test lock
+        if: inputs.operation == 'query-complete-vendor-lock'
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+        run: |
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/prepare-query-vendor-lock.py" > /tmp/prepare-query-vendor-lock.py
+          sha256sum /tmp/prepare-query-vendor-lock.py > /tmp/oracle-export/query-vendor-script.sha256
+          python3 /tmp/prepare-query-vendor-lock.py
 
       - name: Resolve with the pinned generator
         if: inputs.operation == 'lock-format' || inputs.operation == 'main-forward-lock'
