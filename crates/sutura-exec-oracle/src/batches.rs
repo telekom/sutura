@@ -459,10 +459,22 @@ mod tests {
     #[test]
     fn utc_timestamp_metadata_keeps_each_units_instant_and_nulls() {
         let columns: [(ArrayRef, &str); 4] = [
-            (Arc::new(TimestampSecondArray::from(vec![Some(1), None]).with_timezone("UTC")), "1970-01-01T00:00:01"),
-            (Arc::new(TimestampMillisecondArray::from(vec![Some(1), None]).with_timezone("UTC")), "1970-01-01T00:00:00.001"),
-            (Arc::new(TimestampMicrosecondArray::from(vec![Some(1), None]).with_timezone("UTC")), "1970-01-01T00:00:00.000001"),
-            (Arc::new(TimestampNanosecondArray::from(vec![Some(-1), None]).with_timezone("UTC")), "1969-12-31T23:59:59.999999"),
+            (
+                Arc::new(TimestampSecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
+                "1970-01-01T00:00:01",
+            ),
+            (
+                Arc::new(TimestampMillisecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
+                "1970-01-01T00:00:00.001",
+            ),
+            (
+                Arc::new(TimestampMicrosecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
+                "1970-01-01T00:00:00.000001",
+            ),
+            (
+                Arc::new(TimestampNanosecondArray::from(vec![Some(-1), None]).with_timezone("UTC")),
+                "1969-12-31T23:59:59.999999",
+            ),
         ];
         for (column, expected) in columns {
             let batch = RecordBatch::try_from_iter([("D", column)]).expect("one UTC timestamp column");
