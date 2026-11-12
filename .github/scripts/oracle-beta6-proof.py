@@ -53,7 +53,7 @@ def main() -> None:
         (out / f"utc-{label}.exit").write_text(str(result.returncode) + "\n", encoding="utf-8")
         assert result.returncode == (0 if passed else 100), (label, result.returncode)
         verdict = "PASS" if passed else "FAIL"
-        assert re.search(r"(?m)^\s*" + verdict + r"\s+\[[^\n]+\]\s+sutura-exec-oracle\s+" + re.escape(cell) + r"$", text), label
+        assert re.search(r"(?m)^\s*" + verdict + r"\s+\[[^\n]+\]\s+(?:\(\d+/\d+\)\s+)?sutura-exec-oracle\s+" + re.escape(cell) + r"$", text), label
         if not passed:
             own_site = r"(?m)^\s*thread '" + re.escape(cell) + r"'(?: \(\d+\))? panicked at " + re.escape(str(path)) + ":" + str(assertion_line) + r":\d+:\n[ \t]*Err\(UnsupportedType \{ column: \"D\","
             assert re.search(own_site, text), (label, assertion_line)
