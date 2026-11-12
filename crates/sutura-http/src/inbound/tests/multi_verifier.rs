@@ -294,16 +294,19 @@ async fn signed_gateway_admission_reaches_no_exchange_and_direct_admission_does(
     }
 }
 
+type RecordedVerifier = Option<(String, VerifierMode)>;
+
 #[derive(Clone)]
-struct Audit(std::sync::mpsc::Sender<(String, VerifierMode)>);
+struct Audit(std::sync::mpsc::Sender<RecordedVerifier>);
 
 impl sutura_domain::audit::AuditSink for Audit {
     fn record(&self, record: &sutura_domain::audit::CallRecord<'_>) {
-        let verifier = record
-            .verifier()
-            .expect("the service records the gate's admission provenance");
         self.0
-            .send((String::from(verifier.issuer()), verifier.mode()))
+            .send(
+                record
+                    .verifier()
+                    .map(|verifier| (String::from(verifier.issuer()), verifier.mode())),
+            )
             .expect("the collector is listening");
     }
 }
@@ -358,7 +361,7 @@ async fn a_shared_answer_and_an_exchange_refusal_record_the_signed_admitting_ver
         assert!(matches!(outcome, sutura_domain::query::ToolOutcome::Answer { .. }));
         assert_eq!(
             received.try_recv().expect("an answer is audited"),
-            (String::from(issuer.issuer()), mode)
+            Some((String::from(issuer.issuer()), mode))
         );
         if mode == VerifierMode::Gateway {
             let outcome = refusing
@@ -368,7 +371,7 @@ async fn a_shared_answer_and_an_exchange_refusal_record_the_signed_admitting_ver
             assert_eq!(exchange.0.load(Ordering::SeqCst), 0);
             assert_eq!(
                 received.try_recv().expect("the refusal is audited"),
-                (String::from(issuer.issuer()), mode)
+                Some((String::from(issuer.issuer()), mode))
             );
         }
         let shared_broker = DeclaredPrincipalBroker::empty().shared(
@@ -426,7 +429,7 @@ async fn signed_raw_outcomes_and_remote_refusals_record_the_admitting_verifier()
                 assert_eq!(outcome.refusal().is_some(), refused);
                 assert_eq!(
                     received.try_recv().expect("the raw outcome is audited"),
-                    (String::from(issuer.issuer()), mode)
+                    Some((String::from(issuer.issuer()), mode))
                 );
             }
             let leg = serde_json::from_value(serde_json::json!({
@@ -445,7 +448,7 @@ async fn signed_raw_outcomes_and_remote_refusals_record_the_admitting_verifier()
             ));
             assert_eq!(
                 received.try_recv().expect("the shared source's remote refusal is audited"),
-                (String::from(issuer.issuer()), mode)
+                Some((String::from(issuer.issuer()), mode))
             );
         }
     }

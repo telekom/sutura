@@ -121,8 +121,9 @@ Without `security.inbound`, the deployment token authenticates the deployment an
 with the access of the deployment.
 
 With `security.inbound`, every request carries a token that sutura verifies: signature, issuer, expiry and an audience
-that equals the resource identifier of the deployment. The verified subject goes into every audit record. There is
-no default mode:
+that equals the resource identifier of the deployment. The verified subject goes into every audit record.
+The internal caller key is the raw `sub`. Equal `sub` values from different configured issuers share this key. The
+admitting verifier is separate audit and exchange provenance. There is no default mode:
 
 | Mode             | Use it when                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------- |

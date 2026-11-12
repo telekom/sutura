@@ -239,9 +239,10 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 return Ok(Minted::Refused { source: source.clone() });
             }
         }
-        // The FULL verified subject, which is the only key on which two distinct callers stay
-        // distinct. `None` for a request with no verified subject at all - an impersonating source
-        // then has nobody to be, and the refusal below is what it gets.
+        // The raw verified `sub` remains the internal caller key: equal `sub` values from different
+        // configured issuers share it. The admitting verifier is separate audit/exchange provenance.
+        // `None` for a request with no verified subject - an impersonating source then has nobody to
+        // be, and the refusal below is what it gets.
         let asked_by = context.chain().subject();
         let key = asked_by.key();
         // The document leg 1 verified. A broker that federates REQUIRES one - a subject with no
