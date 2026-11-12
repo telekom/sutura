@@ -58,7 +58,10 @@ async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decod
     let local = SourceName::parse("local").expect("a source");
     let staff = VerifierId::primary();
     let partner = VerifierId::parse("partner").expect("an id");
-    let reader = super::Reader(std::sync::Arc::new(opened()));
+    let opened = sutura_runtime::spawn_carrying_span(opened)
+        .await
+        .expect("the file source opens on a blocking task");
+    let reader = super::Reader(std::sync::Arc::new(opened));
     let schema = std::sync::Arc::new(arrow_schema::Schema::empty());
     assert!(matches!(
         reader.read(&partner, b"malformed", &local, b"", &schema),

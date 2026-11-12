@@ -34,17 +34,17 @@
 # `scale` is a parameter, and only a scale whose `customer` and `part` are both past one stream's
 # rows is accepted: below that nothing splits and the test would prove nothing. SF10 is the first
 # scale `nix/tpch-data.nix` publishes a row count for that does.
-{
-  pkgs,
-  scale,
-  sutura,
-  postgresDriver,
-  duckdbDriver,
-  agree,
-  cli,
-  data,
-  dimensions,
-  corpus,
+{ pkgs
+, scale
+, sutura
+, postgresDriver
+, duckdbDriver
+, agree
+, cli
+, data
+, dimensions
+, corpus
+,
 }:
 let
   inherit (pkgs) lib;
@@ -176,21 +176,23 @@ let
   # to an exact `reltuples`.
   load = pkgs.writeText "tpch-across-nodes-load.sql" (
     lib.concatStrings (
-      lib.mapAttrsToList (table: columns: ''
-        CREATE TABLE ${table} (${
-          lib.concatStringsSep ", " (
-            lib.imap0 (
-              i: column:
-              "${column} ${if lib.hasSuffix "key" column then "BIGINT" else "VARCHAR"} NOT NULL${
-                lib.optionalString (i == 0) " PRIMARY KEY"
-              }"
-            ) columns
-          )
-        });
-        \copy ${table} FROM '${data}/dimensions/${table}.csv' WITH (FORMAT csv, HEADER true)
-        ALTER TABLE ${table} OWNER TO sutura;
-        VACUUM ${table};
-      '') dimensions
+      lib.mapAttrsToList
+        (table: columns: ''
+          CREATE TABLE ${table} (${
+            lib.concatStringsSep ", " (
+              lib.imap0 (
+                i: column:
+                "${column} ${if lib.hasSuffix "key" column then "BIGINT" else "VARCHAR"} NOT NULL${
+                  lib.optionalString (i == 0) " PRIMARY KEY"
+                }"
+              ) columns
+            )
+          });
+          \copy ${table} FROM '${data}/dimensions/${table}.csv' WITH (FORMAT csv, HEADER true)
+          ALTER TABLE ${table} OWNER TO sutura;
+          VACUUM ${table};
+        '')
+        dimensions
     )
   );
 
@@ -202,12 +204,12 @@ let
   '';
 
   settings =
-    {
-      dir,
-      server,
-      security,
-      sources,
-      runtime ? { },
+    { dir
+    , server
+    , security
+    , sources
+    , runtime ? { }
+    ,
     }:
     pkgs.writeTextDir "base.yaml" (
       builtins.toJSON (
@@ -317,11 +319,12 @@ let
       # One byte, so every combine reading both sources goes across: a granted leg does anyway.
       nodes = {
         own = "https://query:8443";
-        others = map (other: {
-          url = "https://${other}:8443";
-          role = "reading-worker";
-          sources = [ "crm" ];
-        }) [ "reader1" "reader2" ];
+        others = map
+          (other: {
+            url = "https://${other}:8443";
+            role = "reading-worker";
+            sources = [ "crm" ];
+          }) [ "reader1" "reader2" ];
         across_above_bytes = 1;
       };
     };
