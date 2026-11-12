@@ -598,7 +598,15 @@ fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>,
         };
     }
     let anchors = settings.security().outbound().map(crate::sources::anchors_of);
-    sutura_http::InboundGate::from_verifiers_trusting(settings.security().inbound(), anchors.as_ref()).map_err(flatten)
+    let gate =
+        sutura_http::InboundGate::from_verifiers_trusting(settings.security().inbound(), anchors.as_ref()).map_err(flatten)?;
+    if gate.is_some() {
+        tracing::info!(
+            verifiers = settings.security().inbound().len(),
+            "leg 1 is armed: the key sets were read and caller tokens will be verified against them"
+        );
+    }
+    Ok(gate)
 }
 
 /// Gives the blocking pool what is left of the grace period, and then stops waiting.
