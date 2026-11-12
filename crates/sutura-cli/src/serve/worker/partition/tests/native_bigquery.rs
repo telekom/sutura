@@ -232,6 +232,7 @@ impl LegRunner for Actual {
     type Error = Infallible;
     #[expect(
         clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
         reason = "an infallible fixture refuses a misrouted or repeated leg"
     )]
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Infallible> {
@@ -241,6 +242,7 @@ impl LegRunner for Actual {
     }
     #[expect(
         clippy::panic_in_result_fn,
+        clippy::unwrap_in_result,
         reason = "an infallible fixture refuses a misrouted or repeated leg"
     )]
     fn lookup(&self, leg: &LegPlan, _: LinkCast) -> Result<Looked<'_>, Infallible> {
