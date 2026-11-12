@@ -5,19 +5,17 @@ use sutura_exec_datafusion::Unread;
 
 fn opened() -> super::Opened {
     let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player");
+    let inbound = "  inbound:\n    mode: direct\n    resource: https://resource.example.com\n    authorization_server: https://issuer.example.com\n    key_set_file: /keys.json\n    algorithms: [RS256]\n";
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
-         files\"\ncatalogs:\n  - name: \"model\"\n    kind: \"markdown\"\n    dir: \"{catalog}\"\n    data_dir: \
+         files\"\n{inbound}catalogs:\n  - name: \"model\"\n    kind: \"markdown\"\n    dir: \"{catalog}\"\n    data_dir: \
          \"{data}\"\n    version: \"test\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"{data}\"\n    \
          posture: \"shared-service-user\"\n",
         catalog = example.join("catalog").display(),
         data = example.join("data").display(),
     );
-    let inbound = "security:\n  inbound:\n    mode: direct\n    resource: https://resource.example.com\n    authorization_server: https://issuer.example.com\n    key_set_file: /keys.json\n    algorithms: [RS256]\n";
     let settings = sutura_config::Settings::load(
-        &sutura_config::Sources::defaults(sutura_config::Environment::Development)
-            .with_overlay(overlay)
-            .with_overlay(inbound),
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
     )
     .expect("the overlay loads");
     let catalogs = crate::catalog::open_catalog(settings.catalogs(), None).expect("the example catalog opens");

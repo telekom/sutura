@@ -377,7 +377,14 @@ fn priced_state(key_set_id: &str) -> PricedState {
     // **The broker `crate::serve` really attaches**, declaring the one subject these cells ask as -
     // so the spend the cells below measure is spend a broker admitted for that subject.
     //
-    let broker = DeclaredPrincipalBroker::empty().federating(source(), None);
+    let broker = DeclaredPrincipalBroker::empty()
+        .admitting(sutura_config::credentials::SourceAdmissions::default().and(
+            source(),
+            Some(std::collections::BTreeSet::from([
+                sutura_domain::identity::VerifierId::primary(),
+            ])),
+        ))
+        .federating(source(), None);
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
     let posture = SourcePosture::ImpersonationAtSource;

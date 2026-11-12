@@ -15,7 +15,7 @@ use crate::testing::{an_issuer, broker, bundle, fake_warehouse, named_direct_ent
 fn issuers() -> [MockIssuer; 3] {
     [
         an_issuer(),
-        MockIssuer::generating("https://second.example.com", "/second", "second-key").expect("a fixture issuer"),
+        MockIssuer::generating("https://second.example.com", "second-client", "second-key").expect("a fixture issuer"),
         MockIssuer::generating("https://gateway.example.com", "/transit", "gateway-key").expect("a fixture gateway"),
     ]
 }

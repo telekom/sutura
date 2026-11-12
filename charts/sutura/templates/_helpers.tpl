@@ -109,10 +109,9 @@ always `0.0.0.0`, never the loopback-only embedded default. `Settings::refusals`
 always asks for a credential, a declared TLS termination, and an enabled rate limiter -
 this fails the render rather than shipping a Deployment that crash-loops on the first refusal.
 
-The credential is an access token or an inbound identity (`security.inbound.mode`), and `direct`
-refuses an access token beside it, as does `behind-gateway` with a `transit_header` of
-`authorization`. Both are read the way the binary layers the two files: the environment file over
-`base.yaml`, key by key, and a `null` there erases the key as it does in the binary. An `extraEnv` name the
+The credential is an access token or an inbound identity. Every verifier's `direct` mode refuses
+an access token beside it, as does `behind-gateway` with a `transit_header` of `authorization`.
+Maps merge across the environment and base files; lists replace and null erases, as in the binary. An `extraEnv` name the
 binary reads under `security` is refused, because no guard here reads it: matched as the binary
 matches it, in any letter case, after `SUTURA__` and before `__`, `.` or `[`. So is a name equal to one
 `sutura.env` sets once both are lower-cased with `__` read as `.`; that also refuses a lower-case
@@ -152,21 +151,37 @@ guard comes just before them, because it is a rule about the inbound mode.
 {{- end -}}
 {{- $base := .Values.config.base | default dict -}}
 {{- $env := .Values.config.environment | default dict -}}
-{{- $securityEnv := dig "security" (dict) $env -}}
-{{- $envInbound := get $securityEnv "inbound" -}}
-{{- $inboundErased := and (hasKey $securityEnv "inbound") (not (kindIs "map" $envInbound)) -}}
-{{- $baseInbound := dig "security" "inbound" nil $base -}}
-{{- $inboundBlock := or .Values.security.inbound.keySetSecretName (kindIs "map" $envInbound) (and (kindIs "map" $baseInbound) (not $inboundErased)) -}}
-{{- $baseIn := ternary $baseInbound (dict) (and (kindIs "map" $baseInbound) (not $inboundErased)) -}}
-{{- $envIn := ternary $envInbound (dict) (kindIs "map" $envInbound) -}}
-{{- $mode := dig "mode" (get $baseIn "mode") $envIn | default "" | toString | trim -}}
-{{- $transit := dig "transit_header" (get $baseIn "transit_header") $envIn | default "" | toString | trim -}}
+{{- $resolved := include "sutura.resolvedInbound" . | fromJson -}}
+{{- $inbound := get $resolved "inbound" -}}
+{{- $inboundBlock := or .Values.security.inbound.keySetSecretName (hasKey $resolved "inbound") -}}
+{{- $entries := list -}}
+{{- if kindIs "map" $inbound -}}
+{{- $entries = list $inbound -}}
+{{- else if kindIs "slice" $inbound -}}
+{{- if not $inbound -}}
+{{ fail "security.inbound is an empty list: declare at least one verifier (SettingsError::InboundListEmpty)" }}
+{{- end -}}
+{{- if .Values.security.inbound.keySetSecretName -}}
+{{ fail "security.inbound.keySetSecretName sets one legacy inbound object: for a named verifier list, mount each key set with extraVolumes and extraVolumeMounts and set each entry's key_set_file" }}
+{{- end -}}
+{{- $entries = $inbound -}}
+{{- end -}}
+{{- $mode := "" -}}
 {{- $configToken := dig "security" "access_token" (dig "security" "access_token" "" $base) $env | default "" | toString -}}
 {{- $token := or .Values.security.accessToken.secretName $configToken -}}
 {{- if ne $configToken (trim $configToken) -}}
 {{ fail "security.access_token in config begins or ends with whitespace: sutura refuses to start with it, because no token can be read from it (SettingsError::AccessToken, InvalidAccessToken::Untrimmed) - remove the whitespace, or set the token from a Secret with security.accessToken.secretName" }}
 {{- end -}}
-{{- if and $inboundBlock (not $mode) -}}
+{{- if and $inboundBlock (not $entries) -}}
+{{ fail "security.inbound is declared (security.inbound.keySetSecretName, or a security.inbound block in config.base or config.environment) and no security.inbound.mode resolves: sutura refuses to start with it, because neither mode is safe to assume (SettingsError::InboundModeUndeclared) - set security.inbound.mode to `direct` or `behind-gateway`" }}
+{{- end -}}
+{{- range $entry := $entries -}}
+{{- if not (kindIs "map" $entry) -}}
+{{ fail "each security.inbound verifier must be an object" }}
+{{- end -}}
+{{- $mode = get $entry "mode" | default "" | toString | trim -}}
+{{- $transit := get $entry "transit_header" | default "" | toString | trim -}}
+{{- if not $mode -}}
 {{ fail "security.inbound is declared (security.inbound.keySetSecretName, or a security.inbound block in config.base or config.environment) and no security.inbound.mode resolves: sutura refuses to start with it, because neither mode is safe to assume (SettingsError::InboundModeUndeclared) - set security.inbound.mode to `direct` or `behind-gateway`" }}
 {{- end -}}
 {{- if and $mode (not (has $mode (list "direct" "behind-gateway"))) -}}
@@ -175,14 +190,15 @@ guard comes just before them, because it is a rule about the inbound mode.
 {{- if and (eq $mode "behind-gateway") (not (regexMatch "^[A-Za-z0-9_-]*$" $transit)) -}}
 {{ fail "security.inbound.transit_header holds a character a header name cannot: after trimming and ASCII case folding sutura accepts lower-case letters, digits, `-` and `_` only, and refuses to start otherwise (InvalidInboundValue::NotPermitted)" }}
 {{- end -}}
-{{- if not (or $token $mode) -}}
-{{ fail "security.accessToken.secretName is required when config.base and config.environment set no security.inbound.mode: this chart's Service makes the pod reachable off-host, and sutura refuses to start there with neither security.access_token nor an inbound identity (Settings::refusals::AccessTokenRequired)" }}
-{{- end -}}
 {{- if and $token (eq $mode "direct") -}}
 {{ fail "security.inbound.mode is `direct` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because both are read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or declare `behind-gateway` with a transit_header other than `authorization`" }}
 {{- end -}}
 {{- if and $token (eq $mode "behind-gateway") (eq (lower $transit) "authorization") -}}
 {{ fail "security.inbound.mode is `behind-gateway` with security.inbound.transit_header `authorization` and an access token is set (security.accessToken.secretName, or security.access_token in config): sutura refuses to start with both, because the gateway's assertion and the access token are both read from `authorization: Bearer` (Settings::refusals::DeploymentTokenSharesTheHeader) - remove the access token, or sign the gateway's assertion into a header of its own" }}
+{{- end -}}
+{{- end -}}
+{{- if not (or $token $mode) -}}
+{{ fail "security.accessToken.secretName is required when config.base and config.environment set no security.inbound.mode: this chart's Service makes the pod reachable off-host, and sutura refuses to start there with neither security.access_token nor an inbound identity (Settings::refusals::AccessTokenRequired)" }}
 {{- end -}}
 {{- if not .Values.security.metricsToken.secretName -}}
 {{ fail "security.metricsToken.secretName is required: this chart's Service makes the pod reachable off-host, and sutura refuses to start with no security.metrics_token there (Settings::refusals::MetricsTokenRequired)" }}
@@ -284,25 +300,26 @@ guard has checked, and the chart-only rules are `sutura.requireReadingWorkers`.
 {{- end -}}
 
 {{/*
-The inbound block as the binary layers it - the environment file over `base.yaml`, key by key, and a
-non-map there erasing the base's - as JSON, empty when neither declares one. The same reading
-`sutura.requireOffHostPosture` makes, so a reading worker is handed the block the serving pod runs
-with.
+The inbound declaration as the binary layers it: maps merge, other shapes replace, and null erases.
+A JSON object wraps the map or list so Helm's map-only JSON reader preserves both shapes. The serving
+guard and reading workers consume the same result.
 */}}
 {{- define "sutura.resolvedInbound" -}}
 {{- $securityEnv := dig "security" (dict) (.Values.config.environment | default dict) -}}
-{{- $envInbound := get $securityEnv "inbound" -}}
 {{- $baseInbound := dig "security" "inbound" nil (.Values.config.base | default dict) -}}
-{{- $erased := and (hasKey $securityEnv "inbound") (not (kindIs "map" $envInbound)) -}}
-{{- $inbound := dict -}}
-{{- if and (kindIs "map" $baseInbound) (not $erased) -}}
-{{- $inbound = deepCopy $baseInbound -}}
+{{- $inbound := $baseInbound -}}
+{{- if hasKey $securityEnv "inbound" -}}
+{{- $envInbound := get $securityEnv "inbound" -}}
+{{- if and (kindIs "map" $baseInbound) (kindIs "map" $envInbound) -}}
+{{- $inbound = mergeOverwrite (deepCopy $baseInbound) $envInbound -}}
+{{- else -}}
+{{- $inbound = $envInbound -}}
 {{- end -}}
-{{- if kindIs "map" $envInbound -}}
-{{- $inbound = mergeOverwrite $inbound $envInbound -}}
 {{- end -}}
-{{- if $inbound -}}
-{{- toJson $inbound -}}
+{{- if or (kindIs "map" $inbound) (kindIs "slice" $inbound) -}}
+{{- toJson (dict "inbound" $inbound) -}}
+{{- else -}}
+{{- toJson (dict) -}}
 {{- end -}}
 {{- end -}}
 
@@ -331,8 +348,9 @@ else in `config.base` or `config.environment` reaches it, so a setting the sourc
 {{- with dig "security" "single_user_because" (dig "security" "single_user_because" "" $base) $env -}}
 {{- $_ := set $security "single_user_because" . -}}
 {{- end -}}
-{{- with include "sutura.resolvedInbound" $root -}}
-{{- $_ := set $security "inbound" (fromJson .) -}}
+{{- $resolved := include "sutura.resolvedInbound" $root | fromJson -}}
+{{- if hasKey $resolved "inbound" -}}
+{{- $_ := set $security "inbound" (get $resolved "inbound") -}}
 {{- end -}}
 {{- toYaml (dict "catalogs" .group.catalogs "security" $security "sources" $sources) -}}
 {{- end -}}
