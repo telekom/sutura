@@ -1,0 +1,6 @@
+{
+  "source_sha": "1f3793571619162c0aa2874bee7a4f2176ec5cd1",
+  "source_tree": "504ebc9526ccaf21df14f1ef6c97ecb15eea8c18",
+  "binary_id": "sutura-cli::bin/sutura",
+  "target": "serve::worker::partition::tests::the_concrete_reader_checks_its_sources_verifier_membership_before_decoding_or_dispatch"
+}
