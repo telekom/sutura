@@ -1,0 +1,181 @@
+{
+  "census": {
+    "script": "charts/sutura/testdata/inbound-cells.sh",
+    "script_sha256": "5b69a25aafd61c3abc44a6c3c098028b0ce2ef7c9381b239c5b5f40b61eb0162",
+    "header_bytes": 3311,
+    "header_sha256": "47094670a07dad888cfb367c41603862cbe8afa8c7ca0ab428fd54700ab52623",
+    "body_sha256": "0d03c8b8415f6dc3b2f5a51d5b8fc5342502ac9713b4b2d48f48bb0d83ceee32",
+    "fixture_sha256": "278b0fca0db2c6172c4d4fa7e4f84bc4eda92bab6808c070e5caf237a91c69aa",
+    "cases": [
+      {
+        "name": "base-list",
+        "kind": "accepts",
+        "offset": 3311,
+        "bytes": 88,
+        "sha256": "352735e56aed4b73d99fdb7c8870054bbf1b99d6f3f906cb90049df46185f557",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "list-over-map",
+        "kind": "accepts",
+        "offset": 3399,
+        "bytes": 111,
+        "sha256": "8b5e1a1f11f0d9c3656f6a80ff228114d0ea2f225ec0df71995f51712eeae3e0",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "map-over-list",
+        "kind": "accepts",
+        "offset": 3510,
+        "bytes": 92,
+        "sha256": "b289cc16dd2cbebda52f2c5de9f01549a027b92d3f78a3d68caee79ca2b5b0db",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "list-over-list",
+        "kind": "accepts",
+        "offset": 3602,
+        "bytes": 89,
+        "sha256": "d0e326cd6a06501d80e841f421e7ccb56e4c7590c3f9e21e6d9d646cd17ec58c",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "map-merge",
+        "kind": "accepts",
+        "offset": 3691,
+        "bytes": 276,
+        "sha256": "847ee95681730239be52f866f29c655d16321d31fb3b71b3095c2854dbbc4ff2",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "later-direct",
+        "kind": "refuses",
+        "offset": 3967,
+        "bytes": 125,
+        "sha256": "084f9b28999cf54ca8efc1dd33396831b6816625c7499ffa687ac766d7bddcb9",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "later-gateway-header",
+        "kind": "refuses",
+        "offset": 4092,
+        "bytes": 195,
+        "sha256": "4b156fa152aadc8e12b3519a60129cc676122f9635e6a19c7727a34901d68426",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "later-missing-mode",
+        "kind": "refuses",
+        "offset": 4287,
+        "bytes": 65,
+        "sha256": "8b74f66d1419335a35631fa355bc1d5820efa95dc9209564ba4d79a7183eee96",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "later-unknown-mode",
+        "kind": "refuses",
+        "offset": 4352,
+        "bytes": 82,
+        "sha256": "e7453b1eb19cdb743d11dc5a9a48846ec60840432345869fe3b4ce604e901543",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "later-invalid-header",
+        "kind": "refuses",
+        "offset": 4434,
+        "bytes": 119,
+        "sha256": "2c7f3ced9b3b07de54e7718344ae534d0337f67505814ab4d76139752eb03ce3",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "empty-list",
+        "kind": "refuses",
+        "offset": 4553,
+        "bytes": 41,
+        "sha256": "c1dfb3be6e7a9be0b2dab38d0ea2acd9a508d88e7e8f1d6939229dd1ac90a93d",
+        "execution": "not run",
+        "base_result": null
+      },
+      {
+        "name": "list-with-legacy-secret",
+        "kind": "refuses",
+        "offset": 4594,
+        "bytes": 139,
+        "sha256": "643829e5c766694a493bddb7d4bea53138b033a7aaebb1f73254946fce5eb94b",
+        "execution": "not run",
+        "base_result": null
+      }
+    ]
+  },
+  "case_timeout_seconds": 180,
+  "chart_timeout_seconds": 21600,
+  "mutants": [
+    {
+      "cell": "map-over-list",
+      "path": "charts/sutura/templates/_helpers.tpl",
+      "before": "{{- else -}}\n{{- $inbound = $envInbound -}}\n{{- end -}}",
+      "after": "{{- else if not (and (kindIs \"slice\" $baseInbound) (kindIs \"map\" $envInbound)) -}}\n{{- $inbound = $envInbound -}}\n{{- end -}}",
+      "limit": "Only list-to-map replacement; requires own injected declaration mismatch, all other eleven cases PASS."
+    },
+    {
+      "cell": "map-merge",
+      "path": "charts/sutura/templates/_helpers.tpl",
+      "before": "{{- $inbound = mergeOverwrite (deepCopy $baseInbound) $envInbound -}}",
+      "after": "{{- $inbound = omit (mergeOverwrite (deepCopy $baseInbound) $envInbound) \"authorization_server\" -}}",
+      "limit": "Measures inherited issuer retention only; a missing-mode/guard/template failure does not count."
+    }
+  ],
+  "status": "Final source-bound run plan; dispatch requires external immutable clearance",
+  "execution_authorized": true,
+  "independent_review_accepted": true,
+  "binding": {
+    "head": {
+      "sha": "6d1d9ce778abd5431d95b55458e1dec0d9ef4f39",
+      "tree": "27662bd3fcba91813d594732dbac38e0817d1955",
+      "index_sha256": "298bdb26980e824828bd4b8689f07802565c68430b18b7ef29e597ea67e410a5",
+      "chart": {
+        "files": 190,
+        "sha256": "edc96a35fb018e24735f614bda1fff4cb146f9135d3a9d502de942b5deadc85a"
+      },
+      "pin_inputs": {
+        "flake.lock": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f",
+        "flake.nix": "c24c95c4deedcfccd7990be7805b7d7d1a858945020ecdc6d5cbdae653b5d709",
+        "justfile": "a1f3fa59f16e14497a1fb912613901bbd02c23aba3b3ac027babbd3144b3d62f",
+        "nix/helm-chart.nix": "bf5025975619f3a023eb20e8f57d49306d93ad475c90c9a0b5d1e79da4da99b0",
+        "nix/run-gate.sh": "d080ff26724fbbae8adc64e5f38f57c6389974a7c0184d8f9e7bdd4de313138e"
+      }
+    },
+    "base": {
+      "sha": "5c4f252b4ac2bfc7dc834dc1197b642b026c12f7",
+      "tree": "269ea8277ca7e54384a46b004fdd0d836d4950be",
+      "index_sha256": "cb53745dcb28c78caaa8d4fb8a213f69489c00394314ea2d5c93e6bb1243faf9",
+      "chart": {
+        "files": 189,
+        "sha256": "1be6f273370edd9b5f9351415c353749401eab42eacaf1d687b9737d69743892"
+      },
+      "pin_inputs": {
+        "flake.lock": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f",
+        "flake.nix": "c24c95c4deedcfccd7990be7805b7d7d1a858945020ecdc6d5cbdae653b5d709",
+        "justfile": "a1f3fa59f16e14497a1fb912613901bbd02c23aba3b3ac027babbd3144b3d62f",
+        "nix/helm-chart.nix": "480415f11317b8639fba7117cc623469cf484015a11286f8942fbe9c97d10c22",
+        "nix/run-gate.sh": "d080ff26724fbbae8adc64e5f38f57c6389974a7c0184d8f9e7bdd4de313138e"
+      }
+    },
+    "runner_sha256": "9e652a946f6eb31c7e430643ca382be45f1fc72e9206ecdaca272a60e87b78d9",
+    "helm_app": {
+      "installable": ".#helm",
+      "system": "x86_64-linux",
+      "program_attribute": ".#apps.x86_64-linux.helm.program"
+    }
+  }
+}
