@@ -54,7 +54,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/reclaim-disk
+      - uses: ./.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
 
@@ -65,7 +65,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: $/.github/actions/nix-store-cache
+      - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
 
@@ -74,5 +74,5 @@ jobs:
           SHARD: ${{ inputs.shard }}
         run: nix run .#claim-mutation-kills -- --shard "$SHARD"
 
-      - uses: $/.github/actions/nix-store-cache-report
+      - uses: ./.github/actions/nix-store-cache-report
         if: always()

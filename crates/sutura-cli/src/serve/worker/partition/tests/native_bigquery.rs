@@ -210,8 +210,14 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
     let actual = Actual { fact: Mutex::new(Some(fact)), grant: Mutex::new(Some(grant)) };
     let mut answer = combiner.execute(combiner.plan(&plan), &actual, 1 << 30)
         .unwrap_or_else(|cause| {
-            assert!(cause.to_string().contains("successful source read supplied no submission facts"),
-                "forwarded native CLI fixture failed without its native-success witness");
+            assert!(
+                matches!(
+                    cause,
+                    sutura_domain::plan::ExecuteError::Combine(sutura_exec_datafusion::CombineError::Execute { cause })
+                        if cause.to_string().contains("successful source read supplied no submission facts")
+                ),
+                "forwarded native CLI fixture failed without its native-success witness"
+            );
             panic!("forwarded native CLI receipt barrier: successful source read supplied no submission facts");
         });
     assert_eq!(answer.rows(), 1);
