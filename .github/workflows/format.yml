@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, lock-overlay, main-forward-lock, config, vectors, driver, native, native-base, native-claims, raw-base, raw-claims, raw-diagnostic, raw-plans, raw-supplemental, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
+        options: [text, format, lock-format, lock-overlay, main-forward-lock, config, vectors, driver, native, native-base, native-claims, raw-base, raw-claims, raw-diagnostic, raw-plans, raw-supplemental, causality-online, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -410,6 +410,14 @@ jobs:
           nix build .#checks.x86_64-linux.fmt .#checks.x86_64-linux.clippy .#checks.x86_64-linux.hygiene --print-build-logs
           nix shell --inputs-from . nixpkgs#just --command just lint-workflows
 
+      - name: Measure full causality with an online registry
+        if: inputs.operation == 'causality-online'
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-online-causality.py" > /tmp/oracle-online-causality.py
+          sha256sum /tmp/oracle-online-causality.py > /tmp/oracle-export/online-causality-payload.sha256
+          python3 /tmp/oracle-online-causality.py
+
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
         run: nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate
@@ -451,7 +459,7 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims' || inputs.operation == 'raw-base' || inputs.operation == 'raw-claims' || inputs.operation == 'raw-diagnostic' || inputs.operation == 'raw-plans' || inputs.operation == 'raw-supplemental' || inputs.operation == 'oracle-split-claims')
+        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims' || inputs.operation == 'raw-base' || inputs.operation == 'raw-claims' || inputs.operation == 'raw-diagnostic' || inputs.operation == 'raw-plans' || inputs.operation == 'raw-supplemental' || inputs.operation == 'oracle-split-claims' || inputs.operation == 'causality-online')
         with:
           name: oracle-fixture-${{ inputs.operation }}-${{ inputs.source_sha }}
           path: |
@@ -464,6 +472,7 @@ jobs:
             target/oracle-raw-proof
             target/oracle-plan-proof
             target/oracle-supplemental-proof
+            target/oracle-online-causality
           retention-days: 7
 
       - uses: ./.github/actions/nix-store-cache-report
