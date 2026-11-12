@@ -44,7 +44,11 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof, query-complete-prepare]
+      source_tree:
+        description: Exact source tree for query completion preparation
+        required: false
+        type: string
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -96,10 +100,15 @@ jobs:
       - name: Record exact source
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          OPERATION: ${{ inputs.operation }}
         run: |
           set -euo pipefail
           test "$SOURCE_SHA" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain)"
+          if test "$OPERATION" = query-complete-prepare; then
+            test "$SOURCE_TREE" = "$(git rev-parse HEAD^{tree})"
+          fi
           mkdir -p /tmp/oracle-export
           git rev-parse HEAD > /tmp/oracle-export/source-sha
           git rev-parse 'HEAD^{tree}' > /tmp/oracle-export/source-tree
@@ -161,6 +170,16 @@ jobs:
               records.append({"path": str(path), "symlink": symlink, "sha256": hashlib.sha256(data).hexdigest()})
           Path("/tmp/oracle-export/main-forward-input-files.json").write_text(json.dumps(records, indent=2) + "\n")
           PYHASH
+
+      - name: Prepare query completion artifacts
+        if: inputs.operation == 'query-complete-prepare'
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+        run: |
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/prepare-query-completion.py" > /tmp/prepare-query-completion.py
+          sha256sum /tmp/prepare-query-completion.py > /tmp/oracle-export/query-preparation-script.sha256
+          python3 /tmp/prepare-query-completion.py
 
       - name: Resolve with the pinned generator
         if: inputs.operation == 'lock-format' || inputs.operation == 'main-forward-lock'
