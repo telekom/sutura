@@ -613,6 +613,7 @@ git() { [ "$1" = ls-remote ] && printf '%b' "$TAG_REFS"; }
             .filter_map(|call| call.strip_prefix("buildx imagetools create -t "))
             .filter_map(|rest| rest.split_whitespace().next())
             .collect();
+        assert_eq!(pushed.len(), 4, "{}", optimised.calls);
         let release = released("");
         assert!(release.succeeded, "{}", release.printed);
         let named: Vec<&str> = release
