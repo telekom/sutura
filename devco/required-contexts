@@ -189,7 +189,7 @@ ci.yml:queue-validated
 # The provisioned-Keycloak leg-1 venue: `if: needs.identity-classify.outputs.identity == 'true'`
 # (#983 moved it off `needs.ci.outputs.identity`, see `ci.yml:identity-classify` above), so it
 # reports nothing at all on a pull request whose diff does not touch the `identity` category - the
-# same reason `format.yml:format` below is advisory rather than the reason the since-removed
+# same reason `format.yml:oracle-export` below is advisory rather than the reason the since-removed
 # `bigquery-acceptance` leg was - that entry is gone from this file with the job. Unlike it this one
 # reads no secret and needs no environment, so a fork's pull request can run
 # it when the paths select it; what still rules out `[required]` is that most pull requests do not
@@ -332,15 +332,10 @@ examples.yml:examples
 # would need a `merge_group` trigger added here.
 security-audit.yml:audit
 
-# The text formatters: markdown, YAML and TOML through dprint, Python through ruff. Path-scoped, so
-# it reports nothing at all on a pull request that changes no text - which is on its own a reason it
-# cannot be required: a required context that does not report is a permanently pending merge, and
-# this one deliberately does not report on most pull requests. The same script runs in the
-# `format-text` commit hook and inside `just validate`, so a developer sees it before pushing and
-# this leg is the backstop rather than the only reader. Making it required would mean either
-# dropping the paths filter - a formatter run on every Rust-only pull request - or adding a job that
-# reports green when the filter excludes it, which is a context that says nothing.
-format.yml:format
+# The generator/export job runs only on workflow_dispatch. A path-selected pull request
+# can report it as skipped; that result establishes no generated output or validation.
+# This advisory context is not required for a product merge.
+format.yml:oracle-export
 
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
 # partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it

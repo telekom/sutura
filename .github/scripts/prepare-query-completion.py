@@ -11,6 +11,19 @@ from pathlib import Path
 OUT = Path("/tmp/oracle-export")
 ALLOWED = {
     "Cargo.lock",
+    "crates/sutura-exec-oracle/tests/acceptance.rs",
+    "crates/sutura-exec-oracle/tests/flashback.rs",
+    "crates/sutura-cli/tests/served/oracle_split.rs",
+    "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs",
+    "crates/sutura-cli/tests/served/duckdb.rs",
+    "crates/sutura-exec-datafusion/src/combine/merge.rs",
+    "crates/sutura-exec-datafusion/Cargo.toml",
+    "crates/sutura-cli/tests/snapshots/files-receipts-single.snap",
+    "crates/sutura-cli/tests/snapshots/files-receipts-stacked.snap",
+    "crates/sutura-cli/tests/snapshots/files-receipts-combined.snap",
+    "crates/sutura-exec-datafusion/src/combine/tests/snapshots/worker-input-receipts.snap",
+    "crates/sutura-exec-datafusion/src/combine/tests/snapshots/merge-receipts-joined-first.snap",
+    "crates/sutura-exec-datafusion/src/combine/tests/snapshots/merge-receipts-local-first.snap",
     "crates/sutura-app/tests/golden/service.rs",
     "crates/sutura-app/tests/support/support.rs",
     "crates/sutura-cli/Cargo.toml",
@@ -21,6 +34,13 @@ ALLOWED = {
     "crates/sutura-domain/src/pinned/tests.rs",
     "crates/sutura-exec-bigquery/Cargo.toml",
     "crates/sutura-exec-bigquery/tests/declared_principal/split.rs",
+    "crates/sutura-exec-datafusion/src/combine/across/grant/tests/reading_worker.rs",
+    "crates/sutura-exec-datafusion/src/combine/across/partition.rs",
+    "crates/sutura-exec-datafusion/src/combine/tests/across/served_split.rs",
+    "crates/sutura-exec-datafusion/src/combine/tests/across/served_split/fan_in.rs",
+    "crates/sutura-exec-datafusion/src/combine/tests/across/served_split/ends.rs",
+    "crates/sutura-exec-datafusion/src/combine/tests/across/served_split/tokens.rs",
+    "crates/sutura-exec-oracle/src/lib.rs",
     "crates/sutura-exec-datafusion/src/combine/across/receipts.rs",
     "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
     "devco/ignored-tests",
@@ -84,7 +104,7 @@ try:
         'rustfmt --edition 2024 vendor/datafusion-distributed/src/completion_chain_tests.rs\n'
         'export INSTA_UPDATE=always\n'
         'export CARGO_TARGET_DIR="$PWD/target/query-completion-prepare"\n'
-        'nix run .#just -- test "binary(example) & test(the_prompt_for_the_example_catalog_is_pinned)"',
+        'nix run .#just -- test "(binary(example) & test(the_prompt_for_the_example_catalog_is_pinned)) | (binary(served) & test(files_and_combined_answers_report_every_submitted_plan)) | (package(sutura-exec-datafusion) & (test(two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_not_match) | test(a_joined_arm_and_a_local_arm_merge_under_one_plan)))"',
     ])
 finally:
     after = manifest("output")
@@ -103,5 +123,5 @@ assert hashlib.sha256(index.read_bytes()).hexdigest() == index_before
 (OUT / "query-preparation-result.json").write_text(json.dumps({
     "source": source, "source_tree": tree, "output_tree": output_tree,
     "changed_paths": changed, "real_index_unchanged": True,
-    "scope": "pinned locks, formatting and both prompt snapshots; no mutation or validation credit",
+    "scope": "pinned locks, formatting, prompt and six receipt snapshot candidates; generation only, no pristine, mutation or validation credit",
 }, indent=2) + "\n")
