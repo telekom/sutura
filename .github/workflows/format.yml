@@ -1,4 +1,4 @@
-name: oracle-image-hash
+name: oracle-wallet-image-hash
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: oracle-image-hash-${{ github.ref }}
+  group: oracle-wallet-image-hash-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -56,25 +56,26 @@ jobs:
           python3 - <<'CHECK'
           import pathlib
           import re
-          source = pathlib.Path('source/compose.services.yaml').read_text()
-          matches = re.findall(r'gvenzl/oracle-free:([^@\s]+)@sha256:([0-9a-f]{64})', source)
+          source = pathlib.Path('source/nix/oracle-tier-tls.sh').read_text()
+          matches = re.findall(r'^image="(container-registry.oracle.com/database/free):([^@"]+)@(sha256:[0-9a-f]{64})"$', source, re.M)
           assert len(matches) == 1, matches
-          tag, digest = matches[0]
+          name, tag, digest = matches[0]
+          pathlib.Path('evidence/image-name.txt').write_text(name)
           pathlib.Path('evidence/image-tag.txt').write_text(tag)
-          pathlib.Path('evidence/image-digest.txt').write_text('sha256:' + digest)
+          pathlib.Path('evidence/image-digest.txt').write_text(digest)
           CHECK
           cd source
           nix shell --inputs-from . nixpkgs#nix-prefetch-docker --command nix-prefetch-docker \
-            --image-name gvenzl/oracle-free \
+            --image-name "$(cat ../evidence/image-name.txt)" \
             --image-digest "$(cat ../evidence/image-digest.txt)" \
             --final-image-tag "$(cat ../evidence/image-tag.txt)" \
-            --os linux --arch amd64 > ../evidence/image.json
-          test -s ../evidence/image.json
+            --os linux --arch amd64 > ../evidence/image.nix
+          test -s ../evidence/image.nix
       - name: Retain acquisition evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: oracle-image-hash-${{ inputs.request_id }}
+          name: oracle-wallet-image-hash-${{ inputs.request_id }}
           path: evidence/
           if-no-files-found: error
           retention-days: 14
