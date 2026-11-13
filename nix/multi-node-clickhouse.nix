@@ -160,7 +160,9 @@ let
       networks.ip = "0.0.0.0/0";
       profile = if name == "analyst_readonly" then "read_only_caller" else "default";
       quota = "default";
-      grants.query = [ "GRANT SELECT ON default.*" ];
+      grants.query = [ "GRANT SELECT ON default.*" ] ++ pkgs.lib.optionals (builtins.elem name [ "analyst_a" "analyst_b" ]) [
+        "GRANT SELECT(rows, bytes_on_disk, active, database, table) ON system.parts"
+      ];
       databases.default.dim_customer_split.filter = filter;
     }) { analyst_a = "1"; analyst_b = "region = 'north'"; analyst_ungranted = "1"; analyst_readonly = "1"; };
     profiles = { default = { log_queries = 1; log_query_settings = 1; }; read_only_caller = { readonly = 1; }; };
