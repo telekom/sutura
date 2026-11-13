@@ -28,6 +28,7 @@ struct Channel {
     cut_after_row: Option<Arc<Notify>>,
     worker_timeout: Option<Duration>,
     cuts: Arc<AtomicUsize>,
+    preparations: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -47,6 +48,7 @@ impl WorkerChannel for Channel {
             .inner
             .coordinator_channel(headers, request, input, metrics, context)
             .await?;
+        self.preparations.fetch_add(1, Ordering::SeqCst);
         let Some(row_observed) = self.cut_after_row.as_ref().map(Arc::clone) else {
             return Ok(output);
         };
@@ -92,6 +94,7 @@ struct Resolver {
     cut_after_row: Option<Arc<Notify>>,
     worker_timeout: Option<Duration>,
     cuts: Arc<AtomicUsize>,
+    preparations: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -106,6 +109,7 @@ impl ChannelResolver for Resolver {
             cut_after_row: self.cut_after_row.as_ref().map(Arc::clone),
             worker_timeout: self.worker_timeout,
             cuts: Arc::clone(&self.cuts),
+            preparations: Arc::clone(&self.preparations),
         }))
     }
 }
@@ -127,10 +131,16 @@ fn execution(
     producer: Option<Arc<TaskCompletionProducer>>,
     cut_after_row: Option<Arc<Notify>>,
     worker_timeout: Option<Duration>,
-) -> (SendableRecordBatchStream, Arc<QueryCompletion>, Arc<AtomicUsize>) {
+) -> (
+    SendableRecordBatchStream,
+    Arc<QueryCompletion>,
+    Arc<AtomicUsize>,
+    Arc<AtomicUsize>,
+) {
     let worker = worker(producer);
     let completion = Arc::new(QueryCompletion::new(1, 1, 8, Instant::now() + Duration::from_secs(2)).unwrap());
     let cuts = Arc::new(AtomicUsize::new(0));
+    let preparations = Arc::new(AtomicUsize::new(0));
     let state = SessionStateBuilder::new()
         .with_default_features()
         .with_config(SessionConfig::new().with_extension(Arc::clone(&completion)))
@@ -147,6 +157,7 @@ fn execution(
             cut_after_row,
             worker_timeout,
             cuts: Arc::clone(&cuts),
+            preparations: Arc::clone(&preparations),
         })
         .build();
     let values: ArrayRef = Arc::new(Int32Array::from(vec![7]));
@@ -155,7 +166,7 @@ fn execution(
     let boundary = Arc::new(NetworkCoalesceExec::try_new(leaf, 1, 1).unwrap());
     let plan = DistributedExec::new(boundary);
     let stream = plan.execute(0, SessionContext::from(state).task_ctx()).unwrap();
-    (stream, completion, cuts)
+    (stream, completion, cuts, preparations)
 }
 
 async fn drain(
@@ -193,7 +204,7 @@ fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
 #[tokio::test]
 async fn completion_chain_publishes_receipts_only_after_real_worker_rows() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), None, None);
+    let (stream, completion, cuts, _) = execution(Some(ready(Arc::clone(&calls))), None, None);
     assert!(completion.take().is_err());
     let (rows, failure) = drain(stream)
         .await
@@ -211,7 +222,7 @@ async fn completion_chain_publishes_receipts_only_after_real_worker_rows() {
 async fn completion_chain_refuses_worker_channel_eof_after_rows_without_a_receipt() {
     let calls = Arc::new(AtomicUsize::new(0));
     let row_observed = Arc::new(Notify::new());
-    let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), Some(Arc::clone(&row_observed)), None);
+    let (stream, completion, cuts, _) = execution(Some(ready(Arc::clone(&calls))), Some(Arc::clone(&row_observed)), None);
     let stream = stream.inspect_ok(move |batch| {
         if batch.num_rows() > 0 {
             row_observed.notify_one();
@@ -233,10 +244,11 @@ async fn completion_chain_refuses_worker_channel_eof_after_rows_without_a_receip
 
 #[tokio::test]
 async fn completion_chain_refuses_a_missing_producer_before_worker_rows() {
-    let (stream, completion, _) = execution(None, None, None);
+    let (stream, completion, _, preparations) = execution(None, None, None);
     let (rows, failure) = drain(stream)
         .await
         .expect("the production deadline must terminate the query before the harness");
+    assert_eq!(preparations.load(Ordering::SeqCst), 0);
     assert_eq!(rows, 0);
     let failure = failure.expect("required producer is absent");
     assert!(
@@ -258,7 +270,7 @@ async fn completion_chain_bounds_a_pending_producer_after_worker_rows() {
         })
     }));
     // Keep the worker timer beyond the harness so only the query timer can satisfy this cell.
-    let (stream, completion, _) = execution(Some(producer), None, Some(Duration::from_secs(20)));
+    let (stream, completion, _, _) = execution(Some(producer), None, Some(Duration::from_secs(20)));
     let (rows, failure) = drain(stream)
         .await
         .expect("the production deadline must terminate the query before the harness");
