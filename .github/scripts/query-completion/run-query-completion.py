@@ -10,6 +10,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import tomllib
+
 PAYLOAD = Path(__file__).resolve().parent
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -290,7 +292,50 @@ def run_base(config, out):
     assert path == "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs"
     data = (SOURCE / path).read_bytes()
     assert sha(data) == base["overlay_sha256"]
+    previous_home = os.environ.get("CARGO_HOME")
     try:
+        cargo_home = root / "target/completion-cargo-home"
+        cargo_home.mkdir(parents=True)
+        os.environ["CARGO_HOME"] = str(cargo_home)
+        code, _ = invoke(
+            root, out, "base-registry", task(root, "proof-vendor-registry")
+        )
+        assert code == 0, "historical source vendor registry failed"
+        registry_config = (cargo_home / "config.toml").read_bytes()
+        (out / "base-cargo-config.toml").write_bytes(registry_config)
+        expected = {
+            (package["name"], package["version"]): package["checksum"]
+            for package in tomllib.loads((root / "Cargo.lock").read_text())["package"]
+            if package.get("source", "").startswith("registry+")
+        }
+        observed = {}
+        directories = {
+            source["directory"]
+            for source in tomllib.loads(registry_config.decode())["source"].values()
+            if "directory" in source
+        }
+        for directory in sorted(directories):
+            for manifest in sorted(Path(directory).glob("*/Cargo.toml")):
+                package = tomllib.loads(manifest.read_text())["package"]
+                checksum = json.loads(
+                    (manifest.parent / ".cargo-checksum.json").read_text()
+                )["package"]
+                if checksum is not None:
+                    key = (package["name"], package["version"])
+                    assert key not in observed or observed[key] == checksum
+                    observed[key] = checksum
+        record(
+            out / "base-registry-census.json",
+            {
+                "source": base["source"],
+                "lock_sha256": sha((root / "Cargo.lock").read_bytes()),
+                "expected": [[*key, value] for key, value in sorted(expected.items())],
+                "observed": [[*key, value] for key, value in sorted(observed.items())],
+            },
+        )
+        assert observed == expected, (
+            "historical vendor registry differs from historical lock"
+        )
         (root / path).write_bytes(data)
         overlaid = snapshot(root)
         record(out / "base-overlay-after.json", overlaid)
@@ -321,6 +366,10 @@ def run_base(config, out):
         )
         assert killed, "published catalog base did not fail by its named own assertion"
     finally:
+        if previous_home is None:
+            os.environ.pop("CARGO_HOME", None)
+        else:
+            os.environ["CARGO_HOME"] = previous_home
         restore(root, out, "base", [path], before)
         record(out / "base-final.json", snapshot(root))
         assert same_source(snapshot(root), before)
@@ -812,7 +861,7 @@ def main():
             subprocess.run(["nix-store", "--realise", path], check=True)
         if GROUP == "native-postgres":
             run_postgres(config, out)
-        else:
+        elif GROUP != "offline" or config["cases"]:
             run_cases(config, out)
         if GROUP == "offline":
             run_base(config, out)
