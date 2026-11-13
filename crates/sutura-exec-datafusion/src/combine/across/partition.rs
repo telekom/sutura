@@ -53,7 +53,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
 
 use super::grant::{self, AdmittedRead, ReadingKeys};
-use super::{StageReadsASource, carried};
+use super::{StageReadsASource, SubmissionCapture, carried};
 
 /// Reads one partition of one source for a reading task. `pub`, not `pub(super)`:
 /// [`super::Nodes::worker_reading`] names it in a `pub fn` signature, so this trait cannot be more
@@ -65,6 +65,9 @@ pub trait PartitionReader: Send + Sync {
     ///
     /// # Errors
     ///
+    /// When `capture` is present, begin its guard inside the native operation and complete it
+    /// with actual submission facts before returning rows. Successful reads without facts fail.
+    ///
     /// [`Unread::LegNotCertified`] when this node does not certify the leg `wire` carries;
     /// [`Unread::DidNotFit`] for a partition past this node's per-stream bound; [`Unread::Failed`]
     /// for anything else.
@@ -75,6 +78,7 @@ pub trait PartitionReader: Send + Sync {
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
+        capture: Option<SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread>;
 
     /// [`Self::read`], with `forwarded`, the caller's own token the partition's grant names.
@@ -91,6 +95,7 @@ pub trait PartitionReader: Send + Sync {
         _partition: &[u8],
         _schema: &SchemaRef,
         forwarded: Forwarded,
+        _capture: Option<SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         drop(forwarded);
         Err(Unread::Failed(DataFusionError::Execution(format!(
@@ -112,6 +117,7 @@ pub trait PartitionReader: Send + Sync {
         _partition: &[u8],
         _schema: &SchemaRef,
         switched: SwitchedPrincipal,
+        _capture: Option<SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         drop(switched);
         Err(Unread::Failed(DataFusionError::Execution(format!(
@@ -276,7 +282,9 @@ where
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
+        capture: Option<SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
+        drop(capture);
         self(source, partition, schema).map_err(Unread::Failed)
     }
 }
@@ -367,6 +375,7 @@ pub(super) struct PartitionScanExec {
     grant: Option<Vec<u8>>,
     carried: Mutex<Carried>,
     admitted: Mutex<Option<AdmittedRead>>,
+    capture: Mutex<Option<SubmissionCapture>>,
     properties: Arc<PlanProperties>,
 }
 
@@ -427,8 +436,13 @@ impl PartitionScanExec {
             grant,
             carried: Mutex::new(Carried::Nothing),
             admitted: Mutex::new(None),
+            capture: Mutex::new(None),
             properties,
         }
+    }
+
+    pub(super) fn submission_capture(&self) -> Option<SubmissionCapture> {
+        self.capture.lock().clone()
     }
 
     /// This scan, read with `forwarded`.
@@ -533,6 +547,8 @@ impl ExecutionPlan for PartitionScanExec {
             .get_extension::<ReaderExtension>()
             .ok_or_else(|| DataFusionError::Execution(String::from("this worker was built with no partition reader")))?;
         let schema = self.properties.eq_properties.schema();
+        let capture = self.submission_capture().map(|capture| capture.for_read());
+        let required_capture = capture.clone();
         let mut batches = match self.taken()? {
             Carried::Token(forwarded) => reader.0.read_forwarded(
                 &admitted.verifier,
@@ -541,6 +557,7 @@ impl ExecutionPlan for PartitionScanExec {
                 &self.partition,
                 schema,
                 forwarded,
+                capture,
             ),
             Carried::Principal(switched) => reader.0.read_switched(
                 &admitted.verifier,
@@ -549,11 +566,12 @@ impl ExecutionPlan for PartitionScanExec {
                 &self.partition,
                 schema,
                 switched,
+                capture,
             ),
             Carried::Nothing | Carried::Taken { .. } => {
                 reader
                     .0
-                    .read(&admitted.verifier, &self.wire, &self.source, &self.partition, schema)
+                    .read(&admitted.verifier, &self.wire, &self.source, &self.partition, schema, capture)
             }
         }
         .map_err(Unread::into_error)?;
@@ -568,6 +586,9 @@ impl ExecutionPlan for PartitionScanExec {
                         Unread::Failed(DataFusionError::External(Box::new(cause)))
                     }
                 })?;
+            }
+            if let Some(capture) = required_capture {
+                capture.require_recorded()?;
             }
             Ok(accepted.finish())
         }))
@@ -768,6 +789,26 @@ pub(super) fn reads_partition_or_nothing(
                         forwarded.ends = SystemTime::UNIX_EPOCH
                             .checked_add(admitted.ends)
                             .unwrap_or(SystemTime::UNIX_EPOCH);
+                    }
+                    if event
+                        .session_config
+                        .get_extension::<datafusion_distributed::CompletionRequest>()
+                        .is_some()
+                    {
+                        let mut capture = leaf.capture.lock();
+                        let budget = event
+                            .session_config
+                            .get_extension::<super::receipts::TaskReceiptBudget>()
+                            .ok_or_else(|| DataFusionError::Execution(String::from("task receipt budget is missing")))?;
+                        match capture.as_ref() {
+                            Some(known) if !known.belongs_to(&budget) => {
+                                return Err(DataFusionError::Execution(String::from(
+                                    "source capture reused by another task",
+                                )));
+                            }
+                            Some(_) => {}
+                            None => *capture = Some(SubmissionCapture::new(leaf.source.clone(), budget)),
+                        }
                     }
                     *leaf.admitted.lock() = Some(admitted);
                     drop(carried);

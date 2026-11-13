@@ -57,6 +57,7 @@ pub struct ResultBatches {
     schema: SchemaRef,
     batches: Vec<RecordBatch>,
     rows: usize,
+    executions: Vec<super::execution::Execution>,
 }
 
 /// Why a result stream was refused, before any value in it was read.
@@ -301,11 +302,45 @@ impl Accumulating {
             schema: self.announced,
             batches: self.batches,
             rows: self.rows,
+            executions: Vec::new(),
         }
     }
 }
 
 impl ResultBatches {
+    /// Attaches facts from the same execution that produced these batches.
+    #[must_use]
+    pub fn with_execution(mut self, execution: super::execution::Execution) -> Self {
+        self.executions.push(execution);
+        self
+    }
+
+    /// Appends owned submissions, preserving their input order and multiplicity.
+    #[must_use]
+    pub fn with_executions(mut self, executions: Vec<super::execution::Execution>) -> Self {
+        self.executions.extend(executions);
+        self
+    }
+
+    /// Prepends earlier submissions, moving this result's existing records after them.
+    #[must_use]
+    pub fn with_prior_executions(mut self, mut executions: Vec<super::execution::Execution>) -> Self {
+        executions.extend(self.take_executions());
+        self.executions = executions;
+        self
+    }
+
+    /// Whether this result reports at least one actual submission, even with zero rows.
+    #[must_use]
+    pub const fn has_executions(&self) -> bool {
+        !self.executions.is_empty()
+    }
+
+    /// Takes the request's execution facts before the presentation edge decodes the batches.
+    pub fn take_executions(&mut self) -> Vec<super::execution::Execution> {
+        core::mem::take(&mut self.executions)
+    }
+
     /// A result with no rows, under a schema - what an adapter answers for an empty stream.
     ///
     /// The budget is the smallest one that exists and nothing is charged against it: no batch is

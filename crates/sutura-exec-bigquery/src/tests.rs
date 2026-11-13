@@ -88,6 +88,38 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
 }
 
 #[test]
+fn bigquery_execution_capture_matches_the_submitted_job_request() {
+    use sutura_domain::warehouse::execution::{Binding, BindingIdentity, BindingValue, Execution};
+    use sutura_domain::warehouse::schema::TypeDialect;
+    let warehouse = open(Recording::empty(), shared_posture());
+    let plan = plan();
+    let mut answered = warehouse
+        .execute(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
+        .expect("the job answers");
+    let sent = warehouse.transport.seen.borrow();
+    let [asked] = sent.as_slice() else {
+        panic!("one submitted job");
+    };
+    let records = answered.take_executions();
+    let expected = Execution::Sql {
+        source: source(),
+        dialect: TypeDialect::BigQuery,
+        sql: asked.statement.clone(),
+        parameters: vec![
+            Binding::new(
+                BindingIdentity::Position(0),
+                BindingValue::Date32(day("2026-06-01").days_since_epoch()),
+            ),
+            Binding::new(
+                BindingIdentity::Position(1),
+                BindingValue::Date32(day("2026-07-01").days_since_epoch()),
+            ),
+        ],
+    };
+    assert_eq!(records, [expected]);
+}
+
+#[test]
 fn a_billed_job_carries_the_requests_labels_and_a_plain_one_carries_none() {
     use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
     let warehouse = open(Recording::empty(), shared_posture());

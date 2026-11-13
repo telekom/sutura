@@ -84,6 +84,7 @@ fn ran(ceiling: FederatedRowCeiling) -> Vec<Result<usize, DataFusionError>> {
     };
     servers().block_on(async {
         let set = SetPlanRequest {
+            completion: None,
             task_key,
             task_count: 1,
             plan: MaybeEncoded::Encoded(stage),

@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/served/duckdb.rs
+expression: "body[\"executions\"]"
+---
+- kind: datafusion
+  source: local
+  stage: files
+  logical_plan: "Limit: skip=0, fetch=10001\n  Sort: period ASC NULLS LAST\n    Projection: date_trunc(Utf8(\"month\"),fct_subscription_monthly.month) AS period, sum(fct_subscription_monthly.mrr_cents) AS recurring_revenue\n      Aggregate: groupBy=[[CAST(date_trunc(Utf8(\"month\"), fct_subscription_monthly.month) AS Date32)]], aggr=[[sum(fct_subscription_monthly.mrr_cents)]]\n        Filter: fct_subscription_monthly.month >= Date32(\"2026-06-01\") AND fct_subscription_monthly.month < Date32(\"2026-07-01\") AND fct_subscription_monthly.status = Utf8(\"active\")\n          TableScan: fct_subscription_monthly"

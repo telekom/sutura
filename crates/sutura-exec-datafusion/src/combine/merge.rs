@@ -26,6 +26,7 @@ use datafusion::prelude::SessionContext;
 use sutura_domain::plan::{Arm, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, LocalArm};
 use sutura_domain::query::{TopBy, TopDirection};
 use sutura_domain::warehouse::ResultBatches;
+use sutura_domain::warehouse::execution::Execution;
 
 use super::arm::{above_expression, leaf_labels, qualified, scan, schema_mismatch};
 use super::schema::{FACT, LegSchema, same_kind};
@@ -70,7 +71,7 @@ async fn merged(
     }
     let grouped: Vec<&str> = plan.keys().into_iter().chain([plan.bucket_label()]).collect();
     let first_legs = arms.first().ok_or(CombineError::ArmsMiswired { arm: 0 })?;
-    let first = cut(
+    let (first, mut executions) = cut(
         0,
         plan.arms().first(),
         first_legs,
@@ -83,7 +84,8 @@ async fn merged(
     let mut running = aliased(first, MERGED)?;
     let mut measures = vec![plan.arms().first().measure_label()];
     for (index, (arm, legs)) in plan.arms().iter().zip(arms).enumerate().skip(1) {
-        let next = cut(index, arm, legs, &grouped, context, (ceiling_bytes, working_set)).await?;
+        let (next, submitted) = cut(index, arm, legs, &grouped, context, (ceiling_bytes, working_set)).await?;
+        executions.extend(submitted);
         agreeing_kinds(&grouped, plan.bucket_label(), &first_kinds, &kinds_of(&next, &grouped)?)?;
         running = joined_with(running, next, &grouped, &measures, arm.measure_label())?;
         measures.push(arm.measure_label());
@@ -111,7 +113,9 @@ async fn merged(
         })
         .and_then(LogicalPlanBuilder::build)
         .map_err(|cause| CombineError::Build { cause })?;
-    executed(context, logical, labels, measures.len(), ceiling_bytes, working_set).await
+    executed(context, logical, labels, measures.len(), ceiling_bytes, working_set)
+        .await
+        .map(|rows| rows.with_prior_executions(executions))
 }
 
 /// One arm's logical plan.
@@ -122,11 +126,13 @@ async fn cut(
     grouped: &[&str],
     context: &SessionContext,
     (ceiling_bytes, working_set): (u64, WorkingSet),
-) -> Result<LogicalPlan, CombineError> {
+) -> Result<(LogicalPlan, Vec<Execution>), CombineError> {
     match (arm, legs) {
         (Arm::Joined(joined), ArmLegs::Joined(legs)) => arm_plan(joined, legs, context, ceiling_bytes, working_set).await,
         (Arm::Local(local), ArmLegs::Local { metric, batches }) if *metric == arm.metric() => {
-            local_plan(local, grouped, context, batches).await
+            local_plan(local, grouped, context, batches)
+                .await
+                .map(|logical| (logical, Vec::new()))
         }
         (Arm::Joined(_), ArmLegs::Local { .. }) | (Arm::Local(_), ArmLegs::Joined(_) | ArmLegs::Local { .. }) => {
             Err(CombineError::ArmsMiswired { arm: index })
@@ -270,6 +276,7 @@ mod tests {
         PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
     };
     use sutura_domain::warehouse::arrow::of_row_set;
+    use sutura_domain::warehouse::execution::Execution;
     use sutura_domain::warehouse::{Accumulating, Real, ResultBatches, ResultBudget, RowSet, Value};
 
     use crate::combine::{CombineError, DataFusionCombiner};
@@ -528,50 +535,91 @@ mod tests {
 
     #[test]
     fn a_joined_arm_and_a_local_arm_merge_under_one_plan() {
-        let (arm, plan) = joined("revenue");
-        let drill = plan_of(vec![arm, local("visits")]);
-        let fact = batches(
-            [InternalLabel::link(0).label(), String::from(TIME_BUCKET_LABEL), leaf()],
-            vec![
-                [text("c1"), text("2026-06"), Value::Integer(100)],
-                [text("c2"), text("2026-06"), Value::Integer(200)],
-            ],
-        );
-        let lookup = of_row_set(
-            &RowSet::new(
-                vec![InternalLabel::link(0).label(), String::from("region")],
-                vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]],
-            )
-            .expect("a test lookup"),
-        )
-        .expect("a lookup converts");
-        let visits = leg(vec![(text("north"), 7), (text("south"), 3)]);
-        let results = results_of(&plan, [fact, lookup]);
-        let legs = Legs::assign(&plan, &results).expect("one result per leg");
-        let answered = combiner()
-            .merge(
-                &drill,
-                &[
-                    ArmLegs::Joined(legs),
-                    ArmLegs::Local {
-                        metric: &metric("visits"),
-                        batches: &visits,
-                    },
+        for joined_first in [true, false] {
+            let (arm, plan) = joined("revenue");
+            let drill = plan_of(if joined_first {
+                vec![arm, local("visits")]
+            } else {
+                vec![local("visits"), arm]
+            });
+            let fact = batches(
+                [InternalLabel::link(0).label(), String::from(TIME_BUCKET_LABEL), leaf()],
+                vec![
+                    [text("c1"), text("2026-06"), Value::Integer(100)],
+                    [text("c2"), text("2026-06"), Value::Integer(200)],
                 ],
-                UNBOUNDED,
+            );
+            let lookup = of_row_set(
+                &RowSet::new(
+                    vec![InternalLabel::link(0).label(), String::from("region")],
+                    vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]],
+                )
+                .expect("a test lookup"),
             )
-            .expect("the arms merge")
-            .to_rows()
-            .expect("the answer decodes");
+            .expect("a lookup converts");
+            let visits = leg(vec![(text("north"), 7), (text("south"), 3)]);
+            let results = results_of(&plan, [fact, lookup]);
+            let legs = Legs::assign(&plan, &results).expect("one result per leg");
+            let visits_metric = metric("visits");
+            let local = ArmLegs::Local {
+                metric: &visits_metric,
+                batches: &visits,
+            };
+            let arms = if joined_first {
+                [ArmLegs::Joined(legs), local]
+            } else {
+                [local, ArmLegs::Joined(legs)]
+            };
+            let mut batches = combiner().merge(&drill, &arms, UNBOUNDED).expect("the arms merge");
+            let records = batches.take_executions();
+            let answered = batches.to_rows().expect("the answer decodes");
 
-        assert_eq!(answered.columns(), &["region", "period", "revenue", "visits"]);
-        assert_eq!(
-            answered.rows(),
-            &[
-                vec![text("north"), text("2026-06"), Value::Integer(300), Value::Integer(7)],
-                vec![text("south"), text("2026-06"), Value::Null, Value::Integer(3)],
-            ]
-        );
+            let columns = if joined_first {
+                ["region", "period", "revenue", "visits"]
+            } else {
+                ["region", "period", "visits", "revenue"]
+            };
+            assert_eq!(answered.columns(), &columns);
+            assert_eq!(
+                answered.rows(),
+                &[
+                    if joined_first {
+                        vec![text("north"), text("2026-06"), Value::Integer(300), Value::Integer(7)]
+                    } else {
+                        vec![text("north"), text("2026-06"), Value::Integer(7), Value::Integer(300)]
+                    },
+                    if joined_first {
+                        vec![text("south"), text("2026-06"), Value::Null, Value::Integer(3)]
+                    } else {
+                        vec![text("south"), text("2026-06"), Value::Integer(3), Value::Null]
+                    },
+                ]
+            );
+            assert_eq!(
+                records.len(),
+                2,
+                "the joined arm probe and final merge must both survive either arm order"
+            );
+            assert!(
+                records.iter().all(|record| matches!(
+                    record,
+                    Execution::DataFusion {
+                        source: None,
+                        stage: sutura_domain::warehouse::execution::PlanStage::Combine,
+                        ..
+                    }
+                )),
+                "merge directly submits only its probe and final plan"
+            );
+            let name = if joined_first {
+                "merge-receipts-joined-first"
+            } else {
+                "merge-receipts-local-first"
+            };
+            insta::with_settings!({prepend_module_to_snapshot => false, snapshot_path => "tests/snapshots"}, {
+                insta::assert_debug_snapshot!(name, records);
+            });
+        }
     }
 
     #[test]

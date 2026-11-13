@@ -100,7 +100,7 @@ pub enum InvalidResponseByteLimit {
 }
 
 impl ResponseByteLimit {
-    /// 8 MiB of rendered cell text.
+    /// 8 MiB of rendered cells and reported execution text, including SQL binding values.
     ///
     /// **A round number chosen against the TYPICAL case, and stated as one rather than as a derived
     /// bound.** A well-behaved question is nowhere near it: `plan::MAX_ROWS` rows of

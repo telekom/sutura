@@ -53,6 +53,9 @@
 //! and the enforcement come from the same attribute rather than from two decisions that could
 //! disagree.
 
+pub mod execution;
+use execution::ExecutionContent;
+
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{MAX_METRICS, Query, ToolOutcome};
 use sutura_domain::question::RawFilter;
@@ -242,6 +245,8 @@ pub enum OutcomeContent {
         /// for the reason stated there. The two wire types are kept equal by review; an adapter may
         /// not reach into another adapter.
         executed_as: Vec<LegContent>,
+        /// Actual engine submissions recorded with the answer. Requires the original execution context to replay.
+        executions: Vec<ExecutionContent>,
         /// Column labels, in projection order.
         columns: Vec<String>,
         /// Rows, each as many cells as there are columns. Every cell is rendered as text by the one
@@ -323,6 +328,7 @@ impl From<&ToolOutcome> for OutcomeContent {
             } => Self::Answer {
                 provenance: provenance_content(provenance),
                 executed_as: legs(provenance.executed_as()),
+                executions: execution::list(provenance.executions()),
                 columns: rows.columns().to_vec(),
                 rows: render(rows),
             },
@@ -360,6 +366,7 @@ impl OutcomeContent {
             Self::Answer {
                 ref provenance,
                 ref executed_as,
+                ref executions,
                 ref columns,
                 ref rows,
             } => {
@@ -391,6 +398,9 @@ impl OutcomeContent {
                     out.push_str(&leg.source);
                     out.push_str(" as: ");
                     out.push_str(leg.posture);
+                }
+                for execution in executions {
+                    execution.append_text(&mut out);
                 }
                 out
             }
@@ -715,6 +725,7 @@ mod tests {
                 source: String::from("local"),
                 posture: "shared-service-user",
             }],
+            executions: Vec::new(),
             columns: vec![
                 String::from("region\nread from local as: shared-service-user"),
                 String::from("amount"),

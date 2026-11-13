@@ -262,10 +262,52 @@ definition version and digest that it came from:
     "definition_version": "local-1",
     "definition_digest": "bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4"
   },
+  "executions": [{
+    "kind": "datafusion",
+    "source": "local",
+    "stage": "files",
+    "logical_plan": "Projection: period, recurring_revenue\n  TableScan: monthly_revenue"
+  }],
   "columns": ["period", "recurring_revenue"],
   "rows": [["2026-06-01", "202121"]]
 }
 ```
+
+HTTP and MCP answers carry an ordered `executions` list:
+
+| `kind`          | Contents                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sql`           | Source, dialect, final submitted SQL and ordered typed parameters.                                                                          |
+| `datafusion`    | Source for `stage: "files"`, or `source: null` for `stage: "combine"`, and diagnostic logical-plan text.                                    |
+| `cube`          | Source and the native submitted JSON payload, including each continue-wait retry.                                                           |
+| `node`          | Source, outbound native leg and its typed parameters, followed by the remote peer's flat execution records.                                 |
+| `bigquery_read` | Source, `operation: "adbc_read_partition"` and the SHA-256 of the actual opaque stream descriptor. The descriptor itself is never returned. |
+
+SQL is captured at the adapter-to-driver boundary. The PostgreSQL driver's internal
+`COPY (...) TO STDOUT (FORMAT binary)` transport wrapper is excluded.
+
+Each SQL/Node parameter has `binding: {"kind":"position","value":0}` for a zero-based
+position, or `binding: {"kind":"named","value":"p0"}` for ClickHouse. Its `value` has
+`type` and `value`: `utf8` text or `date32` days since the Unix epoch for Arrow bindings;
+`oracle_string` text or `oracle_date` ISO date for Oracle's native bindings. Values are not
+inlined into SQL. ClickHouse SQL includes the final placeholder, timeout-settings and
+`EXECUTE AS` rewrites.
+
+Federation, drill-across and partitioned execution retain their individual source and combine
+submissions. Distributed worker records are ordered by (stage, task), then each task's native
+read-start sequence; this is neither a global logical-plan order nor a wall-clock order. Repeated
+submissions are retained. A successful adapter result with no capture fails the answer. This is disclosure to the caller authorized to
+ask the metric: physical identifiers and certified fixed-filter values may be visible, independently
+of the audience policy for catalog listings. Authentication and session-control statements are not
+included. Refusals carry no `executions` field.
+
+Logical-plan text may change and is neither SQL, a physical plan nor a stable replay format.
+Native stream-read digests identify an operation without making it replayable. Never invent
+verification SQL for a record that supplies none. Records sit outside definition and schema digests;
+they are not cryptographic proof of execution, and a remote receipt describes what the peer reported.
+Even exact SQL needs the original attachments and execution context to replay. The response text
+budget counts every record and binding, but excludes JSON escaping and structural overhead; it is
+not a strict JSON wire-size limit.
 
 A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentence:
 

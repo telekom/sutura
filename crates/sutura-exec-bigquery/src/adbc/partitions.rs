@@ -110,6 +110,7 @@ pub struct SplitLeg {
     partitioned: Partitioned,
     forwarded: SourceToken,
     until: SystemTime,
+    executions: Vec<sutura_domain::warehouse::execution::Execution>,
 }
 
 impl SplitLeg {
@@ -118,7 +119,19 @@ impl SplitLeg {
             partitioned,
             forwarded,
             until,
+            executions: Vec::new(),
         }
+    }
+
+    /// Attaches the one SQL job submitted to create these streams, never one copy per stream.
+    #[must_use]
+    pub fn with_execution(mut self, execution: sutura_domain::warehouse::execution::Execution) -> Self {
+        self.executions.push(execution);
+        self
+    }
+
+    pub fn take_executions(&mut self) -> Vec<sutura_domain::warehouse::execution::Execution> {
+        core::mem::take(&mut self.executions)
     }
 
     /// The columns every stream answers.

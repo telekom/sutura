@@ -525,4 +525,158 @@ mod adbc_execute_as_legs {
         expected.sort();
         assert_eq!(identities, expected, "{logged}");
     }
+
+    #[test]
+    fn a_switched_leg_reports_final_rewrites_and_typed_bindings() {
+        use std::net::SocketAddr;
+        use std::sync::mpsc;
+        use sutura_domain::warehouse::execution::{BindingIdentity, BindingValue, Execution};
+        use sutura_domain::warehouse::schema::TypeDialect;
+        let Some(tier) = Tier::here("execution_capture") else { return };
+        tier.load(LEGS);
+        let native = SocketAddr::new(
+            tier.host.parse().expect("the fixture publishes a numeric native address"),
+            tier.port,
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a relay port binds");
+        listener.set_nonblocking(true).expect("relay accept is bounded");
+        let endpoint = format!("http://{}/?database={LEGS}", listener.local_addr().unwrap());
+        let (finished, done) = mpsc::channel();
+        let relay = thread::spawn(move || {
+            let until = Instant::now() + Duration::from_secs(60);
+            let remaining = || {
+                until
+                    .checked_duration_since(Instant::now())
+                    .filter(|left| !left.is_zero())
+                    .expect("the native relay exceeded its total budget")
+                    .min(Duration::from_secs(10))
+            };
+            let forward = |stream: &mut TcpStream, mut bytes: &[u8]| {
+                while !bytes.is_empty() {
+                    stream
+                        .set_write_timeout(Some(remaining()))
+                        .expect("the remaining write budget sets");
+                    let written = match stream.write(bytes) {
+                        Ok(written) => written,
+                        Err(cause) if cause.kind() == ErrorKind::Interrupted => continue,
+                        Err(cause) => panic!("the relay could not forward bytes: {cause}"),
+                    };
+                    assert!(written > 0, "the relay write made no progress");
+                    bytes = &bytes[written..];
+                }
+                assert!(Instant::now() < until, "the relay forwarding exceeded its total budget");
+            };
+            let mut queries = Vec::new();
+            loop {
+                assert!(Instant::now() < until, "the native relay exceeded its total budget");
+                let mut client = match listener.accept() {
+                    Ok((client, _)) => client,
+                    Err(cause) if cause.kind() == ErrorKind::WouldBlock => {
+                        if done.try_recv().is_ok() {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(10).min(remaining()));
+                        continue;
+                    }
+                    Err(cause) => panic!("the native relay could not accept: {cause}"),
+                };
+                let mut request = Vec::new();
+                let mut chunk = [0_u8; 4096];
+                while !whole(&String::from_utf8_lossy(&request)) {
+                    client
+                        .set_read_timeout(Some(remaining()))
+                        .expect("the remaining request budget sets");
+                    let read = client.read(&mut chunk).expect("the relay request reads");
+                    assert!(read > 0, "the relay request ended before its declared body");
+                    assert!(
+                        request.len() + read <= 1024 * 1024,
+                        "the relay request exceeds its fixture bound"
+                    );
+                    request.extend_from_slice(&chunk[..read]);
+                }
+                let request = String::from_utf8(request).unwrap_or_else(|_| panic!("the fixture request is not UTF-8"));
+                let (head, body) = request.split_once("\r\n\r\n").expect("the relay received a complete head");
+                let length = header(head, "content-length").unwrap().parse::<usize>().unwrap();
+                assert_eq!(body.len(), length, "one complete request must contain no trailing bytes");
+                if !body.is_empty() {
+                    queries.push(String::from(query_field(body)));
+                }
+                let mut upstream = TcpStream::connect_timeout(&native, remaining()).expect("the relay connects to the real tier");
+                for line in head.split("\r\n") {
+                    if !line
+                        .split_once(':')
+                        .is_some_and(|(name, _)| name.eq_ignore_ascii_case("connection"))
+                    {
+                        forward(&mut upstream, line.as_bytes());
+                        forward(&mut upstream, b"\r\n");
+                    }
+                }
+                forward(&mut upstream, b"Connection: close\r\n\r\n");
+                forward(&mut upstream, body.as_bytes());
+                let mut bytes = 0;
+                loop {
+                    upstream
+                        .set_read_timeout(Some(remaining()))
+                        .expect("the remaining response budget sets");
+                    let read = upstream.read(&mut chunk).expect("the real native response reads");
+                    if read == 0 {
+                        break;
+                    }
+                    bytes += read;
+                    assert!(bytes <= 16 * 1024 * 1024, "the native response exceeds its fixture bound");
+                    forward(&mut client, &chunk[..read]);
+                }
+                assert!(bytes > 0, "the native tier supplied no response");
+            }
+            queries
+        });
+        let case = corpus::leg_case();
+        let answered = opened(endpoint, SourcePosture::ImpersonationAtSource, &tier.user, &tier.password).execute(
+            Executable::Leg(case.leg()),
+            &switched_to("sutura_switched"),
+            corpus::deadline(),
+        );
+        finished
+            .send(())
+            .expect("the relay remains available through native execution");
+        let observed = relay.join().expect("the native forwarding task completed");
+        let mut answered = answered.expect("the switched leg answers");
+        let records = answered.take_executions();
+        let [
+            Execution::Sql {
+                source,
+                dialect,
+                sql,
+                parameters,
+            },
+        ] = records.as_slice()
+        else {
+            panic!("one submitted SQL record: {records:?}");
+        };
+        assert_eq!(source, &corpus::source());
+        assert_eq!(*dialect, TypeDialect::ClickHouse);
+        assert!(sql.starts_with("EXECUTE AS "), "{sql}");
+        assert!(sql.contains("sutura_switched"), "{sql}");
+        assert!(sql.contains("SETTINGS"), "{sql}");
+        assert!(sql.contains("max_execution_time"), "{sql}");
+        assert_eq!(parameters.len(), case.leg().params().len());
+        for (position, (binding, value)) in parameters.iter().zip(case.leg().params()).enumerate() {
+            assert_eq!(binding.identity(), &BindingIdentity::Named(format!("p{position}")));
+            let expected = match value {
+                ParamValue::Text(text) => BindingValue::Utf8(text.clone()),
+                ParamValue::Date(date) => BindingValue::Date32(date.days_since_epoch()),
+            };
+            assert_eq!(binding.value(), &expected);
+            assert!(
+                sql.contains(&format!("{{p{position}:")),
+                "the final named placeholder survives: {sql}"
+            );
+        }
+        assert_eq!(
+            observed.len(),
+            1,
+            "exactly one complete native statement request must be observed"
+        );
+        assert_eq!(sql, &observed[0], "receipt SQL differs from the native request query field");
+    }
 }

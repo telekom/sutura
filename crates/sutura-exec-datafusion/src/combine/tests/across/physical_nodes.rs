@@ -37,6 +37,7 @@ fn a_node_refuses_an_explain_stage_whose_plan_type_is_unset() {
         reason = "the question id is a `uuid`, which this crate does not name; the decoder reads no id"
     )]
     let stage = SetPlanRequest {
+        completion: None,
         task_key: TaskKey {
             query_id: Default::default(),
             stage_id: 1,
@@ -92,6 +93,7 @@ fn a_node_refuses_an_unnest_stage_whose_recursion_input_column_is_unset() {
         reason = "the question id is a `uuid`, which this crate does not name; the decoder reads no id"
     )]
     let stage = SetPlanRequest {
+        completion: None,
         task_key: TaskKey {
             query_id: Default::default(),
             stage_id: 1,

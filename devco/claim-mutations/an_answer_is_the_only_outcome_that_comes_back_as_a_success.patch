@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-http/src/wire.rs b/crates/sutura-http/src/wire.rs
-index 776188fed..c9bfe3ed3 100644
 --- a/crates/sutura-http/src/wire.rs
 +++ b/crates/sutura-http/src/wire.rs
-@@ -391,16 +391,12 @@ impl From<&ToolOutcome> for Outcome {
+@@ -399,17 +399,12 @@
              ToolOutcome::Answer {
                  ref provenance,
                  ref rows,
@@ -11,13 +10,14 @@ index 776188fed..c9bfe3ed3 100644
 -                body: OutcomeBody::Answer {
 -                    provenance: provenance_body(provenance),
 -                    executed_as: legs(provenance.executed_as()),
+-                    executions: execution::list(provenance.executions()),
 -                    columns: rows.columns().to_vec(),
 -                    rows: render(rows),
 -                },
 -                retry_after_seconds: None,
 -            },
 +            } => {
-+                let _ = (provenance_body(provenance), legs(provenance.executed_as()), render(rows));
++                let _ = (provenance_body(provenance), legs(provenance.executed_as()), execution::list(provenance.executions()), render(rows));
 +                Self::from(&ToolOutcome::Refusal {
 +                    reason: sutura_domain::query::RefusalReason::FederationNotExecutable,
 +                })

@@ -623,6 +623,7 @@ impl DataFusionWarehouse {
             Executable::Leg(leg) => self.leg_plan(leg).await?,
             Executable::Stacked(plan) => self.stacked_plan(plan).await?,
         };
+        let logical_plan = format!("{}", logical.display_indent());
         let frame = self
             .context
             .execute_logical_plan(logical)
@@ -639,7 +640,14 @@ impl DataFusionWarehouse {
         }
 
         drop(actual);
-        collect::collected(frame, self.working_set).await
+        let rows = collect::collected(frame, self.working_set).await?;
+        Ok(
+            rows.with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+                source: Some(self.source.clone()),
+                stage: sutura_domain::warehouse::execution::PlanStage::Files,
+                logical_plan,
+            }),
+        )
     }
 
     /// Counts a declared join key's values and its distinct values, in one aggregate.
@@ -680,8 +688,8 @@ mod combine;
 pub use crate::combine::{CombineError, DataFusionCombiner, SourceProvider};
 #[cfg(feature = "distributed")]
 pub use crate::combine::{
-    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, SwitchedPrincipal, TaskGrant,
-    TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
+    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, RecordingSubmission, SplitScan, StreamBound,
+    SubmissionCapture, SwitchedPrincipal, TaskGrant, TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
 };
 /// The engine's own types a [`PartitionReader`] names, so an implementor outside this crate needs no
 /// `datafusion` edge of its own.

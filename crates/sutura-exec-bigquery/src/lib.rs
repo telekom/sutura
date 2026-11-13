@@ -392,6 +392,14 @@ where
         let identity = self.job_identity(presented)?;
         self.transport
             .run(&Self::request(&query, payer, identity, JobDeadline::Port(deadline)).labelled(labels))
+            .map(|rows| {
+                rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+                    self.source.clone(),
+                    sutura_domain::warehouse::schema::TypeDialect::BigQuery,
+                    query.sql().to_owned(),
+                    query.params(),
+                ))
+            })
             .map_err(|cause| BigQueryError::Endpoint { cause })
     }
 

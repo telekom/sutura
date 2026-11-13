@@ -74,9 +74,13 @@ impl CubeTransport for Scripted {
     }
 
     /// A load the cell did not script answers as Cube down, which no cell expects.
-    fn load(&self, query: &serde_json::Value, token: &Secret, _deadline: Deadline) -> Answer<Self::Error> {
+    fn load(&self, query: &serde_json::Value, token: &Secret, _deadline: Deadline) -> Result<crate::Loaded, Self::Error> {
         self.sent.borrow_mut().push((text_of(token), Some(query.clone())));
-        self.load.borrow_mut().pop_front().ok_or(Down)
+        self.load
+            .borrow_mut()
+            .pop_front()
+            .ok_or(Down)
+            .map(|body| crate::Loaded::one(query, body))
     }
 
     fn source_refused(&self, _error: &Self::Error) -> bool {
@@ -272,6 +276,28 @@ fn a_required_filter_reaches_the_load_query_as_a_cube_filter() {
         })),
         "{query}"
     );
+}
+
+#[test]
+fn cube_execution_receipts_match_the_load_port_payloads() {
+    let warehouse = warehouse(Scripted::answering(answer(june_row(
+        "fct_subscription_monthly.active_subscriptions",
+        "59",
+    ))));
+    let mut rows = warehouse
+        .execute(Executable::Query(&active_subscriptions(None)), &shared(), deadline())
+        .expect("Cube answers");
+    let receipts = rows.take_executions();
+    let sent = warehouse.transport.loads();
+    let expected: Vec<_> = sent
+        .into_iter()
+        .map(|query| sutura_domain::warehouse::execution::Execution::Cube {
+            source: source(),
+            query: serde_json::json!({"query":query}),
+        })
+        .collect();
+    assert_ne!(expected, Vec::new());
+    assert_eq!(receipts, expected);
 }
 
 #[test]

@@ -220,6 +220,7 @@ pub struct Granted<'r> {
     stream_rows: NonZeroU32,
     estimate: EstimatedBytes,
     reads: ReadAs,
+    executions: Vec<crate::warehouse::execution::Execution>,
     _held: Box<dyn Send + Sync + 'r>,
 }
 
@@ -231,6 +232,17 @@ pub struct GrantExpired {
 }
 
 impl<'r> Granted<'r> {
+    /// Submissions made while creating the grant, before any reading worker starts.
+    #[must_use]
+    pub fn with_executions(mut self, executions: Vec<crate::warehouse::execution::Execution>) -> Self {
+        self.executions.extend(executions);
+        self
+    }
+
+    pub(crate) fn take_executions(&mut self) -> Vec<crate::warehouse::execution::Execution> {
+        core::mem::take(&mut self.executions)
+    }
+
     /// `partitions` of the leg `wire` encodes, answering `schema`, granted to `caller` until `until`
     /// at most `stream_rows` rows a stream, estimated at `estimate`, with `held` kept open as long,
     /// read as [`ReadAs::ServiceUser`].
@@ -262,6 +274,7 @@ impl<'r> Granted<'r> {
             stream_rows,
             estimate,
             reads: ReadAs::ServiceUser,
+            executions: Vec::new(),
             _held: Box::new(held),
         })
     }

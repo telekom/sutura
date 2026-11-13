@@ -135,6 +135,7 @@ mod tests {
 
         async fn set_plan(&self, key: TaskKey, admitted: bool) -> datafusion::common::Result<()> {
             let request = SetPlanRequest {
+                completion: None,
                 task_key: key,
                 task_count: 1,
                 plan: MaybeEncoded::Decoded(Arc::new(EmptyExec::new(Arc::new(Schema::empty())))),

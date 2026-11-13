@@ -30,6 +30,7 @@ use tonic::{Request, Response, Status, Streaming};
 /// What the fake node answers one call with.
 pub(super) enum Reply {
     Answer(Vec<RecordBatch>),
+    Frames(Vec<FlightData>),
     Refuse(tonic::Code, &'static str),
 }
 
@@ -215,14 +216,22 @@ impl FlightService for Fake {
         };
         match reply {
             Reply::Refuse(code, message) => Err(Status::new(code, message)),
+            Reply::Frames(frames) => Ok(Response::new(stream::iter(frames.into_iter().map(Ok)).boxed())),
             Reply::Answer(batches) => {
                 let schema = batches.first().expect("a scripted answer has a batch").schema();
                 let encoded = FlightDataEncoderBuilder::new()
                     .with_schema(schema)
+                    .with_metadata(receipt().into())
                     .build(stream::iter(batches.into_iter().map(Ok)))
                     .map(|frame| frame.map_err(Status::from));
                 Ok(Response::new(encoded.boxed()))
             }
         }
     }
+}
+
+/// A scripted remote submission, not an engine-attested statement.
+pub(super) fn receipt() -> Vec<u8> {
+    br#"{"version":1,"executions":[{"kind":"sql","source":"sales","dialect":"duckdb","sql":"SELECT 7","parameters":[]}]}"#
+        .to_vec()
 }

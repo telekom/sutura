@@ -50,6 +50,9 @@ fn a_partition_of_a_source_that_is_not_postgres_is_refused_naming_it() {
 #[cfg(all(feature = "bigquery", feature = "postgres"))]
 mod tokens;
 
+#[cfg(all(feature = "distributed", feature = "bigquery", feature = "postgres"))]
+mod native_bigquery;
+
 #[tokio::test]
 async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decoding_or_dispatch() {
     use sutura_domain::identity::{Secret, VerifierId, WorkloadPool};
@@ -64,19 +67,19 @@ async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decod
     let reader = super::Reader(std::sync::Arc::new(opened));
     let schema = std::sync::Arc::new(arrow_schema::Schema::empty());
     assert!(matches!(
-        reader.read(&partner, b"malformed", &local, b"", &schema),
+        reader.read(&partner, b"malformed", &local, b"", &schema, None),
         Err(Unread::LegNotCertified)
     ));
     let pool = WorkloadPool::parse("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q")
         .expect("a pool");
     let forwarded = Forwarded::new(Secret::new("fixture-token"), &pool);
     assert!(matches!(
-        reader.read_forwarded(&partner, b"malformed", &local, b"", &schema, forwarded),
+        reader.read_forwarded(&partner, b"malformed", &local, b"", &schema, forwarded, None),
         Err(Unread::LegNotCertified)
     ));
 
     let mut admitted = reader
-        .read(&staff, b"malformed", &local, b"", &schema)
+        .read(&staff, b"malformed", &local, b"", &schema, None)
         .expect("the verifier is admitted");
     let next = std::future::poll_fn(|context| admitted.as_mut().poll_next(context))
         .await
@@ -84,7 +87,7 @@ async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decod
     assert!(matches!(next, Err(ref cause) if cause.to_string().contains("does not read source `local`")));
     let missing = SourceName::parse("missing").expect("a source");
     assert!(matches!(
-        reader.read(&staff, b"malformed", &missing, b"", &schema),
+        reader.read(&staff, b"malformed", &missing, b"", &schema, None),
         Err(Unread::LegNotCertified)
     ));
 }

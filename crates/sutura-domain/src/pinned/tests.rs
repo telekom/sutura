@@ -746,3 +746,24 @@ fn a_manifest_records_every_contributor_or_refuses_to_be_one() {
         "a repeated source name is refused rather than collapsed into one entry"
     );
 }
+
+#[test]
+fn provenance_keeps_repeated_execution_receipts_in_submission_order() {
+    let source = SourceName::parse("local").unwrap();
+    let first = crate::warehouse::execution::Execution::BigQueryRead {
+        source: source.clone(),
+        descriptor_sha256: [1; 32],
+    };
+    let second = crate::warehouse::execution::Execution::BigQueryRead {
+        source: source.clone(),
+        descriptor_sha256: [2; 32],
+    };
+    let records = vec![first.clone(), second, first];
+    let provenance = bundle(None)
+        .provenance(
+            crate::warehouse::schema::PinnedSchemas::default().digest(),
+            ExecutedAs::of(source, SourcePosture::ImpersonationAtSource),
+        )
+        .with_executions(records.clone());
+    assert_eq!(provenance.executions(), records);
+}

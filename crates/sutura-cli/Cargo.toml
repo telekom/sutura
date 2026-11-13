@@ -299,6 +299,7 @@ tracing = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+sha2 = { workspace = true }
 # The served ClickHouse stand-in emits the ArrowStream response the production ADBC path reads.
 arrow-array = { workspace = true }
 arrow-ipc = "59"

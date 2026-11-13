@@ -1,6 +1,7 @@
---- a/crates/sutura-exec-datafusion/src/combine.rs
-+++ b/crates/sutura-exec-datafusion/src/combine.rs
-@@ -892,7 +892,11 @@ async fn collected(
+diff --git a/crates/sutura-exec-datafusion/src/combine/collecting.rs b/crates/sutura-exec-datafusion/src/combine/collecting.rs
+--- a/crates/sutura-exec-datafusion/src/combine/collecting.rs
++++ b/crates/sutura-exec-datafusion/src/combine/collecting.rs
+@@ -48,7 +48,11 @@
      let mut stream = frame.execute_stream().await.map_err(exhaustion)?;
      let mut accumulating = Accumulating::announcing(announced, usize::MAX, budget);
      while let Some(batch) = stream.next().await {

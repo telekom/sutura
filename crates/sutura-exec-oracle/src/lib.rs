@@ -74,10 +74,11 @@ use sutura_oracle_connect::{DialError, PrepareError};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
-use crate::datetime::oracle_date;
+use crate::parameters::OracleParam;
 
 mod batches;
 mod datetime;
+mod parameters;
 mod raw;
 /// A lookup leg read in partitions, each at one snapshot - `github.com/telekom/sutura#828`.
 mod split;
@@ -577,17 +578,6 @@ impl OracleWarehouse {
         }
     }
 
-    /// The parameters, as the driver wants them.
-    fn bind(params: &[ParamValue]) -> Vec<OracleParam> {
-        params
-            .iter()
-            .map(|param| match *param {
-                ParamValue::Text(ref v) => OracleParam::Text(v.clone()),
-                ParamValue::Date(d) => OracleParam::Date(oracle_date(d)),
-            })
-            .collect()
-    }
-
     /// One round trip on `session`: set the connection's call timeout to what `deadline` has left
     /// (never forwarding an expired one - see [`refuse_if_spent`]) before the statement and before
     /// each further round trip, run the statement, and read its batches through [`batches`]. An
@@ -626,7 +616,7 @@ impl OracleWarehouse {
         connection
             .set_call_timeout(Some(remaining))
             .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
-        let bound = Self::bind(params);
+        let bound = parameters::bind(params);
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
         let stop = batches::Stop {
             budget: self.result_budget,
@@ -648,7 +638,7 @@ impl OracleWarehouse {
         self.connection
             .set_call_timeout(None)
             .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
-        let bound = Self::bind(params);
+        let bound = parameters::bind(params);
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
         let stop = batches::Stop {
             budget: self.result_budget,
@@ -702,22 +692,6 @@ impl DriverError {
     /// which the module header's caveat distinguishes from a total budget.
     fn is_call_timeout(&self) -> bool {
         matches!(self.0.kind(), oracledb::ErrorKind::CallTimeoutExceeded)
-    }
-}
-
-/// Owned parameters borrow the driver's implementations: `ToDbValue` has a private supertrait,
-/// so external implementations are impossible (`E0277` was measured).
-enum OracleParam {
-    Text(String),
-    Date(oracledb::OracleTimestamp),
-}
-
-impl OracleParam {
-    fn as_dyn(&self) -> &dyn oracledb::ToDbValue {
-        match *self {
-            Self::Text(ref v) => v,
-            Self::Date(ref d) => d,
-        }
     }
 }
 
@@ -821,7 +795,16 @@ impl Warehouse for OracleWarehouse {
         let rows = self.run_with_deadline(session, (query.sql(), query.params()), deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_exec_postgres`'s own `execute` and `sutura_domain::warehouse::arrow`.
-        of_row_set(&rows).map_err(|cause| OracleError::Shape { cause })
+        of_row_set(&rows)
+            .map(|rows| {
+                rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+                    self.routing.source.clone(),
+                    TypeDialect::Oracle,
+                    query.sql().to_owned(),
+                    query.params(),
+                ))
+            })
+            .map_err(|cause| OracleError::Shape { cause })
     }
 
     fn type_dialect(&self) -> Option<TypeDialect> {
