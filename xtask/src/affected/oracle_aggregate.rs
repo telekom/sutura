@@ -8,6 +8,10 @@ use super::tests::selected;
 fn a_selected_but_skipped_oracle_fleet_is_red() {
     let (ok, text) = run_aggregator(&[
         ("CI_RESULT", "success"),
+        ("KC_RESULT", "skipped"),
+        ("KC_SELECTED", ""),
+        ("BQ_RESULT", "skipped"),
+        ("BQ_SELECTED", ""),
         ("MNORA_RESULT", "skipped"),
         ("MNORA_SELECTED", "true"),
     ]);
@@ -22,6 +26,10 @@ fn a_selected_but_skipped_oracle_fleet_is_red() {
 fn a_failed_unselected_oracle_fleet_is_red() {
     let (ok, text) = run_aggregator(&[
         ("CI_RESULT", "success"),
+        ("KC_RESULT", "skipped"),
+        ("KC_SELECTED", ""),
+        ("BQ_RESULT", "skipped"),
+        ("BQ_SELECTED", ""),
         ("MNORA_RESULT", "failure"),
         ("MNORA_SELECTED", "false"),
     ]);
