@@ -686,7 +686,7 @@ impl AuthMessage {
             self.generate_speedy_key(&password_key, &combo_key);
         }
 
-        // encrypt password(s)
+        // encrypt passwords and store combo key for later use
         self.encrypt_passwords(client, &combo_key);
         self.combo_key = Some(combo_key);
         Ok(())
@@ -980,6 +980,9 @@ impl Message for AuthMessage {
             if let Some((header, signature)) = client.iam_auth() {
                 self.add_pair("AUTH_HEADER", header, 0);
                 self.add_pair("AUTH_SIGNATURE", signature, 0);
+            }
+            if let Some(proxy_user) = client.config().proxy_user() {
+                self.add_pair("PROXY_CLIENT_NAME", proxy_user, 0);
             }
             self.resend_needed = false;
         }

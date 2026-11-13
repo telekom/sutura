@@ -45,12 +45,13 @@ use rustls::pki_types::TrustAnchor;
 
 /// Represents configuration used to establish a standalone connection to the
 /// database using [connect()](`crate::connect`).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     allow_legacy_verifiers: Option<bool>,
     native_encryption: bool,
     user: Option<String>,
     password: Option<SecretValue>,
+    proxy_user: Option<String>,
     new_password: Option<SecretValue>,
     external_auth: bool,
     token: Option<SecretValue>,
@@ -224,6 +225,11 @@ impl Config {
         self
     }
 
+    /// Returns the proxy user associated with the configuration.
+    pub fn proxy_user(&self) -> Option<&str> {
+        self.proxy_user.as_deref()
+    }
+
     /// Sets the authorization mode that should be used to establish a
     /// connection to the database.
     pub fn set_auth_mode(mut self, value: u8) -> Self {
@@ -348,6 +354,16 @@ impl Config {
         Ok(self)
     }
 
+    /// Sets the proxy user to use when connecting to the database.
+    pub fn set_proxy_user(mut self, value: &str) -> Self {
+        if value.is_empty() {
+            self.proxy_user = None;
+        } else {
+            self.proxy_user = Some(value.into());
+        }
+        self
+    }
+
     /// Sets the size to use for the statement cache associated with the
     /// connection to the database.
     pub fn set_stmtcachesize(mut self, value: usize) -> Self {
@@ -387,10 +403,27 @@ impl Config {
         Ok(self)
     }
 
-    /// Sets the user to use when connecting to the database.
+    /// Sets the user to use when connecting to the database. If the user is in
+    /// the form "user\[proxy_user\]", the proxy_user portion is saved
+    /// separately.  If the proxy_user is empty or one of the opening or
+    /// closing brackets is missing, the user is left unchanged (which will
+    /// result in a connection failure). A proxy user alone is permitted when
+    /// external authentication is being used.
     pub fn set_user(mut self, value: &str) -> Self {
         if value.is_empty() {
             self.user = None;
+        } else if let Some(start_pos) = value.find('[')
+            && value.ends_with(']')
+            && value.len() > start_pos + 2
+        {
+            let proxy_user = &value[start_pos + 1..value.len() - 1];
+            self.proxy_user = Some(proxy_user.into());
+            if start_pos == 0 {
+                self.user = None;
+            } else {
+                let user = &value[..start_pos];
+                self.user = Some(user.into());
+            }
         } else {
             self.user = Some(value.into());
         }
@@ -459,6 +492,7 @@ impl Default for Config {
             native_encryption: false,
             user: None,
             password: None,
+            proxy_user: None,
             new_password: None,
             external_auth: false,
             token: None,

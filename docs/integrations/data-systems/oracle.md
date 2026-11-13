@@ -204,8 +204,8 @@ values spend the materialisation budget, and fetching stops at the row cap plus 
 is a refusal rather than a successful prefix. This bounds collected results, not Oracle's optimizer
 memory or the memory of work executing at the server.
 
-The driver timeout is per-read. The adapter checks the remaining request budget before parsing
-and each fetch, but busy reads, connect handshakes, rollback and session close have no hard total
+The driver timeout applies to socket reads and writes. The adapter checks the remaining request budget before parsing
+and each fetch, but busy reads or writes, connect handshakes, rollback and session close have no hard total
 deadline. Native timeout recovery can disconnect rather than return a reusable session; raw calls
 never reuse that session. A suspended server function may ignore an interrupt. The hosted fixture
 checks an ordinary CPU query's exact session from ACTIVE to discarded and a later healthy call;

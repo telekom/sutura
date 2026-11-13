@@ -25,7 +25,7 @@
 //!
 //! ## The one caveat this crate exists to hold, per the spike behind `#127`
 //!
-//! `Connection::set_call_timeout` is a PER-READ idle timeout (`TcpStream::set_read_timeout`), not a
+//! `Connection::set_call_timeout` applies an idle timeout to socket reads and writes. It is not a
 //! total-call budget, and there is no cancellation API - a slow statement that keeps the socket
 //! busy is not stopped by it. Worse, [`sutura_domain::warehouse::deadline::Deadline::remaining_at`]
 //! returns `None` when the deadline is EXPIRED, and `set_call_timeout(None)` means *wait forever* -
@@ -648,13 +648,9 @@ impl OracleWarehouse {
     }
 }
 
-/// Wraps [`oracledb::Error`] so it can be a `thiserror` `#[source]`.
+/// The driver's typed error, wrapped for this adapter's classification methods.
 ///
-/// **Measured, not assumed:** `oracledb::Error` implements `Debug` and `Display` but not
-/// `std::error::Error` - `oracledb::error::ErrorKind` and `DbError` are its own typed detail, and
-/// nothing upstream ties the type into `core::error::Error`'s chain. `#[source]` needs that trait,
-/// and there is no orphan-rule obstacle to implementing it for a LOCAL wrapper around a foreign
-/// type, so this is the newtype rather than a second, string-only error shape.
+/// The driver implements [`std::error::Error`]; this wrapper currently exposes no nested source.
 #[derive(Debug)]
 pub struct DriverError(oracledb::Error);
 
@@ -692,7 +688,7 @@ impl DriverError {
         }
     }
 
-    /// Whether this is the driver's own `CallTimeoutExceeded` - the per-read idle timeout firing,
+    /// Whether this is the driver's own `CallTimeoutExceeded` - a socket read or write idle timeout firing,
     /// which the module header's caveat distinguishes from a total budget.
     fn is_call_timeout(&self) -> bool {
         matches!(self.0.kind(), oracledb::ErrorKind::CallTimeoutExceeded)

@@ -27,10 +27,10 @@
 # `cargo xtask check-warm-start` accepts for a derivation that takes `cargoArtifacts`.
 { craneLib, cargoVendorDir, buildInputs, noArtifacts }:
 let
-  # The patched modules that carry tests. Patch (4)'s `messages/connect.rs` has none:
+  # The patched modules that carry tests. `messages/connect.rs` has none:
   # `crates/sutura-exec-oracle/tests/dial.rs` drives it through a fake listener instead.
   # `metadata::` dropped: upstream now reads annotations itself, so this crate keeps no test there.
-  # Patch (11)'s `messages/auth.rs` carries the known-answer vectors of each password verifier.
+  # `messages/auth.rs` carries the known-answer vectors of each password verifier.
   # `floor`: `grep -c '#\[test\]'` over the patched files, 47 on 2026-11-10; it counts attribute text.
   modules = [ "config::base::" "transport::" "messages::execute::" "messages::auth::" "nne::" "response::error_info::" "ora_type::timestamp::" "external_auth::" "arrow::fetch::" ];
   floor = 47;

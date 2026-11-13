@@ -44,7 +44,7 @@ use crate::response::ResponseLocation;
 pub enum ErrorKind {
     ArrowOperation,
     CallTimeoutExceeded,
-    CannotConvertToArrowDecimal128(String, u8, i8),
+    CannotConvertToArrowDecimal(String, u8, i8),
     ColumnTruncated(usize, usize),
     DbError(DbError),
     DbObjectTypeUnavailable,
@@ -222,19 +222,21 @@ impl fmt::Display for Error {
             ErrorKind::CallTimeoutExceeded => {
                 fmt.write_str("the configured call timeout was exceeded")?
             }
-            ErrorKind::CannotConvertToArrowDecimal128(
-                num, precision, scale
-            ) => write!(
-                fmt,
-                "{num} cannot be converted to an Apache Arrow \
-                 decimal128({precision}, {scale})"
-            )?,
+            ErrorKind::CannotConvertToArrowDecimal(num, precision, scale) => {
+                write!(
+                    fmt,
+                    "{num} cannot be converted to an Apache Arrow \
+                 decimal({precision}, {scale})"
+                )?
+            }
             ErrorKind::ColumnTruncated(col_value_size, actual_size) => write!(
                 fmt,
                 "column truncated to {col_value_size} bytes. \
                  Untruncated was {actual_size} bytes."
             )?,
-            ErrorKind::DbError(db_error) => fmt.write_str(db_error.message())?,
+            ErrorKind::DbError(db_error) => {
+                fmt.write_str(db_error.message())?
+            }
             ErrorKind::DbObjectTypeUnavailable => {
                 fmt.write_str("database object type is no longer available")?
             }
@@ -245,7 +247,7 @@ impl fmt::Display for Error {
                 write!(
                     fmt,
                     "database type {} found when all earlier bind data was of \
-                 database type {}",
+                     database type {}",
                     subsequent_db_type, initial_db_type
                 )?
             }
@@ -279,7 +281,7 @@ impl fmt::Display for Error {
             ErrorKind::InvalidBindName(name) => write!(
                 fmt,
                 "no bind placeholder named \":{name}\" was found \
-                    in the SQL text"
+                 in the SQL text"
             )?,
             ErrorKind::InvalidColumnIndex(index) => {
                 write!(fmt, "invalid column index {} (zero-based)", index)?
@@ -287,9 +289,10 @@ impl fmt::Display for Error {
             ErrorKind::InvalidColumnName(name) => {
                 write!(fmt, "invalid column name \"{}\"", name)?
             }
-            ErrorKind::InvalidConnectString(connect_string, reason) => {
-                write!(fmt, "invalid connect string: {connect_string}: {reason}")?
-            }
+            ErrorKind::InvalidConnectString(connect_string, reason) => write!(
+                fmt,
+                "invalid connect string: {connect_string}: {reason}"
+            )?,
             ErrorKind::InvalidDbObjectTypeName(name) => {
                 write!(fmt, "{name} is not a valid object type name")?
             }
@@ -315,7 +318,8 @@ impl fmt::Display for Error {
             ErrorKind::InvalidEndUserSecurityContextLength(actual_length) => {
                 write!(
                     fmt,
-                    "end user security context is too long: {actual_length} bytes"
+                    "end user security context is too long: {actual_length} \
+                     bytes"
                 )?
             }
             ErrorKind::InvalidNetworkName(value) => write!(
@@ -368,9 +372,7 @@ impl fmt::Display for Error {
                      connection. (Similar to ORA-{error_num}) \
                      (CONNECTION_ID={connection_id})"
             )?,
-            ErrorKind::LockPoisoned => {
-                fmt.write_str("lock poisoned")?
-            }
+            ErrorKind::LockPoisoned => fmt.write_str("lock poisoned")?,
             ErrorKind::OutOfData => fmt.write_str("out of data")?,
             ErrorKind::OutOfRange(m) => write!(fmt, "{}", m)?,
             ErrorKind::PacketTooShort(length) => write!(
@@ -486,13 +488,13 @@ impl fmt::Display for Error {
                 fmt,
                 "internal error: unknown server-side piggyback opcode {opcode}"
             )?,
-            ErrorKind::UnknownTtcMessageType(
-                ttc_message_type, location
-            ) => write!(
-                fmt,
-                "internal error: unknown TTC message type {} at {}",
-                ttc_message_type, location
-            )?,
+            ErrorKind::UnknownTtcMessageType(ttc_message_type, location) => {
+                write!(
+                    fmt,
+                    "internal error: unknown TTC message type {} at {}",
+                    ttc_message_type, location
+                )?
+            }
             ErrorKind::UnsupportedArrowType(arrow_type) => {
                 write!(fmt, "binding Arow type {}", arrow_type)?
             }
@@ -505,10 +507,12 @@ impl fmt::Display for Error {
                 write!(fmt, "unsupported database type {}", db_type.name())?
             }
             ErrorKind::UnsupportedDeepDataSecurityFeature => fmt.write_str(
-                "database does not support the Oracle Deep Data Security feature",
+                "database does not support the Oracle Deep Data Security \
+                 feature",
             )?,
             ErrorKind::UnsupportedObjectMetadataType(name) => write!(
-                fmt, "datatype {name} is not supported in object metadata"
+                fmt,
+                "datatype {name} is not supported in object metadata"
             )?,
             ErrorKind::UnsupportedOsonNodeType(node_type) => {
                 write!(fmt, "unsupported OSON node type {node_type}")?
@@ -544,13 +548,11 @@ impl fmt::Display for Error {
             ErrorKind::WrongArrowSchemaLength(
                 num_schema_fields,
                 num_fetched_columns,
-            ) => {
-                write!(
-                    fmt,
-                    "requested Arrow schema has {num_schema_fields} fields \
+            ) => write!(
+                fmt,
+                "requested Arrow schema has {num_schema_fields} fields \
                      but query returned {num_fetched_columns} columns",
-                )?
-            }
+            )?,
             ErrorKind::WrongNumPositionalBinds(expected_num, actual_num) => {
                 write!(
                     fmt,
@@ -559,9 +561,6 @@ impl fmt::Display for Error {
                 )?
             }
         };
-        if let Some(ref cause) = self.0.cause {
-            write!(fmt, ": {}", cause)?;
-        }
         Ok(())
     }
 }
@@ -597,13 +596,13 @@ impl Error {
     }
 
     #[cfg(feature = "arrow")]
-    pub(crate) fn cannot_convert_to_arrow_decimal128(
+    pub(crate) fn cannot_convert_to_arrow_decimal(
         num: String,
         precision: u8,
         scale: i8,
     ) -> Self {
         Self::new(
-            ErrorKind::CannotConvertToArrowDecimal128(num, precision, scale),
+            ErrorKind::CannotConvertToArrowDecimal(num, precision, scale),
             None,
         )
     }
@@ -713,7 +712,8 @@ impl Error {
         )
     }
 
-    /// Creates an error for a name that does not identify a database object type.
+    /// Creates an error for a name that does not identify a database object
+    /// type.
     pub(crate) fn invalid_db_object_type_name(name: &str) -> Error {
         Error::new(ErrorKind::InvalidDbObjectTypeName(name.to_string()), None)
     }
@@ -1070,6 +1070,14 @@ impl Error {
             ErrorKind::WrongNumPositionalBinds(expected_num, actual_num),
             None,
         )
+    }
+
+    /// Returns the database error, if applicable.
+    pub fn db_error_code(&self) -> Option<usize> {
+        match self.kind() {
+            ErrorKind::DbError(error) => Some(error.code()),
+            _ => None,
+        }
     }
 
     /// Returns the kind of error.
