@@ -2712,6 +2712,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-recordingsubmission" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use RecordingSubmission
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-splitscan" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2727,6 +2738,17 @@
     <span class="md-ellipsis">
       
         use StreamBound
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-submissioncapture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use SubmissionCapture
       
     </span>
   </a>
@@ -3136,12 +3158,16 @@ key, and the deployment's node authority.</p>
 <p>Reads one partition of one source for a reading task. <code>pub</code>, not <code>pub(super)</code>:
 <code>super::Nodes::worker_reading</code> names it in a <code>pub fn</code> signature, so this trait cannot be more
 private than that function.</p>
+<h2 id="use-recordingsubmission"><code>use RecordingSubmission</code><a class="headerlink" href="#use-recordingsubmission" title="Permanent link">&para;</a></h2>
+<p>Owned by the running native closure. Dropping its async receiver does not finalize it.</p>
 <h2 id="use-splitscan"><code>use SplitScan</code><a class="headerlink" href="#use-splitscan" title="Permanent link">&para;</a></h2>
 <p>A leg split into partitions, each read only by a task on a worker that reads its source.</p>
 <h2 id="use-streambound"><code>use StreamBound</code><a class="headerlink" href="#use-streambound" title="Permanent link">&para;</a></h2>
 <p>The bound a split leg's every partition stream is read under, signed into its grant: at most
 <code>rows</code> rows and <code>bytes</code> bytes of materialisation before emission.</p>
 <p>Source allocation/fetch has already happened; this bounds neither process memory nor pre-fetch work.</p>
+<h2 id="use-submissioncapture"><code>use SubmissionCapture</code><a class="headerlink" href="#use-submissioncapture" title="Permanent link">&para;</a></h2>
+<p>One source leaf's bounded capture. It never crosses the plan codec.</p>
 <h2 id="use-switchedprincipal"><code>use SwitchedPrincipal</code><a class="headerlink" href="#use-switchedprincipal" title="Permanent link">&para;</a></h2>
 <p>The caller's own principal a granted partition is read as, which the reading node's source
 switches to. Its <code>Debug</code> prints no name.</p>

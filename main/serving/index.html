@@ -3549,10 +3549,69 @@ definition version and digest that it came from:</p>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">"definition_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local-1"</span><span class="p">,</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">"definition_digest"</span><span class="p">:</span><span class="w"> </span><span class="s2">"bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4"</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">"columns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"period"</span><span class="p">,</span><span class="w"> </span><span class="s2">"recurring_revenue"</span><span class="p">],</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nt">"rows"</span><span class="p">:</span><span class="w"> </span><span class="p">[[</span><span class="s2">"2026-06-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202121"</span><span class="p">]]</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">}</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">"executions"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"datafusion"</span><span class="p">,</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local"</span><span class="p">,</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">"stage"</span><span class="p">:</span><span class="w"> </span><span class="s2">"files"</span><span class="p">,</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">"logical_plan"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Projection: period, recurring_revenue\n  TableScan: monthly_revenue"</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span><span class="p">}],</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="nt">"columns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"period"</span><span class="p">,</span><span class="w"> </span><span class="s2">"recurring_revenue"</span><span class="p">],</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">  </span><span class="nt">"rows"</span><span class="p">:</span><span class="w"> </span><span class="p">[[</span><span class="s2">"2026-06-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202121"</span><span class="p">]]</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="p">}</span>
 </span></code></pre></div>
+<p>HTTP and MCP answers carry an ordered <code>executions</code> list:</p>
+<table>
+<thead>
+<tr>
+<th><code>kind</code></th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sql</code></td>
+<td>Source, dialect, final submitted SQL and ordered typed parameters.</td>
+</tr>
+<tr>
+<td><code>datafusion</code></td>
+<td>Source for <code>stage: "files"</code>, or <code>source: null</code> for <code>stage: "combine"</code>, and diagnostic logical-plan text.</td>
+</tr>
+<tr>
+<td><code>cube</code></td>
+<td>Source and the native submitted JSON payload, including each continue-wait retry.</td>
+</tr>
+<tr>
+<td><code>node</code></td>
+<td>Source, outbound native leg and its typed parameters, followed by the remote peer's flat execution records.</td>
+</tr>
+<tr>
+<td><code>bigquery_read</code></td>
+<td>Source, <code>operation: "adbc_read_partition"</code> and the SHA-256 of the actual opaque stream descriptor. The descriptor itself is never returned.</td>
+</tr>
+</tbody>
+</table>
+<p>SQL is captured at the adapter-to-driver boundary. The PostgreSQL driver's internal
+<code>COPY (...) TO STDOUT (FORMAT binary)</code> transport wrapper is excluded.</p>
+<p>Each SQL/Node parameter has <code>binding: {"kind":"position","value":0}</code> for a zero-based
+position, or <code>binding: {"kind":"named","value":"p0"}</code> for ClickHouse. Its <code>value</code> has
+<code>type</code> and <code>value</code>: <code>utf8</code> text or <code>date32</code> days since the Unix epoch for Arrow bindings;
+<code>oracle_string</code> text or <code>oracle_date</code> ISO date for Oracle's native bindings. Values are not
+inlined into SQL. ClickHouse SQL includes the final placeholder, timeout-settings and
+<code>EXECUTE AS</code> rewrites.</p>
+<p>Federation, drill-across and partitioned execution retain their individual source and combine
+submissions. Distributed worker records are ordered by (stage, task), then each task's native
+read-start sequence; this is neither a global logical-plan order nor a wall-clock order. Repeated
+submissions are retained. A successful adapter result with no capture fails the answer. This is disclosure to the caller authorized to
+ask the metric: physical identifiers and certified fixed-filter values may be visible, independently
+of the audience policy for catalog listings. Authentication and session-control statements are not
+included. Refusals carry no <code>executions</code> field.</p>
+<p>Logical-plan text may change and is neither SQL, a physical plan nor a stable replay format.
+Native stream-read digests identify an operation without making it replayable. Never invent
+verification SQL for a record that supplies none. Records sit outside definition and schema digests;
+they are not cryptographic proof of execution, and a remote receipt describes what the peer reported.
+Even exact SQL needs the original attachments and execution context to replay. The response text
+budget counts every record and binding, but excludes JSON escaping and structural overhead; it is
+not a strict JSON wire-size limit.</p>
 <p>A refusal has <code>"outcome": "refusal"</code> and a status, a stable <code>code</code> and a sentence:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refusal"</span><span class="p">,</span>

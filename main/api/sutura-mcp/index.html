@@ -3382,6 +3382,26 @@ dates - <code>telekom/sutura#778</code>.</p>
 last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
 <h3 id="use-topargs"><code>use TopArgs</code><a class="headerlink" href="#use-topargs" title="Permanent link">&para;</a></h3>
 <p>A <code>top</code> clause: rank by <code>by</code>, in <code>direction</code>, keep the first <code>n</code>.</p>
+<h3 id="module-execution">Module <code>execution</code><a class="headerlink" href="#module-execution" title="Permanent link">&para;</a></h3>
+<p>Submitted operations on a certified answer; disclosure, not standalone replay.</p>
+<h4 id="enum-executioncontent"><code>enum ExecutionContent</code><a class="headerlink" href="#enum-executioncontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ExecutionContent</span>
+</span></code></pre></div>
+<h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>BigqueryRead</code></li>
+<li><code>Sql</code></li>
+<li><code>Datafusion</code></li>
+<li><code>Cube</code></li>
+<li><code>Node</code></li>
+</ul>
+<h5 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h4 id="struct-parametercontent"><code>struct ParameterContent</code><a class="headerlink" href="#struct-parametercontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ParameterContent</span>
+</span></code></pre></div>
+<h5 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="module-catalog">Module <code>catalog</code><a class="headerlink" href="#module-catalog" title="Permanent link">&para;</a></h3>
 <p>The catalog tool's wire shape: what <code>describe_catalog</code> takes, what it answers, and the text half
 of that answer.</p>
@@ -3394,17 +3414,17 @@ nothing but <code>prose</code>, which is where the <code>Option</code> behind a 
 plain comment rather than a doc comment, are both stated at <code>DescribeCatalogArgs</code> - <code>schemars</code>
 puts a root doc comment into the schema's <code>description</code>, which is text a MODEL reads.</p>
 <h4 id="struct-describecatalogargs"><code>struct DescribeCatalogArgs</code><a class="headerlink" href="#struct-describecatalogargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DescribeCatalogArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DescribeCatalogArgs</span>
 </span></code></pre></div>
 <p>This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
 to what the calling principal may see - the metrics, grains, dimensions and permitted values.</p>
 <p>It also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms
 recorded as undefined it carries) and the deployment operator's instructions. There is nothing to
 filter or select, so send an empty object.</p>
-<h5 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h5>
+<h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-catalogcontent"><code>struct CatalogContent</code><a class="headerlink" href="#struct-catalogcontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogContent</span>
 </span></code></pre></div>
 <p>What this deployment measures, as the catalog tool's structured content.</p>
 <p><strong>A second wire type beside <code>sutura_http::wire::CatalogBody</code> for the metric half, and the same
@@ -3424,7 +3444,7 @@ metrics and which of their knowledge the listing holds, while the bundle underne
 one every answer is computed from. Invisible means absent, and it is the transport's job to build
 the view, never this type's.</p>
 <h5 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">instructions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">instructions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The reader's view of one pinned bundle, under the prose setting this deployment was started
 with and under the caller this read is for.</p>
@@ -3438,32 +3458,32 @@ from a bare <code>&amp;PinnedDefinitions</code> would hand every caller the whol
 the defect this surface shipped until it took the view. <code>ScopedView</code> borrows the bundle, so
 this builder cannot reach <code>SemanticCatalog::load</code> - the knowledge sections and the metrics
 are filtered by the caller's own grant, never by a call the renderer omits.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_with_physical_schema</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">instructions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">list_physical_schema</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_with_physical_schema</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">instructions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">list_physical_schema</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Include physical models only when the operator enabled them for this caller view.</p>
-<h5 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h5>
-<p><code>Debug</code>, <code>Serialize</code></p>
-<h4 id="struct-modelcontent"><code>struct ModelContent</code><a class="headerlink" href="#struct-modelcontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ModelContent</span>
-</span></code></pre></div>
-<h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
-<p><code>Debug</code>, <code>Serialize</code></p>
-<h4 id="struct-columncontent"><code>struct ColumnContent</code><a class="headerlink" href="#struct-columncontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnContent</span>
-</span></code></pre></div>
 <h5 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
-<h4 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
+<h4 id="struct-modelcontent"><code>struct ModelContent</code><a class="headerlink" href="#struct-modelcontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ModelContent</span>
 </span></code></pre></div>
-<p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <h5 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
+<h4 id="struct-columncontent"><code>struct ColumnContent</code><a class="headerlink" href="#struct-columncontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ColumnContent</span>
+</span></code></pre></div>
+<h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h4 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
+</span></code></pre></div>
+<p>One metric, as much of it as a caller needs to ask a valid question.</p>
+<h5 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
 <h4 id="struct-dimensioncontent"><code>struct DimensionContent</code><a class="headerlink" href="#struct-dimensioncontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
-<h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
+<h5 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h3>
 <p>The raw SQL tool's wire shape: what <code>run_sql</code> takes, and what it answers.</p>
@@ -3479,28 +3499,28 @@ neither shares is the VALUE at <code>outcome</code> - that type tags with <code>
 neither raw variant carries a <code>provenance</code> or a <code>definition_digest</code> key at any depth, which is
 the property that actually keeps a raw result from being rendered as certified.</p>
 <h4 id="struct-runsqlargs"><code>struct RunSqlArgs</code><a class="headerlink" href="#struct-runsqlargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlArgs</span>
 </span></code></pre></div>
 <p>One raw statement, as a tool call carries it.</p>
 <p>One field, bounded by <code>RawStatement::parse</code> on the way in - <code>deny_unknown_fields</code> is what keeps
 this tool from ever growing a second field a caller could smuggle a table name or a row-id list
 through, the same governance boundary <code>super::AskArgs</code> holds for the certified tool.</p>
-<h5 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h5>
+<h5 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="enum-malformedstatement"><code>enum MalformedStatement</code><a class="headerlink" href="#enum-malformedstatement" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
 </span></code></pre></div>
 <p>Why a <code>run_sql</code> call's arguments were not a statement.</p>
-<h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
+<h5 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>NotAnObject</code></li>
 <li><code>Statement</code></li>
 <li><code>StatementTooLarge</code> - <code>statement</code> exceeds <code>sutura_domain::raw::MAX_RAW_STATEMENT_BYTES</code>, refused before <code>RawStatement::parse</code> runs its own check - <code>serde_json::from_value</code> allocates nothing for a <code>String</code> field either way, it only moves the value <code>rmcp</code> already parsed. The same code <code>RawStatement::parse</code>'s own <code>TooLong</code> returns, fired earlier; carries only the length and the limit, no caller text.</li>
 </ul>
-<h5 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h5>
+<h5 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-rawcontent"><code>enum RawContent</code><a class="headerlink" href="#enum-rawcontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawContent</span>
 </span></code></pre></div>
 <p>What the raw SQL tool produced, as the tool's structured content.</p>
 <p><strong>The load-bearing shape.</strong> No field here is named <code>provenance</code>, <code>definition_version</code> or
@@ -3511,52 +3531,52 @@ over the type's own already-<code>Raw</code>-prefixed name) - only their SERIALI
 explicit <code>#[serde(rename)]</code> on each rather than derived from the Rust identifier: <code>Rows</code> would
 otherwise serialize <code>outcome: "rows"</code> and <code>Refusal</code> would serialize exactly the certified path's
 own <code>outcome: "refusal"</code> - the one collision the architecture decision forbids.</p>
-<h5 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h5>
+<h5 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Rows</code> - The statement executed.</li>
 <li><code>Refusal</code> - The statement was refused. Still an <code>Ok</code> and still a tool result, for <code>ServerHandler::call_tool</code>'s reason: a governance outcome is not a fault.</li>
 </ul>
-<h5 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h5>
+<h5 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="module-clauses">Module <code>clauses</code><a class="headerlink" href="#module-clauses" title="Permanent link">&para;</a></h3>
 <p>A question's nested clauses - its period, its filters and its <code>top</code> - as a tool call carries
 them, and what each hands the domain's parse.</p>
 <h4 id="struct-topargs"><code>struct TopArgs</code><a class="headerlink" href="#struct-topargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TopArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TopArgs</span>
 </span></code></pre></div>
 <p>A <code>top</code> clause: rank by <code>by</code>, in <code>direction</code>, keep the first <code>n</code>.</p>
-<h5 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h5>
+<h5 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-rangeargs"><code>struct RangeArgs</code><a class="headerlink" href="#struct-rangeargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeArgs</span>
 </span></code></pre></div>
 <p>A half-open period: <code>start</code> is included, <code>end</code> is not. Either an absolute period
 (<code>start</code>/<code>end</code>) or a period relative to today (<code>last</code>) - never both, never neither.</p>
 <p>Half-open at every grain, which is what makes a month <code>[2026-06-01, 2026-07-01)</code> rather than a
 last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
-<h5 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h5>
+<h5 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-lastargs"><code>struct LastArgs</code><a class="headerlink" href="#struct-lastargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LastArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LastArgs</span>
 </span></code></pre></div>
 <p>A count of calendar periods before today, resolved at request time rather than authored as
 dates - <code>telekom/sutura#778</code>.</p>
-<h5 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h5>
+<h5 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="enum-filterargs"><code>enum FilterArgs</code><a class="headerlink" href="#enum-filterargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FilterArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FilterArgs</span>
 </span></code></pre></div>
 <p>One filter: a dimension, and what it must - or must not - equal.</p>
 <p>Tagged by <code>op</code>, mirroring <code>sutura_domain::query::Filter</code> - <code>github.com/telekom/sutura#968</code>. Every
 value, in either shape, is still checked against the metric's own allowlist; <code>In</code>/<code>NotIn</code> widen
 the predicate's shape and never the source of a value.</p>
-<h5 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h5>
+<h5 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Eq</code> - The dimension equals this one value.</li>
 <li><code>In</code> - The dimension equals one of these values. At least one.</li>
 <li><code>NotIn</code> - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.</li>
 </ul>
-<h5 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h5>
+<h5 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 
 
