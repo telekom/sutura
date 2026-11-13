@@ -416,8 +416,8 @@ def run_cli_diagnostic(config, out, root, baseline):
     overlays = diagnostic["overlays"]
     paths = [item["path"] for item in overlays]
     assert paths == [
-        "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "crates/sutura-cli/src/serve/worker/partition.rs",
+        "crates/sutura-exec-datafusion/src/combine/across/partition.rs",
+        "crates/sutura-exec-datafusion/src/combine/across.rs",
     ]
     for item in overlays:
         overlay = PAYLOAD / item["overlay"]
@@ -472,7 +472,7 @@ def run_cli_diagnostic(config, out, root, baseline):
                 "runtime_credit": False,
                 "mutations_run": 0,
                 "markers": (out / "diagnostic.log").read_text().splitlines(),
-                "limit": "fixed fixture and worker phases only; immediate typed source downcast may be unavailable; absent marker is not_observed",
+                "limit": "fixed late consumer stages and at most eight source-chain nodes; direct/Arc known-type checks; unknown_type and chain_limit remain unclassified; Collection branches not exhaustively explored; absent marker is not_observed",
             },
         )
     finally:
