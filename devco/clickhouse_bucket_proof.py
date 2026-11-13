@@ -13,8 +13,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
-SOURCE = "0d3a16239f9aa252126603879afc2886d692ae73"
-SOURCE_TREE = "217714b5777ae921f50f9d409abd21aea23fbab8"
+SOURCE = "87d6f4ac9fc6d0500009cc66d4dcbb342c396c0e"
+SOURCE_TREE = "fa33861bed003eb48942a0e6636c928a90fc6697"
 BASE = "3ee8874e6c5b3054a91a63c28aaca90302bf2dbe"
 BASE_TREE = "6903bc16ed77cb039a7bcd1de0638a848c372432"
 TIER = "a_clickhouse_lookup_split_reads_every_group_once_under_the_callers_grants_and_settings"
@@ -23,7 +23,7 @@ TEST = "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs"
 OVERLAY_FILES = (TEST,)
 IMPLEMENTATION = "crates/sutura-exec-clickhouse/src/adbc/buckets.rs"
 OVERLAY_HASH = "d78bab13a92612daaf92fc7dab19d4a9a385e1a9076d0acddc8221a7a62bd63e"
-MUTATION_HASH = "5fa70b7c3846e1d6fe45a90bb7c4115f3f52ae533a36b424fb5ca7559d83e34c"
+MUTATION_HASH = "ae3a1462886651b85ec1d7e8715093b14a7995aa659b38210046848b585c48c0"
 DIFF = (
     "diff",
     "--binary",
@@ -387,7 +387,7 @@ def guard_proof(baseline: dict, guard_cell: str) -> None:
             ROOT,
             guard_cell,
             True,
-            (IMPLEMENTATION, 280, "could not load the ClickHouse ADBC driver:"),
+            (IMPLEMENTATION, 284, "could not load the ClickHouse ADBC driver:"),
         )
     finally:
         path.write_bytes(original)
