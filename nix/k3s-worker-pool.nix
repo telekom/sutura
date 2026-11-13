@@ -939,6 +939,6 @@ pkgs.testers.runNixOSTest {
         raise
     finally:
         machine.succeed("printf %s " + q(json.dumps(evidence, indent=2)) + " > /tmp/elastic-evidence.json")
-        machine.copy_from_vm("/tmp/elastic-evidence.json")
+        machine.copy_from_machine("/tmp/elastic-evidence.json")
   '';
 }
