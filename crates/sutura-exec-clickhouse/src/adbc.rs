@@ -741,7 +741,15 @@ impl Warehouse for AdbcClickHouseWarehouse {
     }
 
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(error, AdbcError::Unannounced(error) if matches!(error, sutura_domain::warehouse::UnannouncedBatch::OverBound { .. } | sutura_domain::warehouse::UnannouncedBatch::OverBudget { .. }))
+        self.result_limit(error).is_some()
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        if let AdbcError::Unannounced(cause) = error {
+            cause.result_limit()
+        } else {
+            None
+        }
     }
 }
 

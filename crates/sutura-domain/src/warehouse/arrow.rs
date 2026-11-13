@@ -97,6 +97,18 @@ pub enum UnannouncedBatch {
     OverBudget { most_bytes: usize },
 }
 
+impl UnannouncedBatch {
+    /// The rejected stream's own limit; schema failures are not size refusals.
+    #[must_use]
+    pub const fn result_limit(&self) -> Option<super::ResultLimit> {
+        match *self {
+            Self::OverBound { most } => Some(super::ResultLimit::StreamRows { limit: most }),
+            Self::OverBudget { most_bytes } => Some(super::ResultLimit::MaterializationBytes { limit_bytes: most_bytes }),
+            Self::Width { .. } | Self::Mislabelled { .. } => None,
+        }
+    }
+}
+
 /// Why an Arrow array could not become a domain value.
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum UnreadableCell {

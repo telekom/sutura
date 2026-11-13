@@ -219,3 +219,59 @@ fn a_spent_deadline_dials_nothing() {
     assert!(matches!(refused, NodeError::DeadlineExceeded), "{refused:?}");
     assert!(node.received().is_empty());
 }
+
+#[test]
+fn a_local_decode_limit_retains_its_bytes_while_a_remote_size_code_stays_numberless() {
+    use sutura_domain::query::ResultBound;
+    use sutura_domain::warehouse::UnannouncedBatch;
+
+    let node = Node::answering([]);
+    let warehouse = client_trusting(&node, node.anchor.clone());
+    let local = NodeError::Result {
+        cause: UnannouncedBatch::OverBudget { most_bytes: 31 },
+    };
+    let bound = warehouse
+        .result_limit(&local)
+        .map(ResultBound::from)
+        .expect("local decode limit");
+    assert_eq!(
+        serde_json::to_value(bound).expect("bound serializes"),
+        serde_json::json!({"Materialization": {"limit_bytes": 31}})
+    );
+    let remote = NodeError::Refused {
+        code: crate::error::RemoteCode::ResultTooLarge,
+    };
+    assert_eq!(
+        warehouse.result_limit(&remote).map(ResultBound::from),
+        Some(ResultBound::Volume)
+    );
+}
+
+#[test]
+fn node_schema_failures_are_not_result_size_refusals() {
+    use sutura_domain::warehouse::UnannouncedBatch;
+
+    let node = Node::answering([]);
+    let warehouse = client_trusting(&node, node.anchor.clone());
+    for cause in [
+        UnannouncedBatch::Width {
+            announced: 1,
+            delivered: 2,
+        },
+        UnannouncedBatch::Mislabelled {
+            at: 0,
+            announced: String::from("expected"),
+            delivered: String::from("wrong"),
+        },
+    ] {
+        let error = NodeError::Result { cause };
+        assert!(
+            !warehouse.result_did_not_fit(&error),
+            "schema failure classified as too much data: {error:?}"
+        );
+        assert!(
+            warehouse.result_limit(&error).is_none(),
+            "schema failure acquired a size limit: {error:?}"
+        );
+    }
+}

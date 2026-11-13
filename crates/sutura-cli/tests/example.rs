@@ -662,4 +662,133 @@ mod tests {
             );
         }
     }
+
+    #[derive(Clone, Copy)]
+    enum RejectedResult {
+        Rows,
+        Bytes,
+        Unknown,
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    enum ResultFailure {
+        #[error(transparent)]
+        Known(#[from] sutura_exec_postgres::PostgresError),
+        #[error("the external source declined the result without a limit")]
+        Unknown,
+        #[error(transparent)]
+        Anchor(#[from] sutura_exec_datafusion::DataFusionError),
+    }
+
+    struct LimitedWarehouse {
+        source: sutura_domain::model::SourceName,
+        engine: sutura_app::Warehouses<sutura_exec_datafusion::DataFusionWarehouse>,
+        rejected: RejectedResult,
+    }
+
+    impl sutura_domain::warehouse::Warehouse for LimitedWarehouse {
+        type Error = ResultFailure;
+        const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
+            sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
+
+        fn source(&self) -> &sutura_domain::model::SourceName {
+            &self.source
+        }
+        fn posture(&self) -> &sutura_domain::source::SourcePosture {
+            self.engine.get(&self.source).expect("the fixture engine exists").posture()
+        }
+        fn execute(
+            &self,
+            _plan: sutura_domain::plan::Executable<'_>,
+            _presented: &sutura_domain::identity::Presented,
+            _deadline: sutura_domain::warehouse::deadline::Deadline,
+        ) -> Result<sutura_domain::warehouse::ResultBatches, Self::Error> {
+            use sutura_domain::warehouse::UnannouncedBatch;
+            let cause = match self.rejected {
+                RejectedResult::Rows => UnannouncedBatch::OverBound { most: 17 },
+                RejectedResult::Bytes => UnannouncedBatch::OverBudget { most_bytes: 31 },
+                RejectedResult::Unknown => return Err(ResultFailure::Unknown),
+            };
+            Err(sutura_exec_postgres::PostgresError::from(sutura_exec_postgres::adbc::AdbcError::Unannounced(cause)).into())
+        }
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "delegates the boot anchor check to the fixture engine"
+        )]
+        fn verify_anchor(
+            &self,
+            plan: sutura_domain::plan::AnchorPlan<'_>,
+        ) -> Result<sutura_domain::warehouse::AnchorRows, Self::Error> {
+            self.engine
+                .get(&self.source)
+                .expect("the fixture engine exists")
+                .verify_anchor(plan)
+                .map_err(ResultFailure::Anchor)
+        }
+        fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+            match error {
+                ResultFailure::Known(cause) => cause.did_not_fit(),
+                ResultFailure::Unknown => true,
+                ResultFailure::Anchor(_) => false,
+            }
+        }
+        fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+            match error {
+                ResultFailure::Known(cause) => cause.result_limit(),
+                ResultFailure::Unknown => Some(sutura_domain::warehouse::ResultLimit::Unknown),
+                ResultFailure::Anchor(_) => None,
+            }
+        }
+    }
+
+    #[test]
+    fn source_limits_survive_the_application_and_both_transport_outputs() {
+        for (rejected, expected) in [
+            (RejectedResult::Rows, Some("17 rows")),
+            (RejectedResult::Bytes, Some("31 bytes")),
+            (RejectedResult::Unknown, None),
+        ] {
+            let pinned = load();
+            let warehouses = sutura_app::Warehouses::of(LimitedWarehouse {
+                source: sutura_domain::model::SourceName::parse("local").expect("fixture source"),
+                engine: engine(&pinned),
+                rejected,
+            });
+            let validated = sutura_app::verify_and_validate(pinned, &warehouses).expect("real engine validates anchors");
+            let question = read_question(&example_root().join("questions/recurring-revenue-june.yaml"));
+            let outcome = sutura_app::answer(
+                &validated,
+                &question,
+                &a_caller(),
+                &single_user_broker(),
+                &warehouses,
+                &sutura_exec_datafusion::DataFusionCombiner::new().expect("combiner builds"),
+                1 << 30,
+                deadline(),
+                &sutura_app::SpendLedger::no_budget(),
+                sutura_domain::plan::Ceilings::DEFAULT,
+            )
+            .expect("a source bound is an outcome")
+            .into_outcome();
+            let http = sutura_http::wire::Outcome::from(&outcome);
+            assert_eq!(http.status().as_u16(), 413);
+            for body in [
+                serde_json::to_value(http.body()).expect("HTTP body serializes"),
+                serde_json::to_value(sutura_mcp::wire::OutcomeContent::from(&outcome)).expect("MCP body serializes"),
+            ] {
+                assert_eq!(body["outcome"], "refusal");
+                assert_eq!(body["reason"]["code"], "result_too_large");
+                assert!(body.get("rows").is_none(), "no partial answer: {body}");
+                let detail = body["reason"]["detail"].as_str().expect("a refusal has detail");
+                if let Some(limit) = expected {
+                    assert!(detail.contains(limit), "known source threshold lost: {detail}");
+                    assert!(detail.contains("deployment operator"), "no operator remedy: {detail}");
+                    assert!(detail.contains("NOT truncated"), "no completeness statement: {detail}");
+                    assert!(!detail.contains("not told"), "known bound described as unknown: {detail}");
+                } else {
+                    assert!(!detail.chars().any(char::is_numeric), "invented unknown limit: {detail}");
+                }
+            }
+        }
+    }
 }

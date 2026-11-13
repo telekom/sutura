@@ -350,6 +350,10 @@ impl Warehouse for AnyWarehouse {
         any_predicate!(self, error, working_set_exhausted, None)
     }
 
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        any_predicate!(self, error, result_limit, None)
+    }
+
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         any_predicate!(self, error, result_did_not_fit, false)
     }
@@ -648,6 +652,52 @@ mod tests {
     use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
     use super::{SourceName, TableName, trust_into, trusted_tables};
+
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn the_composed_warehouse_preserves_known_source_rows_and_materialization_bytes() {
+        use super::{AnyWarehouse, AnyWarehouseError};
+        use sutura_domain::identity::Secret;
+        use sutura_domain::query::ResultBound;
+        use sutura_domain::warehouse::{UnannouncedBatch, Warehouse as _};
+        use sutura_exec_postgres::adbc::{AdbcError, AdbcPostgres, Channel, Conninfo, PostgresDriver};
+        use sutura_exec_postgres::connection::ConnectionTarget;
+
+        let source = SourceName::parse("fixture").expect("fixture source");
+        let posture = sutura_domain::source::SourcePosture::SharedServiceUser {
+            declared: sutura_domain::source::SharedIdentityDeclared::of(
+                sutura_domain::source::AcknowledgementReason::parse("fixture shared source").expect("fixture reason"),
+            ),
+        };
+        let conninfo = Conninfo::new(
+            &source,
+            ConnectionTarget::Host("127.0.0.1"),
+            1,
+            "fixture",
+            "fixture",
+            &Secret::new("unused"),
+            Channel::Plaintext,
+        )
+        .expect("fixture connection");
+        let driver = PostgresDriver::parse("/nonexistent/libadbc_driver_postgresql.so").expect("absolute fixture path");
+        let warehouse = AnyWarehouse::Postgres(Box::new(
+            AdbcPostgres::new(source, posture, driver, conninfo).expect("adapter builds"),
+        ));
+        for (cause, expected) in [
+            (
+                UnannouncedBatch::OverBound { most: 17 },
+                serde_json::json!({"SourceRows": {"limit": 17}}),
+            ),
+            (
+                UnannouncedBatch::OverBudget { most_bytes: 31 },
+                serde_json::json!({"Materialization": {"limit_bytes": 31}}),
+            ),
+        ] {
+            let error = AnyWarehouseError::Postgres(AdbcError::Unannounced(cause).into());
+            let bound = warehouse.result_limit(&error).map(ResultBound::from).expect("a known limit");
+            assert_eq!(serde_json::to_value(bound).expect("bound serializes"), expected);
+        }
+    }
 
     /// One model as [`bundle`] takes it: its name, its source, its table.
     type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);

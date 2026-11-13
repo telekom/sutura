@@ -104,7 +104,27 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             ResultBound::Volume => String::from(
                 "the answer was more data than the data system would return at once; nothing was \
                  cut down to fit and retrying will not help. Ask a narrower question - a shorter \
-                 period, or fewer dimensions.",
+                 period, or fewer dimensions. Ask the deployment operator to investigate the source limit.",
+            ),
+            ResultBound::SourceRows { limit } => format!(
+                "a source stream exceeded its limit of {limit} rows; the answer was NOT truncated to fit. \
+                 Ask the deployment operator to add partition or reader capacity, or narrow the question. \
+                 This is a per-stream limit, not the final answer's row cap; this request cannot raise it"
+            ),
+            ResultBound::Materialization { limit_bytes } => format!(
+                "a source result exceeded its materialisation budget of {limit_bytes} bytes; the answer \
+                 was NOT truncated to fit. Ask the deployment operator to add partition or reader capacity \
+                 or adjust configurable materialisation limits, or narrow the question. This is not the rendered answer size"
+            ),
+            ResultBound::SplitCapacity {
+                estimated_rows,
+                per_stream_rows,
+                ready_readers,
+            } => format!(
+                "an estimated {estimated_rows} source rows cannot fit the available partition capacity: \
+                 {ready_readers} ready readers with a per-stream limit of {per_stream_rows} rows. \
+                 This is a planning estimate, not an observed stream overflow; the answer was NOT truncated to fit. Ask the deployment \
+                 operator to add partition or reader capacity, or narrow the question; the estimate is not a limit"
             ),
             // This deployment's own ceiling, and unlike `Volume` a figure it was told - so the
             // sentence names it rather than leaving an agent to guess how much to narrow by.
