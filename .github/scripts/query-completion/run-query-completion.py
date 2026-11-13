@@ -416,12 +416,10 @@ def run_cli_diagnostic(config, out, root, baseline):
     overlays = diagnostic["overlays"]
     paths = [item["path"] for item in overlays]
     assert paths == [
-        "crates/sutura-exec-datafusion/src/combine/across/partition.rs",
-        "crates/sutura-exec-datafusion/src/combine/across.rs",
-        "vendor/datafusion-distributed/src/protocol/grpc/errors/mod.rs",
-        "crates/sutura-exec-datafusion/src/combine/across/receipts.rs",
-        "vendor/datafusion-distributed/src/protocol/grpc/worker_client.rs",
-        "vendor/datafusion-distributed/src/protocol/grpc/worker_service.rs",
+        "crates/sutura-exec-bigquery/src/adbc.rs",
+        "crates/sutura-exec-bigquery/src/adbc/partitions.rs",
+        "crates/sutura-exec-bigquery/src/adbc/driver_message.rs",
+        "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
     ]
     for item in overlays:
         overlay = PAYLOAD / item["overlay"]
@@ -476,7 +474,7 @@ def run_cli_diagnostic(config, out, root, baseline):
                 "runtime_credit": False,
                 "mutations_run": 0,
                 "markers": (out / "diagnostic.log").read_text().splitlines(),
-                "limit": "fixed late consumer stages and at most eight source-chain nodes; direct/Arc known-type checks; unknown_type and chain_limit remain unclassified; Collection branches not exhaustively explored; absent marker is not_observed",
+                "limit": "fixed ADBC call sites and typed status; reason bits record literal substring presence only, not root cause or remote phase; no message/value/source/details fields; absence is not_observed; no proof credit",
             },
         )
     finally:

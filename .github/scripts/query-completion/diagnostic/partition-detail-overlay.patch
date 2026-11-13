@@ -1,0 +1,38 @@
+--- a/crates/sutura-exec-bigquery/src/adbc/partitions.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+@@ -197,7 +197,16 @@
+         (TARGET_ROWS_PER_STREAM_OPTION, TARGET_ROWS_PER_STREAM),
+     ] {
+         stmt.set_option(OptionStatement::Other(key.to_owned()), OptionValue::String(value.to_string()))
+-            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++            .map_err(|e| {
++                AdbcError::Adbc(DriverMessage::diagnostic(
++                    &e,
++                    if key == MAX_STREAMS_OPTION {
++                        "partition_max_streams"
++                    } else {
++                        "partition_target_rows"
++                    },
++                ))
++            })?;
+     }
+     Ok(())
+ }
+@@ -246,7 +255,7 @@
+ {
+     let partitioned = stmt
+         .execute_partitions()
+-        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++        .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "partition_execute_partitions_now_1")))?;
+     Ok(Partitioned {
+         schema: SchemaRef::new(partitioned.schema),
+         descriptors: partitioned.partitions.into_iter().map(PartitionDescriptor).collect(),
+@@ -262,7 +271,7 @@
+ {
+     let reader = conn
+         .read_partition(descriptor.as_bytes())
+-        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++        .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "partition_read_partition_to_completion_1")))?;
+     accumulate_bounded(reader)
+ }
+ 

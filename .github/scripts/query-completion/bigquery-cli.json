@@ -1,8 +1,8 @@
 {
-  "source": "d10b8f96cb9a740dd09c549b87f361c81e0c271a",
-  "tree": "3e89c4b8b46fe3c55c023bf6ad00aeb3ffa30926",
+  "source": "44fb5aa4d5f430da3d0f16487fd7876b8f651749",
+  "tree": "6b3df857576d764cab255420a8338b7b3101360d",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "STATUS CODE AND ORIGIN DIAGNOSTIC ONLY; no mutation or proof credit",
+  "binding": "Bounded ADBC stage, typed status and fixed reason predicates only; no proof credit",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
   "cases": [],
   "venue_limit": "In-process native split creation and forwarded partition reader: actual multiple-stream Granted and <=1-stream Split branches, descriptor capture barrier, creation propagation/count, full creation SQL equality, and local creation attachment. Each earns only its reached bound assertion; no served-human, inbound-issuer, real-delegation-hop, forced duplicate native read or native-cancellation credit.",
@@ -14,50 +14,162 @@
   "diagnostic": {
     "binary": "sutura-cli::bin/sutura",
     "test": "serve::worker::partition::tests::native_bigquery::forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
-    "marker_pattern": "observed, completion_diagnostic (?:late_phase=batch_stream late_reason=engine_error|late_phase=batch_accept late_reason=(?:over_bound|over_budget|width|mislabelled)|late_phase=capture_check late_reason=unrecorded|late_phase=partition_complete late_reason=ok|boundary=combine_error error_depth=[0-7] error_type=(?:invalid_capture|over_bound|over_budget|width|mislabelled|df_external|df_shared|df_context|df_arrow|df_collection|df_execution|df_internal|df_plan|df_resources_exhausted|df_execution_join|df_other|arrow|tonic_status|unknown_type)|boundary=combine_error error_depth=[0-7] tonic_code=(?:[0-9]|1[0-6])|boundary=combine_error chain_end=(?:source_none|chain_limit)|boundary=grpc_encode error_type=(?:external|execution|shared|context|other)|boundary=grpc_status branch=(?:recognized|fallback)|boundary=flight_map error_type=(?:arrow|not_yet_implemented|tonic|protocol|decode|external)|boundary=receipt_producer phase=capture_finish result=(?:ok|failed)|boundary=receipt_producer phase=wire_encode result=invalid_capture|boundary=receipt_producer phase=producer result=ok|boundary=grpc_status branch=(?:recognized|fallback) tonic_code=(?:[0-9]|1[0-6])|boundary=flight_fanout origin=(?:execute_rpc|stream_receive) tonic_code=(?:[0-9]|1[0-6])|boundary=flight_fanout origin=(?:metadata_decode|partition_underflow|partition_lookup) tonic_code=13|boundary=flight_serve error_type=tonic tonic_code=(?:[0-9]|1[0-6])|boundary=flight_serve error_type=(?:arrow|not_yet_implemented|protocol|decode|external) tonic_code=13|boundary=flight_setup phase=ipc_options result=failed tonic_code=13)",
+    "marker_pattern": "observed, completion_diagnostic (?:split_outer=(?:endpoint|render|table_names_no_project|no_payer|no_principal_switch|posture_disagrees|unreadable|no_identity|not_the_callers_token|other_warehouse) split_adbc=(?:load|adbc_call|batch|unannounced|uncovered|no_dry_run|deadline_spent|deadline_elapsed|parameters|pool_exchange|not_endpoint)|adbc_stage=(?:unclassified|prepared_1|prepared_2|prepared_3|prepared_4|prepared_5|prepared_6|load_1|load_2|probe_1|connect_as_1|connect_as_2|connect_as_3|read_partition_1|read_partition_2|execute_to_completion_1|apply_1|partition_execute_partitions_now_1|partition_read_partition_to_completion_1|partition_max_streams|partition_target_rows) adbc_status=(?:ok|unknown|not_implemented|not_found|already_exists|invalid_arguments|invalid_state|invalid_data|integrity|internal|io|cancelled|timeout|unauthenticated|unauthorized) adbc_flags=[0-9]{1,7})",
     "overlays": [
       {
-        "path": "crates/sutura-exec-datafusion/src/combine/across/partition.rs",
-        "overlay": "diagnostic/worker-overlay.patch",
-        "overlay_sha256": "d2a11bcd3c0b9c360745681eec76461444c18348e439f5da057def3e6efb5307",
-        "before_sha256": "57711fbc687bbb1ccbe53e371c0e1b0699e4f45ffcc137cd2fda4f8f37dd5b6d",
-        "after_sha256": "834ce16ce27a223c78bedc74757f65b5f9249d098abaf6dcaa4bc5a3b1ed2b35"
+        "path": "crates/sutura-exec-bigquery/src/adbc.rs",
+        "overlay": "diagnostic/adbc-detail-overlay.patch",
+        "overlay_sha256": "ee43555a3f1a8fa0856a4bbce54d025bf2648ff48d5b901123853aa1c435fe14",
+        "before_sha256": "2cb72960051b75f7effeedc8c20318193b5c0e4a0a56a86a9ba45d1be8a7a79b",
+        "after_sha256": "307d6bd680dbd7cea45889fbcb682e595f06f449affbbb9d06794708889e5682"
       },
       {
-        "path": "crates/sutura-exec-datafusion/src/combine/across.rs",
+        "path": "crates/sutura-exec-bigquery/src/adbc/partitions.rs",
+        "overlay": "diagnostic/partition-detail-overlay.patch",
+        "overlay_sha256": "db17993b0c3e300c7e6b21e69acc2917cca60d9166ff3687b4b1b28447b90bdb",
+        "before_sha256": "bbec34f42ad3e1dd27b93272ce545038fac65990d8a084ccbf128bac5161ac98",
+        "after_sha256": "5af2970b246e1b2531bd8969982f68ab477527230e665fda1f27e27bc96344f1"
+      },
+      {
+        "path": "crates/sutura-exec-bigquery/src/adbc/driver_message.rs",
+        "overlay": "diagnostic/driver-message-detail-overlay.patch",
+        "overlay_sha256": "f12ff05b1f97c9bcc1adafa81eb3c92a8625a974b7aa122440d7a46298f73793",
+        "before_sha256": "f1cb5ffbe73f9f8088838d36afa0ab807742760c10f8b2696271833a5177d576",
+        "after_sha256": "c488ba110782d8e4347bcad78611eb3934182cc17c399726f9d1bcb3659d4e34"
+      },
+      {
+        "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
         "overlay": "diagnostic/fixture-overlay.patch",
-        "overlay_sha256": "cdb79dd771d7ef52a21862738b3d1daea9577cd6c53ce006d9afa489196c5b2f",
-        "before_sha256": "c0599ec1ab515f6d4b8f39f991acc6890391123c0afda167b6b62b974751a748",
-        "after_sha256": "6aa18fccba4ccdf8e9eb4981f056b2056ac54f815f72072623b2175439a862b5"
-      },
-      {
-        "path": "vendor/datafusion-distributed/src/protocol/grpc/errors/mod.rs",
-        "overlay": "diagnostic/grpc-origin-overlay.patch",
-        "overlay_sha256": "ba0df9f0ab94179a923a9bd7aa63d142878913bd8bc1fc1a9984c02e86e45c07",
-        "before_sha256": "c432015b5d9683b14d43348237b27b988a9f9a55a91bd5d4728712dc0c137317",
-        "after_sha256": "f31d6d245f54cf80f7254b4742571e01e539c6a5f4a4310c0ac54ad5a2a17e0c"
-      },
-      {
-        "path": "crates/sutura-exec-datafusion/src/combine/across/receipts.rs",
-        "overlay": "diagnostic/producer-origin-overlay.patch",
-        "overlay_sha256": "b2781df2c5292ba45a649a9f4dc9a8baff86b82b23ee766a8a53647396b2786f",
-        "before_sha256": "ed3141200e4cea952f43050e36e4ff7e92885257d2951c7fb4c46206401d6010",
-        "after_sha256": "37856df1bc6c381f734d461bf771e02f6d6999749f6692f7114e3400f86348e7"
-      },
-      {
-        "path": "vendor/datafusion-distributed/src/protocol/grpc/worker_client.rs",
-        "overlay": "diagnostic/client-status-origin-overlay.patch",
-        "overlay_sha256": "035dd0b41e35b71221dcc9f9c930a3b4107a331afa9428dc0b26b4e2206f96ed",
-        "before_sha256": "86c6e7ce5212b755908cc5ad949b1d81004bd5a0ea376e8e224d079df65a4b31",
-        "after_sha256": "47b16196fcc582af6de6df8855f1d54669e9e15eb4fde1af7200d12452b73add"
-      },
-      {
-        "path": "vendor/datafusion-distributed/src/protocol/grpc/worker_service.rs",
-        "overlay": "diagnostic/service-status-origin-overlay.patch",
-        "overlay_sha256": "1d29becaec696cd6e2b5e67839897ff70caa41e37c61a320f7b18382cd5a9e55",
-        "before_sha256": "c2769777aeaa358feab740d577d07b1bd9919a2bafb5f83c3623bda1a120964c",
-        "after_sha256": "e2e47eafee0296b2eddb5f9c9e94229f53017530629e4f987f8af828c067706b"
+        "overlay_sha256": "c7edd906d437ab172edecb0ab77a9eaa2f4e63583b3492a4d1dea1c1e3e2dc1c",
+        "before_sha256": "6de7298336dd38cfd41455b9dbd67cb1fb2a604f27842a847d93489343376e37",
+        "after_sha256": "5a1bdc250ccd29603b559a185d7506e764a89a656889104addea9344ff39c7b3"
       }
-    ]
+    ],
+    "reason_bits": {
+      "0": {
+        "label": "run_query",
+        "ascii_case_insensitive_substrings": [
+          "run query"
+        ]
+      },
+      "1": {
+        "label": "wait_job",
+        "ascii_case_insensitive_substrings": [
+          "wait for job"
+        ]
+      },
+      "2": {
+        "label": "complete_job",
+        "ascii_case_insensitive_substrings": [
+          "complete job"
+        ]
+      },
+      "3": {
+        "label": "read_job_config",
+        "ascii_case_insensitive_substrings": [
+          "read job config"
+        ]
+      },
+      "4": {
+        "label": "destination_metadata",
+        "ascii_case_insensitive_substrings": [
+          "read destination table metadata"
+        ]
+      },
+      "5": {
+        "label": "create_read_session",
+        "ascii_case_insensitive_substrings": [
+          "create read session"
+        ]
+      },
+      "6": {
+        "label": "decode_read_schema",
+        "ascii_case_insensitive_substrings": [
+          "decode read session schema"
+        ]
+      },
+      "7": {
+        "label": "invalid_grant",
+        "ascii_case_insensitive_substrings": [
+          "invalid_grant"
+        ]
+      },
+      "8": {
+        "label": "expired_text",
+        "ascii_case_insensitive_substrings": [
+          "expired"
+        ]
+      },
+      "9": {
+        "label": "access_denied_text",
+        "ascii_case_insensitive_substrings": [
+          "accessdenied",
+          "access denied"
+        ]
+      },
+      "10": {
+        "label": "permission_denied_text",
+        "ascii_case_insensitive_substrings": [
+          "permissiondenied",
+          "permission denied"
+        ]
+      },
+      "11": {
+        "label": "dry_run",
+        "ascii_case_insensitive_substrings": [
+          "bigquery.query.dry_run"
+        ]
+      },
+      "12": {
+        "label": "bound_parameters",
+        "ascii_case_insensitive_substrings": [
+          "bound parameters"
+        ]
+      },
+      "13": {
+        "label": "not_implemented_text",
+        "ascii_case_insensitive_substrings": [
+          "not yet implemented",
+          "not implemented"
+        ]
+      },
+      "14": {
+        "label": "missing_query",
+        "ascii_case_insensitive_substrings": [
+          "cannot execute without a query"
+        ]
+      },
+      "15": {
+        "label": "missing_destination",
+        "ascii_case_insensitive_substrings": [
+          "no destination table"
+        ]
+      },
+      "16": {
+        "label": "read_session_permission",
+        "ascii_case_insensitive_substrings": [
+          "storage.readsessions.create"
+        ]
+      },
+      "17": {
+        "label": "job_create_permission",
+        "ascii_case_insensitive_substrings": [
+          "bigquery.jobs.create"
+        ]
+      },
+      "18": {
+        "label": "table_data_permission",
+        "ascii_case_insensitive_substrings": [
+          "bigquery.tables.getdata"
+        ]
+      },
+      "19": {
+        "label": "audience_text",
+        "ascii_case_insensitive_substrings": [
+          "invalid audience",
+          "invalid_target"
+        ]
+      }
+    }
   }
 }

@@ -1,0 +1,57 @@
+--- a/crates/sutura-exec-bigquery/src/adbc/driver_message.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/driver_message.rs
+@@ -22,6 +22,54 @@
+ }
+ impl DriverMessage {
+     pub(crate) fn of(error: &CoreError) -> Self {
++        Self::diagnostic(error, "unclassified")
++    }
++
++    pub(crate) fn diagnostic(error: &CoreError, stage: &str) -> Self {
++        let status = match error.status {
++            Status::Ok => "ok",
++            Status::Unknown => "unknown",
++            Status::NotImplemented => "not_implemented",
++            Status::NotFound => "not_found",
++            Status::AlreadyExists => "already_exists",
++            Status::InvalidArguments => "invalid_arguments",
++            Status::InvalidState => "invalid_state",
++            Status::InvalidData => "invalid_data",
++            Status::Integrity => "integrity",
++            Status::Internal => "internal",
++            Status::IO => "io",
++            Status::Cancelled => "cancelled",
++            Status::Timeout => "timeout",
++            Status::Unauthenticated => "unauthenticated",
++            Status::Unauthorized => "unauthorized",
++        };
++        let text = error.message.to_ascii_lowercase();
++        let flags = [
++            text.contains("run query"),
++            text.contains("wait for job"),
++            text.contains("complete job"),
++            text.contains("read job config"),
++            text.contains("read destination table metadata"),
++            text.contains("create read session"),
++            text.contains("decode read session schema"),
++            text.contains("invalid_grant"),
++            text.contains("expired"),
++            text.contains("accessdenied") || text.contains("access denied"),
++            text.contains("permissiondenied") || text.contains("permission denied"),
++            text.contains("bigquery.query.dry_run"),
++            text.contains("bound parameters"),
++            text.contains("not yet implemented") || text.contains("not implemented"),
++            text.contains("cannot execute without a query"),
++            text.contains("no destination table"),
++            text.contains("storage.readsessions.create"),
++            text.contains("bigquery.jobs.create"),
++            text.contains("bigquery.tables.getdata"),
++            text.contains("invalid audience") || text.contains("invalid_target"),
++        ]
++        .into_iter()
++        .enumerate()
++        .fold(0_u32, |mask, (bit, present)| mask | (u32::from(present) << bit));
++        eprintln!("observed, completion_diagnostic adbc_stage={stage} adbc_status={status} adbc_flags={flags}");
+         Self {
+             text: unlinked(&error.to_string()),
+             status: error.status,

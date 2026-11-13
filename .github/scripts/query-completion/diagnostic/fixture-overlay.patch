@@ -1,84 +1,45 @@
---- a/crates/sutura-exec-datafusion/src/combine/across.rs
-+++ b/crates/sutura-exec-datafusion/src/combine/across.rs
-@@ -528,6 +528,81 @@
- /// error, so a status in `error`'s chain whose code says the link was unavailable is a lost node, and
- /// so is one whose cause is the link's connection ending under the call.
- pub(super) fn lost(error: CombineError) -> CombineError {
-+    if let CombineError::Execute { cause } = &error {
-+        let mut current: Option<&(dyn core::error::Error + 'static)> = Some(cause);
-+        for depth in 0..8 {
-+            let Some(link) = current else { break };
-+            let invalid = link.is::<sutura_domain::warehouse::execution::wire::InvalidCapture>()
-+                || link.is::<Arc<sutura_domain::warehouse::execution::wire::InvalidCapture>>();
-+            let batch = link.downcast_ref::<sutura_domain::warehouse::UnannouncedBatch>().or_else(|| {
-+                link.downcast_ref::<Arc<sutura_domain::warehouse::UnannouncedBatch>>()
-+                    .map(Arc::as_ref)
-+            });
-+            let engine = link
-+                .downcast_ref::<DataFusionError>()
-+                .or_else(|| link.downcast_ref::<Arc<DataFusionError>>().map(Arc::as_ref));
-+            let arrow = link.downcast_ref::<datafusion::arrow::error::ArrowError>().or_else(|| {
-+                link.downcast_ref::<Arc<datafusion::arrow::error::ArrowError>>()
-+                    .map(Arc::as_ref)
-+            });
-+            let status = link
-+                .downcast_ref::<tonic::Status>()
-+                .or_else(|| link.downcast_ref::<Arc<tonic::Status>>().map(Arc::as_ref));
-+            let reason = if invalid {
-+                "invalid_capture"
-+            } else if let Some(batch) = batch {
-+                match batch {
-+                    sutura_domain::warehouse::UnannouncedBatch::OverBound { .. } => "over_bound",
-+                    sutura_domain::warehouse::UnannouncedBatch::OverBudget { .. } => "over_budget",
-+                    sutura_domain::warehouse::UnannouncedBatch::Width { .. } => "width",
-+                    sutura_domain::warehouse::UnannouncedBatch::Mislabelled { .. } => "mislabelled",
-+                }
-+            } else if let Some(engine) = engine {
-+                match engine {
-+                    DataFusionError::External(_) => "df_external",
-+                    DataFusionError::Shared(_) => "df_shared",
-+                    DataFusionError::Context(_, _) => "df_context",
-+                    DataFusionError::ArrowError(_, _) => "df_arrow",
-+                    DataFusionError::Collection(_) => "df_collection",
-+                    DataFusionError::Execution(_) => "df_execution",
-+                    DataFusionError::Internal(_) => "df_internal",
-+                    DataFusionError::Plan(_) => "df_plan",
-+                    DataFusionError::ResourcesExhausted(_) => "df_resources_exhausted",
-+                    DataFusionError::ExecutionJoin(_) => "df_execution_join",
-+                    _ => "df_other",
-+                }
-+            } else if arrow.is_some() {
-+                "arrow"
-+            } else if status.is_some() {
-+                "tonic_status"
-+            } else {
-+                "unknown_type"
+--- a/crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs
++++ b/crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs
+@@ -434,7 +434,41 @@
+             Some(Grantee::new(lookup, credentials, until).unwrap()),
+             labels,
+         )
+-        .unwrap_or_else(|_| panic!("the native BigQuery split dispatch did not run"))
++        .unwrap_or_else(|cause| {
++            use crate::serve::kind::AnyWarehouseError;
++            use sutura_exec_bigquery::{BigQueryError, adbc::AdbcError};
++
++            let (outer, endpoint) = match &cause {
++                AnyWarehouseError::BigQuery(cause) => match cause {
++                    BigQueryError::Endpoint { cause } => (
++                        "endpoint",
++                        match cause {
++                            AdbcError::Load(_) => "load",
++                            AdbcError::Adbc(_) => "adbc_call",
++                            AdbcError::Batch(_) => "batch",
++                            AdbcError::Unannounced(_) => "unannounced",
++                            AdbcError::Uncovered(_) => "uncovered",
++                            AdbcError::NoDryRun => "no_dry_run",
++                            AdbcError::DeadlineSpent => "deadline_spent",
++                            AdbcError::DeadlineElapsed => "deadline_elapsed",
++                            AdbcError::Parameters { .. } => "parameters",
++                            AdbcError::PoolExchange { .. } => "pool_exchange",
++                        },
++                    ),
++                    BigQueryError::Render { .. } => ("render", "not_endpoint"),
++                    BigQueryError::TableNamesNoProject { .. } => ("table_names_no_project", "not_endpoint"),
++                    BigQueryError::NoPayer { .. } => ("no_payer", "not_endpoint"),
++                    BigQueryError::NoPrincipalSwitch { .. } => ("no_principal_switch", "not_endpoint"),
++                    BigQueryError::PresentedDisagreesWithPosture { .. } => ("posture_disagrees", "not_endpoint"),
++                    BigQueryError::Unreadable { .. } => ("unreadable", "not_endpoint"),
++                    BigQueryError::NoIdentityInTheAnswer { .. } => ("no_identity", "not_endpoint"),
++                },
++                AnyWarehouseError::NotTheCallersToken(_) => ("not_the_callers_token", "not_endpoint"),
++                _ => ("other_warehouse", "not_endpoint"),
 +            };
-+            eprintln!("observed, completion_diagnostic boundary=combine_error error_depth={depth} error_type={reason}");
-+            if let Some(status) = status {
-+                let code = status.code() as i32;
-+                eprintln!("observed, completion_diagnostic boundary=combine_error error_depth={depth} tonic_code={code}");
-+            }
-+            current = if let Some(engine) = engine {
-+                core::error::Error::source(engine)
-+            } else if let Some(arrow) = arrow {
-+                core::error::Error::source(arrow)
-+            } else if let Some(status) = status {
-+                core::error::Error::source(status)
-+            } else if let Some(batch) = batch {
-+                core::error::Error::source(batch)
-+            } else {
-+                link.source()
-+            };
-+            if current.is_none() {
-+                eprintln!("observed, completion_diagnostic boundary=combine_error chain_end=source_none");
-+                break;
-+            }
-+            if depth == 7 {
-+                eprintln!("observed, completion_diagnostic boundary=combine_error chain_end=chain_limit");
-+            }
-+        }
-+    }
-     match error {
-         CombineError::Execute { cause } if unreachable(&cause) => CombineError::NodeLost { cause },
-         other => other,
++            eprintln!("observed, completion_diagnostic split_outer={outer} split_adbc={endpoint}");
++            panic!("the native BigQuery split dispatch did not run")
++        })
+ }
+ 
+ fn sql_receipts(records: &[Execution]) -> Vec<&Execution> {

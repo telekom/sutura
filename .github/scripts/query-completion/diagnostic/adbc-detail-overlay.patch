@@ -1,0 +1,115 @@
+--- a/crates/sutura-exec-bigquery/src/adbc.rs
++++ b/crates/sutura-exec-bigquery/src/adbc.rs
+@@ -251,7 +251,7 @@
+         OptionStatement::Other(DEFAULT_PROJECT_OPTION.to_owned()),
+         OptionValue::String(String::new()),
+     )
+-    .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++    .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "prepared_1")))?;
+     if let Some(labels) = request.labels() {
+         let pairs = labels
+             .pairs()
+@@ -261,25 +261,26 @@
+             OptionStatement::Other(LABELS_OPTION.to_owned()),
+             OptionValue::String(serde_json::Value::Object(pairs.collect()).to_string()),
+         )
+-        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++        .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "prepared_2")))?;
+     }
+     stmt.set_option(
+         OptionStatement::Other(MAX_BYTES_BILLED_OPTION.to_owned()),
+         OptionValue::Int(max_bytes_billed.as_int()),
+     )
+-    .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++    .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "prepared_3")))?;
+     if let JobDeadline::Port(deadline) = request.deadline() {
+         let left = deadline.remaining_at(now).ok_or(AdbcError::DeadlineSpent)?;
+         stmt.set_option(
+             OptionStatement::Other(JOB_TIMEOUT_OPTION.to_owned()),
+             OptionValue::Int(whole_millis(left)),
+         )
+-        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++        .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "prepared_4")))?;
+     }
+     stmt.set_sql_query(request.statement())
+-        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++        .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "prepared_5")))?;
+     if let Some(batch) = bound {
+-        stmt.bind(batch).map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++        stmt.bind(batch)
++            .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "prepared_6")))?;
+     }
+     Ok(())
+ }
+@@ -300,9 +301,9 @@
+ fn load(at: &DriverLocation) -> Result<ManagedDriver, AdbcError> {
+     if let Some(path) = at.mounted() {
+         return ManagedDriver::load_dynamic_from_filename(path, None, AdbcVersion::default())
+-            .map_err(|e| AdbcError::Load(DriverMessage::of(&e)));
+-    }
+-    sutura_adbc::linked_driver().map_err(|e| AdbcError::Load(DriverMessage::of(&e)))
++            .map_err(|e| AdbcError::Load(DriverMessage::diagnostic(&e, "load_1")));
++    }
++    sutura_adbc::linked_driver().map_err(|e| AdbcError::Load(DriverMessage::diagnostic(&e, "load_2")))
+ }
+ 
+ /// A driver handle and the statement prepared on it.
+@@ -468,7 +469,7 @@
+         drop(
+             driver
+                 .new_database_with_opts(opts)
+-                .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?,
++                .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "probe_1")))?,
+         );
+         Ok(())
+     }
+@@ -498,9 +499,13 @@
+         let mut driver = load(&self.driver)?;
+         let db = driver
+             .new_database_with_opts(database_options(request.billing_project(), runs_as))
+-            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+-        let mut conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+-        let mut stmt = conn.new_statement().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++            .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "connect_as_1")))?;
++        let mut conn = db
++            .new_connection()
++            .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "connect_as_2")))?;
++        let mut stmt = conn
++            .new_statement()
++            .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "connect_as_3")))?;
+         prepared(&mut stmt, request, bound, self.max_bytes_billed, Instant::now())?;
+         Ok((driver, stmt))
+     }
+@@ -534,8 +539,10 @@
+         let mut driver = load(&self.driver)?;
+         let db = driver
+             .new_database_with_opts(database_options(billing_project, authentication.options))
+-            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+-        let conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++            .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "read_partition_1")))?;
++        let conn = db
++            .new_connection()
++            .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "read_partition_2")))?;
+         partitions::read_partition_to_deadline(
+             conn,
+             partitions::PartitionDescriptor::granted(descriptor),
+@@ -596,7 +603,9 @@
+ where
+     S: Statement,
+ {
+-    let reader = stmt.execute().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++    let reader = stmt
++        .execute()
++        .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "execute_to_completion_1")))?;
+     accumulate_bounded(reader)
+ }
+ 
+@@ -884,7 +893,7 @@
+         )]
+         statement
+             .execute_update()
+-            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++            .map_err(|e| AdbcError::Adbc(DriverMessage::diagnostic(&e, "apply_1")))?;
+         Ok(())
+     }
+ }
