@@ -123,10 +123,33 @@ def assert_cell(root, cell, label, red=None):
         )
         assert all(needle in text for needle in red["needles"]), (label, red)
         if "last_probe" in red:
+            diagnostic_text = "\n".join(line.lstrip() for line in text.splitlines())
             probes = re.findall(
-                r"^native dictionary refusal probe: (.+)$", text, re.MULTILINE
+                r"^native dictionary refusal probe: (.+)$",
+                diagnostic_text,
+                re.MULTILINE,
             )
             assert probes and probes[-1] == red["last_probe"], (label, probes)
+            timeout_marker = "after being given settings it must refuse:\n"
+            if timeout_marker in diagnostic_text:
+                assert diagnostic_text.count(timeout_marker) == 1, (
+                    label,
+                    "ambiguous timeout",
+                )
+                transcript, end, _ = diagnostic_text.split(timeout_marker, 1)[
+                    1
+                ].partition("\nend refused-deployment output")
+                assert end, (label, "incomplete deployment transcript")
+                events = []
+                for line in transcript.splitlines():
+                    with contextlib.suppress(json.JSONDecodeError):
+                        events.append(json.loads(line.strip()))
+                assert any(
+                    isinstance(event, dict)
+                    and event.get("msg") == "listening"
+                    and isinstance(event.get("bound"), str)
+                    for event in events
+                ), (label, "timeout without an observed listener is not a verdict")
         assert "0 tests run" not in text
 
 
