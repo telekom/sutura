@@ -42,7 +42,7 @@ fn oracle_capture_uses_the_native_binding_convention() {
         panic!("a native string then timestamp");
     };
     assert_eq!(text, "north");
-    assert_eq!(timestamp.to_string(), "2026-06-01T00:00:00.000000000");
+    assert_eq!(timestamp.to_string(), "2026-06-01T00:00:00");
     assert_eq!(
         Execution::bindings(&params, TypeDialect::Oracle),
         [

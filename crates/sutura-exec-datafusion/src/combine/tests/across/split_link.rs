@@ -26,6 +26,7 @@ use sutura_domain::warehouse::execution::Execution;
 use tokio::runtime::Runtime;
 use url::Url;
 
+use super::served_split::FixtureReader;
 use super::{Authority, listening, roomy, served, servers};
 use crate::combine::{CombineError, Nodes, PartitionReader, SplitScan, StreamBound, refuse_ambiguous_split};
 
@@ -72,7 +73,7 @@ type Asked = Arc<Mutex<Vec<Vec<u8>>>>;
 
 /// A reader answering every partition it is asked for with its `values`, each ask logged in `asked`.
 fn reader(values: Values, asked: Asked) -> Arc<dyn PartitionReader> {
-    Arc::new(
+    Arc::new(FixtureReader(
         move |_: &SourceName, partition: &[u8], schema: &SchemaRef| -> Result<SendableRecordBatchStream, DataFusionError> {
             asked.lock().push(partition.to_vec());
             let links: Vec<i64> = partition.iter().flat_map(|&index| values(index)).collect();
@@ -82,7 +83,7 @@ fn reader(values: Values, asked: Asked) -> Arc<dyn PartitionReader> {
                 stream::iter(vec![Ok::<_, DataFusionError>(batch)]),
             )))
         },
-    )
+    ))
 }
 
 /// A reading node signed by `authority`, served on `servers`, every partition it read logged in

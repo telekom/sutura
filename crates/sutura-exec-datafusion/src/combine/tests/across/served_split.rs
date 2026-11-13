@@ -102,7 +102,7 @@ fn whole(links: Links) -> ResultBatches {
 type Asked = Arc<Mutex<Vec<Vec<u8>>>>;
 
 /// The fake source's in-memory partition operation records its own fixture submission.
-struct FixtureReader<F>(F);
+pub(super) struct FixtureReader<F>(pub(super) F);
 
 impl<F> PartitionReader for FixtureReader<F>
 where
