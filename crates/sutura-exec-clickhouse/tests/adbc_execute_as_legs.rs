@@ -764,8 +764,7 @@ mod adbc_execute_as_legs {
                 return;
             };
             load(&tier);
-            let _base_compatibility: fn(AdbcClickHouseWarehouse, &HashBucketsDeclared) -> AdbcClickHouseWarehouse =
-                <AdbcClickHouseWarehouse as BaseOptIn>::with_hash_buckets;
+            std::hint::black_box(<AdbcClickHouseWarehouse as BaseOptIn>::with_hash_buckets);
             let warehouse = tier
                 .at(LEGS, SourcePosture::ImpersonationAtSource)
                 .with_hash_buckets(&declared());
