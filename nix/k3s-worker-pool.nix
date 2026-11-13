@@ -238,7 +238,17 @@ let
         ];
       }
     );
+  k3sNodeAddresses = { config, ... }: {
+    services.k3s.extraFlags = [
+      "--node-ip=${config.networking.primaryIPAddress}"
+      "--flannel-iface=eth1"
+    ]
+    ++ pkgs.lib.optionals (config.services.k3s.role == "server") [
+      "--advertise-address=${config.networking.primaryIPAddress}"
+    ];
+  };
   agent = {
+    imports = [ k3sNodeAddresses ];
     virtualisation = {
       memorySize = 4096;
       cores = 2;
@@ -312,6 +322,7 @@ pkgs.testers.runNixOSTest {
     };
   };
   nodes.machine = {
+    imports = [ k3sNodeAddresses ];
     virtualisation = {
       memorySize = 6144;
       cores = 4;
@@ -615,6 +626,17 @@ pkgs.testers.runNixOSTest {
         host.wait_until_succeeds("k3s ctr -n k8s.io images tag docker.io/library/sutura-operator:latest docker.io/library/sutura:operator", timeout=180)
     eventually(lambda: {n["metadata"]["name"] for n in get("nodes")["items"]} == set(HOSTS), 180)
     machine.succeed("kubectl wait --for=condition=Ready nodes --all --timeout=180s")
+    node_addresses = {
+        node["metadata"]["name"]: next(a["address"] for a in node["status"]["addresses"]
+                                      if a["type"] == "InternalIP")
+        for node in get("nodes")["items"]
+    }
+    assert node_addresses == {
+        "machine": "${nodes.machine.networking.primaryIPAddress}",
+        "agent1": "${nodes.agent1.networking.primaryIPAddress}",
+        "agent2": "${nodes.agent2.networking.primaryIPAddress}",
+    }, node_addresses
+    evidence["k3s-node-addresses"] = node_addresses
 
     try:
         machine.succeed("kubectl apply --server-side -f ${certManager}")
