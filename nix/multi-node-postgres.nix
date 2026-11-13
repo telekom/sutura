@@ -158,7 +158,7 @@ pkgs.testers.runNixOSTest {
         password_encryption = "scram-sha-256";
         log_statement = "all";
         logging_collector = true;
-        log_destination = "jsonlog";
+        log_destination = pkgs.lib.mkForce "jsonlog";
         log_filename = "worker-receipts.log";
         log_rotation_age = 0;
         log_rotation_size = 0;
