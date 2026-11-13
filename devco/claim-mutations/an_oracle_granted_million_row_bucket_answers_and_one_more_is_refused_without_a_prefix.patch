@@ -1,0 +1,14 @@
+--- a/crates/sutura-cli/src/serve/kind/split/oracle.rs
++++ b/crates/sutura-cli/src/serve/kind/split/oracle.rs
+@@ -85,10 +85,7 @@
+ /// else - a stale or gone snapshot among them - as the engine's failure. Logged here, naming the
+ /// source and never the cause's text, which can quote what the server read.
+ pub(in super::super) fn unread(source: &SourceName, cause: OracleError) -> Unread {
+-    if matches!(
+-        cause,
+-        OracleError::OverBudget { .. } | OracleError::PartitionTooManyRows { .. }
+-    ) {
++    if matches!(cause, OracleError::OverBudget { .. }) {
+         tracing::warn!(%source, "a granted partition did not fit this reader's row or byte limit, refused");
+         Unread::DidNotFit
+     } else {

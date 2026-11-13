@@ -5,7 +5,10 @@
 //! fail-closed reader selection and re-certification; it proves no large-result capacity or row
 //! bound. All processes share one host, node certificate and declared Oracle service user. The
 //! caller's token comes from a fake issuer; nobody signs in and Oracle does not impersonate them.
-//! This cell does not identify which worker reads each bucket; the VM topology proof is pending.
+//! These cells do not identify which worker reads each bucket; the VM topology proof is pending.
+//! The separate skew cell pins a real million-row boundary and cap-plus-one refusal through a
+//! granted worker. Its refusal also exists through the signed consumer bound without the adapter
+//! cap; the adapter's direct flashback cell proves that independent cap against base.
 
 use std::io::{ErrorKind, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
@@ -35,6 +38,7 @@ struct Fixture {
     certificate: CertificateDer<'static>,
     issuer: MockIssuer,
     keys: PublishedKeySet,
+    extra_settings: &'static str,
 }
 
 impl Fixture {
@@ -42,7 +46,7 @@ impl Fixture {
         clippy::disallowed_methods,
         reason = "a hosted test provisions its own Oracle schema through the real driver"
     )]
-    fn here() -> Self {
+    fn here(name: &str) -> Self {
         let provisioned = sutura_dev::provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "oracle");
         let endpoint = provisioned
             .endpoint()
@@ -58,7 +62,7 @@ impl Fixture {
             .expect("the tier authority is an anchor");
         let admin =
             oracledb::connect(dial.clone().set_credentials("SYSTEM", &password)).expect("the fixture administrator opens");
-        let user = format!("SPLIT_{}", std::process::id());
+        let user = format!("SPLIT_{}_{name}", std::process::id());
         if let Err(cause) = admin.execute(&format!("DROP USER \"{user}\" CASCADE"), &[]) {
             assert!(
                 cause.to_string().contains("ORA-01918"),
@@ -117,17 +121,18 @@ impl Fixture {
         // TIMESTAMP_TO_SCN can lag commits by several seconds.
         std::thread::sleep(Duration::from_secs(8));
 
-        let root = std::env::temp_dir().join(format!("sutura-{CASE}-{}", std::process::id()));
+        let case = format!("{CASE}-{name}");
+        let root = std::env::temp_dir().join(format!("sutura-{case}-{}", std::process::id()));
         std::fs::create_dir_all(&root).expect("the fixture material directory creates");
         std::fs::write(root.join("password"), password).expect("the fixture password file writes");
         let pair = rcgen::generate_simple_self_signed([String::from("127.0.0.1")]).expect("a node pair generates");
         std::fs::write(root.join("node.pem"), pair.cert.pem()).expect("the node certificate writes");
         std::fs::write(root.join("node.key"), pair.signing_key.serialize_pem()).expect("the node key writes");
-        let catalog = catalog_spanning_two_sources(CASE, LOOKUP_SOURCE);
+        let catalog = catalog_spanning_two_sources(&case, LOOKUP_SOURCE);
         let model = catalog.join("models/customers.md");
         rewrite(&model, "table: dim_customer\n", &format!("table: {TABLE}\n"));
         let issuer = an_issuer();
-        let keys = PublishedKeySet::of(&issuer, CASE).expect("the fixture key set publishes");
+        let keys = PublishedKeySet::of(&issuer, &case).expect("the fixture key set publishes");
         Self {
             root,
             catalog,
@@ -138,6 +143,7 @@ impl Fixture {
             certificate: pair.cert.der().clone(),
             issuer,
             keys,
+            extra_settings: "",
         }
     }
 
@@ -172,7 +178,11 @@ impl Fixture {
         );
         start_configured(
             &format!("{CASE}-{name}"),
-            &settings_over(catalog, &example_root().join("data"), &server, &security, &self.source(true)),
+            &format!(
+                "{}{}",
+                settings_over(catalog, &example_root().join("data"), &server, &security, &self.source(true)),
+                self.extra_settings,
+            ),
         )
     }
 
@@ -191,7 +201,10 @@ impl Fixture {
                 .concat();
             format!("  nodes:\n    own: https://127.0.0.1:{port}\n    others:\n{others}    across_above_bytes: 1\n")
         };
-        let server = format!("  host: 127.0.0.1\n  port: {port}\n{}{nodes}", self.pair());
+        let server = format!(
+            "  host: 127.0.0.1\n  port: {port}\n  request_timeout_seconds: 120\n{}{nodes}",
+            self.pair()
+        );
         let security = format!(
             "  identity: multi-user\n  tls_termination: in-process\n  inbound:\n    mode: direct\n    resource: {}\n    authorization_server: {}\n    key_set_file: {}\n    algorithms: [ES256]\n",
             self.issuer.audience(),
@@ -205,7 +218,11 @@ impl Fixture {
         );
         start_configured(
             &format!("{CASE}-{name}"),
-            &settings_over(&self.catalog, &example_root().join("data"), &server, &security, &sources),
+            &format!(
+                "{}{}",
+                settings_over(&self.catalog, &example_root().join("data"), &server, &security, &sources),
+                self.extra_settings,
+            ),
         )
     }
 
@@ -289,7 +306,7 @@ fn rewrite(path: &Path, from: &str, to: &str) {
 #[test]
 #[ignore = "requires just oracle-acceptance"]
 fn an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertified_readers() {
-    let fixture = Fixture::here();
+    let fixture = Fixture::here("DIFFERENTIAL");
     let reference = fixture.serving("whole", &[], false);
     let (status, whole) = fixture.ask(&reference);
     assert_eq!(status, 200, "the whole Oracle lookup answers: {whole}");
@@ -425,4 +442,115 @@ fn an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertifie
     eprintln!(
         "oracle-split: 40 actual rows, 1200000 declared rows, two nonempty buckets; exact whole/split columns and ordered rows; unresolved and uncertified readers refused"
     );
+}
+
+/// The adapter's overflow remains a governance refusal through the real granted reader. Base
+/// already refuses via its signed consumer bound; the declared mutation kills the new adapter
+/// error mapping alone, leaving that consumer intact.
+#[test]
+#[ignore = "requires just oracle-acceptance"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a hosted test provisions its own skew through the real driver"
+)]
+fn an_oracle_granted_million_row_bucket_answers_and_one_more_is_refused_without_a_prefix() {
+    let mut fixture = Fixture::here("ROWCAP");
+    fixture.extra_settings = "runtime:\n  working_set_max_bytes: 536870912\n  engine_worker_threads: 2\n";
+    let reference = fixture.serving("cap-whole", &[], false);
+    let (status, whole) = fixture.ask(&reference);
+    assert_eq!(status, 200, "the small whole lookup answers: {whole}");
+    assert_eq!(whole["outcome"], "answer", "{whole}");
+    drop(reference);
+
+    let password = std::fs::read_to_string(fixture.root.join("password")).expect("the fixture password reads");
+    let anchors = std::fs::read_to_string(&fixture.authority).expect("the fixture authority reads");
+    let setup = oracledb::connect(
+        oracledb::Config::default()
+            .set_connect_string(&format!("tcps://{}:{}/FREEPDB1", fixture.host, fixture.port))
+            .expect("the fixture has an Oracle endpoint")
+            .set_trust_anchors_pem(&anchors)
+            .expect("the fixture authority is an anchor")
+            .set_credentials(&fixture.user, password.trim()),
+    )
+    .expect("the fixture service user opens");
+    setup
+        .set_call_timeout(Some(Duration::from_secs(120)))
+        .expect("the setup timeout sets");
+    let bucket_count = || {
+        let row = setup.query_row(
+            &format!("SELECT COUNT(*), COUNT(DISTINCT \"customer_key\"), MAX(\"customer_key\") FROM \"{TABLE}\" WHERE ORA_HASH(\"customer_key\", 1) = 0"),
+            &[],
+        ).expect("the skewed bucket reads");
+        (
+            row.get::<i64>(0).expect("the row count is an integer"),
+            row.get::<i64>(1).expect("the distinct count is an integer"),
+            row.get::<i64>(2).expect("the last key is an integer"),
+        )
+    };
+    let (already, distinct, _) = bucket_count();
+    assert_eq!(already, distinct, "the original keys are distinct");
+    let added = 1_000_001 - already;
+    setup
+        .execute(
+            &format!(
+                "INSERT INTO \"{TABLE}\" SELECT candidate_key, 'extra', 'extra', 'north' FROM \
+             (SELECT LEVEL + 1000 candidate_key FROM DUAL CONNECT BY LEVEL <= 3000000) \
+             WHERE ORA_HASH(candidate_key, 1) = 0 AND ROWNUM <= :1"
+            ),
+            &[&added],
+        )
+        .expect("the distinct unused keys insert into bucket zero");
+    let (count, distinct, extra) = bucket_count();
+    assert_eq!((count, distinct), (1_000_001, 1_000_001), "the skew is real and distinct");
+    assert!(extra > 1000, "the held key is unused by the files fact leg");
+    setup
+        .execute(&format!("DELETE FROM \"{TABLE}\" WHERE \"customer_key\" = :1"), &[&extra])
+        .expect("one distinct key is held back");
+    setup.commit().expect("the exact million commits");
+    let (count, distinct, _) = bucket_count();
+    assert_eq!((count, distinct), (1_000_000, 1_000_000));
+    println!("oracle-granted-row-cap: boundary bucket rows=1000000 distinct=1000000");
+    std::thread::sleep(Duration::from_secs(8));
+
+    let readers = [
+        fixture.reader("cap-a", &fixture.catalog),
+        fixture.reader("cap-b", &fixture.catalog),
+    ];
+    let peers = readers.each_ref().map(|reader| format!("https://{}", address(reader)));
+    let split = fixture.serving("cap-split", &peers, true);
+    let (status, boundary) = fixture.ask(&split);
+    assert_eq!(status, 200, "the granted million-row bucket must answer: {boundary}");
+    assert_eq!(boundary["outcome"], "answer", "{boundary}");
+    assert_eq!(boundary["columns"], whole["columns"], "the boundary keeps every column");
+    assert_eq!(
+        boundary["rows"], whole["rows"],
+        "unused keys cannot change the exact ordered answer"
+    );
+    println!("oracle-granted-row-cap: exact boundary answered");
+
+    setup
+        .execute(
+            &format!("INSERT INTO \"{TABLE}\" VALUES (:1, 'extra', 'extra', 'north')"),
+            &[&extra],
+        )
+        .expect("the one extra distinct key inserts");
+    setup.commit().expect("the overflow key commits");
+    let (count, distinct, _) = bucket_count();
+    assert_eq!((count, distinct), (1_000_001, 1_000_001));
+    println!("oracle-granted-row-cap: overflow bucket rows=1000001 distinct=1000001");
+    std::thread::sleep(Duration::from_secs(8));
+    let (status, refused) = fixture.ask(&split);
+    assert_eq!(
+        status, 413,
+        "the granted oversized Oracle bucket must be a refusal: {refused}"
+    );
+    assert_eq!(refused["outcome"], "refusal", "{refused}");
+    assert_eq!(refused["reason"]["code"], "result_too_large", "{refused}");
+    assert!(
+        refused.get("rows").is_none(),
+        "a refusal must not publish a successful prefix: {refused}"
+    );
+    println!("oracle-granted-row-cap: overflow refused as result_too_large without rows");
+    drop(split);
+    drop(readers);
 }
