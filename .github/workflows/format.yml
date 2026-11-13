@@ -35,16 +35,35 @@ on:
       - "nix/dprint.nix"
       - "nix/format-text.sh"
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact source commit
+        required: true
+        type: string
+      source_tree:
+        description: Exact source tree
+        required: true
+        type: string
+      main_sha:
+        description: Exact comparison ancestor
+        required: true
+        type: string
+      operation:
+        description: Hosted operation
+        required: true
+        type: choice
+        options: [native-dictionary-proof]
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   format:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -65,3 +84,55 @@ jobs:
       # left at its default: the script reads the working tree, not a diff against a base.
       - name: markdown, yaml, toml and python
         run: bash nix/format-text.sh check
+
+  dictionary-proof:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Measure exact dictionary cells and mutations
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          BASE_SHA: ${{ inputs.main_sha }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_SHA" = "$(git rev-parse HEAD)"
+          test "$SOURCE_TREE" = "$(git rev-parse HEAD^{tree})"
+          test -z "$(git status --porcelain)"
+          git merge-base --is-ancestor "$BASE_SHA" "$SOURCE_SHA"
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/native-dictionary-proof.py" > /tmp/native-dictionary-proof.py
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/native-dictionary-proof.json" > /tmp/native-dictionary-proof.json
+          python3 /tmp/native-dictionary-proof.py /tmp/native-dictionary-proof.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-dictionary-proof-${{ inputs.source_sha }}
+          path: target/native-dictionary-proof/
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: ./.github/actions/nix-store-cache-report
+        if: always()

@@ -1,0 +1,473 @@
+{
+  "status": "frozen-final",
+  "head": "918e59ca3930d8fb695acf5f89427bde76388dcf",
+  "head_tree": "e6125fae1f55a159f7f46919b80d3ee8dd2a1d9d",
+  "base": "2e1691ea9bf1decc4807108b66e8bd37a96b1581",
+  "base_tree": "f042eea32c0beaf97b631590d2d19b0a5155b0cf",
+  "flake_sha256": "bd46da9b9c0ac36c9ce649b9a957ee8156b854241ccca9139cff09b2ac89b295",
+  "locks": {
+    "918e59ca3930d8fb695acf5f89427bde76388dcf": {
+      "Cargo.lock": "812d35d0f2291cc4aa7b7ebdc2f20e8d26e7a6ea8ca54cf94aba03c29de7796e",
+      "flake.lock": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f",
+      "devenv.lock": "c2e2c27454f343619d83539a70ebbc8a28114e000609154b469453ba55d03324",
+      "fuzz/Cargo.lock": "84d1406154500a077a49be8f6e75650f4d6e564ad1f488682f3828ac8dcffdf7"
+    },
+    "2e1691ea9bf1decc4807108b66e8bd37a96b1581": {
+      "Cargo.lock": "812d35d0f2291cc4aa7b7ebdc2f20e8d26e7a6ea8ca54cf94aba03c29de7796e",
+      "flake.lock": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f",
+      "devenv.lock": "c2e2c27454f343619d83539a70ebbc8a28114e000609154b469453ba55d03324",
+      "fuzz/Cargo.lock": "84d1406154500a077a49be8f6e75650f4d6e564ad1f488682f3828ac8dcffdf7"
+    }
+  },
+  "wrappers": {
+    "nextest": {
+      "cut_before_regex": "^\\. /nix/store/[^\\n]+with-tier\\.sh\\n"
+    },
+    "oracle": {
+      "cut_before_regex": "^if \\[ \"\\$\\{SUTURA_ORACLE_SPLIT_CLAIM_PROOF:-0\\}\" = 1 \\]; then\\n"
+    }
+  },
+  "overlays": {
+    "crates/sutura-config/tests/native_dictionary.rs": "0c18c4cdc9fc1f3fb74aa1e133dcec07af1ac7a6bb60ece18d79e459a5a60a68",
+    "crates/sutura-cli/tests/served/rdbms.rs": "884b35a39d23b67b242f395807feed31c102589a93dac25e9bc302308e15e1fe",
+    "crates/sutura-cli/tests/served/native_oracle_dictionary.rs": "6b3cf7aee5ad01b0db43475bdb34985ee8cc3d75b0b7630eb0d6ddc06bc2c5ec",
+    "crates/sutura-cli/tests/served.rs": "f0192581fdb3664027a988f72427659e3e5dd6ccd94bdf71d86003240312c786"
+  },
+  "reader_function": {
+    "path": "crates/sutura-cli/src/serve/tests/rdbms_served.rs",
+    "old": "fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {\n    let scratch = ScratchDir::prepared();\n    let oracle = oracle_connection(\n        &readable_password_file(&scratch).display().to_string(),\n        &anchors(&scratch, &sutura_http_client::tls_test_support::issue()),\n    );\n    let opened = crate::catalog::open_catalog(&catalogs(&oracle), None).expect(\"the Oracle reader opens at boot\");\n    assert!(\n        matches!(&opened, crate::catalog::OpenedCatalogs::Rdbms(catalogs) if catalogs.len() == 1),\n        \"one rdbms catalog opened\"\n    );\n\n    let postgres = \"      host: \\\"127.0.0.1\\\"\\n      port: 5432\\n      database: \\\"dictionary\\\"\\n      \\\n         user: \\\"reader\\\"\\n      password_file: \\\"/run/secrets/dictionary\\\"\\n      transport_mode: \\\"plaintext\\\"\\n\";\n    for connection in [postgres, oracle.as_str()] {\n        let native = format!(\"{connection}    dictionary_source: \\\"native_dictionary\\\"\\n\");\n        let err = crate::catalog::open_catalog(&catalogs(&native), None).expect_err(\"no reader opens this declaration\");\n        assert!(\n            err.contains(\"`catalogs.dictionary` declares `dictionary_source: native_dictionary`\")\n                && err.contains(\"not supported by this build\"),\n            \"the refusal names the catalog and the key, under either dialect: {err}\"\n        );\n    }\n}\n",
+    "new": "fn oracle_and_postgres_catalogs_open_native_dictionary_readers() {\n    let scratch = ScratchDir::prepared();\n    let oracle = oracle_connection(\n        &readable_password_file(&scratch).display().to_string(),\n        &anchors(&scratch, &sutura_http_client::tls_test_support::issue()),\n    );\n    let opened = crate::catalog::open_catalog(&catalogs(&oracle), None).expect(\"the Oracle reader opens at boot\");\n    assert!(\n        matches!(&opened, crate::catalog::OpenedCatalogs::Rdbms(catalogs) if catalogs.len() == 1),\n        \"one rdbms catalog opened\"\n    );\n\n    let postgres = format!(\n        \"      host: 127.0.0.1\\n      port: 5432\\n      database: dictionary\\n      \\\n         user: reader\\n      password_file: {}\\n      transport_mode: plaintext\\n\",\n        readable_password_file(&scratch).display()\n    );\n    for connection in [postgres.as_str(), oracle.as_str()] {\n        let native = overlay(connection).replace(\n            \"    environment: \\\"prod\\\"\\n\",\n            \"    dictionary_source: native_dictionary\\n    include: [{schema: PUBLIC, table: '*'}]\\n\",\n        );\n        let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(native))\n            .expect(\"native settings need no documentation view environment\");\n        let opened = crate::catalog::open_catalog(settings.catalogs(), None).expect(\"the native reader opens without dialing\");\n        assert!(\n            matches!(opened, crate::catalog::OpenedCatalogs::Rdbms(ref catalogs) if catalogs.len() == 1),\n            \"one native dictionary opens\"\n        );\n    }\n}\n"
+  },
+  "base_overlay_tree": "46b106b096f83cdf58d8606ccb84b9254907644d",
+  "cells": [
+    {
+      "name": "tests::a_native_dictionary_selection_loads_without_documentation_view_keys",
+      "package": "sutura-config",
+      "binary": "native_dictionary",
+      "venue": "nextest",
+      "test_path": "crates/sutura-config/tests/native_dictionary.rs",
+      "base_red": {
+        "needles": [
+          "native metadata needs no view environment",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-config/tests/native_dictionary.rs",
+            "line": 41
+          }
+        ]
+      }
+    },
+    {
+      "name": "tests::native_dictionary_patterns_are_bounded_and_include_pairs_are_required",
+      "package": "sutura-config",
+      "binary": "native_dictionary",
+      "venue": "nextest",
+      "test_path": "crates/sutura-config/tests/native_dictionary.rs",
+      "base_red": {
+        "needles": [
+          "the positive control is a complete native declaration",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-config/tests/native_dictionary.rs",
+            "line": 46
+          }
+        ]
+      }
+    },
+    {
+      "name": "tests::native_and_view_dictionary_keys_cannot_be_mixed",
+      "package": "sutura-config",
+      "binary": "native_dictionary",
+      "venue": "nextest",
+      "test_path": "crates/sutura-config/tests/native_dictionary.rs",
+      "base_red": {
+        "needles": [
+          "the positive control opens the native mode",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-config/tests/native_dictionary.rs",
+            "line": 63
+          }
+        ]
+      }
+    },
+    {
+      "name": "serve::tests::rdbms_served::oracle_and_postgres_catalogs_open_native_dictionary_readers",
+      "package": "sutura-cli",
+      "binary": "sutura",
+      "venue": "nextest",
+      "test_path": "crates/sutura-cli/src/serve/tests/rdbms_served.rs",
+      "base_red": {
+        "needles": [
+          "native settings need no documentation view environment",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-cli/src/serve/tests/rdbms_served.rs",
+            "line": 217
+          }
+        ]
+      }
+    },
+    {
+      "name": "rdbms::tests::native::native_postgres_metadata_is_exact_bounded_and_keeps_schema_patterns_as_data",
+      "package": "sutura-cli",
+      "binary": "served",
+      "venue": "nextest",
+      "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
+      "base_red": {
+        "needles": [
+          "the service never reported a listener",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-cli/tests/served/harness.rs",
+            "line": 762
+          }
+        ]
+      }
+    },
+    {
+      "name": "rdbms::tests::native::a_served_native_dictionary_limits_real_planned_sql_and_composes_markdown_metrics",
+      "package": "sutura-cli",
+      "binary": "served",
+      "venue": "nextest",
+      "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
+      "base_red": {
+        "needles": [
+          "the service never reported a listener",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-cli/tests/served/harness.rs",
+            "line": 762
+          }
+        ]
+      }
+    },
+    {
+      "name": "rdbms::tests::native::native_refresh_adds_allowed_columns_and_retains_the_last_bundle_on_refusal",
+      "package": "sutura-cli",
+      "binary": "served",
+      "venue": "nextest",
+      "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
+      "base_red": {
+        "needles": [
+          "the service never reported a listener",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-cli/tests/served/harness.rs",
+            "line": 762
+          }
+        ]
+      }
+    },
+    {
+      "name": "rdbms::tests::native::a_native_dictionary_refuses_composed_aliases_and_a_second_authority",
+      "package": "sutura-cli",
+      "binary": "served",
+      "venue": "nextest",
+      "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
+      "base_red": {
+        "needles": [
+          "the service never reported a listener",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-cli/tests/served/harness.rs",
+            "line": 762
+          }
+        ]
+      }
+    },
+    {
+      "name": "native_oracle_dictionary::a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_columns",
+      "package": "sutura-cli",
+      "binary": "served",
+      "venue": "oracle",
+      "test_path": "crates/sutura-cli/tests/served/native_oracle_dictionary.rs",
+      "base_red": {
+        "needles": [
+          "the service never reported a listener",
+          "unknown field `include`"
+        ],
+        "sites": [
+          {
+            "path": "crates/sutura-cli/tests/served/harness.rs",
+            "line": 762
+          }
+        ]
+      }
+    }
+  ],
+  "mutations": [
+    {
+      "name": "column-exclusion",
+      "path": "crates/sutura-catalog-rdbms/src/native.rs",
+      "patch": "--- a/crates/sutura-catalog-rdbms/src/native.rs\n+++ b/crates/sutura-catalog-rdbms/src/native.rs\n@@ -97,7 +97,7 @@\n                 .column_metadata(column)\n                 .and_then(crate::ColumnMetadata::data_type)\n                 .unwrap_or(\"\");\n-            if selection.excludes_column(column) || selection.excludes_type(native) {\n+            if selection.excludes_type(native) {\n                 continue;\n             }\n             let precise = ColumnType::parse(native)\n",
+      "patch_sha256": "f2c4bad9b3d7b30064fcaf0324fa9207818477c45e69bec5abd761b3f78d3f46",
+      "witnesses": [
+        {
+          "cell": {
+            "name": "native::tests::native_selection_crosses_the_reader_port_with_only_supported_included_metadata",
+            "package": "sutura-catalog-rdbms",
+            "binary": "sutura_catalog_rdbms",
+            "venue": "nextest",
+            "test_path": "crates/sutura-catalog-rdbms/src/native.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-catalog-rdbms/src/native.rs",
+                "line": 270
+              }
+            ],
+            "needles": [
+              "assertion `left == right` failed"
+            ]
+          }
+        }
+      ],
+      "source_sha256": "cf675bd84ed0a509b6ca3bad2da6d658f910ce738bf76cb906f4d3ff277e9f81",
+      "mutant_sha256": "41cc64cc7cf0dfc9f851e320c631bac1722af18498520e43dd9afdc297e3c3b7"
+    },
+    {
+      "name": "physical-authority",
+      "path": "crates/sutura-catalog-rdbms/src/native.rs",
+      "patch": "--- a/crates/sutura-catalog-rdbms/src/native.rs\n+++ b/crates/sutura-catalog-rdbms/src/native.rs\n@@ -61,7 +61,7 @@\n                 table: Box::new(model.table().clone()),\n             })?;\n         for column in model.columns() {\n-            if !allowed.contains(column.name()) {\n+            if false && !allowed.contains(column.name()) {\n                 return Err(NativeSelectionError::ColumnExcluded {\n                     model: model.name().as_str().to_owned(),\n                     table: Box::new(model.table().clone()),\n",
+      "patch_sha256": "8b67220c3d12243d6ada394e293b10ad2dc25c4d956b54de9807217a3c8e2494",
+      "witnesses": [
+        {
+          "cell": {
+            "name": "native::tests::native_physical_allowlists_refuse_semantic_aliases_that_reintroduce_a_column_or_table",
+            "package": "sutura-catalog-rdbms",
+            "binary": "sutura_catalog_rdbms",
+            "venue": "nextest",
+            "test_path": "crates/sutura-catalog-rdbms/src/native.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-catalog-rdbms/src/native.rs",
+                "line": 389
+              }
+            ],
+            "needles": [
+              "ColumnExcluded"
+            ]
+          }
+        },
+        {
+          "cell": {
+            "name": "rdbms::tests::native::a_native_dictionary_refuses_composed_aliases_and_a_second_authority",
+            "package": "sutura-cli",
+            "binary": "served",
+            "venue": "nextest",
+            "test_path": "crates/sutura-cli/tests/served/rdbms.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-cli/tests/served/harness.rs",
+                "line": 641
+              },
+              {
+                "path": "crates/sutura-cli/tests/served/rdbms.rs",
+                "line": 453
+              }
+            ],
+            "needles": [
+              "native dictionary refusal probe: composed secret alias"
+            ],
+            "last_probe": "composed secret alias"
+          }
+        }
+      ],
+      "source_sha256": "cf675bd84ed0a509b6ca3bad2da6d658f910ce738bf76cb906f4d3ff277e9f81",
+      "mutant_sha256": "627e72152cf61694521b5d79dcadd4eb68c18372ee83a3ad414d4fefc3d32f17"
+    },
+    {
+      "name": "oracle-readable",
+      "path": "crates/sutura-catalog-rdbms/src/native.rs",
+      "patch": "--- a/crates/sutura-catalog-rdbms/src/native.rs\n+++ b/crates/sutura-catalog-rdbms/src/native.rs\n@@ -109,7 +109,7 @@\n             let lower = native.to_ascii_lowercase();\n             let name = lower.split('(').next().unwrap_or(\"\").trim_end();\n             let unreadable = match dialect {\n-                TypeDialect::Oracle => matches!(name, \"float\" | \"binary_float\" | \"raw\" | \"blob\"),\n+                TypeDialect::Oracle => matches!(name, \"float\"),\n                 TypeDialect::Postgres => matches!(\n                     name,\n                     \"real\"\n",
+      "patch_sha256": "11565a4509a0e8d47d2e7af9d8cda7df841ea3dea847d82f80472e0f290bcc58",
+      "witnesses": [
+        {
+          "cell": {
+            "name": "native::tests::native_selection_refuses_unmatched_empty_and_inexact_types",
+            "package": "sutura-catalog-rdbms",
+            "binary": "sutura_catalog_rdbms",
+            "venue": "nextest",
+            "test_path": "crates/sutura-catalog-rdbms/src/native.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-catalog-rdbms/src/native.rs",
+                "line": 321
+              }
+            ],
+            "needles": [
+              "BINARY_FLOAT"
+            ]
+          }
+        },
+        {
+          "cell": {
+            "name": "native_oracle_dictionary::a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_columns",
+            "package": "sutura-cli",
+            "binary": "served",
+            "venue": "oracle",
+            "test_path": "crates/sutura-cli/tests/served/native_oracle_dictionary.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-cli/tests/served/harness.rs",
+                "line": 641
+              },
+              {
+                "path": "crates/sutura-cli/tests/served/native_oracle_dictionary.rs",
+                "line": 259
+              }
+            ],
+            "needles": [
+              "native dictionary refusal probe: Oracle BINARY_FLOAT"
+            ],
+            "last_probe": "Oracle BINARY_FLOAT"
+          }
+        }
+      ],
+      "source_sha256": "cf675bd84ed0a509b6ca3bad2da6d658f910ce738bf76cb906f4d3ff277e9f81",
+      "mutant_sha256": "f483aa41e143f3d81b9dfb7249c863c25f78a55b60babc485c4564e0c55ab3d4"
+    },
+    {
+      "name": "postgres-readable",
+      "path": "crates/sutura-catalog-rdbms/src/native.rs",
+      "patch": "--- a/crates/sutura-catalog-rdbms/src/native.rs\n+++ b/crates/sutura-catalog-rdbms/src/native.rs\n@@ -110,17 +110,7 @@\n             let name = lower.split('(').next().unwrap_or(\"\").trim_end();\n             let unreadable = match dialect {\n                 TypeDialect::Oracle => matches!(name, \"float\" | \"binary_float\" | \"raw\" | \"blob\"),\n-                TypeDialect::Postgres => matches!(\n-                    name,\n-                    \"real\"\n-                        | \"float4\"\n-                        | \"bytea\"\n-                        | \"blob\"\n-                        | \"timestamp\"\n-                        | \"timestamp without time zone\"\n-                        | \"timestamptz\"\n-                        | \"timestamp with time zone\"\n-                ),\n+                TypeDialect::Postgres => false,\n                 _ => true,\n             };\n             let timestamp_too_precise = lower\n",
+      "patch_sha256": "3c359ad5ee399974ef2815ffe618c1ef5073613387fa43672e44f74ae17d9554",
+      "witnesses": [
+        {
+          "cell": {
+            "name": "native::tests::native_selection_refuses_unmatched_empty_and_inexact_types",
+            "package": "sutura-catalog-rdbms",
+            "binary": "sutura_catalog_rdbms",
+            "venue": "nextest",
+            "test_path": "crates/sutura-catalog-rdbms/src/native.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-catalog-rdbms/src/native.rs",
+                "line": 332
+              }
+            ],
+            "needles": [
+              "real"
+            ]
+          }
+        },
+        {
+          "cell": {
+            "name": "rdbms::tests::native::native_postgres_metadata_is_exact_bounded_and_keeps_schema_patterns_as_data",
+            "package": "sutura-cli",
+            "binary": "served",
+            "venue": "nextest",
+            "test_path": "crates/sutura-cli/tests/served/rdbms.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-cli/tests/served/harness.rs",
+                "line": 641
+              },
+              {
+                "path": "crates/sutura-cli/tests/served/rdbms.rs",
+                "line": 357
+              }
+            ],
+            "needles": [
+              "native dictionary refusal probe: PostgreSQL real"
+            ],
+            "last_probe": "PostgreSQL real"
+          }
+        }
+      ],
+      "source_sha256": "cf675bd84ed0a509b6ca3bad2da6d658f910ce738bf76cb906f4d3ff277e9f81",
+      "mutant_sha256": "d9be666583017febe0d57e11d10a79381a1f57d2da8f54cf324fb526db9b3788"
+    },
+    {
+      "name": "sql-like",
+      "path": "crates/sutura-domain/src/catalog/pattern.rs",
+      "patch": "--- a/crates/sutura-domain/src/catalog/pattern.rs\n+++ b/crates/sutura-domain/src/catalog/pattern.rs\n@@ -60,7 +60,6 @@\n                 '*' => value.push('%'),\n                 '?' => value.push('_'),\n                 '%' | '_' | '\\\\' => {\n-                    value.push('\\\\');\n                     value.push(character);\n                 }\n                 literal => value.push(literal),\n",
+      "patch_sha256": "894e67cc5d6ead10d11235e2759520c9607a9bee51922e7106bb1dfc078a19ab",
+      "witnesses": [
+        {
+          "cell": {
+            "name": "native::tests::native_identifier_globs_preserve_case_unicode_and_sql_metacharacters",
+            "package": "sutura-catalog-rdbms",
+            "binary": "sutura_catalog_rdbms",
+            "venue": "nextest",
+            "test_path": "crates/sutura-catalog-rdbms/src/native.rs"
+          },
+          "red": {
+            "sites": [
+              {
+                "path": "crates/sutura-catalog-rdbms/src/native.rs",
+                "line": 414
+              }
+            ],
+            "needles": [
+              "assertion `left == right` failed"
+            ]
+          }
+        }
+      ],
+      "source_sha256": "38e069e9870cd72b6ccc8f4c29f6c26fbceb90815a01218b1a1977e7ff5b5c14",
+      "mutant_sha256": "e381387c04acab5db6802590b1890529e2251b7db1c46c05b2daec7c4d0cafed"
+    }
+  ],
+  "singletons": {
+    "count": 826,
+    "census_sha256": "98f813df12eea7477a70031da4c82b7c8808156d6e979badf8869e4a4b7d44be",
+    "targets": [
+      {
+        "cell": "an_empty_composition_is_refused",
+        "shard": "583/826",
+        "patch_sha256": "7644d372f3f92bec4ee840c1c42871947e02777003ffe28e00e361444afb210d"
+      },
+      {
+        "cell": "two_catalogs_defining_the_same_metric_are_refused_at_startup",
+        "shard": "806/826",
+        "patch_sha256": "dce1699493bcb1da4fb9ea07fb2a47eab7a1c1c8dff895e09953b9af12ffdb00"
+      },
+      {
+        "cell": "the_oracle_reader_holds_the_declared_caps_or_the_documented_defaults",
+        "shard": "778/826",
+        "patch_sha256": "0e86e7345c78d40fe2ea3eaaa30ab611c3c5f8f0c2e0af931f4ff66e17ee2954"
+      },
+      {
+        "cell": "the_oracle_reader_refuses_a_schema_or_predicate_column_that_is_not_an_identifier",
+        "shard": "779/826",
+        "patch_sha256": "b551513d5d716866298d6488d042142a40091f546428ac44444010625e01601e"
+      },
+      {
+        "cell": "the_reader_binds_the_environment_and_the_equals_value_in_placeholder_order",
+        "shard": "786/826",
+        "patch_sha256": "f720ed72ed7f185d8220e322ef30f415ccbc4a2a12515d29b0ab52a176360908"
+      }
+    ]
+  }
+}
