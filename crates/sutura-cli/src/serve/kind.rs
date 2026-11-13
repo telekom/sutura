@@ -654,35 +654,17 @@ mod tests {
     use super::{SourceName, TableName, trust_into, trusted_tables};
 
     #[cfg(feature = "postgres")]
+    mod result_limit_fixture;
+
+    #[cfg(feature = "postgres")]
     #[test]
     fn the_composed_warehouse_preserves_known_source_rows_and_materialization_bytes() {
-        use super::{AnyWarehouse, AnyWarehouseError};
-        use sutura_domain::identity::Secret;
+        use super::AnyWarehouseError;
         use sutura_domain::query::ResultBound;
         use sutura_domain::warehouse::{UnannouncedBatch, Warehouse as _};
-        use sutura_exec_postgres::adbc::{AdbcError, AdbcPostgres, Channel, Conninfo, PostgresDriver};
-        use sutura_exec_postgres::connection::ConnectionTarget;
+        use sutura_exec_postgres::adbc::AdbcError;
 
-        let source = SourceName::parse("fixture").expect("fixture source");
-        let posture = sutura_domain::source::SourcePosture::SharedServiceUser {
-            declared: sutura_domain::source::SharedIdentityDeclared::of(
-                sutura_domain::source::AcknowledgementReason::parse("fixture shared source").expect("fixture reason"),
-            ),
-        };
-        let conninfo = Conninfo::new(
-            &source,
-            ConnectionTarget::Host("127.0.0.1"),
-            1,
-            "fixture",
-            "fixture",
-            &Secret::new("unused"),
-            Channel::Plaintext,
-        )
-        .expect("fixture connection");
-        let driver = PostgresDriver::parse("/nonexistent/libadbc_driver_postgresql.so").expect("absolute fixture path");
-        let warehouse = AnyWarehouse::Postgres(Box::new(
-            AdbcPostgres::new(source, posture, driver, conninfo).expect("adapter builds"),
-        ));
+        let warehouse = result_limit_fixture::warehouse();
         for (cause, expected) in [
             (
                 UnannouncedBatch::OverBound { most: 17 },
