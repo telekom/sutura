@@ -361,7 +361,15 @@ fn an_unknown_connection_dialect_is_refused() {
 
 #[test]
 fn a_native_dictionary_source_is_parsed_as_written() {
-    let entry = edit(ENTRY, &["dictionary_source: native_dictionary"]);
+    let entry = edit(
+        ENTRY,
+        &[
+            "dictionary_source: native_dictionary",
+            "-environment",
+            "-live_row_predicate",
+            "include: [{schema: public, table: '*'}]",
+        ],
+    );
     let settings = load(&overlay("rdbms", &entry, Some(CONNECTION))).expect("the entry loads");
     assert_eq!(rdbms(&settings).dictionary_source(), DictionarySource::NativeDictionary);
 }
