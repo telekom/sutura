@@ -188,12 +188,11 @@ jobs:
   #
   # THE MECHANISM, STATED BECAUSE IT IS THE WHOLE GAME: cachix-action (useDaemon) publishes ONLY
   # paths nix BUILDS while its daemon is alive, via the post-build hook - it does NOT push the store
-  # it finds restored, and a substituted/restored path never fires the hook. So every consumer job
-  # ends with a `nix build` realise that genuinely RE-COMPILES its closure into fresh store paths,
-  # exactly like the `push` job does for the shared cache. The cross legs do it per triple; the
-  # connectors job does it via `checks.nextest`. cachix-action pushes every BUILT path matching
-  # `pushFilter`, so a job whose realise pulled another consumer's closure would dump it in too -
-  # the separate jobs are what keeps each cache to its own consumer.
+  # it finds restored, and a substituted/restored path never fires the hook. Each consumer job
+  # realises its own closure: the cross legs per triple, connectors via `deps`. Dependencies
+  # already served by another cache are substituted without a new publish. cachix-action pushes
+  # every BUILT path matching `pushFilter`, so a job whose realise pulled another consumer's
+  # closure would dump it in too - the separate jobs keep each cache to its own consumer.
   #
   # THE TOKENS LIVE IN ENV `cachix-push-mixed`: each job declares it and spends exactly its own
   # secret. The `push` job above keeps the shared closure and its token in env `cachix-push`
@@ -288,26 +287,21 @@ jobs:
       # `bigquery-acceptance` job was its only writer and lost its store-cache step for the
       # ceiling arithmetic recorded there; a restore of a scope with no writer is a lookup of an
       # entry that cannot exist, which is exactly what the deleted `fuzz` scope was. The warm start
-      # comes from the stores the installer above names instead - `sutura` holds the same
-      # `checks.nextest` closure this job realises, published by the `push` job on the previous
-      # main push.
+      # comes from the stores the installer above names instead; `push` publishes the same
+      # dependency closure this job realises.
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: sutura-connectors
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN_CONNECTORS }}
           pushFilter: "(-source$|nixpkgs)"
-      # Realise the closure THIS cache is for and publish it. cachix-action's daemon publishes
-      # only what nix builds after it starts, so this step must genuinely RE-COMPILE, not re-derive
-      # a closure that is already present (which realises instantly and still fires the hook
-      # nothing). Building `checks.nextest` does that for the same reason the main `push` job's
-      # publish works: the cache key is lockfile-based but the source is not, so on every push to
-      # `main` the workspace crates - `sutura-exec-bigquery`'s acceptance target included - are
-      # recompiled into fresh store paths, the hook fires, and they land in `sutura-connectors`
-      # for the next `bigquery-acceptance` run to substitute.
-      - name: Realise and publish the acceptance closure
+      # Publish the reusable dependency closure, as `push` does. A nextest check output is keyed
+      # on this source tree, so rebuilding and running the suite here cannot warm a later PR's
+      # check. Ordinary CI owns that verdict. If another cache already serves the dependencies,
+      # this realise substitutes them and the daemon publishes nothing; no rebuild is needed.
+      - name: Realise and publish the connector dependency closure
         run: |
           set -eu
-          nix build --print-build-logs .#checks.x86_64-linux.nextest
+          nix build --print-build-logs .#deps
 
   # THE DEPENDENCY CLOSURES THE JOBS AFTER `ci` COMPILE - `bigquery-driver-check`'s native `-ci`
   # one, `kind-smoke`'s native release one and the demo container's musl release one, which
