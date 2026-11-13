@@ -22,17 +22,12 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::labels::JobLabels;
 use sutura_exec_datafusion::{SchemaRef, Unread};
-use sutura_exec_oracle::{OracleError, Planned, SplitLeg};
+use sutura_exec_oracle::{MOST_PARTITION_ROWS, OracleError, Planned, SplitLeg};
 
 use super::super::super::OracleSource;
 use super::super::AnyWarehouseError;
 use super::super::grant::{self, Described, HeldSplit, Read};
 use super::{PartitionReads, SplitKind};
-
-/// The row target the estimate divides the leg by, signed into each grant. Neither the reader nor
-/// the combine enforces it per stream; a bucket past it can still be read if byte budgets permit.
-/// The reader bounds bytes by its own result budget.
-const STREAM_ROWS: usize = 1_000_000;
 
 impl SplitKind for OracleSource {
     /// Through `split_by_estimate`. A split of two or more buckets offered a `grantee`, whose
@@ -49,7 +44,7 @@ impl SplitKind for OracleSource {
         grantee: Option<Grantee>,
         _labels: &JobLabels,
     ) -> LookupSplit<'_, AnyWarehouseError> {
-        let stream_rows = NonZeroUsize::new(STREAM_ROWS).unwrap_or(NonZeroUsize::MIN);
+        let stream_rows = NonZeroUsize::new(MOST_PARTITION_ROWS).unwrap_or(NonZeroUsize::MIN);
         let split = match self.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
             Ok(Planned::Whole) => return Ok(Partitioned::Whole),
             Ok(Planned::Refused(refusal)) => return Ok(Partitioned::Refused(refusal)),
@@ -85,13 +80,16 @@ impl SplitKind for OracleSource {
     }
 }
 
-/// `cause` as this reader answers it: a partition past the reader's result budget as
+/// `cause` as this reader answers it: a partition past its row limit or the reader's byte budget as
 /// [`Unread::DidNotFit`], which the planning node refuses as a result that did not fit, and anything
 /// else - a stale or gone snapshot among them - as the engine's failure. Logged here, naming the
 /// source and never the cause's text, which can quote what the server read.
 pub(in super::super) fn unread(source: &SourceName, cause: OracleError) -> Unread {
-    if matches!(cause, OracleError::OverBudget { .. }) {
-        tracing::warn!(%source, "a granted partition did not fit this reader's result budget, refused");
+    if matches!(
+        cause,
+        OracleError::OverBudget { .. } | OracleError::PartitionTooManyRows { .. }
+    ) {
+        tracing::warn!(%source, "a granted partition did not fit this reader's row or byte limit, refused");
         Unread::DidNotFit
     } else {
         tracing::warn!(%source, "a granted partition could not be read");
