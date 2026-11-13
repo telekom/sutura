@@ -28,13 +28,26 @@
 # against the pool before anything is minted. That is the property the owner required and the reason
 # the shorter chain was withdrawn.
 #
-# No input here comes from a GitHub event body (an issue, a PR title, a commit message, a comment):
-# every `${{ }}` expression below reads `secrets.*`, `vars.*` or `runner.temp`, none of which a
-# forker or commenter controls, so there is no injection surface a `run:` quoting rule would close.
+# Dispatch inputs choose the source and bounded operation; shell bodies receive them through env.
+# Credentials and resource names still come only from the fixture's secrets, vars and temporary files.
 name: bigquery-declared-principal
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact completion source, blank for the original venue
+        required: false
+        type: string
+      source_tree:
+        description: Exact completion source tree
+        required: false
+        type: string
+      completion_group:
+        required: false
+        type: choice
+        default: original
+        options: [original, bigquery-cli, bigquery-adapter]
 
 permissions:
   contents: read
@@ -56,9 +69,24 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - uses: $/.github/actions/reclaim-disk
+      - name: Bind completion source and extract the reviewed helper
+        if: inputs.completion_group != 'original'
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_SHA" = "$(git rev-parse HEAD)"
+          test "$SOURCE_TREE" = "$(git rev-parse HEAD^{tree})"
+          test -z "$(git status --porcelain)"
+          mkdir /tmp/completion-helper
+          git archive "$GITHUB_WORKFLOW_SHA" .github/scripts/query-completion | tar -x --strip-components=3 -C /tmp/completion-helper
+
+      - uses: ./.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
           extra_nix_config: |
@@ -207,6 +235,7 @@ jobs:
       # Read the error to distinguish a venue misconfiguration from an adapter defect.
       # The observed run and its limits are recorded in `docs/where-identity-is-proven.md`.
       - name: Declared-principal leg
+        if: inputs.completion_group == 'original'
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
@@ -250,8 +279,44 @@ jobs:
             || echo "the digest could not be written" >&2
           exit "$status"
 
+      - name: Completion bounded runtime witnesses
+        if: inputs.completion_group != 'original'
+        env:
+          INSTA_UPDATE: "no"
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
+          SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
+          SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
+          SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
+          SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
+          SUTURA_BQ_INBOUND_A_FILE: ${{ runner.temp }}/inbound-a.txt
+          SUTURA_BQ_INBOUND_B_FILE: ${{ runner.temp }}/inbound-b.txt
+          COMPLETION_PROOF_GROUP: ${{ inputs.completion_group }}
+          COMPLETION_PROOF_OUT: /tmp/completion-proof
+        run: |
+          set -euo pipefail
+          umask 077
+          for minted in "$SUTURA_BQ_ASSERTION_A_FILE" "$SUTURA_BQ_ASSERTION_B_FILE" "$SUTURA_BQ_INBOUND_A_FILE" "$SUTURA_BQ_INBOUND_B_FILE"; do
+            test -s "$minted"
+          done
+          SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
+          SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
+          SUTURA_BQ_INBOUND_A="$(cat "$SUTURA_BQ_INBOUND_A_FILE")" \
+          SUTURA_BQ_INBOUND_B="$(cat "$SUTURA_BQ_INBOUND_B_FILE")" \
+            python3 /tmp/completion-helper/run-query-completion.py "$COMPLETION_PROOF_GROUP"
+
+      - name: Upload completion receipts
+        if: always() && inputs.completion_group != 'original'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: completion-${{ inputs.completion_group }}-${{ inputs.source_sha }}
+          path: /tmp/completion-proof/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload the redacted digest
-        if: always()
+        if: always() && inputs.completion_group == 'original'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bigquery-declared-principal-digest
@@ -265,3 +330,4 @@ jobs:
           rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
           rm -f "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt" "$RUNNER_TEMP/inbound-a.txt" "$RUNNER_TEMP/inbound-b.txt"
           rm -f "$RUNNER_TEMP/leg-raw.log" "$RUNNER_TEMP/leg-digest.txt"
+          rm -f "$RUNNER_TEMP"/completion-*.raw

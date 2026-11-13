@@ -1,0 +1,330 @@
+{
+  "source": null,
+  "tree": null,
+  "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
+  "cases": [
+    {
+      "id": "a_cast_first_fact_is_probed_for_a_repeated_tuple_of_every_link",
+      "cell": {
+        "name": "a_cast_first_fact_is_probed_for_a_repeated_tuple_of_every_link",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/tests/fan_in.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_cast_first_fact_is_probed_for_a_repeated_tuple_of_every_link.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_cell_cannot_forge_a_row",
+      "cell": {
+        "name": "a_cell_cannot_forge_a_row",
+        "package": "sutura-mcp",
+        "path": "crates/sutura-mcp/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_cell_cannot_forge_a_row.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_cell_cannot_forge_the_provenance_trailer",
+      "cell": {
+        "name": "a_cell_cannot_forge_the_provenance_trailer",
+        "package": "sutura-mcp",
+        "path": "crates/sutura-mcp/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_cell_cannot_forge_the_provenance_trailer.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short",
+      "cell": {
+        "name": "a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/tests/refusals.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_cross_posture_answer_discloses_both_postures_and_no_acknowledgement_prose",
+      "cell": {
+        "name": "a_cross_posture_answer_discloses_both_postures_and_no_acknowledgement_prose",
+        "package": "sutura-http",
+        "path": "crates/sutura-http/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_cross_posture_answer_discloses_both_postures_and_no_acknowledgement_prose.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_cross_posture_answer_names_both_postures_on_both_halves",
+      "cell": {
+        "name": "a_cross_posture_answer_names_both_postures_on_both_halves",
+        "package": "sutura-mcp",
+        "path": "crates/sutura-mcp/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_cross_posture_answer_names_both_postures_on_both_halves.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_dry_run_refusal_stops_the_answer_before_execute",
+      "cell": {
+        "name": "a_dry_run_refusal_stops_the_answer_before_execute",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/src/tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_dry_run_refusal_stops_the_answer_before_execute.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_grant_that_expires_during_one_partition_refuses_the_leg_before_the_next_is_read",
+      "cell": {
+        "name": "a_grant_that_expires_during_one_partition_refuses_the_leg_before_the_next_is_read",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/src/federated/tests/split_test.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_grant_that_expires_during_one_partition_refuses_the_leg_before_the_next_is_read.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_multi_metric_answer_carries_one_digest_per_metric",
+      "cell": {
+        "name": "a_multi_metric_answer_carries_one_digest_per_metric",
+        "package": "sutura-http",
+        "path": "crates/sutura-http/src/wire/multi_metric_tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_multi_metric_answer_carries_one_digest_per_metric.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_multi_metric_answer_carries_one_digest_per_metric_in_both_halves",
+      "cell": {
+        "name": "a_multi_metric_answer_carries_one_digest_per_metric_in_both_halves",
+        "package": "sutura-mcp",
+        "path": "crates/sutura-mcp/src/wire/multi_metric_tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_multi_metric_answer_carries_one_digest_per_metric_in_both_halves.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set",
+      "cell": {
+        "name": "a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/tests/across.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_question_in_flight_answers_from_the_snapshot_it_started_with",
+      "cell": {
+        "name": "a_question_in_flight_answers_from_the_snapshot_it_started_with",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/src/tests/adopt.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_question_in_flight_answers_from_the_snapshot_it_started_with.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_question_in_flight_keeps_the_schema_set_it_started_with",
+      "cell": {
+        "name": "a_question_in_flight_keeps_the_schema_set_it_started_with",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/src/tests/adopt.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_question_in_flight_keeps_the_schema_set_it_started_with.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "a_subject_credential_is_refused_by_execute_before_anything_is_run",
+      "cell": {
+        "name": "a_subject_credential_is_refused_by_execute_before_anything_is_run",
+        "package": "sutura-exec-duckdb",
+        "path": "crates/sutura-exec-duckdb/tests/identity.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/a_subject_credential_is_refused_by_execute_before_anything_is_run.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "an_answer_carries_its_provenance_in_both_halves_of_the_result",
+      "cell": {
+        "name": "an_answer_carries_its_provenance_in_both_halves_of_the_result",
+        "package": "sutura-mcp",
+        "path": "crates/sutura-mcp/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/an_answer_carries_its_provenance_in_both_halves_of_the_result.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "an_answer_is_the_only_outcome_that_comes_back_as_a_success",
+      "cell": {
+        "name": "an_answer_is_the_only_outcome_that_comes_back_as_a_success",
+        "package": "sutura-http",
+        "path": "crates/sutura-http/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/an_answer_is_the_only_outcome_that_comes_back_as_a_success.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "an_authored_metric_through_the_surface_is_a_compile_failure",
+      "cell": {
+        "name": "an_authored_metric_through_the_surface_is_a_compile_failure",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/src/tests/mapped_refusals.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/an_authored_metric_through_the_surface_is_a_compile_failure.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "answer_calls_dry_run_even_when_the_preflight_accepts",
+      "cell": {
+        "name": "answer_calls_dry_run_even_when_the_preflight_accepts",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/src/tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/answer_calls_dry_run_even_when_the_preflight_accepts.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "the_injection_corpus_cells_cannot_forge_the_answer_text_half",
+      "cell": {
+        "name": "the_injection_corpus_cells_cannot_forge_the_answer_text_half",
+        "package": "sutura-mcp",
+        "path": "crates/sutura-mcp/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/the_injection_corpus_cells_cannot_forge_the_answer_text_half.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "the_injection_corpus_cells_stay_single_opaque_json_strings_on_http",
+      "cell": {
+        "name": "the_injection_corpus_cells_stay_single_opaque_json_strings_on_http",
+        "package": "sutura-http",
+        "path": "crates/sutura-http/src/wire.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/the_injection_corpus_cells_stay_single_opaque_json_strings_on_http.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    },
+    {
+      "id": "when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced",
+      "cell": {
+        "name": "when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/src/federated/tests/leg_refusal_test.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "claim_shard": null
+    }
+  ],
+  "venue_limit": "current wholebinary compiled own-assertion claims only; native backend execution requires its own explicit venue",
+  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "historical_routing": {
+    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
+  }
+}

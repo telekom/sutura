@@ -1,0 +1,115 @@
+{
+  "source": null,
+  "tree": null,
+  "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
+  "cases": [
+    {
+      "id": "catalog-preservation",
+      "cell": {
+        "name": "receipt_setup_preserves_registered_tables_for_later_queries",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/catalog-preservation.patch",
+      "patch_sha256": null,
+      "marker": "receipt setup replaced the registered catalog"
+    },
+    {
+      "id": "execution-charge",
+      "cell": {
+        "name": "a_result_within_the_row_cap_but_too_wide_to_encode_is_refused",
+        "package": "sutura-app",
+        "path": "crates/sutura-app/tests/golden/service.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/execution-charge.patch",
+      "patch_sha256": null,
+      "marker": "a result over the response byte ceiling must be refused, and refused for being too large"
+    },
+    {
+      "id": "native-wait",
+      "cell": {
+        "name": "worker_capture_waits_for_native_work_after_its_async_receiver_is_dropped",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/native-wait.patch",
+      "patch_sha256": null,
+      "marker": "stream drop must not finalize running native work"
+    },
+    {
+      "id": "local-scope",
+      "cell": {
+        "name": "worker_capture_accepts_only_a_witnessed_local_plan_without_worker_receipts",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/local-scope.patch",
+      "patch_sha256": null,
+      "marker": "assertion failed: capture.is_none()"
+    },
+    {
+      "id": "provenance-dedup",
+      "cell": {
+        "name": "provenance_keeps_repeated_execution_receipts_in_submission_order",
+        "package": "sutura-domain",
+        "path": "crates/sutura-domain/src/pinned/tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/provenance-dedup.patch",
+      "patch_sha256": null,
+      "marker": null
+    },
+    {
+      "id": "source-identity",
+      "cell": {
+        "name": "worker_capture_waits_for_native_work_after_its_async_receiver_is_dropped",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/source-identity.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "panic_lines": null,
+      "binding_limit": "Bind only the first rejecting complete() assertion interval; later marker is unreachable."
+    }
+  ],
+  "base_catalog": {
+    "source": null,
+    "cell": {
+      "name": "receipt_setup_preserves_registered_tables_for_later_queries",
+      "package": "sutura-exec-datafusion",
+      "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
+      "first": null,
+      "last": null,
+      "function_sha256": null
+    },
+    "overlay_sha256": null,
+    "marker": "receipt setup replaced the registered catalog",
+    "historical_source": "e5ec141fae2ca4f63792cd83ce6e4658b10819b3"
+  },
+  "venue_limit": "process fixtures; no native data-system/served-caller credit",
+  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "historical_routing": {
+    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
+  }
+}

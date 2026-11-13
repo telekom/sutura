@@ -44,11 +44,17 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof, query-complete-prepare, query-complete-vendor-lock]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof, query-complete-prepare, query-complete-vendor-lock, query-complete-runtime]
       source_tree:
         description: Exact source tree for query completion operations
         required: false
         type: string
+      runtime_group:
+        description: Bounded completion runtime venue
+        required: false
+        type: choice
+        default: offline
+        options: [offline, claims, vendor, native-postgres, native-oracle]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -78,7 +84,7 @@ jobs:
           minimum-gb: "25"
 
       - name: Open KVM
-        if: inputs.operation == 'validate' || inputs.operation == 'postgres-diagnostic'
+        if: inputs.operation == 'validate' || inputs.operation == 'postgres-diagnostic' || (inputs.operation == 'query-complete-runtime' && inputs.runtime_group == 'native-postgres')
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -106,7 +112,7 @@ jobs:
           set -euo pipefail
           test "$SOURCE_SHA" = "$(git rev-parse HEAD)"
           test -z "$(git status --porcelain)"
-          if test "$OPERATION" = query-complete-prepare || test "$OPERATION" = query-complete-vendor-lock; then
+          if test "$OPERATION" = query-complete-prepare || test "$OPERATION" = query-complete-vendor-lock || test "$OPERATION" = query-complete-runtime; then
             test "$SOURCE_TREE" = "$(git rev-parse HEAD^{tree})"
           fi
           mkdir -p /tmp/oracle-export
@@ -170,6 +176,18 @@ jobs:
               records.append({"path": str(path), "symlink": symlink, "sha256": hashlib.sha256(data).hexdigest()})
           Path("/tmp/oracle-export/main-forward-input-files.json").write_text(json.dumps(records, indent=2) + "\n")
           PYHASH
+
+      - name: Measure query completion runtime witnesses
+        if: inputs.operation == 'query-complete-runtime'
+        env:
+          INSTA_UPDATE: "no"
+          COMPLETION_PROOF_GROUP: ${{ inputs.runtime_group }}
+          COMPLETION_PROOF_OUT: /tmp/oracle-export/query-completion
+        run: |
+          set -euo pipefail
+          mkdir /tmp/completion-helper
+          git archive "$GITHUB_WORKFLOW_SHA" .github/scripts/query-completion | tar -x --strip-components=3 -C /tmp/completion-helper
+          python3 /tmp/completion-helper/run-query-completion.py "$COMPLETION_PROOF_GROUP"
 
       - name: Prepare query completion artifacts
         if: inputs.operation == 'query-complete-prepare'

@@ -1,0 +1,117 @@
+{
+  "source": null,
+  "tree": null,
+  "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
+  "cases": [
+    {
+      "id": "query-barrier-finish",
+      "cell": {
+        "name": "completion_chain_publishes_receipts_only_after_real_worker_rows",
+        "package": "datafusion-distributed",
+        "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/query-barrier-finish.patch",
+      "patch_sha256": null,
+      "marker": null
+    },
+    {
+      "id": "channel-eof",
+      "cell": {
+        "name": "completion_chain_refuses_worker_channel_eof_after_rows_without_a_receipt",
+        "package": "datafusion-distributed",
+        "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/channel-eof.patch",
+      "patch_sha256": null,
+      "marker": null
+    },
+    {
+      "id": "missing-producer-preparation",
+      "cell": {
+        "name": "completion_chain_refuses_a_missing_producer_before_worker_rows",
+        "package": "datafusion-distributed",
+        "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/missing-producer-preparation.patch",
+      "patch_sha256": null,
+      "marker": null
+    },
+    {
+      "id": "query-producer-timer",
+      "cell": {
+        "name": "completion_chain_bounds_a_pending_producer_after_worker_rows",
+        "package": "datafusion-distributed",
+        "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/query-producer-timer.patch",
+      "patch_sha256": null,
+      "marker": null
+    },
+    {
+      "id": "worker-producer-timer",
+      "cell": {
+        "name": "completion_worker_bounds_its_pending_producer_without_a_query_timer",
+        "package": "datafusion-distributed",
+        "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/worker-producer-timer.patch",
+      "patch_sha256": null,
+      "marker": null
+    },
+    {
+      "id": "task-identity",
+      "cell": {
+        "name": "completion_requires_registered_identity_full_receipts_and_shared_budget",
+        "package": "datafusion-distributed",
+        "path": "vendor/datafusion-distributed/src/completion.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/task-identity.patch",
+      "patch_sha256": null,
+      "marker": null
+    },
+    {
+      "id": "metrics-drop",
+      "cell": {
+        "name": "completion_is_consumed_after_the_detached_metrics_receiver_disappears",
+        "package": "datafusion-distributed",
+        "path": "vendor/datafusion-distributed/src/coordinator/query_coordinator.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/metrics-drop.patch",
+      "patch_sha256": null,
+      "marker": null
+    }
+  ],
+  "vendor_overlays": {
+    "Cargo.toml": null,
+    "Cargo.lock": null
+  },
+  "venue_limit": "in-process actual coordinator/worker protocol only, not gRPC/native systems; producer timeout does not stop detached native work",
+  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "historical_routing": {
+    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
+  }
+}

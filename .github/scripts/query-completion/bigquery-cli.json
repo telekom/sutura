@@ -1,0 +1,29 @@
+{
+  "source": null,
+  "tree": null,
+  "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
+  "cases": [
+    {
+      "id": "native-cli-forwarded",
+      "cell": {
+        "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/native-cli-forwarded.patch",
+      "patch_sha256": null,
+      "marker": "forwarded native CLI receipt barrier: successful source read supplied no submission facts"
+    }
+  ],
+  "venue_limit": "native Reader::read_forwarded descriptor/capture witness with manually built grant; no split-dispatch receipt propagation, served-human, inbound issuer or real delegation hop credit",
+  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "historical_routing": {
+    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
+  }
+}

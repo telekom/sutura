@@ -1,0 +1,89 @@
+{
+  "source": null,
+  "tree": null,
+  "binding": "UNBOUND PRIVATE PROPOSAL; no executable source/function/mutation bindings",
+  "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
+  "cases": [
+    {
+      "id": "oracle-whole-sql",
+      "cell": {
+        "name": "a_quoted_identifier_names_the_object_the_dictionary_stores",
+        "package": "sutura-exec-oracle",
+        "path": "crates/sutura-exec-oracle/tests/acceptance.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/oracle-whole-sql.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "panic_lines": null,
+      "limit": "first whole SQL equality only; same generator, no server-log fidelity"
+    },
+    {
+      "id": "oracle-whole-bindings",
+      "cell": {
+        "name": "a_quoted_identifier_names_the_object_the_dictionary_stores",
+        "package": "sutura-exec-oracle",
+        "path": "crates/sutura-exec-oracle/tests/acceptance.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/oracle-whole-bindings.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "panic_lines": null,
+      "limit": "separate receipt-only OracleDate binding mutation; native execution unchanged"
+    },
+    {
+      "id": "oracle-partition-sql",
+      "cell": {
+        "name": "a_split_leg_reads_every_row_once_at_its_snapshot_and_a_null_key_in_bucket_zero_alone",
+        "package": "sutura-exec-oracle",
+        "path": "crates/sutura-exec-oracle/tests/flashback.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/oracle-partition-sql.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "panic_lines": null,
+      "limit": "first descriptor equality only; actual descriptor generator, no generator correctness"
+    },
+    {
+      "id": "oracle-worker-propagation",
+      "cell": {
+        "name": "an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertified_readers",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/tests/served/oracle_split.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/oracle-worker-propagation.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "panic_lines": null,
+      "limit": "first SQL count only; no later SQL multiset equality credit"
+    },
+    {
+      "id": "oracle-worker-sql-equality",
+      "cell": {
+        "name": "an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertified_readers",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/tests/served/oracle_split.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/oracle-worker-sql-equality.patch",
+      "patch_sha256": null,
+      "marker": null,
+      "panic_lines": null,
+      "limit": "separate count-preserving receipt-only SQL corruption; bind full multiset assertion only after every earlier guard survives"
+    }
+  ],
+  "venue_limit": "Adapter acceptance and flashback complete containing binaries including ignored; served complete nonignored plus exactly one declared Oracle split ignored row, all other ignored names excluded explicitly. Proposed mutations have no bytes or credit."
+}

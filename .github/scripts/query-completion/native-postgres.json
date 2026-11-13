@@ -1,0 +1,17 @@
+{
+  "source": null,
+  "tree": null,
+  "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+  "patch": "mutations/native-cli-read.patch",
+  "patch_sha256": null,
+  "positive_subtest": "native worker receipts match the per-query PostgreSQL submission multiset",
+  "mutant_failed_subtest": "a lookup split across two reading workers answers what the whole leg answers",
+  "limit": "shared Python answered() assertion, no Rust own-function or mutant later receipt-comparison credit; no forced duplicate/native forwarded-token read",
+  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "venue_limit": "shared Python answered() assertion, no Rust own-function or mutant later receipt-comparison credit; no forced duplicate/native forwarded-token read",
+  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "historical_routing": {
+    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
+  }
+}

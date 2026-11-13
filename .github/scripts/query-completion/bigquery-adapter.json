@@ -1,0 +1,29 @@
+{
+  "source": null,
+  "tree": null,
+  "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
+  "cases": [
+    {
+      "id": "bigquery-adapter-receipt",
+      "cell": {
+        "name": "a_split_pool_leg_read_with_the_forwarded_token_answers_what_the_whole_read_answers",
+        "package": "sutura-exec-bigquery",
+        "path": "crates/sutura-exec-bigquery/tests/declared_principal/split.rs",
+        "first": null,
+        "last": null,
+        "function_sha256": null
+      },
+      "patch": "mutations/bigquery-adapter-receipt.patch",
+      "patch_sha256": null,
+      "marker": null
+    }
+  ],
+  "venue_limit": "native descriptor adapter only; no CLI, worker, HTTP or human venue credit",
+  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "historical_routing": {
+    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
+  }
+}
