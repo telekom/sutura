@@ -352,6 +352,7 @@ mod tests {
                     .admin
                     .run(&format!("ALTER TABLE {}.events ADD unsupported {kind}", fixture.schema))
                     .unwrap();
+                eprintln!("native dictionary refusal probe: PostgreSQL {kind}");
                 let log = refused_to_start(Environment::Development, written("native-unsupported", &base), &[]).join("\n");
                 assert!(
                     log.contains(&format!("no exact supported mapping for {kind}")),
@@ -447,6 +448,7 @@ mod tests {
             let accepted = fixture.compose(&base, Some("id"));
             drop(start_configured("native-alias-control", &accepted));
             let rejected = fixture.compose(&base, Some("secret"));
+            eprintln!("native dictionary refusal probe: composed secret alias");
             let log = refused_to_start(Environment::Development, written("native-alias-refused", &rejected), &[]).join("\n");
             assert!(
                 log.contains("outside its native allowlist") && log.contains("secret"),

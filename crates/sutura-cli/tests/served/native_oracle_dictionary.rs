@@ -254,6 +254,7 @@ fn a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_col
             .owner
             .execute(&format!("ALTER TABLE EVENTS ADD UNSUPPORTED {kind}"), &[])
             .unwrap();
+        eprintln!("native dictionary refusal probe: Oracle {kind}");
         let log = refused_to_start(Environment::Development, written("native-oracle-unsupported", &settings), &[]).join("\n");
         assert!(
             log.contains(&format!("no exact supported mapping for {kind}")),
