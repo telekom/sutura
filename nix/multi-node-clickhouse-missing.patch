@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/split.rs b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/split.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+@@ -367,7 +367,7 @@
+                                     leg.source.clone(),
+                                     granted.partition.clone(),
+                                     granted.key,
+-                                    Some(granted.grant.clone()),
++                                    None,
+                                     Arc::clone(&leg.schema),
+                                 );
+                                 Arc::new(leg.reads.scanned(scan)) as Arc<dyn ExecutionPlan>

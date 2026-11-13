@@ -35,6 +35,7 @@ const LEGS: &[Leg] = &[
     ("bigquery-driver-check", "bigquery_driver_check", "BQ_SELECTED"),
     ("multi-node", "multi_node", "MN_SELECTED"),
     ("multi-node-postgres", "multi_node_postgres", "MNPG_SELECTED"),
+    ("multi-node-clickhouse", "multi_node_clickhouse", "MNCH_SELECTED"),
     ("k3s-autoscaling", "k3s_autoscaling", "K3S_SELECTED"),
     ("oracle-tier", "oracle_tier", "ORACLE_SELECTED"),
     ("ci-datahub-tier", "ci_datahub_tier", "DH_SELECTED"),
@@ -53,6 +54,7 @@ const BODY: &str = r#"    runs-on: ubuntu-latest
       bigquery_driver_check: ${{ steps.lookup.outputs.bigquery_driver_check }}
       multi_node: ${{ steps.lookup.outputs.multi_node }}
       multi_node_postgres: ${{ steps.lookup.outputs.multi_node_postgres }}
+      multi_node_clickhouse: ${{ steps.lookup.outputs.multi_node_clickhouse }}
       k3s_autoscaling: ${{ steps.lookup.outputs.k3s_autoscaling }}
       oracle_tier: ${{ steps.lookup.outputs.oracle_tier }}
       ci_datahub_tier: ${{ steps.lookup.outputs.ci_datahub_tier }}
@@ -74,7 +76,7 @@ const BODY: &str = r#"    runs-on: ubuntu-latest
               | jq -r --arg sha "$GITHUB_SHA" '.jobs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success") | .name')" || jobs=""
             passed="$passed"$'\n'"$jobs"
           done
-          for leg in keycloak-served-test bigquery-driver-check multi-node multi-node-postgres k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
+          for leg in keycloak-served-test bigquery-driver-check multi-node multi-node-postgres multi-node-clickhouse k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
             if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
             echo "$leg: $hit"
             echo "${leg//-/_}=$hit" >> "$GITHUB_OUTPUT"
