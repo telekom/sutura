@@ -102,7 +102,16 @@ def main():
                 git(base, "diff", "--cached", "--binary")
             )
             runtime.record(output / "base-unit-overlay-files.json", after)
-            runtime.assert_cell(base, frozen["cell"], "base-config-unit", frozen["red"])
+            try:
+                runtime.assert_cell(
+                    base, frozen["cell"], "base-config-unit", frozen["red"]
+                )
+            finally:
+                listing = base / "target/native-dictionary-runner-list.json"
+                if listing.exists():
+                    (output / "base-config-unit-nextest-list.json").write_bytes(
+                        listing.read_bytes()
+                    )
         runtime.record(
             output / "summary.json",
             {

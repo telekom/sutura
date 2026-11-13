@@ -13,7 +13,7 @@
   "cell": {
     "name": "settings::tests::rdbms_catalog::a_native_dictionary_source_is_parsed_as_written",
     "package": "sutura-config",
-    "binary": "sutura-config",
+    "binary": "sutura_config",
     "venue": "nextest"
   },
   "red": {
