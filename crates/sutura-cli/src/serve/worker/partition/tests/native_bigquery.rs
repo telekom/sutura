@@ -394,16 +394,17 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
         subject.clone(),
         Expiry::NothingExpires,
         &sources,
-        BTreeMap::from([(source("warehouse"), presented.clone())]),
+        BTreeMap::from([(source("warehouse"), presented)]),
     )
     .unwrap();
     let Ok(Agreed::Granted { credentials }) = (Minted::Granted { credentials: minted }).agreeing_with(&subject, &sources, 0)
     else {
         panic!("fixture credentials disagree with their source");
     };
+    let presented = credentials.presented_for(lookup.source()).unwrap();
     let warehouse = crate::serve::kind::AnyWarehouse::BigQuery(Box::new(opened()));
     let split = warehouse.split_lookup(
-        lookup, &presented, deadline(), NonZeroU64::new(1).unwrap(),
+        lookup, presented, deadline(), NonZeroU64::new(1).unwrap(),
         NonZeroUsize::new(4).unwrap(), Some(Grantee::new(lookup, &credentials, until).unwrap()), &labels,
     ).unwrap_or_else(|_| panic!("the real BigQuery split dispatch did not run"));
     let Partitioned::Granted(grant) = split else {
@@ -484,7 +485,7 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
     )], vec![ParamValue::Text(String::from("sutura-no-seed-row"))]).unwrap();
     let empty_sql = sutura_sql::generate_leg(&empty_lookup, sutura_sql::Dialect::BigQuery).unwrap();
     let empty = warehouse.split_lookup(
-        &empty_lookup, &presented, deadline(), NonZeroU64::new(1).unwrap(),
+        &empty_lookup, presented, deadline(), NonZeroU64::new(1).unwrap(),
         NonZeroUsize::new(4).unwrap(), Some(Grantee::new(&empty_lookup, &credentials, until).unwrap()), &labels,
     ).unwrap_or_else(|_| panic!("the empty native split dispatch did not run"));
     let Partitioned::Split(reads) = empty else {
