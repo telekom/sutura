@@ -191,7 +191,7 @@ mod tests {
                     ))
                     .unwrap();
                 Self {
-                    data: DataDir::prepared(case),
+                    data: DataDir::prepared(&format!("{case}-fixture")),
                     schema,
                     admin,
                 }

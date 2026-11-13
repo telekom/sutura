@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use sutura_config::{Environment, Settings, Sources};
 
     fn load(selection: &str) -> Result<Settings, sutura_config::SettingsLoadError> {
@@ -33,6 +35,18 @@ catalogs:
 
     const NATIVE: &str = "    dictionary_source: native_dictionary\n    include: [{schema: public, table: 'event*'}]";
 
+    fn refusal(selection: &str) -> String {
+        let error = load(selection).expect_err("the native declaration is refused");
+        let mut chain = error.to_string();
+        let mut cause = error.source();
+        while let Some(next) = cause {
+            chain.push_str(": ");
+            chain.push_str(&next.to_string());
+            cause = next.source();
+        }
+        chain
+    }
+
     #[test]
     fn a_native_dictionary_selection_loads_without_documentation_view_keys() {
         load(&format!(
@@ -53,8 +67,8 @@ catalogs:
             ),
             format!("{NATIVE}\n    exclude_columns: [{}]", vec!["secret"; 129].join(", ")),
         ] {
-            let error = load(&selection).expect_err("unbounded or empty selection is refused");
-            assert!(error.to_string().contains("native dictionary"), "{error}");
+            let error = refusal(&selection);
+            assert!(error.contains("native dictionary"), "{error}");
         }
     }
 
@@ -66,14 +80,10 @@ catalogs:
             "dictionary_schema: public",
             "live_row_predicate: {column: removed, operator: is_null}",
         ] {
-            let error = load(&format!("{NATIVE}\n    {key}")).expect_err("view selectors cannot be ignored by native mode");
-            assert!(
-                error.to_string().contains("native dictionaries read no documentation"),
-                "{error}"
-            );
+            let error = refusal(&format!("{NATIVE}\n    {key}"));
+            assert!(error.contains("native dictionaries read no documentation"), "{error}");
         }
-        let error = load("    environment: test\n    include: [{schema: public, table: '*'}]")
-            .expect_err("native selectors cannot be ignored by the default view mode");
-        assert!(error.to_string().contains("require dictionary_source"), "{error}");
+        let error = refusal("    environment: test\n    include: [{schema: public, table: '*'}]");
+        assert!(error.contains("require dictionary_source"), "{error}");
     }
 }

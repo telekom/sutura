@@ -638,11 +638,17 @@ pub(crate) fn refused_to_start(environment: Environment, config_dir: PathBuf, ex
             spawned.reaped = true;
             break status;
         }
-        assert!(
-            Instant::now() < deadline,
-            "the deployment was still running {}s after being given settings it must refuse",
-            START_BUDGET.as_secs()
-        );
+        if Instant::now() >= deadline {
+            drop(spawned.child.kill());
+            assert!(spawned.child.wait().is_ok(), "the non-refusing deployment is reaped");
+            spawned.reaped = true;
+            let said = reading.finished();
+            panic!(
+                "the deployment was still running {}s after being given settings it must refuse:\n{}\nend refused-deployment output",
+                START_BUDGET.as_secs(),
+                said.join("\n")
+            );
+        }
         std::thread::sleep(Duration::from_millis(25));
     };
     // Joined and then drained, because `finished` is the only thing `Reading` will hand a line to.
