@@ -83,7 +83,7 @@ mod raw;
 /// A lookup leg read in partitions, each at one snapshot - `github.com/telekom/sutura#828`.
 mod split;
 
-pub use split::{InvalidDescriptor, PartitionDescriptor, Planned, SplitLeg};
+pub use split::{InvalidDescriptor, MOST_PARTITION_ROWS, PartitionDescriptor, Planned, SplitLeg};
 
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
@@ -148,13 +148,11 @@ pub enum OracleError {
         cause: MalformedRowSet,
     },
     /// The collected result would cost more than this adapter's materialisation budget to hold.
-    ///
-    /// The sibling of [`Self::Shape`] for the byte budget the port's
-    /// [`result_did_not_fit`](sutura_domain::warehouse::Warehouse::result_did_not_fit) reads: a
-    /// result refused for crossing it is *the result did not fit*, never a data-system failure, so
-    /// a caller is refused rather than told to retry.
     #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
     OverBudget { most_bytes: usize },
+    /// A partition's fetched and decoded rows exceed the limit, before its final typed output.
+    #[error("a partition returned more than the {most_rows}-row limit")]
+    PartitionTooManyRows { most_rows: usize },
     /// The driver's batches did not match the schema it announced - a driver defect.
     #[error("the driver's answer did not match the schema it announced")]
     Unannounced {
@@ -551,13 +549,17 @@ impl OracleWarehouse {
     /// The rows of the partition `descriptor` names of `leg`, at its snapshot as the service user,
     /// once the database answered that the snapshot is no older than `deadline`'s budget. Takes no
     /// presented identity and does not authenticate the descriptor: the task grant does both.
+    /// Collects at most [`MOST_PARTITION_ROWS`] plus one, refusing the extra row after fetch and
+    /// decode, before the final typed output. A fetched batch can be larger; this is no prefetch
+    /// or process-memory bound.
     ///
     /// # Errors
     ///
     /// [`OracleError::FlashbackNotDeclared`], [`OracleError::MalformedDescriptor`] and
     /// [`OracleError::PartitionRender`] before any round trip; then [`OracleError::SnapshotStale`],
-    /// [`OracleError::SnapshotGone`], [`OracleError::NotOfItsColumnType`], a spent deadline, and
-    /// the database's failure.
+    /// [`OracleError::SnapshotGone`], [`OracleError::PartitionTooManyRows`],
+    /// [`OracleError::OverBudget`], [`OracleError::NotOfItsColumnType`], a spent deadline, and the
+    /// database's failure.
     pub fn read_partition(&self, leg: &LegPlan, descriptor: &[u8], deadline: Deadline) -> Result<ResultBatches, OracleError> {
         split::read_partition(self, leg, descriptor, deadline)
     }
@@ -835,9 +837,12 @@ impl Warehouse for OracleWarehouse {
             || matches!(*error, OracleError::Execute { ref cause } if cause.has_ora_code(1031) || cause.has_ora_code(1456))
     }
 
-    /// The materialisation budget is a result refusal; other failures retain their own mapping.
+    /// The materialisation budget and fixed partition row limit are result refusals; other failures retain their own mapping.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(*error, OracleError::OverBudget { .. })
+        matches!(
+            *error,
+            OracleError::OverBudget { .. } | OracleError::PartitionTooManyRows { .. }
+        )
     }
 }
 

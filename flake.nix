@@ -651,10 +651,10 @@
           deps-native-release = shipped.nativeBinaries.sutura.cargoArtifacts;
           deps-musl-release = crossPackages.sutura-x86_64-unknown-linux-musl.cargoArtifacts;
 
-          # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
+          # The gate binary on its own, so CI can run the `classify` app with
           # nothing but `nix` on the runner.
           #
-          # `ciArtifacts`: this binary is what CI runs as `nix run .#xtask -- classify`, and
+          # `ciArtifacts`: this binary is what CI's `classify` app runs, and
           # `classify` is the FIRST step, so on a cold cache whatever it waits for is on the
           # critical path before the pipeline can decide what to run. That step was 23.9 minutes
           # on the push that added the engine. At opt-level 0 it is a fraction of that, and it is
@@ -1806,7 +1806,7 @@
           program = "${cargoWrapper}/bin/sutura-cargo";
         };
         # `nix run .#xtask` - every subcommand this repository already calls this way from
-        # `ci.yml` and `release.yml` (`classify`, `check-attribution`,
+        # `ci.yml` and `release.yml` (`check-attribution`,
         # `attribution`, `crap-delta`), and now `hygiene` from `version-bump.yml`. An EXPLICIT
         # app rather than the one `nix run` synthesises implicitly from `packages.xtask`'s own
         # `meta.mainProgram`, because several of those subcommands shell out to `cargo metadata`
@@ -1822,6 +1822,14 @@
           program = builtins.toString (pkgs.writeShellScript "sutura-xtask" ''
             export PATH="${toolchain}/bin:${jscpd}/bin:$PATH"
             exec ${self.packages.${system}.xtask}/bin/xtask "$@"
+          '');
+        };
+        # Classification reads git and the checkout, so it need not realise the general wrapper's
+        # copy detector. The same xtask binary and its shared cargo artifacts still build on a miss.
+        apps.classify = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-classify" ''
+            exec ${self.packages.${system}.xtask}/bin/xtask classify "$@"
           '');
         };
         # `just api`. The writer for what `checks.api-docs` proves generates.
