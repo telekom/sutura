@@ -155,8 +155,9 @@ pkgs.testers.runNixOSTest {
         docker load -i ${walletImage}
         docker tag gvenzl/oracle-free:23.26.3-faststart sutura-oracle-server:fixture
         docker tag container-registry.oracle.com/database/free:23.26.3.0 sutura-oracle-wallet:fixture
-        mkdir -p /run/oracle-tls/wallet
-        docker run --rm --user 0 -e HOME=/out -v /run/oracle-tls:/out -v ${walletScript}:/wallet.sh:ro --entrypoint bash sutura-oracle-wallet:fixture /wallet.sh
+        install -d -m 0700 /run/oracle-tls /run/oracle-tls/wallet
+        docker run --rm --user 0 -v /run/oracle-tls:/out --entrypoint chown sutura-oracle-wallet:fixture oracle /out /out/wallet
+        docker run --rm --user oracle -e HOME=/out -v /run/oracle-tls:/out -v ${walletScript}:/wallet.sh:ro --entrypoint bash sutura-oracle-wallet:fixture -c 'test -O /out/wallet && test -w /out/wallet && echo "wallet output is owned and writable" && exec bash /wallet.sh'
         docker run -d --name oracle --network host -e ORACLE_PASSWORD="$(cat ${material}/password)" -v /run/oracle-tls/wallet:/opt/oracle/tls:ro -v ${./oracle-tier-tcps.sh}:/container-entrypoint-startdb.d/tcps.sh:ro sutura-oracle-server:fixture
       '';
     };
@@ -176,6 +177,7 @@ pkgs.testers.runNixOSTest {
     services.nginx = {
       enable = true;
       virtualHosts.idp = {
+        onlySSL = true;
         listen = [{ addr = "0.0.0.0"; port = 9443; ssl = true; }];
         sslCertificate = "${material}/idp.pem";
         sslCertificateKey = "${material}/idp.key";
