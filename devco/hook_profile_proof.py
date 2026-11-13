@@ -144,8 +144,9 @@ def shell(label, profile):
     )
     definition = json.loads(
         run(label + "-derivation", ["nix", "derivation", "show", drv]).stdout
-    )[drv]
-    return drv, closure, definition["env"]
+    )
+    assert definition["version"] == 4
+    return drv, closure, definition["derivations"][Path(drv).name]["env"]
 
 
 def clear_closure(label):
