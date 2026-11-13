@@ -194,7 +194,7 @@ jobs:
       - name: Regenerate the slides npm dependency lock and hash
         if: inputs.operation == 'slides-npm-lock'
         run: |
-          nix shell --inputs-from . nixpkgs#nodejs_26 --command npm --prefix slides/2026-introducing-sutura update @hono/node-server --package-lock-only --ignore-scripts
+          nix shell --inputs-from . nixpkgs#nodejs_26 --command npm --prefix slides/2026-introducing-sutura update @hono/node-server hono --package-lock-only --ignore-scripts
           nix run --inputs-from . nixpkgs#prefetch-npm-deps -- slides/2026-introducing-sutura/package-lock.json > /tmp/oracle-export/npm-deps-hash
           python3 - <<'PY'
           import re
