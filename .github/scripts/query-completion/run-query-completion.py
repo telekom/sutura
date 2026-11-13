@@ -418,6 +418,8 @@ def run_cli_diagnostic(config, out, root, baseline):
     assert paths == [
         "crates/sutura-exec-datafusion/src/combine/across/partition.rs",
         "crates/sutura-exec-datafusion/src/combine/across.rs",
+        "vendor/datafusion-distributed/src/protocol/grpc/errors/mod.rs",
+        "crates/sutura-exec-datafusion/src/combine/across/receipts.rs",
     ]
     for item in overlays:
         overlay = PAYLOAD / item["overlay"]

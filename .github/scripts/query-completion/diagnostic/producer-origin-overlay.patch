@@ -1,0 +1,24 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
+@@ -128,11 +128,19 @@
+     }
+     let mut submissions = Vec::new();
+     for capture in captures {
+-        submissions.extend(capture.finish().await?);
++        let captured = capture.finish().await.inspect_err(|_cause| {
++            eprintln!("observed, completion_diagnostic boundary=receipt_producer phase=capture_finish result=failed");
++        })?;
++        eprintln!("observed, completion_diagnostic boundary=receipt_producer phase=capture_finish result=ok");
++        submissions.extend(captured);
+     }
+     submissions.sort_unstable_by_key(|(sequence, _)| *sequence);
+     let records: Vec<_> = submissions.into_iter().flat_map(|(_, records)| records).collect();
+-    let envelope = wire::encode(&records, request.max_bytes()).map_err(|cause| DataFusionError::External(Box::new(cause)))?;
++    let envelope = wire::encode(&records, request.max_bytes()).map_err(|cause: wire::InvalidCapture| {
++        eprintln!("observed, completion_diagnostic boundary=receipt_producer phase=wire_encode result=invalid_capture");
++        DataFusionError::External(Box::new(cause))
++    })?;
++    eprintln!("observed, completion_diagnostic boundary=receipt_producer phase=producer result=ok");
+     Ok(vec![envelope])
+ }
+ 

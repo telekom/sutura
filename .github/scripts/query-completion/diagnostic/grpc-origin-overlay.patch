@@ -1,0 +1,65 @@
+--- a/vendor/datafusion-distributed/src/protocol/grpc/errors/mod.rs
++++ b/vendor/datafusion-distributed/src/protocol/grpc/errors/mod.rs
+@@ -20,6 +20,14 @@
+ /// to be sent over the wire and decoded by the receiving end, recovering the original
+ /// [DataFusionError] across a network boundary with [tonic_status_to_datafusion_error].
+ pub fn datafusion_error_to_tonic_status(err: impl Borrow<DataFusionError>) -> tonic::Status {
++    let kind = match err.borrow() {
++        DataFusionError::External(_) => "external",
++        DataFusionError::Execution(_) => "execution",
++        DataFusionError::Shared(_) => "shared",
++        DataFusionError::Context(_, _) => "context",
++        _ => "other",
++    };
++    eprintln!("observed, completion_diagnostic boundary=grpc_encode error_type={kind}");
+     let err = DataFusionErrorProto::from_datafusion_error(err.borrow());
+     let err = err.encode_to_vec();
+ 
+@@ -32,9 +40,7 @@
+ ///
+ /// The provided [tonic::Status] error might also be something else, like an actual network
+ /// failure. This function returns `None` for those cases.
+-pub fn tonic_status_to_datafusion_error(
+-    status: impl Borrow<tonic::Status>,
+-) -> Option<DataFusionError> {
++pub fn tonic_status_to_datafusion_error(status: impl Borrow<tonic::Status>) -> Option<DataFusionError> {
+     let status = status.borrow();
+     if status.code() != tonic::Code::Internal {
+         return None;
+@@ -46,22 +52,31 @@
+ 
+     match DataFusionErrorProto::decode(status.details()) {
+         Ok(err_proto) => Some(err_proto.to_datafusion_err()),
+-        Err(err) => Some(internal_datafusion_err!(
+-            "Cannot decode DataFusionError: {err}"
+-        )),
++        Err(err) => Some(internal_datafusion_err!("Cannot decode DataFusionError: {err}")),
+     }
+ }
+ 
+ /// Same as [tonic_status_to_datafusion_error] but suitable to be used in `.map_err` calls that
+ /// accept a [tonic::Status] error.
+ pub fn map_status_to_datafusion_error(err: tonic::Status) -> DataFusionError {
+-    tonic_status_to_datafusion_error(&err)
+-        .unwrap_or_else(|| DataFusionError::External(Box::new(err)))
++    let decoded = tonic_status_to_datafusion_error(&err);
++    let branch = if decoded.is_some() { "recognized" } else { "fallback" };
++    eprintln!("observed, completion_diagnostic boundary=grpc_status branch={branch}");
++    decoded.unwrap_or_else(|| DataFusionError::External(Box::new(err)))
+ }
+ 
+ /// Same as [tonic_status_to_datafusion_error] but suitable to be used in `.map_err` calls that
+ /// accept a [FlightError] error.
+ pub fn map_flight_to_datafusion_error(err: FlightError) -> DataFusionError {
++    let kind = match &err {
++        FlightError::Arrow(_) => "arrow",
++        FlightError::NotYetImplemented(_) => "not_yet_implemented",
++        FlightError::Tonic(_) => "tonic",
++        FlightError::ProtocolError(_) => "protocol",
++        FlightError::DecodeError(_) => "decode",
++        FlightError::ExternalError(_) => "external",
++    };
++    eprintln!("observed, completion_diagnostic boundary=flight_map error_type={kind}");
+     match err {
+         FlightError::Tonic(status) => map_status_to_datafusion_error(*status),
+         err => DataFusionError::External(Box::new(err)),
