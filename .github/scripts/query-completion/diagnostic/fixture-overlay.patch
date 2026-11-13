@@ -1,6 +1,6 @@
 --- a/crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs
 +++ b/crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs
-@@ -483,6 +483,37 @@
+@@ -483,6 +483,42 @@
      let mut answer = combiner
          .execute(combiner.plan(&plan), &actual, 1 << 30)
          .unwrap_or_else(|cause| {
@@ -30,6 +30,11 @@
 +                            eprintln!(
 +                                "observed, completion_diagnostic datafusion={:?}",
 +                                core::mem::discriminant(nested)
++                            );
++                            eprintln!(
++                                "observed, completion_diagnostic immediate_invalid_capture={}",
++                                core::error::Error::source(nested)
++                                    .is_some_and(|cause| cause.is::<sutura_domain::warehouse::execution::wire::InvalidCapture>())
 +                            );
 +                        }
 +                    }

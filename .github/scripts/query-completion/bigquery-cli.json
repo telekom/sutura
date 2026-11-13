@@ -2,7 +2,7 @@
   "source": "d10b8f96cb9a740dd09c549b87f361c81e0c271a",
   "tree": "3e89c4b8b46fe3c55c023bf6ad00aeb3ffa30926",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "WORKER DIAGNOSTIC ONLY; fixed categories; no mutation or proof credit",
+  "binding": "IMMEDIATE CAPTURE TYPE DIAGNOSTIC ONLY; true names type, false remains unclassified; no mutation/proof credit",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
   "cases": [],
   "venue_limit": "In-process native split creation and forwarded partition reader: actual multiple-stream Granted and <=1-stream Split branches, descriptor capture barrier, creation propagation/count, full creation SQL equality, and local creation attachment. Each earns only its reached bound assertion; no served-human, inbound-issuer, real-delegation-hop, forced duplicate native read or native-cancellation credit.",
@@ -14,14 +14,14 @@
   "diagnostic": {
     "binary": "sutura-cli::bin/sutura",
     "test": "serve::worker::partition::tests::native_bigquery::forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
-    "marker_pattern": "observed, completion_diagnostic (?:(?:execute=(?:leg|miswired)|execute=combine combine=(?:execute|leg_not_certified|partition_did_not_fit|rows_over_ceiling|no_reading_node|node_lost|exhausted|workers_not_ready|other) discriminant=Discriminant\\([0-9]+\\)|datafusion=Discriminant\\([0-9]+\\))|worker_phase=(?:capture_begin|read_forwarded|capture_complete) worker_reason=(?:leg_not_certified|did_not_fit|adbc_load|adbc_call|adbc_batch|adbc_over_bound|adbc_over_budget|adbc_width|adbc_mislabelled|adbc_uncovered|adbc_no_dry_run|adbc_deadline_spent|adbc_deadline_elapsed|adbc_parameters|adbc_pool_exchange|bigquery_other|unclassified_failure)|worker_phase=(?:read_forwarded|capture_complete) worker_reason=ok|worker_phase=capture_begin capture_present=(?:true|false))",
+    "marker_pattern": "observed, completion_diagnostic (?:(?:execute=(?:leg|miswired)|execute=combine combine=(?:execute|leg_not_certified|partition_did_not_fit|rows_over_ceiling|no_reading_node|node_lost|exhausted|workers_not_ready|other) discriminant=Discriminant\\([0-9]+\\)|datafusion=Discriminant\\([0-9]+\\))|worker_phase=(?:capture_begin|read_forwarded|capture_complete) worker_reason=(?:leg_not_certified|did_not_fit|adbc_load|adbc_call|adbc_batch|adbc_over_bound|adbc_over_budget|adbc_width|adbc_mislabelled|adbc_uncovered|adbc_no_dry_run|adbc_deadline_spent|adbc_deadline_elapsed|adbc_parameters|adbc_pool_exchange|bigquery_other|unclassified_failure)|worker_phase=(?:read_forwarded|capture_complete) worker_reason=ok|worker_phase=capture_begin capture_present=(?:true|false)|immediate_invalid_capture=(?:true|false))",
     "overlays": [
       {
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
         "overlay": "diagnostic/fixture-overlay.patch",
-        "overlay_sha256": "aeb774d42fad35e69ddf68f9e235171c42d9d327db3b795345f2f610cbfe5072",
+        "overlay_sha256": "d34744c00c5b1838460bce43ace12c84399987a25804a2bb8baf36231bc0530d",
         "before_sha256": "270fa3bbff872088332341a62a9c315da2fc3a53580f7f20bdd13eaec23d6fe5",
-        "after_sha256": "d75eb4ddb1a3df3ce566dd6d3bda0e16863a2b6f243cd2537e16f69af22cdf7b"
+        "after_sha256": "890923708e85d8f770d538fb9e178f251306d94e456eb53bbdd1ef7fd1488de1"
       },
       {
         "path": "crates/sutura-cli/src/serve/worker/partition.rs",
