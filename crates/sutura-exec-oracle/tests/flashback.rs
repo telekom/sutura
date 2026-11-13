@@ -28,7 +28,7 @@ mod acceptance {
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::execution::Execution;
     use sutura_domain::warehouse::schema::TypeDialect;
-    use sutura_domain::warehouse::{ResultBudget, Value, Warehouse as _};
+    use sutura_domain::warehouse::{ResultBudget, ResultLimit, Value, Warehouse as _};
     use sutura_exec_oracle::{Channel, Dial, OracleError, OracleWarehouse, Planned, SplitLeg};
 
     /// The tier as this process reaches it: its address, the fixture credential and its authority.
@@ -196,6 +196,132 @@ mod acceptance {
 
     fn rows(read: &sutura_domain::warehouse::ResultBatches) -> Vec<Vec<Value>> {
         read.to_rows().expect("Oracle's answer decodes to rows").rows().to_vec()
+    }
+
+    /// Verifies the fixture has distinct keys in bucket zero and returns its last key.
+    fn skewed_keys(session: &oracledb::Connection, table: &str, expected: i64) -> i64 {
+        let mut cursor = session
+            .query(
+                &format!(
+                    "SELECT COUNT(*), COUNT(DISTINCT \"customer_key\"), \
+                     MIN(ORA_HASH(\"customer_key\", 1)), MAX(ORA_HASH(\"customer_key\", 1)), \
+                     MAX(\"customer_key\") FROM \"{table}\""
+                ),
+                &[],
+            )
+            .expect("the fixture's key counts read");
+        let row = cursor.next().expect("one aggregate row").expect("the counts read");
+        let values: Vec<i64> = (0..5).map(|index| row.get::<i64>(index).expect("an integer count")).collect();
+        assert_eq!(values[..4], [expected, expected, 0, 0], "distinct keys in bucket zero");
+        println!("oracle-partition-row-cap: fixture rows={expected} distinct={expected} bucket=0");
+        values[4]
+    }
+
+    /// A bucket at the fixed million-row boundary reads; one further distinct key at a fresh
+    /// snapshot is refused. The roomy byte budget keeps this a row-limit measurement.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn a_partition_at_one_million_distinct_keys_reads_and_one_more_is_refused() {
+        const TABLE: &str = "flashback_row_cap";
+        let tier = tier();
+        let session = tier.session(&tier.user, &tier.password);
+        drop_table(&session, TABLE);
+        execute(
+            &session,
+            &format!("CREATE TABLE \"{TABLE}\" (\"customer_key\" NUMBER(10,0), \"region\" VARCHAR2(16))"),
+        );
+        execute(
+            &session,
+            &format!(
+                "INSERT INTO \"{TABLE}\" (\"customer_key\", \"region\") \
+                 SELECT candidate_key, 'north' FROM (SELECT LEVEL candidate_key FROM DUAL CONNECT BY LEVEL <= 3000000) \
+                 WHERE ORA_HASH(candidate_key, 1) = 0 AND ROWNUM <= 1000001"
+            ),
+        );
+        let extra = skewed_keys(&session, TABLE, 1_000_001);
+        session
+            .execute(&format!("DELETE FROM \"{TABLE}\" WHERE \"customer_key\" = :1"), &[&extra])
+            .expect("one extra distinct key is held back");
+        session.commit().expect("the million keys commit");
+        skewed_keys(&session, TABLE, 1_000_000);
+        execute(
+            &session,
+            &format!("BEGIN DBMS_STATS.SET_TABLE_STATS(USER, '\"{TABLE}\"', numrows => 1200000, avgrlen => 32); END;"),
+        );
+        std::thread::sleep(Duration::from_secs(8));
+        let tables = BTreeSet::from([QualifiedTable::new(None, TableName::parse(TABLE).expect("a table"))]);
+        let warehouse = OracleWarehouse::connect(
+            corpus::source(),
+            corpus::posture(),
+            Dial::new(
+                &tier.host,
+                tier.port,
+                "FREEPDB1",
+                Channel::Verified {
+                    anchors_pem: &tier.anchors,
+                },
+            ),
+            &tier.user,
+            &tier.password,
+            ResultBudget::of_bytes(core::num::NonZeroUsize::new(512 * 1024 * 1024).expect("512 mebibytes")),
+        )
+        .expect("the adapter opens the provisioned Oracle")
+        .with_flashback(&tables)
+        .expect("the probe passes");
+        let leg = lookup(TABLE);
+        let partition = || {
+            let planned = warehouse
+                .split_by_estimate(
+                    &leg,
+                    &corpus::presented(),
+                    deadline(120),
+                    core::num::NonZeroU64::MIN,
+                    core::num::NonZeroUsize::new(1_000_000).expect("one million"),
+                    core::num::NonZeroUsize::new(2).expect("two"),
+                )
+                .expect("the split reads the dictionary and a fresh snapshot");
+            let Planned::Split(split) = planned else {
+                panic!("the synthetic estimate splits two ways: {planned:?}");
+            };
+            assert_eq!(split.partitions().len(), 2, "{split:?}");
+            split.partitions()[0].to_bytes()
+        };
+        let first = partition();
+        let boundary = warehouse
+            .read_partition(&leg, &first, deadline(120))
+            .expect("exactly one million distinct keys read");
+        assert_eq!(boundary.rows(), 1_000_000, "the exact boundary is not truncated");
+        println!("oracle-partition-row-cap: boundary returned rows={}", boundary.rows());
+        drop(boundary);
+        session
+            .execute(
+                &format!("INSERT INTO \"{TABLE}\" (\"customer_key\", \"region\") VALUES (:1, 'north')"),
+                &[&extra],
+            )
+            .expect("the extra distinct key inserts");
+        session.commit().expect("the extra key commits");
+        skewed_keys(&session, TABLE, 1_000_001);
+        std::thread::sleep(Duration::from_secs(8));
+        let fresh = partition();
+        assert_ne!(first, fresh, "overflow must be read at a fresh snapshot");
+        let refused = warehouse.read_partition(&leg, &fresh, deadline(120));
+        drop_table(&session, TABLE);
+        match refused {
+            Err(cause) => {
+                assert_eq!(
+                    warehouse.result_limit(&cause),
+                    Some(ResultLimit::StreamRows { limit: 1_000_000 })
+                );
+                assert!(warehouse.result_did_not_fit(&cause), "the row limit is a refusal: {cause}");
+                assert_eq!(cause.to_string(), "a partition returned more than the 1000000-row limit");
+                println!("oracle-partition-row-cap: overflow refused as result_too_large");
+            }
+            Ok(read) => {
+                println!("oracle-partition-row-cap: overflow returned rows={}", read.rows());
+                assert_eq!(read.rows(), 1_000_001, "the base must return the whole oversized bucket");
+                panic!("a partition with 1000001 distinct keys must be refused");
+            }
+        }
     }
 
     /// **The measurement.** Every row the leg reads whole at the split comes back from exactly one
