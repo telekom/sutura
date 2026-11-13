@@ -68,6 +68,17 @@ let
     tls_node_authority = "${material}/ca.pem";
   };
   offHost = { tls_termination = "in-process"; metrics_token = "multi-node-oracle-metrics-token-000"; };
+  readerSecurity = offHost // {
+    identity = "single-user";
+    single_user_because = "a reading worker reads one source as its declared role";
+    inbound = {
+      mode = "direct";
+      resource = "https://query";
+      authorization_server = "https://idp";
+      key_set_file = "${publicKeys}/jwks.json";
+      algorithms = [ "ES256" ];
+    };
+  };
   geo = {
     kind = "oracle";
     host = "db";
@@ -120,12 +131,12 @@ let
     networking.firewall.extraCommands = "iptables -A nixos-fw -p tcp --dport 8443 -s ${nodes.query.networking.primaryIPAddress} -j nixos-fw-accept";
     systemd.services.sutura = serve (settings {
       server = pair own // { role = "reading-worker"; };
-      security = offHost // { identity = "single-user"; single_user_because = "a reading worker reads one source as its declared role"; };
+      security = readerSecurity;
       sources.geo = geo // { split = "flashback"; };
     });
     systemd.services.sutura-changed = serve (settings {
       server = pair own // { role = "reading-worker"; };
-      security = offHost // { identity = "single-user"; single_user_because = "a reading worker reads one source as its declared role"; };
+      security = readerSecurity;
       sources.geo = geo // { split = "flashback"; };
       model = changedCatalog;
     });
