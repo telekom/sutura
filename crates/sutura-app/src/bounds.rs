@@ -3,6 +3,8 @@
 //! reaches a data system - split out of `lib.rs` for `cargo xtask max-lines`'s cap rather than for
 //! thematic tidiness, the same reason `federated` is its own file.
 
+use sutura_domain::warehouse::execution::Execution;
+
 /// Whether a result set came back with more rows than its plan capped it at.
 ///
 /// **A governance control, so the direction it fails in is the whole of what this function is for.**
@@ -28,17 +30,23 @@ pub(crate) fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
     u64::try_from(returned).unwrap_or(u64::MAX) > u64::from(max_rows)
 }
 
-/// Whether a result set's rendered cells would occupy more bytes than
+/// Whether rendered cells plus the reported execution text would occupy more bytes than
 /// [`sutura_domain::query::ResponseByteLimit::DEFAULT`] permits, and the ceiling if so.
 ///
 /// **The same governance shape as [`exceeds_row_cap`], one measurement further out - see the call
 /// site's own comment for why the row cap cannot see this.** `RowSet::rendered_byte_len` is the
 /// canonical cell text an anchor is compared against, not the wire bytes either transport's own
-/// response body eventually wraps it in, and the two do NOT stay close - see
+/// response body eventually wraps it in. Execution text and binding values are counted too, but
+/// JSON escaping and structural overhead are not. The two sizes do NOT stay close - see
 /// [`ResponseByteLimit::DEFAULT`](sutura_domain::query::ResponseByteLimit::DEFAULT) for the factor
 /// measured between them and what it means for the number this compares against. Named, for the
 /// reason `exceeds_row_cap` is: the boundary is testable without a data system.
-pub(crate) fn exceeds_response_bound(rows: &sutura_domain::warehouse::RowSet) -> Option<u64> {
+pub(crate) fn exceeds_response_bound(rows: &sutura_domain::warehouse::RowSet, executions: &[Execution]) -> Option<u64> {
     let limit = sutura_domain::query::ResponseByteLimit::DEFAULT;
-    (rows.rendered_byte_len() > limit.bytes()).then_some(limit.bytes())
+    (rows.rendered_byte_len().saturating_add(
+        executions
+            .iter()
+            .fold(0_u64, |bytes, execution| bytes.saturating_add(execution.rendered_byte_len())),
+    ) > limit.bytes())
+    .then_some(limit.bytes())
 }

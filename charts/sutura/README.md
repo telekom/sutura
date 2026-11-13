@@ -114,6 +114,9 @@ Nothing else of `config.base` or `config.environment` reaches it, so a setting a
 The release's own `extraVolumes`, `extraVolumeMounts` and `extraEnv` never reach a group.
 Mount a source's credential into the group that reads it with that group's `extraVolumes` and `extraVolumeMounts`, and point the source's `password_file` at the mount.
 The group's pod mounts the key set of `security.inbound.keySetSecretName`, a public key set, as the serving pod does.
+That option applies to a single inbound object.
+For a named verifier list, leave it empty and mount each entry's `key_set_file` with `extraVolumes` and `extraVolumeMounts` on the serving pod and each reading group.
+The chart preserves the complete list for each reading group; environment lists replace base declarations, while two objects merge by key.
 
 The chart refuses a render that the binary would refuse to start:
 

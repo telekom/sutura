@@ -176,6 +176,10 @@ mod link;
 /// A granted lookup leg's ambiguous-link check, inside the plan that joins it.
 mod once;
 
+mod receipts;
+pub use receipts::{RecordingSubmission, SubmissionCapture};
+pub(super) use receipts::{completed, executing};
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 pub use link::refuse_ambiguous_split;
@@ -366,11 +370,13 @@ impl Nodes {
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
             let bounded = bounded.clone();
             async move {
-                Ok(once::knowing(grant::forwarded(context.builder, &context.headers)?)
-                    .with_distributed_channel_resolver(bounded)
-                    .with_distributed_worker_plan_rewrite_handler(reads_no_source)
-                    .with_distributed_user_codec(partition::Codec)
-                    .build())
+                Ok(
+                    receipts::install(once::knowing(grant::forwarded(context.builder, &context.headers)?))
+                        .with_distributed_channel_resolver(bounded)
+                        .with_distributed_worker_plan_rewrite_handler(reads_no_source)
+                        .with_distributed_user_codec(partition::Codec)
+                        .build(),
+                )
             }
         });
         Ok(worker.with_runtime_env(environment.into_runtime()))
@@ -401,7 +407,7 @@ impl Nodes {
             let keys = keys.clone();
             let reader = reader.clone();
             async move {
-                let mut builder = once::knowing(grant::forwarded(context.builder, &context.headers)?)
+                let mut builder = receipts::install(once::knowing(grant::forwarded(context.builder, &context.headers)?))
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(
                         move |event: datafusion_distributed::WorkerPlanRewriteEvent<'_>| {
@@ -486,7 +492,11 @@ impl Nodes {
         links.worker_connection_buffer_budget_bytes =
             working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
         let planned = SessionStateBuilder::new()
-            .with_config(SessionConfig::new().with_target_partitions(count))
+            .with_config(
+                SessionConfig::new()
+                    .with_target_partitions(count)
+                    .with_extension(Arc::new(receipts::CaptureDistributed)),
+            )
             .with_distributed_option_extension(links)
             .with_runtime_env(environment.into_runtime())
             .with_default_features()

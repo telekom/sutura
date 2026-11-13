@@ -65,7 +65,7 @@ use datafusion_distributed::{
     DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedLeafExec, NetworkBoundaryExt as _, RouteTasksEvent,
     RouteTasksEventResponse, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse,
 };
-use sutura_domain::identity::SubjectKey;
+use sutura_domain::identity::Subject;
 use sutura_domain::model::SourceName;
 use url::Url;
 
@@ -132,7 +132,7 @@ impl SplitScan {
         source: SourceName,
         schema: SchemaRef,
         partitions: impl IntoIterator<Item = Vec<u8>>,
-        caller: &SubjectKey,
+        caller: &Subject,
         until: SystemTime,
         bound: StreamBound,
     ) -> Result<Self, DataFusionError> {
@@ -155,7 +155,7 @@ impl SplitScan {
         source: SourceName,
         schema: SchemaRef,
         partitions: impl IntoIterator<Item = Vec<u8>>,
-        caller: &SubjectKey,
+        caller: &Subject,
         until: SystemTime,
         bound: StreamBound,
         forwarded: Forwarded,
@@ -179,7 +179,7 @@ impl SplitScan {
         source: SourceName,
         schema: SchemaRef,
         partitions: impl IntoIterator<Item = Vec<u8>>,
-        caller: &SubjectKey,
+        caller: &Subject,
         until: SystemTime,
         bound: StreamBound,
         switched: SwitchedPrincipal,
@@ -196,7 +196,7 @@ impl SplitScan {
     fn minted(
         (wire, source, schema): (Vec<u8>, SourceName, SchemaRef),
         partitions: impl IntoIterator<Item = Vec<u8>>,
-        (caller, until): (&SubjectKey, SystemTime),
+        (caller, until): (&Subject, SystemTime),
         bound: StreamBound,
         reads: GrantReads,
     ) -> Result<Self, DataFusionError> {

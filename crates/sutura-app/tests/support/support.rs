@@ -59,7 +59,13 @@ use crate::adapters::source;
 /// set whose width invariant is broken, and `RowSet::new` refuses one before it exists - so a fake
 /// built from a literal cannot reach it.
 pub(crate) fn canned(rows: &RowSet) -> ResultBatches {
-    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+    sutura_domain::warehouse::arrow::of_row_set(rows)
+        .expect("a row set's width invariant is the only failure this has")
+        .with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+            source: Some(SourceName::parse("fixture").expect("fixture source")),
+            stage: sutura_domain::warehouse::execution::PlanStage::Files,
+            logical_plan: String::from("fixture: materialize canned rows"),
+        })
 }
 
 /// Why a stand-in could not answer. None of them can fail; the type exists because the ports
@@ -432,9 +438,9 @@ impl Warehouse for WideResult {
 /// rendered.
 ///
 /// **The instrument for the response-byte ceiling, and it has to push the OTHER dimension from
-/// [`WideResult`].** `ResponseByteLimit::DEFAULT` is measured in bytes of rendered cell text, and
-/// `plan::MAX_ROWS` bounds rows at ten thousand - so a result built by adding rows of one byte each
-/// hits the row cap millions of rows before it could ever reach the byte ceiling, and the two
+/// [`WideResult`].** `ResponseByteLimit::DEFAULT` charges rendered cell and execution text, excluding
+/// JSON escaping and structural overhead. `plan::MAX_ROWS` bounds rows at ten thousand, so adding
+/// rows of one byte each hits the row cap millions of rows before the byte ceiling, and the two
 /// refusals would be indistinguishable from this fake. Wide rather than tall: one row, one cell,
 /// however many bytes the test asks for.
 pub(crate) struct HeavyResult {

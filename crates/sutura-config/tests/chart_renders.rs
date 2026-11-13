@@ -130,10 +130,10 @@ mod tests {
 
     /// What `sutura serve` refuses once `Settings::load` accepted: `/v1` with no `security.inbound` block.
     fn serve_refusals(settings: &Settings) -> Vec<NotFitToServe> {
-        if settings.security().inbound().is_some() {
-            Vec::new()
-        } else {
+        if settings.security().inbound().is_empty() {
             settings.query_surface_refusals()
+        } else {
+            Vec::new()
         }
     }
 

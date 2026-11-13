@@ -1,12 +1,17 @@
 diff --git a/crates/sutura-domain/src/plan/split.rs b/crates/sutura-domain/src/plan/split.rs
 --- a/crates/sutura-domain/src/plan/split.rs
 +++ b/crates/sutura-domain/src/plan/split.rs
-@@ -326,7 +326,7 @@
-     /// [`NotOffered::NoCaller`] for a request with no verified caller, decided before the leg is
+@@ -394,9 +394,8 @@
      /// encoded; [`NotOffered::NotSendable`] for a leg [`PartitionLeg::encode`] cannot write.
      pub fn new(leg: &LegPlan, asked: &BoundToTheRequest, question_ends: SystemTime) -> Result<Self, NotOffered> {
--        let caller = asked.asked_by().key().cloned().ok_or(NotOffered::NoCaller)?;
-+        let caller = asked.asked_by().key().cloned().map_or_else(|| SubjectKey::parse("user@example.com").map_err(|_| NotOffered::NoCaller), Ok)?;
+-        let caller = asked.asked_by();
+-        if caller.verifier_id().is_none() {
+-            return Err(NotOffered::NoCaller);
+-        }
+-        let caller = caller.clone();
++        let caller = match asked.asked_by() {
++            Subject::TheDeploymentItself => Subject::verified("user@example.com").map_err(|_| NotOffered::NoCaller)?,
++            caller => caller.clone(),
++        };
          let until = asked
              .not_after()
-             .unix_seconds()

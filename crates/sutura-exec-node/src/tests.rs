@@ -26,6 +26,7 @@ use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use crate::{NodeEndpoint, NodeError, NodeWarehouse};
 
 mod fake;
+mod receipts;
 
 use fake::{Node, Reply};
 

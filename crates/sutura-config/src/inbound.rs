@@ -66,18 +66,22 @@
 
 mod address_claim;
 mod audience;
+mod declaration;
 mod key_set;
 mod primitive;
 mod scope;
+mod token_bytes;
 
 pub use crate::inbound::address_claim::{AddressClaim, ClaimName};
 pub use crate::inbound::audience::{ClientId, TokenAudience};
+pub use crate::inbound::declaration::{InboundVerifier, InvalidMcpPath, McpPath};
 pub use crate::inbound::key_set::{KeySetLocation, KeySetMaxStale, KeySetUrl};
 pub use crate::inbound::primitive::{
     InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
     ResourceIdentifier, SigningAlgorithm, TokenType,
 };
 pub use crate::inbound::scope::{ExtraScopeClaims, GrantedScopes};
+pub use crate::inbound::token_bytes::MaxTokenBytes;
 
 /// Which class of token this deployment will accept, out of the `typ` header.
 ///
@@ -194,6 +198,7 @@ impl core::fmt::Display for TokenLocation<'_> {
 /// holds an asserted identity. See this module's documentation for why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitProof {
+    max_token_bytes: MaxTokenBytes,
     header: ProofHeader,
     issuer: IssuerUrl,
     audience: TokenAudience,
@@ -212,6 +217,11 @@ pub struct TransitProof {
 }
 
 impl TransitProof {
+    /// Sets the parsed token bound for this assertion verifier.
+    pub(crate) fn limiting_token_bytes(self, max_token_bytes: MaxTokenBytes) -> Self {
+        Self { max_token_bytes, ..self }
+    }
+
     /// Assembles a declaration from parts that have each already been parsed.
     ///
     /// Seven arguments, over `clippy.toml`'s threshold of five, and taken rather than grouped
@@ -231,6 +241,7 @@ impl TransitProof {
         max_lifetime: ProofLifetime,
     ) -> Self {
         Self {
+            max_token_bytes: MaxTokenBytes::DEFAULT,
             header,
             issuer,
             audience,
@@ -318,6 +329,7 @@ pub enum InboundIdentity {
 /// that does not correspond to a declaration an operator wrote and this crate refused or accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TokenRequirement<'inbound> {
+    max_token_bytes: MaxTokenBytes,
     location: TokenLocation<'inbound>,
     issuer: &'inbound IssuerUrl,
     audience: &'inbound TokenAudience,
@@ -345,6 +357,12 @@ pub struct TokenRequirement<'inbound> {
 }
 
 impl<'inbound> TokenRequirement<'inbound> {
+    /// The configured bound, before any JWT decoding or key lookup.
+    #[must_use]
+    pub const fn max_token_bytes(&self) -> MaxTokenBytes {
+        self.max_token_bytes
+    }
+
     /// Where the token arrives.
     #[inline]
     #[must_use]
@@ -510,6 +528,7 @@ impl InboundIdentity {
                 // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it.
                 // That is what makes `security.access_token` and this mode a collision on one
                 // header, refused at startup - see `NotFitToServe::DeploymentTokenSharesTheHeader`.
+                max_token_bytes: resource.max_token_bytes(),
                 location: TokenLocation::AuthorizationBearer,
                 issuer: authorization_server,
                 audience: resource.audience(),
@@ -526,6 +545,7 @@ impl InboundIdentity {
                 max_lifetime: None,
             },
             Self::BehindGateway { ref transit } => TokenRequirement {
+                max_token_bytes: transit.max_token_bytes,
                 location: if transit.header.is_authorization() {
                     TokenLocation::GatewayBearer
                 } else {

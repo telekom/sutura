@@ -31,7 +31,7 @@
 //!   [`ReadAs::ServiceUser`]. That fingerprint is what the exchanging adapter states; the `BigQuery`
 //!   adapter states it where it exchanges.
 //! - A grant read as the caller's own principal ([`ReadAs::CallerPrincipal`]) takes only the
-//!   principal the grantee's own verified caller names ([`SubjectKey::principal`]), so a grant for
+//!   principal the grantee's own verified caller names ([`crate::identity::SubjectKey::principal`]), so a grant for
 //!   one caller never switches to another's. A grantee reads with a token or as a principal, the
 //!   last of [`Grantee::forwarding`] and [`Grantee::switching`] it was handed.
 
@@ -42,7 +42,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow_schema::SchemaRef;
 
-use crate::identity::{AssertionDigest, BoundToTheRequest, Presented, PrincipalName, SourceToken, SubjectKey};
+use crate::identity::{AssertionDigest, BoundToTheRequest, Presented, PrincipalName, SourceToken, Subject};
 use crate::nonempty::NonEmpty;
 use crate::plan::leg::LegPlan;
 use crate::plan::remote::{NotSendable, PartitionLeg};
@@ -215,11 +215,12 @@ pub struct Granted<'r> {
     wire: Vec<u8>,
     schema: SchemaRef,
     partitions: NonEmpty<Vec<u8>>,
-    caller: SubjectKey,
+    caller: Box<Subject>,
     until: SystemTime,
     stream_rows: NonZeroU32,
     estimate: EstimatedBytes,
     reads: ReadAs,
+    executions: Vec<crate::warehouse::execution::Execution>,
     _held: Box<dyn Send + Sync + 'r>,
 }
 
@@ -231,6 +232,17 @@ pub struct GrantExpired {
 }
 
 impl<'r> Granted<'r> {
+    /// Submissions made while creating the grant, before any reading worker starts.
+    #[must_use]
+    pub fn with_executions(mut self, executions: Vec<crate::warehouse::execution::Execution>) -> Self {
+        self.executions.extend(executions);
+        self
+    }
+
+    pub(crate) fn take_executions(&mut self) -> Vec<crate::warehouse::execution::Execution> {
+        core::mem::take(&mut self.executions)
+    }
+
     /// `partitions` of the leg `wire` encodes, answering `schema`, granted to `caller` until `until`
     /// at most `stream_rows` rows a stream, estimated at `estimate`, with `held` kept open as long,
     /// read as [`ReadAs::ServiceUser`].
@@ -243,7 +255,7 @@ impl<'r> Granted<'r> {
         wire: Vec<u8>,
         schema: SchemaRef,
         partitions: NonEmpty<Vec<u8>>,
-        caller: SubjectKey,
+        caller: Subject,
         until: SystemTime,
         now: SystemTime,
         stream_rows: NonZeroU32,
@@ -257,11 +269,12 @@ impl<'r> Granted<'r> {
             wire,
             schema,
             partitions,
-            caller,
+            caller: Box::new(caller),
             until,
             stream_rows,
             estimate,
             reads: ReadAs::ServiceUser,
+            executions: Vec::new(),
             _held: Box::new(held),
         })
     }
@@ -307,7 +320,7 @@ impl<'r> Granted<'r> {
 
     /// Whom every partition is read for.
     #[must_use]
-    pub const fn caller(&self) -> &SubjectKey {
+    pub const fn caller(&self) -> &Subject {
         &self.caller
     }
 
@@ -345,7 +358,7 @@ impl<'r> Granted<'r> {
 /// that credential.
 pub struct Grantee {
     wire: Vec<u8>,
-    caller: SubjectKey,
+    caller: Subject,
     until: SystemTime,
     presented: Option<AssertionDigest>,
     reads: ReadAs,
@@ -393,7 +406,11 @@ impl Grantee {
     /// [`NotOffered::NoCaller`] for a request with no verified caller, decided before the leg is
     /// encoded; [`NotOffered::NotSendable`] for a leg [`PartitionLeg::encode`] cannot write.
     pub fn new(leg: &LegPlan, asked: &BoundToTheRequest, question_ends: SystemTime) -> Result<Self, NotOffered> {
-        let caller = asked.asked_by().key().cloned().ok_or(NotOffered::NoCaller)?;
+        let caller = asked.asked_by();
+        if caller.verifier_id().is_none() {
+            return Err(NotOffered::NoCaller);
+        }
+        let caller = caller.clone();
         let until = asked
             .not_after()
             .unix_seconds()
@@ -435,13 +452,13 @@ impl Grantee {
     }
 
     /// This grantee, its partitions read as `principal` ([`ReadAs::CallerPrincipal`]), when
-    /// `principal` is the one the grantee's own verified caller names ([`SubjectKey::principal`]).
+    /// `principal` is the one the grantee's own verified caller names ([`crate::identity::SubjectKey::principal`]).
     ///
     /// # Errors
     ///
     /// [`NotTheCallersPrincipal`] for any other principal.
     pub fn switching(mut self, principal: PrincipalName) -> Result<Self, NotTheCallersPrincipal> {
-        if self.caller.principal().ok().as_ref() != Some(&principal) {
+        if self.caller.key().and_then(|key| key.principal().ok()).as_ref() != Some(&principal) {
             return Err(NotTheCallersPrincipal);
         }
         self.reads = ReadAs::CallerPrincipal(principal);

@@ -121,8 +121,11 @@ Without `security.inbound`, the deployment token authenticates the deployment an
 with the access of the deployment.
 
 With `security.inbound`, every request carries a token that sutura verifies: signature, issuer, expiry and an audience
-that equals the resource identifier of the deployment. The verified subject goes into every audit record. There is
-no default mode:
+that equals the resource identifier of the deployment. The verified subject goes into every audit record.
+The internal caller key is the configured verifier id and exact signed `sub`. Equal subjects or addresses from
+different verifiers remain separate callers. Backend principal and address spelling remain unchanged; source
+`admitted_by` bounds which verifiers may assert them. The audit record names the verifier id, issuer and mode.
+There is no default mode:
 
 | Mode             | Use it when                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -202,7 +205,7 @@ with the tool on, no list is a startup refusal, and so is an alias that no sourc
 statement. A build without the `sql` feature passes the statement, unparsed, to the one listed source, and answers only
 where the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record.
 The page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
-[DuckDB](integrations/data-systems/duckdb.md).
+[DuckDB](integrations/data-systems/duckdb.md), [Oracle](integrations/data-systems/oracle.md#raw-sql).
 
 `tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,
 or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
@@ -219,7 +222,8 @@ there. Planning and that local part stop at the request's deadline. What this do
   cap, whatever their width - and are not charged to the memory pool.
 - A scalar function over constants, such as `repeat`, is folded while the statement is planned. Neither the deadline nor
   the working set stops it, so a large enough value can abort the process rather than be refused. So can an expression
-  nested deeply enough to exhaust the planner's stack. The shipped build has no `sql` feature.
+  nested deeply enough to exhaust the planner's stack. The default image has no `sql` feature;
+  the explicitly named `:<version>-sql` image does. Enabling the tool requires accepting these planner limits.
 - A certified answer that combines legs shares one runtime with the local part, and may wait while it runs.
 
 ## Endpoints
@@ -258,10 +262,52 @@ definition version and digest that it came from:
     "definition_version": "local-1",
     "definition_digest": "bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4"
   },
+  "executions": [{
+    "kind": "datafusion",
+    "source": "local",
+    "stage": "files",
+    "logical_plan": "Projection: period, recurring_revenue\n  TableScan: monthly_revenue"
+  }],
   "columns": ["period", "recurring_revenue"],
   "rows": [["2026-06-01", "202121"]]
 }
 ```
+
+HTTP and MCP answers carry an ordered `executions` list:
+
+| `kind`          | Contents                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sql`           | Source, dialect, final submitted SQL and ordered typed parameters.                                                                          |
+| `datafusion`    | Source for `stage: "files"`, or `source: null` for `stage: "combine"`, and diagnostic logical-plan text.                                    |
+| `cube`          | Source and the native submitted JSON payload, including each continue-wait retry.                                                           |
+| `node`          | Source, outbound native leg and its typed parameters, followed by the remote peer's flat execution records.                                 |
+| `bigquery_read` | Source, `operation: "adbc_read_partition"` and the SHA-256 of the actual opaque stream descriptor. The descriptor itself is never returned. |
+
+SQL is captured at the adapter-to-driver boundary. The PostgreSQL driver's internal
+`COPY (...) TO STDOUT (FORMAT binary)` transport wrapper is excluded.
+
+Each SQL/Node parameter has `binding: {"kind":"position","value":0}` for a zero-based
+position, or `binding: {"kind":"named","value":"p0"}` for ClickHouse. Its `value` has
+`type` and `value`: `utf8` text or `date32` days since the Unix epoch for Arrow bindings;
+`oracle_string` text or `oracle_date` ISO date for Oracle's native bindings. Values are not
+inlined into SQL. ClickHouse SQL includes the final placeholder, timeout-settings and
+`EXECUTE AS` rewrites.
+
+Federation, drill-across and partitioned execution retain their individual source and combine
+submissions. Distributed worker records are ordered by (stage, task), then each task's native
+read-start sequence; this is neither a global logical-plan order nor a wall-clock order. Repeated
+submissions are retained. A successful adapter result with no capture fails the answer. This is disclosure to the caller authorized to
+ask the metric: physical identifiers and certified fixed-filter values may be visible, independently
+of the audience policy for catalog listings. Authentication and session-control statements are not
+included. Refusals carry no `executions` field.
+
+Logical-plan text may change and is neither SQL, a physical plan nor a stable replay format.
+Native stream-read digests identify an operation without making it replayable. Never invent
+verification SQL for a record that supplies none. Records sit outside definition and schema digests;
+they are not cryptographic proof of execution, and a remote receipt describes what the peer reported.
+Even exact SQL needs the original attachments and execution context to replay. The response text
+budget counts every record and binding, but excludes JSON escaping and structural overhead; it is
+not a strict JSON wire-size limit.
 
 A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentence:
 
@@ -455,7 +501,7 @@ security:
   tls_termination: "in-process"
 ```
 
-A worker is asked for no `security.access_token` or `security.inbound`, because no route on it reads either. In
+A combining worker needs neither `security.access_token` nor `security.inbound`. In
 production or off-host it still needs `security.metrics_token` and `rate_limit.enabled`.
 
 `server.role: reading-worker` is the worker that reads a granted leg's partitions. It is configured as above, and it
@@ -463,12 +509,17 @@ declares the sources it reads and a catalog in a file or a variable, so it needs
 a source. At startup it opens its catalog and each source the catalog reads that its own `sources:` declares. A source
 the catalog reads and `sources:` does not declare is not opened and needs no credential there. Before it reads a
 partition, it certifies the leg against its own catalog. It refuses a leg that its catalog defines differently, or a
-leg of a source it did not open. It reads as its own declared service user for the source. The chart's worker pool
+leg of a source it did not open. It also checks that the grant's verifier is admitted by that source. Declare matching
+`security.inbound` verifier definitions on serving and reading nodes, and list their ids in each source's `admitted_by`
+when more than one verifier is declared. A single declared verifier is admitted by default. These declarations do not
+open a human listener on a reading worker; the worker trusts the authenticated granting node's verifier attestation.
+It reads as its own declared service user for the source. The chart's worker pool
 runs `worker`, and each of its `readingWorkers.groups` runs `reading-worker`.
 
-Limit: a catalog counts only when a file or a variable declares it. Only a PostgreSQL source is read on a reading
-worker. The catalog and the sources are read once, at startup.
-`server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
+Limit: a catalog counts only when a file or a variable declares it. Reading workers read PostgreSQL and Oracle partitions as their configured service user, and BigQuery partitions
+with the forwarded caller token at a declared pool. ClickHouse has no reading arm yet. The catalog and the sources
+are read once, at startup.
+`server.nodes` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
 alone. The worker carries the limits of the node links above.
 
 #### What the across-nodes acceptance shows

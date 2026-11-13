@@ -20,11 +20,13 @@ use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use futures_util::stream;
 use parking_lot::Mutex;
-use sutura_domain::identity::SubjectKey;
+use sutura_domain::identity::Subject;
 use sutura_domain::model::SourceName;
+use sutura_domain::warehouse::execution::Execution;
 use tokio::runtime::Runtime;
 use url::Url;
 
+use super::served_split::FixtureReader;
 use super::{Authority, listening, roomy, served, servers};
 use crate::combine::{CombineError, Nodes, PartitionReader, SplitScan, StreamBound, refuse_ambiguous_split};
 
@@ -71,7 +73,7 @@ type Asked = Arc<Mutex<Vec<Vec<u8>>>>;
 
 /// A reader answering every partition it is asked for with its `values`, each ask logged in `asked`.
 fn reader(values: Values, asked: Asked) -> Arc<dyn PartitionReader> {
-    Arc::new(
+    Arc::new(FixtureReader(
         move |_: &SourceName, partition: &[u8], schema: &SchemaRef| -> Result<SendableRecordBatchStream, DataFusionError> {
             asked.lock().push(partition.to_vec());
             let links: Vec<i64> = partition.iter().flat_map(|&index| values(index)).collect();
@@ -81,7 +83,7 @@ fn reader(values: Values, asked: Asked) -> Arc<dyn PartitionReader> {
                 stream::iter(vec![Ok::<_, DataFusionError>(batch)]),
             )))
         },
-    )
+    ))
 }
 
 /// A reading node signed by `authority`, served on `servers`, every partition it read logged in
@@ -95,7 +97,7 @@ fn reading(servers: &Runtime, authority: &Authority, values: Values, asked: &Ask
 
 /// What a split leg of `orders` was checked to, and every partition each other node read.
 struct Checked {
-    answer: Result<(), CombineError>,
+    answer: Result<Vec<Execution>, CombineError>,
     elsewhere: Asked,
     orders: [Asked; 2],
 }
@@ -121,7 +123,7 @@ fn checked(values: Values) -> Checked {
         source("orders"),
         schema(),
         partitions(),
-        &SubjectKey::parse("user@example.com").expect("a test caller is a subject"),
+        &Subject::verified("user@example.com").expect("a test caller is a subject"),
         SystemTime::now() + Duration::from_secs(3600),
         StreamBound::new(1000, 1 << 20),
     )

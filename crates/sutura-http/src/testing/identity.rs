@@ -51,3 +51,12 @@ pub(crate) fn direct_overlay(issuer: &sutura_dev::issuer::MockIssuer, key_set_pa
         issuer.issuer(),
     )
 }
+
+/// A complete named direct entry; its metadata resource and audience are deliberately separate.
+pub(crate) fn named_direct_entry(issuer: &sutura_dev::issuer::MockIssuer, id: &str, path: &str, key_file: &str) -> String {
+    format!(
+        "    - id: '{id}'\n      path: '{path}'\n      mode: direct\n      resource: 'https://sutura.example.com{path}'\n      audience: '{}'\n      authorization_server: '{}'\n      key_set_file: '{key_file}'\n      algorithms: [ES256]\n",
+        issuer.audience(),
+        issuer.issuer()
+    )
+}

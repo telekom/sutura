@@ -64,7 +64,7 @@ fn test_1201(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     for row in cursor {
         let row = row?;
         let value: oracledb::OracleTimestamp = row.get(0)?;
-        assert_eq!(value.to_string(), "2025-10-31T09:46:25.000000000");
+        assert_eq!(value.to_string(), "2025-10-31T09:46:25");
     }
     Ok(())
 }
@@ -102,7 +102,7 @@ fn test_1203(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     for row in cursor {
         let row = row?;
         let value: oracledb::OracleTimestamp = row.get(0)?;
-        assert_eq!(value.to_string(), "2025-10-31T11:46:01.987654000");
+        assert_eq!(value.to_string(), "2025-10-31T11:46:01.987654000Z");
     }
     Ok(())
 }
@@ -190,22 +190,22 @@ fn test_1207(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     let low: oracledb::OracleTimestamp = row.get(0)?;
     let high: oracledb::OracleTimestamp = row.get(1)?;
     assert!(!low.is_utc() && !high.is_utc());
-    assert_eq!(low.to_string(), "0001-01-01T00:00:00.000000000");
-    assert_eq!(high.to_string(), "9999-12-31T00:00:00.000000000");
+    assert_eq!(low.to_string(), "0001-01-01T00:00:00");
+    assert_eq!(high.to_string(), "9999-12-31T00:00:00");
     Ok(())
 }
 
 #[rstest]
 /// test invalid DATE values return database errors
-fn test_1208(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
-    for value in ["0000-01-01", "10000-01-01"] {
-        let sql = format!("select to_date('{value}', 'YYYY-MM-DD') from dual");
-        let err = match conn.query(&sql, &[]) {
-            Ok(_) => panic!("expected invalid DATE value to fail: {value}"),
-            Err(err) => err,
-        };
-        assert!(matches!(err.kind(), oracledb::ErrorKind::DbError(_)));
-    }
+#[case("0000-01-01")]
+#[case("10000-01-01")]
+fn test_1208(
+    conn: oracledb::Connection,
+    #[case] value: &str,
+) -> Result<(), oracledb::Error> {
+    let sql = format!("select to_date('{value}', 'YYYY-MM-DD') from dual");
+    let error = conn.query(&sql, &[]).unwrap_err();
+    assert!(error.db_error_code().is_some());
     Ok(())
 }
 
@@ -231,4 +231,22 @@ fn test_1209() {
     assert_eq!(timestamp.nanoseconds(), 123_456_789);
     assert!(timestamp.is_utc());
     assert_eq!(timestamp.to_string(), "2026-09-03T14:05:06.123456789Z");
+}
+
+#[rstest]
+/// Verifies timestamp with time zone round trips successfully.
+fn test_1210(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    let timestamp = oracledb::OracleTimestamp::new_utc_timestamp(
+        2026,
+        10,
+        28,
+        21,
+        19,
+        32,
+        987_654_321,
+    );
+    let row = conn.query_row("select :1 from dual", &[&timestamp])?;
+    let fetched_timestamp: oracledb::OracleTimestamp = row.get(0)?;
+    assert_eq!(timestamp, fetched_timestamp);
+    Ok(())
 }

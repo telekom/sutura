@@ -44,9 +44,11 @@ use crate::testing::{ISSUER, KID, RESOURCE};
 const TRANSIT_HEADER: &str = "x-transit-proof";
 
 // The apparatus every cell below is driven with: the generated keys, the tokens signed with them,
-// the declarations and the header maps. Its own module because this file was eight lines under the
-// limit `cargo xtask max-lines` enforces and cannot exempt, at the banner it already carried.
+// the declarations and the header maps.
 mod fixtures;
+#[cfg(test)]
+mod multi_verifier;
+mod token_bytes;
 
 use fixtures::{
     MockIssuer, StubSource, a_token, assertion_living, bearer, cache_of_family, cache_over, claims, direct, direct_over,
@@ -414,7 +416,7 @@ async fn a_token_over_the_size_bound_is_refused_before_anything_reads_it() {
         .await
         .expect_err("an oversized token establishes nobody");
     assert!(
-        matches!(rejected, TokenRejected::TooLong { limit } if limit == MAX_TOKEN_BYTES),
+        matches!(rejected, TokenRejected::TooLong { limit, .. } if limit == MAX_TOKEN_BYTES),
         "{rejected:?}"
     );
     // And an absent header is its own variant, because "no client configured" and "wrong token" are
@@ -956,9 +958,6 @@ fn nothing_in_this_module_is_sendable_by_accident() {
 
 /// What review found, as regressions, sharing every fixture above.
 ///
-/// A file of its own for a mechanical reason and not a conceptual one: this one reached the
-/// thousand-line limit `cargo xtask max-lines` enforces. The split is where it is because those tests
-/// are the ones a reviewer should be able to find, run and delete-if-wrong as a group.
 mod review;
 
 /// An `aud` other than the resource identifier, and the scopes an Entra token grants through it.
@@ -995,3 +994,6 @@ mod unconfirmed;
 /// through the gate or through `KeySet::parse` and asserts the specific enum arm.
 #[cfg(test)]
 mod variants;
+
+#[cfg(feature = "agent")]
+mod named_paths;

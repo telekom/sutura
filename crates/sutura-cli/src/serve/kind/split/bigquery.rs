@@ -56,16 +56,18 @@ impl SplitKind for BigQuerySource {
         let Some(grantee) = grantee.filter(|_| self.federates_at().is_some()) else {
             return Ok(Partitioned::Whole);
         };
-        let split = self
+        let mut split = self
             .split_leg(leg, presented, deadline, readers, grantee.until(), labels)
             .map_err(AnyWarehouseError::BigQuery)?;
         let (schema, until) = (Arc::clone(split.schema()), split.until());
+        let executions = split.take_executions();
         let (descriptors, token) = split.into_parts();
         if let [] | [_] = descriptors.as_slice() {
             let read = descriptors.first().map_or_else(
                 || Ok(ResultBatches::none_under(schema)),
                 |descriptor| read_here(self, (leg, descriptor), token, until, deadline),
             );
+            let read = read.map(|rows| rows.with_prior_executions(executions));
             return Ok(Partitioned::Split(Box::new(iter::once(read))));
         }
         let rows = NonZeroUsize::new(MOST_RESULT_ROWS)
@@ -82,7 +84,9 @@ impl SplitKind for BigQuerySource {
                 (),
                 SystemTime::now(),
             )
-            .map_or_else(Partitioned::NotGranted, Partitioned::Granted))
+            .map_or_else(Partitioned::NotGranted, |grant| {
+                Partitioned::Granted(grant.with_executions(executions))
+            }))
     }
 
     /// Refused: a `BigQuery` partition is read only with its caller's token.

@@ -66,7 +66,7 @@ pub trait DrillAcrossCombiner: FederationCombiner {
     where
         R: LegRunner,
     {
-        let held = plan
+        let mut held = plan
             .arms()
             .iter()
             .map(|arm| {
@@ -98,7 +98,16 @@ pub trait DrillAcrossCombiner: FederationCombiner {
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(ExecuteError::Miswired)?;
-        self.merge(plan, &arms, working_set_bytes).map_err(ExecuteError::Combine)
+        let mut combined = self.merge(plan, &arms, working_set_bytes).map_err(ExecuteError::Combine)?;
+        let local = combined.take_executions();
+        let mut executions = Vec::new();
+        for arm in &mut held {
+            for leg in arm {
+                executions.extend(leg.take_executions());
+            }
+        }
+        executions.extend(local);
+        Ok(combined.with_executions(executions))
     }
 }
 

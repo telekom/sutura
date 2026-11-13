@@ -571,7 +571,7 @@ pub enum RefusalReason {
 ///
 /// A refusal is a *variant of the result*, not an `Err`. A caller cannot mistake it for a transport
 /// hiccup and retry until something works, which is what an error would invite.
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ToolOutcome {
     Answer { provenance: Provenance, rows: RowSet },
     Refusal { reason: RefusalReason },

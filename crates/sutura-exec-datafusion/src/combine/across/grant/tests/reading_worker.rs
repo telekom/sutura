@@ -69,6 +69,7 @@ fn granted(key: &ReadingKey, wire: &[u8], partition: &[u8]) -> Vec<u8> {
         Partition::of(partition.to_vec()),
         Expiry::at(Duration::from_secs(4_000_000_000)),
         MaskedCaller::of_masked(String::from("masked")),
+        (sutura_domain::identity::VerifierId::primary(), [0; 32]),
         StreamBound {
             rows: 1000,
             bytes: 1 << 20,
@@ -132,6 +133,7 @@ fn a_granted_partition_read_runs_end_to_end_through_in_process_workers() {
                 .coordinator_channel(
                     HeaderMap::new(),
                     SetPlanRequest {
+                        completion: None,
                         task_key: task,
                         task_count: 1,
                         plan: MaybeEncoded::Encoded(encoded),
@@ -184,6 +186,7 @@ fn a_reading_worker_refuses_an_ungranted_source_leaf() {
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task_key("22222222-2222-2222-2222-222222222222"),
                     task_count: 1,
                     plan: MaybeEncoded::Decoded(scan),
@@ -235,6 +238,7 @@ fn a_reading_worker_refuses_a_grant_whose_leg_digest_is_not_the_wires() {
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task,
                     task_count: 1,
                     plan: MaybeEncoded::Encoded(encoded),
@@ -276,6 +280,7 @@ fn a_reading_worker_refuses_a_leaf_carrying_no_grant() {
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task,
                     task_count: 1,
                     plan: MaybeEncoded::Encoded(encoded),
@@ -336,6 +341,7 @@ fn a_second_reading_key_presented_for_the_same_task_is_refused() {
                 .coordinator_channel(
                     HeaderMap::new(),
                     SetPlanRequest {
+                        completion: None,
                         task_key,
                         task_count: 1,
                         plan: MaybeEncoded::Encoded(encoded),
@@ -372,10 +378,12 @@ struct CertifiesNothing;
 impl PartitionReader for CertifiesNothing {
     fn read(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
         schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         Ok(read_later(Arc::clone(schema), async { Err(Unread::LegNotCertified) }))
     }
@@ -409,6 +417,7 @@ fn a_reading_worker_refusing_to_certify_its_leg_is_read_back_as_the_planning_nod
                 .coordinator_channel(
                     HeaderMap::new(),
                     SetPlanRequest {
+                        completion: None,
                         task_key: task,
                         task_count: 1,
                         plan: MaybeEncoded::Encoded(encoded),
@@ -471,6 +480,7 @@ fn granted_forwarding(key: &ReadingKey, wire: &[u8], partition: &[u8], token: &F
         Partition::of(partition.to_vec()),
         Expiry::at(Duration::from_secs(4_000_000_000)),
         MaskedCaller::of_masked(String::from("masked")),
+        (sutura_domain::identity::VerifierId::primary(), [0; 32]),
         StreamBound {
             rows: 1000,
             bytes: 1 << 20,
@@ -490,10 +500,12 @@ struct Forwards(Handed);
 impl PartitionReader for Forwards {
     fn read(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
         _schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
     }
@@ -504,11 +516,13 @@ impl PartitionReader for Forwards {
     )]
     fn read_forwarded(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
         schema: &SchemaRef,
         forwarded: Forwarded,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         let for_pool = forwarded.for_pool(&pool());
         self.0
@@ -536,6 +550,7 @@ fn installed_and_run(reader: Option<Arc<dyn PartitionReader>>, leaf: PartitionSc
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task,
                     task_count: 1,
                     plan: MaybeEncoded::Encoded(encoded),
@@ -676,10 +691,12 @@ struct Either {
 impl PartitionReader for Either {
     fn read(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
         schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         self.unforwarded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(Box::pin(RecordBatchStreamAdapter::new(
@@ -690,13 +707,16 @@ impl PartitionReader for Either {
 
     fn read_forwarded(
         &self,
+        verifier: &sutura_domain::identity::VerifierId,
         wire: &[u8],
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
         forwarded: Forwarded,
+        capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
-        self.forwards.read_forwarded(wire, source, partition, schema, forwarded)
+        self.forwards
+            .read_forwarded(verifier, wire, source, partition, schema, forwarded, capture)
     }
 }
 
@@ -838,3 +858,93 @@ fn a_partition_read_carrying_no_principal_where_its_grant_names_one_is_refused()
 
 mod bounds;
 mod switched;
+
+#[test]
+fn worker_admission_passes_the_authenticated_verifier_to_every_reader_shape() {
+    use super::super::super::partition::{GrantReads, SwitchedPrincipal};
+    use sutura_domain::identity::{PrincipalName, Subject, VerifierId};
+
+    struct Records(Arc<parking_lot::Mutex<Vec<VerifierId>>>);
+    impl PartitionReader for Records {
+        fn read(
+            &self,
+            verifier: &VerifierId,
+            _wire: &[u8],
+            _source: &SourceName,
+            _partition: &[u8],
+            schema: &SchemaRef,
+            _capture: Option<crate::SubmissionCapture>,
+        ) -> Result<SendableRecordBatchStream, Unread> {
+            self.0.lock().push(verifier.clone());
+            Ok(Box::pin(RecordBatchStreamAdapter::new(
+                Arc::clone(schema),
+                stream::empty::<Result<RecordBatch, DataFusionError>>(),
+            )))
+        }
+
+        fn read_forwarded(
+            &self,
+            verifier: &VerifierId,
+            wire: &[u8],
+            source: &SourceName,
+            partition: &[u8],
+            schema: &SchemaRef,
+            _forwarded: Forwarded,
+            capture: Option<crate::SubmissionCapture>,
+        ) -> Result<SendableRecordBatchStream, Unread> {
+            self.read(verifier, wire, source, partition, schema, capture)
+        }
+
+        fn read_switched(
+            &self,
+            verifier: &VerifierId,
+            wire: &[u8],
+            source: &SourceName,
+            partition: &[u8],
+            schema: &SchemaRef,
+            _switched: SwitchedPrincipal,
+            capture: Option<crate::SubmissionCapture>,
+        ) -> Result<SendableRecordBatchStream, Unread> {
+            self.read(verifier, wire, source, partition, schema, capture)
+        }
+    }
+
+    let verifier = VerifierId::parse("partner").expect("an id");
+    let caller = Subject::verified_by(verifier.clone(), "user@example.com").expect("a subject");
+    let recorded = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let reader = Arc::new(Records(Arc::clone(&recorded)));
+    for reads in [
+        GrantReads::ServiceUser,
+        GrantReads::Token(forwarded("token-a")),
+        GrantReads::Principal(SwitchedPrincipal::new(
+            PrincipalName::parse("user@example.com").expect("a name"),
+        )),
+    ] {
+        let (key, grant) = super::super::granted_read(
+            b"wire-qualified",
+            &source(),
+            b"partition-qualified",
+            (&caller, Duration::from_secs(4_000_000_000)),
+            (1000, 1 << 20),
+            &reads,
+        )
+        .expect("a real grant mints");
+        let leaf = PartitionScanExec::new(
+            b"wire-qualified".to_vec(),
+            source(),
+            b"partition-qualified".to_vec(),
+            key,
+            Some(grant),
+            schema(),
+        );
+        let leaf = match reads {
+            GrantReads::ServiceUser => leaf,
+            GrantReads::Token(token) => leaf.forwarding(token),
+            GrantReads::Principal(principal) => leaf.switching(principal),
+        };
+        let leaf = admitted(leaf).expect("the grant authenticates through real worker admission");
+        let answered = executed(&leaf, Arc::clone(&reader) as Arc<dyn PartitionReader>, 1);
+        assert!(answered.iter().all(Result::is_ok), "{answered:?}");
+    }
+    assert_eq!(*recorded.lock(), vec![verifier; 3]);
+}

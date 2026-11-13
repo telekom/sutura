@@ -116,11 +116,28 @@ impl Serving {
 /// section. The surface renders its `initialize` prompt per request, over the caller's view of the
 /// exact bundle `Surface::answer` computes against - never a second catalog load that could drift
 /// from it.
+#[cfg(test)]
 pub(crate) fn mount(
     service: Arc<dyn Surface>,
     settings: &sutura_config::Settings,
     admission: sutura_runtime::Admission,
     spend_headroom: SpendHeadroomPush,
+) -> Result<sutura_http::AgentMount, String> {
+    mount_at(
+        service,
+        settings,
+        admission,
+        spend_headroom,
+        sutura_config::McpPath::conventional(),
+    )
+}
+
+pub(super) fn mount_at(
+    service: Arc<dyn Surface>,
+    settings: &sutura_config::Settings,
+    admission: sutura_runtime::Admission,
+    spend_headroom: SpendHeadroomPush,
+    path: sutura_config::McpPath,
 ) -> Result<sutura_http::AgentMount, String> {
     // One read, two uses: the surface folds the operator's raw text into the prompt it renders AND
     // carries it through the catalog tool - never a second read of the same path that could disagree.
@@ -130,7 +147,7 @@ pub(crate) fn mount(
         surface: service,
         spend_headroom: spend_headroom.clone(),
     });
-    Ok(sutura_http::AgentMount::new(
+    Ok(sutura_http::AgentMount::at(
         sutura_mcp::http::service(
             serving,
             crate::commands::catalog_prose(settings.prompt().catalog_prose()),
@@ -143,5 +160,6 @@ pub(crate) fn mount(
             operator_instructions,
         ),
         spend_headroom,
+        path,
     ))
 }

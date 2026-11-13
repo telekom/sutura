@@ -9,6 +9,7 @@
 /// cap this record needed to add two cells past - and not `#[cfg(test)]`, because this whole file
 /// is already only ever compiled under `cfg(test)`.
 mod deadline;
+mod execution;
 
 /// The counting fake for the two `docs/adr/0008` cells below. `#[cfg(test)]` for the reason
 /// `tests_support.rs`'s `mod priced` carries it (`telekom/sutura#657`).

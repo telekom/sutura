@@ -186,6 +186,24 @@ fn a_federated_answer_mints_once_runs_both_legs_and_records_both_identities() {
         vec!["facts", "geo"],
         "provenance records BOTH identities a federated answer ran as"
     );
+    let records = provenance.executions();
+    assert!(records.len() >= 3, "both legs and the local combine survive");
+    assert_eq!(records[0], records[1], "identical fixture submissions are not deduplicated");
+    assert!(records.iter().take(2).all(|record| matches!(
+        record,
+        sutura_domain::warehouse::execution::Execution::DataFusion {
+            stage: sutura_domain::warehouse::execution::PlanStage::Files,
+            ..
+        }
+    )));
+    assert!(records.iter().skip(2).all(|record| matches!(
+        record,
+        sutura_domain::warehouse::execution::Execution::DataFusion {
+            source: None,
+            stage: sutura_domain::warehouse::execution::PlanStage::Combine,
+            ..
+        }
+    )));
     assert_eq!(
         broker.asked(),
         1,

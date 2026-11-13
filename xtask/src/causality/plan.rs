@@ -72,7 +72,7 @@ pub(crate) enum Plan {
 }
 
 /// The groups the reconstruction sorts a diff's Rust files into.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Separable {
     /// Restored to base: nothing they added is test code, so together they ARE the old behaviour
     /// a test has to be red against.

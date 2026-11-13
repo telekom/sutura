@@ -31,6 +31,7 @@ fn leaf(rows: u32, bytes: u32) -> PartitionScanExec {
         Partition::of(partition.to_vec()),
         Expiry::at(Duration::from_secs(4_000_000_000)),
         MaskedCaller::of_masked(String::from("masked")),
+        (sutura_domain::identity::VerifierId::primary(), [0; 32]),
         StreamBound { rows, bytes },
     );
     let (grant, signature) = mint(&ReadingKey::of(key_bytes), grant);

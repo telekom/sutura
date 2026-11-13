@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
-index ad11043db..4baeb634e 100644
 --- a/crates/sutura-app/src/lib.rs
 +++ b/crates/sutura-app/src/lib.rs
-@@ -608,29 +608,7 @@ where
+@@ -615,27 +615,7 @@
          return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
      }
      let bill_to = credentials.bill_to_for(source);
@@ -17,12 +16,10 @@ index ad11043db..4baeb634e 100644
 -                return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
 -            }
 -            if warehouse.source_refused(&cause) {
--                return Ok(Answered::under(
+-                return Ok(Answered::refused(
 -                    &credentials,
--                    ToolOutcome::Refusal {
--                        reason: RefusalReason::SourceRefused {
--                            source: warehouse.source().clone(),
--                        },
+-                    RefusalReason::SourceRefused {
+-                        source: warehouse.source().clone(),
 -                    },
 -                ));
 -            }

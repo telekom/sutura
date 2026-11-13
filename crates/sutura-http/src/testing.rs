@@ -45,7 +45,13 @@ pub(crate) const ANCHORED_VALUE: &str = "197122";
 /// `clippy.toml`'s `allow-expect-in-tests` is what permits saying that here rather than threading a
 /// `Result` through a canned answer.
 pub(crate) fn canned(rows: &RowSet) -> ResultBatches {
-    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+    sutura_domain::warehouse::arrow::of_row_set(rows)
+        .expect("a row set's width invariant is the only failure this has")
+        .with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+            source: Some(SourceName::parse("fixture").expect("fixture source")),
+            stage: sutura_domain::warehouse::execution::PlanStage::Files,
+            logical_plan: String::from("fixture: materialize canned rows"),
+        })
 }
 
 /// The one data system name every fixture here uses.
@@ -898,6 +904,8 @@ pub(crate) fn declared_inbound(settings: &sutura_config::Settings) -> sutura_con
     settings
         .security()
         .inbound()
+        .first()
+        .map(sutura_config::InboundVerifier::identity)
         .expect("this overlay declares an inbound identity")
         .clone()
 }
@@ -987,4 +995,4 @@ async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered
 #[cfg(test)]
 mod identity;
 pub(crate) use identity::{ISSUER, KID, RESOURCE};
-pub(crate) use identity::{accepted_by, an_issuer, direct_overlay, every_scope};
+pub(crate) use identity::{accepted_by, an_issuer, direct_overlay, every_scope, named_direct_entry};

@@ -140,6 +140,9 @@ pub use crate::spend::{SpendBudget, SpendLedger};
 /// boundary gate bans `anyhow` for, arrived at by a different route.
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError<E, M, C> {
+    #[error("the successful result carried no execution submissions")]
+    MissingExecution,
+
     /// The pinned bundle would not compile this question, or the splitter built a two-source plan
     /// this workspace could not then assemble.
     ///
@@ -623,12 +626,10 @@ where
                 return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
             }
             if warehouse.source_refused(&cause) {
-                return Ok(Answered::under(
+                return Ok(Answered::refused(
                     &credentials,
-                    ToolOutcome::Refusal {
-                        reason: RefusalReason::SourceRefused {
-                            source: warehouse.source().clone(),
-                        },
+                    RefusalReason::SourceRefused {
+                        source: warehouse.source().clone(),
                     },
                 ));
             }
@@ -686,7 +687,7 @@ where
     // refusal a caller sees must not be line order nobody wrote down. Ask the adapters in a real tree
     // whether a single error could genuinely satisfy both; until one does, the order is pinned here by
     // a both-predicate fake and the comment at `sutura_app::tests`.
-    let rows = match warehouse
+    let mut rows = match warehouse
         .execute_billed(asked_plan, presented, bill_to, &labels, deadline)
         .map_err(Billed::into_source)
     {
@@ -737,12 +738,10 @@ where
             // authorization decision that refuses again at the same place. `preflight_was_refused`
             // is the same split asked of the boot path; this predicate is it asked of `execute`.
             if warehouse.source_refused(&cause) {
-                return Ok(Answered::under(
+                return Ok(Answered::refused(
                     &credentials,
-                    ToolOutcome::Refusal {
-                        reason: RefusalReason::SourceRefused {
-                            source: warehouse.source().clone(),
-                        },
+                    RefusalReason::SourceRefused {
+                        source: warehouse.source().clone(),
                     },
                 ));
             }
@@ -754,6 +753,10 @@ where
     // this is the one call that turns it into the rows a caller reads, and it is above every adapter
     // rather than inside each one. The two bounds below count rows and bytes, so they read the
     // decoded set - an Arrow row count would not see the width a caller's cells add up to.
+    if !rows.has_executions() {
+        return Err(ServiceError::MissingExecution);
+    }
+    let executions = rows.take_executions();
     let rows = rows.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     // The row cap, enforced rather than merely requested. The plan asked for one row more than
     // `max_rows`, so more than that many coming back means the result was cut short - and a
@@ -776,7 +779,7 @@ where
     // cannot see because it counts rows and not the bytes a caller's own cells add up to. Checked
     // here, still inside the closure `sutura_runtime::spawn_carrying_span` already moved onto the
     // blocking pool for `warehouse.execute` above, so this costs no second offload.
-    if let Some(limit_bytes) = exceeds_response_bound(&rows) {
+    if let Some(limit_bytes) = exceeds_response_bound(&rows, &executions) {
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
@@ -795,7 +798,8 @@ where
     // measure occupies in the rows, so the Nth digest certifies the Nth measure column.
     let provenance = pinned
         .provenance_for(definitions.schemas().digest(), executed_as, query.metrics())
-        .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?;
+        .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?
+        .with_executions(executions);
     Ok(Answered::under(&credentials, ToolOutcome::Answer { provenance, rows }))
 }
 

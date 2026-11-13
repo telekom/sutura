@@ -91,7 +91,12 @@ fn the_values_the_gateway_page_prints_start_a_deployment_that_reads_authorizatio
     };
 
     let settings = Settings::load(&sources(&[])).expect("the printed values start the binary");
-    let inbound = settings.security().inbound().expect("the values declare an inbound identity");
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the values declare an inbound identity")
+        .identity();
     assert_eq!(inbound.mode(), "behind-gateway");
     assert!(
         matches!(inbound.requirement().location(), TokenLocation::GatewayBearer),

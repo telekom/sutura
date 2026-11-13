@@ -812,9 +812,9 @@ pub enum CredentialsDoNotFitTheRequest {
     #[error("the grant was minted for a different subject than the one that asked: this question is attributed to {}, and the grant says {}", attributable(.asked), attributable(.granted))]
     AnotherSubject {
         /// The subject the transport established for this request.
-        asked: Subject,
+        asked: Box<Subject>,
         /// The subject the broker says it minted for.
-        granted: Subject,
+        granted: Box<Subject>,
     },
     /// The grant covers a different set of sources than this answer reads.
     ///
@@ -917,8 +917,8 @@ impl Minted {
             Self::Granted { credentials } => {
                 if credentials.asked_by() != asked_by {
                     return Err(CredentialsDoNotFitTheRequest::AnotherSubject {
-                        asked: asked_by.clone(),
-                        granted: credentials.asked_by().clone(),
+                        asked: Box::new(asked_by.clone()),
+                        granted: Box::new(credentials.asked_by().clone()),
                     });
                 }
                 credentials.covers(sources)?;

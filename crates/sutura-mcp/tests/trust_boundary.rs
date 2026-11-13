@@ -164,7 +164,13 @@ mod tests {
     }
 
     fn canned(rows: &RowSet) -> ResultBatches {
-        sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+        sutura_domain::warehouse::arrow::of_row_set(rows)
+            .expect("a row set's width invariant is the only failure this has")
+            .with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+                source: Some(sutura_domain::model::SourceName::parse("fixture").expect("fixture source")),
+                stage: sutura_domain::warehouse::execution::PlanStage::Files,
+                logical_plan: String::from("fixture: materialize canned rows"),
+            })
     }
 
     fn declared_shared() -> SharedIdentityDeclared {

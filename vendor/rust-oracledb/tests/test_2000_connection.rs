@@ -28,6 +28,7 @@
 
 mod common;
 
+use common::admin_conn;
 use common::conn;
 use rstest::*;
 use std::time::{Duration, Instant};
@@ -100,18 +101,15 @@ fn test_2000(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
 #[rstest]
 /// test invalid end user security context length
 fn test_2001() -> Result<(), oracledb::Error> {
-    match create_end_user_security_context(
+    let error = create_end_user_security_context(
         "x".repeat(70_000),
         "y".repeat(70_000),
-    ) {
-        Ok(_) => panic!("expected context creation to fail"),
-        Err(err) => {
-            assert!(matches!(
-                err.kind(),
-                oracledb::ErrorKind::InvalidEndUserSecurityContextLength(_)
-            ));
-        }
-    }
+    )
+    .expect_err("expected context creation to fail");
+    assert!(matches!(
+        error.kind(),
+        oracledb::ErrorKind::InvalidEndUserSecurityContextLength(_)
+    ));
     Ok(())
 }
 
@@ -133,18 +131,15 @@ fn test_2001() -> Result<(), oracledb::Error> {
 fn test_2002(
     #[case] identity: oracledb::EndUserIdentity,
 ) -> Result<(), oracledb::Error> {
-    match oracledb::EndUserSecurityContext::new(
+    let error = oracledb::EndUserSecurityContext::new(
         identity,
         "database_access_token_2002".to_string(),
-    ) {
-        Ok(_) => panic!("expected context creation to fail"),
-        Err(err) => {
-            assert!(matches!(
-                err.kind(),
-                oracledb::ErrorKind::InvalidEndUserSecurityContext(_)
-            ));
-        }
-    }
+    )
+    .expect_err("expected context creation to fail");
+    assert!(matches!(
+        error.kind(),
+        oracledb::ErrorKind::InvalidEndUserSecurityContext(_)
+    ));
     Ok(())
 }
 
@@ -171,18 +166,15 @@ fn test_2003(
 #[rstest]
 /// test end user security context rejects empty database access token
 fn test_2004() -> Result<(), oracledb::Error> {
-    match create_end_user_security_context(
+    let error = create_end_user_security_context(
         "end_user_token_2004".to_string(),
         "".to_string(),
-    ) {
-        Ok(_) => panic!("expected context creation to fail"),
-        Err(err) => {
-            assert!(matches!(
-                err.kind(),
-                oracledb::ErrorKind::InvalidEndUserSecurityContext(_)
-            ));
-        }
-    }
+    )
+    .expect_err("expected context creation to fail");
+    assert!(matches!(
+        error.kind(),
+        oracledb::ErrorKind::InvalidEndUserSecurityContext(_)
+    ));
     Ok(())
 }
 
@@ -190,19 +182,15 @@ fn test_2004() -> Result<(), oracledb::Error> {
 /// Tests missing credentials and missing connect strings before the network
 /// layer is used.
 fn test_2005() {
-    let err = match oracledb::connect(oracledb::Config::default()) {
-        Ok(_) => panic!("missing credentials must fail"),
-        Err(err) => err,
-    };
-    assert!(matches!(err.kind(), oracledb::ErrorKind::NoCredentials));
+    let error = oracledb::connect(oracledb::Config::default())
+        .expect_err("missing credentials must fail");
+    assert!(matches!(error.kind(), oracledb::ErrorKind::NoCredentials));
 
-    let err = match oracledb::connect(
+    let error = oracledb::connect(
         oracledb::Config::default().set_credentials("user", "password"),
-    ) {
-        Ok(_) => panic!("missing connect string must fail"),
-        Err(err) => err,
-    };
-    assert!(matches!(err.kind(), oracledb::ErrorKind::NoConnectString));
+    )
+    .expect_err("missing connect string must fail");
+    assert!(matches!(error.kind(), oracledb::ErrorKind::NoConnectString));
 }
 
 #[rstest]
@@ -261,12 +249,9 @@ fn test_2008(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
 fn test_2009(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     conn.set_call_timeout(Some(Duration::from_millis(600)))?;
     let started = Instant::now();
-    let error = match conn.execute("begin dbms_session.sleep(1); end;", &[]) {
-        Ok(_) => {
-            panic!("the database call must exceed the configured timeout")
-        }
-        Err(error) => error,
-    };
+    let error = conn
+        .execute("begin dbms_session.sleep(1); end;", &[])
+        .expect_err("the database call must exceed the configured timeout");
     let elapsed = started.elapsed();
     assert!(matches!(error.kind(), oracledb::ErrorKind::CallTimeoutExceeded));
     assert!(elapsed >= Duration::from_millis(200));
@@ -275,5 +260,60 @@ fn test_2009(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     conn.set_call_timeout(None)?;
     let row = conn.query_row("select 2009 from dual", &[])?;
     assert_eq!(row.get::<i32>(0)?, 2009);
+    Ok(())
+}
+
+#[rstest]
+/// Tests that a call cancelled by the server (using ALTER SYSTEM CANCEL SQL,
+/// available in Oracle Database 18c and higher) fails with error ORA-01013
+/// and leaves the connection reusable after protocol reset.
+fn test_2010(
+    admin_conn: oracledb::Connection,
+    conn: oracledb::Connection,
+) -> Result<(), oracledb::Error> {
+    if conn.version()?.0 < 18 {
+        common::skip_test("test requires Oracle Database 18 or higher");
+        return Ok(());
+    }
+    let session_id = conn.session_id()?;
+    let serial_num = conn.serial_num()?;
+    let thread = std::thread::spawn(move || {
+        let result = conn.query_row(
+            "select count(*) from all_objects cross join all_objects",
+            &[],
+        );
+        (result, conn)
+    });
+    std::thread::sleep(Duration::from_millis(1000));
+    admin_conn.execute(
+        &format!("alter system cancel sql '{session_id},{serial_num}'"),
+        &[],
+    )?;
+    let (result, conn) = thread.join().unwrap();
+    let error = result.unwrap_err();
+    assert_eq!(error.db_error_code(), Some(1013));
+    let row = conn.query_row("select 2010 from dual", &[])?;
+    assert_eq!(row.get::<usize>(0)?, 2010);
+    Ok(())
+}
+
+#[rstest]
+/// Tests that proxy user authentication works as expected.
+fn test_2011() -> Result<(), oracledb::Error> {
+    let test_config = oracledb::get_test_config();
+    let config =
+        test_config.config.clone().set_proxy_user(&test_config.proxy_user);
+    let conn = oracledb::connect(config)?;
+    let row = conn.query_row(
+        r#"
+        select
+            sys_context('userenv', 'session_user'),
+            sys_context('userenv', 'proxy_user')
+        from dual
+        "#,
+        &[],
+    )?;
+    assert_eq!(row.get::<&str>(0)?, test_config.proxy_user.to_uppercase());
+    assert_eq!(row.get::<&str>(1)?, test_config.user.to_uppercase());
     Ok(())
 }

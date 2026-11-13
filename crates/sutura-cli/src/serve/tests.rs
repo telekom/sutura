@@ -430,6 +430,9 @@ mod bigquery;
 #[cfg(all(feature = "agent", feature = "bigquery"))]
 mod agent_identity;
 
+#[cfg(all(feature = "agent", feature = "flight"))]
+mod caller_rate;
+
 // The delegation exchange behind the served HTTP surface and the real leg-1 gate (#1230).
 #[cfg(feature = "bigquery")]
 pub(in crate::serve) mod delegation_served;

@@ -201,10 +201,12 @@ impl ExecutionPlan for DistributedExec {
             self.metrics_store.clone(),
         );
 
+        let completion = context.session_config().get_extension::<crate::QueryCompletion>();
         let mut builder = RecordBatchReceiverStreamBuilder::new(self.schema(), 1);
         let tx = builder.tx();
 
-        builder.spawn(async move {
+        let completion_deadline = completion.as_ref().map(|v| v.deadline);
+        let execution = async move {
             // Dropping this `guard` is what signals the coordinator->worker channel to be dropped,
             // which triggers a chain reaction that ends up also gracefully closing the
             // worker->coordinator channel. The flow looks like this:
@@ -233,14 +235,37 @@ impl ExecutionPlan for DistributedExec {
                 .replace(Arc::clone(&result.head_stage));
             let mut stream = result.head_stage.execute(partition, context)?;
             while let Some(msg) = stream.next().await {
+                let msg = match msg {
+                    Err(cause) if completion.is_some() => return Err(cause),
+                    msg => msg,
+                };
                 if tx.send(msg).await.is_err() {
                     break; // channel closed
                 }
             }
-            drop(tx);
-            drop(guard);
-            query_coordinator.drain_pending_tasks().await?;
+            if let Some(completion) = completion {
+                // A LIMIT may have left child streams alive after its own EOF.
+                drop(stream);
+                drop(guard);
+                query_coordinator.drain_pending_tasks().await?;
+                if tx.is_closed() {
+                    return exec_err!("query output dropped before completion");
+                }
+                completion.finish()?;
+                drop(tx);
+            } else {
+                drop(tx);
+                drop(guard);
+                query_coordinator.drain_pending_tasks().await?;
+            }
             Ok(())
+        };
+        builder.spawn(async move {
+            match completion_deadline {
+                Some(deadline) => tokio::time::timeout_at(deadline, execution).await
+                    .map_err(|cause| datafusion::common::exec_datafusion_err!("query completion deadline: {cause}"))?,
+                None => execution.await,
+            }
         });
 
         Ok(builder.build())

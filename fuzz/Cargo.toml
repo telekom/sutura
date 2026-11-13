@@ -160,6 +160,7 @@ datafusion-proto = { version = "=55.1.0", default-features = false }
 datafusion-proto = { path = "../vendor/datafusion-proto" }
 datafusion-proto-common = { path = "../vendor/datafusion-proto-common" }
 datafusion-physical-plan = { path = "../vendor/datafusion-physical-plan" }
+datafusion-sql = { path = "../vendor/datafusion-sql" }
 arrow-ipc = { path = "../vendor/arrow-ipc" }
 
 # `panic = "abort"`, matching every shipped profile in the root manifest - which is the whole

@@ -122,8 +122,10 @@ const STARTUP: Subject = Subject {
     // `ReadingWorkerOracleWithoutFlashback` (#828), a reading worker declaring an Oracle source that
     // does not declare `split: flashback`, so no partition of it is read at a snapshot. 45:
     // `FlashbackOnTheOnlySource` and `FlashbackReadByNoNode` (#828), a `split: flashback` opt-in
-    // with no other source to federate with or no peer to read its buckets.
-    variants: variants(45),
+    // with no other source to federate with or no peer to read its buckets. 56:
+    // named-verifier identity, path and source-admission combinations (#1890) replace the
+    // five `AlsoAccept` variants; the common audience/header checks cover every verifier.
+    variants: variants(56),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

@@ -715,3 +715,22 @@ on a source that declares a hop, on a source without `workload_identity`, and on
 is not `direct`. `behind-gateway` is unchanged: the pool receives the gateway's assertion, as the
 fourth amendment's table says. The check reads the configuration only. Which audiences a pool
 provider accepts is that provider's configuration, and sutura does not read it.
+
+## Fourteenth amendment, 2026-11-12: named verifier and source admission
+
+A deployment may accept a named list of complete verifiers. Each MCP path admits only its declared
+verifiers and advertises its sole direct authorization server. Duplicate ids, issuers and audiences,
+ambiguous direct discovery and overlapping or reserved mounts refuse startup. The single-object
+form retains its existing discovery contract.
+
+Internal caller identity is `(configured verifier id, exact signed sub)`. Source principal and
+address spelling remain protocol values. Each source explicitly admits its verifier ids when more
+than one is configured; the shipped brokers check the entire requested source set before minting.
+Caller-run sources admit direct verifiers only, and delegation selects exactly one. Reading grants
+authenticate provenance for the worker's source check and caller digest for kept-task isolation.
+The worker trusts the granting node's assertion of verifier provenance, rather than independently
+verifying a human token. Custom brokers remain an in-process trust boundary.
+
+The authenticated caller quota is shared across API, MCP and Flight after token verification.
+The existing outer network quota remains, including its shared-address coupling. Neither these
+controls nor the audit verifier fields establish source impersonation beyond a recorded venue.

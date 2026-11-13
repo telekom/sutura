@@ -204,7 +204,13 @@ const PRICE_BYTES: u64 = 500;
 /// Outside the `execute` that calls it, because `clippy::unwrap_in_result` is denied and an
 /// unreachable arm threaded through a canned answer says less than this sentence does.
 fn canned(rows: &RowSet) -> ResultBatches {
-    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+    sutura_domain::warehouse::arrow::of_row_set(rows)
+        .expect("a row set's width invariant is the only failure this has")
+        .with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+            source: Some(source()),
+            stage: sutura_domain::warehouse::execution::PlanStage::Files,
+            logical_plan: String::from("fixture: materialize canned rows"),
+        })
 }
 
 /// A data system whose dry run reports a real byte price. The served surface never reaches a real
@@ -316,8 +322,10 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
         .gauge()
         .expect("the priced surface reports headroom at boot")
         .clone();
-    let mount = super::super::agent_mount(&state)
+    let mount = super::super::agent_mounts(&state)
         .expect("the agent mount builds")
+        .into_iter()
+        .next()
         .expect("the priced overlay enabled the agent surface");
     let registry = Arc::clone(&state.registry());
     let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
@@ -375,7 +383,14 @@ fn priced_state(key_set_id: &str) -> PricedState {
     // **The broker `crate::serve` really attaches**, declaring the one subject these cells ask as -
     // so the spend the cells below measure is spend a broker admitted for that subject.
     //
-    let broker = DeclaredPrincipalBroker::empty().federating(source(), None);
+    let broker = DeclaredPrincipalBroker::empty()
+        .admitting(sutura_config::credentials::SourceAdmissions::default().and(
+            source(),
+            Some(std::collections::BTreeSet::from([
+                sutura_domain::identity::VerifierId::primary(),
+            ])),
+        ))
+        .federating(source(), None);
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
     let posture = SourcePosture::ImpersonationAtSource;
@@ -406,6 +421,8 @@ fn priced_state(key_set_id: &str) -> PricedState {
         &settings
             .security()
             .inbound()
+            .first()
+            .map(sutura_config::InboundVerifier::identity)
             .expect("this overlay declares an inbound identity")
             .clone(),
     )
@@ -821,5 +838,91 @@ async fn a_served_agent_raw_statement_shed_for_want_of_a_slot_is_counted() {
             1,
             "{series} after one shed /mcp raw statement: {exposition}"
         );
+    }
+}
+
+#[tokio::test]
+async fn the_composed_agent_route_honours_token_bytes_for_both_inbound_modes() {
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Request, StatusCode};
+    use sutura_dev::issuer::Token;
+    use tower::ServiceExt as _;
+
+    let PricedState { state, issuer, .. } = priced_state("agent-token-bytes");
+    let published = PublishedKeySet::of(&issuer, "agent-token-bound").expect("the key set publishes");
+    let token = issuer
+        .mint(
+            &Token::for_subject("user@example.com")
+                .granting("sutura:catalog.read")
+                .living_for(30)
+                .claiming("padding", serde_json::json!("p".repeat(6800))),
+        )
+        .expect("the issuer signs a large token");
+    assert!(token.len() > 8192 && token.len() < 12288);
+    for mode in ["direct", "behind-gateway"] {
+        let declaration = if mode == "direct" {
+            direct_overlay(&issuer, &published.path().to_string_lossy())
+        } else {
+            format!(
+                "security:\n  inbound:\n    mode: behind-gateway\n    transit_header: X-Transit-Proof\n    transit_issuer: '{ISSUER}'\n    transit_audience: '{RESOURCE}'\n    transit_token_type: at+jwt\n    algorithms: [ES256]\n    key_set_file: '{}'\n",
+                published.path().display()
+            )
+        };
+        let overlay = format!("{declaration}    max_token_bytes: 12288\nserver:\n  agent_surface:\n    enabled: true\n");
+        let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+            .expect("both modes accept the declared token bound");
+        let gate = sutura_http::InboundGate::from_declaration(
+            settings
+                .security()
+                .inbound()
+                .first()
+                .map(sutura_config::InboundVerifier::identity)
+                .expect("an inbound declaration"),
+        )
+        .expect("the published keys load");
+        let admission = sutura_runtime::Admission::from_settings(settings.runtime());
+        let state = sutura_http::ServiceState::new(state.surface(), Arc::new(settings), admission);
+        let mount = super::super::agent_mounts(&state)
+            .expect("the mount builds")
+            .into_iter()
+            .next()
+            .expect("the agent is enabled");
+        let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
+        let app = sutura_http::router(&state).expect("the composed router assembles");
+        for (presented, expected) in [(token.clone(), StatusCode::OK), ("z".repeat(12289), StatusCode::UNAUTHORIZED)] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("host", "localhost")
+                .header("accept", "application/json, text/event-stream")
+                .header("content-type", "application/json");
+            request = if mode == "direct" {
+                request.header("authorization", format!("Bearer {presented}"))
+            } else {
+                request.header("x-transit-proof", &presented)
+            };
+            let request = request
+                .body(Body::from(serde_json::to_vec(&initialize(1)).expect("initialize serializes")))
+                .expect("the request builds");
+            let response = app.clone().oneshot(request).await.expect("the router is infallible");
+            assert_eq!(response.status(), expected, "{mode}");
+            if expected == StatusCode::UNAUTHORIZED {
+                assert!(
+                    response
+                        .headers()
+                        .get("www-authenticate")
+                        .expect("an oversize challenge")
+                        .to_str()
+                        .expect("ASCII challenge")
+                        .contains("error=\"invalid_token\"")
+                );
+                let bytes = to_bytes(response.into_body(), 4096).await.expect("the problem body reads");
+                let body: serde_json::Value = serde_json::from_slice(&bytes).expect("a JSON problem");
+                assert_eq!(
+                    body["detail"],
+                    "token is 12289 bytes; security.inbound.max_token_bytes is 12288"
+                );
+            }
+        }
     }
 }

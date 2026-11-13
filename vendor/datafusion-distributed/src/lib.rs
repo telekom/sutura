@@ -2,6 +2,9 @@
 
 mod codec;
 mod common;
+mod completion;
+
+pub use completion::{CompletionRequest, QueryCompletion, TaskCompletion, TaskCompletionProducer};
 mod config_extension_ext;
 mod coordinator;
 mod distributed_ext;
@@ -74,3 +77,6 @@ pub use execution_plans::benchmarks::{
     LocalRepartitionBench, LocalRepartitionFixture, LocalRepartitionMode, ShuffleBench,
     ShuffleFixture, TransportBench, TransportBenchMode, TransportFixture,
 };
+
+#[cfg(test)]
+mod completion_chain_tests;

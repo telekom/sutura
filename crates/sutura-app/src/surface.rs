@@ -728,6 +728,9 @@ where
         .map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
             // `#[source]` chain under it.
+            ServiceError::MissingExecution => SurfaceFailure::Miswired {
+                cause: Box::new(sutura_domain::warehouse::execution::MissingExecution),
+            },
             ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
             ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
             // Two brokers' worth of failure, kept apart on the way out for the reason the variants
@@ -782,6 +785,7 @@ where
         self.sink.record(
             &record
                 .naming_client(context.client())
+                .admitted_by(context.verifier())
                 .labelled(&labels)
                 .delegating(&delegated),
         );
@@ -829,12 +833,19 @@ where
         // exactly as reliably as a certified one.
         let (labels, delegated) = (JobLabels::of(context), noting.delegated());
         let record = match answered {
-            Ok(ref answered) => CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until()),
+            Ok(ref answered) => CallRecord::of_raw(
+                context.chain(),
+                statement,
+                answered.outcome(),
+                answered.executed_until(),
+                answered.executed_as(),
+            ),
             Err(ref failure) => CallRecord::failed_raw(context.chain(), statement, failure.as_str()),
         };
         self.sink.record(
             &record
                 .naming_client(context.client())
+                .admitted_by(context.verifier())
                 .labelled(&labels)
                 .delegating(&delegated),
         );
@@ -866,6 +877,9 @@ where
             // Identical to `answer`'s own match, variant for variant: the error type is the same
             // `ServiceError<W::Error, B::Error, C::Error>`, and a transport tells the two call kinds
             // apart by which method it called, not by a different failure vocabulary.
+            ServiceError::MissingExecution => SurfaceFailure::Miswired {
+                cause: Box::new(sutura_domain::warehouse::execution::MissingExecution),
+            },
             ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
             ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
             ServiceError::Broker { cause } => broker_failure(Box::new(cause)),
@@ -886,6 +900,7 @@ where
         self.sink.record(
             &record
                 .naming_client(context.client())
+                .admitted_by(context.verifier())
                 .labelled(&labels)
                 .delegating(&delegated),
         );

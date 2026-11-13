@@ -420,8 +420,15 @@ mod tests {
                 )
                 .expect("the bundle validates"),
             );
-            let gate = sutura_http::InboundGate::from_declaration(settings.security().inbound().expect("a direct deployment"))
-                .expect("a gate");
+            let gate = sutura_http::InboundGate::from_declaration(
+                settings
+                    .security()
+                    .inbound()
+                    .first()
+                    .map(sutura_config::InboundVerifier::identity)
+                    .expect("a direct deployment"),
+            )
+            .expect("a gate");
             let admission = sutura_runtime::Admission::from_settings(settings.runtime());
             let state =
                 sutura_http::ServiceState::new(service, Arc::new(settings), admission).with_inbound_identity(Arc::new(gate));

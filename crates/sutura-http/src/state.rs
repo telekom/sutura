@@ -134,7 +134,7 @@ pub struct ServiceState {
     /// `establish_asked`/`inbound_layered` layers the versioned surface runs behind. `crate::router`
     /// refuses to assemble when this is `Some` and no `security.inbound` gateway was attached.
     #[cfg(feature = "agent")]
-    agent: Option<AgentMount>,
+    agent: Vec<AgentMount>,
     /// The mounted Flight transport, attached by a builder the same way the agent one is.
     ///
     /// Unlike the agent surface, this crate IS permitted to name `sutura_flight`'s types directly -
@@ -164,6 +164,7 @@ pub struct ServiceState {
 #[derive(Clone)]
 pub struct AgentMount {
     mount: Ungoverned,
+    path: sutura_config::McpPath,
     /// Which `sutura_spend_headroom_bytes` gauge and `sutura_spend_bytes_total` counter the
     /// mounted transport pushes onto.
     ///
@@ -325,14 +326,30 @@ impl AgentMount {
         S::Response: axum::response::IntoResponse,
         S::Future: Send + 'static,
     {
-        // The one physical `nest_service` in this crate or `sutura-cli` lives inside
-        // `Ungoverned::mount`, which is what makes an ungoverned mount and its allowlist row one
-        // value (`xtask::boundaries::ungoverned` holds that it is the only call site). Kept as the
-        // `Ungoverned` value itself, not unfused into a bare `Router` here - see the struct doc.
+        Self::at(service, spend, sutura_config::McpPath::conventional())
+    }
+
+    /// Mounts a transport at a parsed literal MCP path.
+    #[must_use]
+    pub fn at<S>(service: S, spend: SpendHeadroomPush, path: sutura_config::McpPath) -> Self
+    where
+        S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        S::Response: axum::response::IntoResponse,
+        S::Future: Send + 'static,
+    {
         Self {
-            mount: Ungoverned::mount(crate::constants::AGENT_MOUNT_PATH, service),
+            mount: Ungoverned::mount(crate::router::ungoverned::MountPath::Agent(path.clone()), service),
+            path,
             spend,
         }
+    }
+
+    pub(crate) const fn path(&self) -> &sutura_config::McpPath {
+        &self.path
     }
 
     /// What this mount declared about the spend-headroom series, for the assembly check.
@@ -391,7 +408,7 @@ impl FlightMount {
     {
         Self {
             mount: Ungoverned::mount(
-                crate::constants::FLIGHT_MOUNT_PATH,
+                crate::router::ungoverned::MountPath::Flight,
                 crate::original_uri::RestoreOriginalUri::new(service),
             ),
         }
@@ -435,7 +452,7 @@ impl WorkerMount {
     {
         Self {
             mount: Ungoverned::mount(
-                crate::constants::WORKER_MOUNT_PATH,
+                crate::router::ungoverned::MountPath::Worker,
                 crate::original_uri::RestoreOriginalUri::new(service),
             ),
         }
@@ -522,7 +539,7 @@ impl ServiceState {
             spend_headroom,
             inbound: None,
             #[cfg(feature = "agent")]
-            agent: None,
+            agent: Vec::new(),
             #[cfg(feature = "flight")]
             flight: None,
             #[cfg(feature = "worker")]
@@ -564,7 +581,7 @@ impl ServiceState {
     #[cfg(feature = "agent")]
     #[must_use]
     pub fn with_agent_surface(mut self, mount: AgentMount) -> Self {
-        self.agent = Some(mount);
+        self.agent.push(mount);
         self
     }
 
@@ -576,8 +593,8 @@ impl ServiceState {
     #[cfg(feature = "agent")]
     #[inline]
     #[must_use]
-    pub const fn agent_surface(&self) -> Option<&AgentMount> {
-        self.agent.as_ref()
+    pub fn agent_surface(&self) -> &[AgentMount] {
+        &self.agent
     }
 
     /// The same state, with the Flight surface's transport attached.

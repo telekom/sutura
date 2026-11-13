@@ -255,6 +255,8 @@ fn decode_set_plan_request(request: pb::SetPlanRequest) -> Result<SetPlanRequest
             .collect::<Result<_, _>>()?,
         target_worker_url: parse_url(&request.target_worker_url, "target_worker_url")?,
         query_start_time_ns: request.query_start_time_ns as usize,
+        completion: request.completion.map(|v| crate::CompletionRequest::parse(v.max_records, v.max_bytes, v.timeout_ms)
+            .map_err(datafusion_error_to_tonic_status)).transpose()?,
     })
 }
 
@@ -288,6 +290,16 @@ fn encode_worker_to_coordinator_msg(
 ) -> Result<pb::WorkerToCoordinatorMsg, Status> {
     Ok(pb::WorkerToCoordinatorMsg {
         inner: Some(match msg {
+            WorkerToCoordinatorMsg::TaskCompletion(payload) => {
+                pb::worker_to_coordinator_msg::Inner::TaskCompletion(pb::TaskCompletion {
+                    task_key: Some(pb::TaskKey {
+                        query_id: crate::common::serialize_uuid(&payload.task_key.query_id),
+                        stage_id: payload.task_key.stage_id as u64,
+                        task_number: payload.task_key.task_number as u64,
+                    }),
+                    records: payload.records,
+                })
+            }
             WorkerToCoordinatorMsg::TaskMetrics(task_metrics) => {
                 pb::worker_to_coordinator_msg::Inner::TaskMetrics(encode_task_metrics(
                     task_metrics,

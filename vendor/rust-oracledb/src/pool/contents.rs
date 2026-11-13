@@ -29,6 +29,7 @@
 //-----------------------------------------------------------------------------
 
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::mpsc;
 
 use crate::config::PoolConfig;
@@ -105,7 +106,10 @@ impl PoolContents {
             self.send_manager_request(PoolManagerRequest::PingConnection(
                 conn_impl,
             ));
-        } else if self.num_being_created == 0 && self.can_pool_grow() {
+        } else if self.num_being_created == 0
+            && !self.pending_requests.is_empty()
+            && self.can_pool_grow()
+        {
             self.send_manager_request(PoolManagerRequest::GrowPool);
         } else if let Some(conn_impl) = self.connections_requiring_drop.pop() {
             self.send_manager_request(PoolManagerRequest::DropConnection(
@@ -119,9 +123,12 @@ impl PoolContents {
     /// connection is added to the list of free connections.
     fn satisfy_request(&mut self, conn_impl_result: Result<ConnImpl, Error>) {
         if let Some(sender) = self.pending_requests.pop_front() {
+            let successful = conn_impl_result.is_ok();
             match sender.send(conn_impl_result) {
                 Ok(_) => {
-                    self.num_busy += 1;
+                    if successful {
+                        self.num_busy += 1;
+                    }
                 }
                 Err(e) => {
                     self.satisfy_request(e.0);
@@ -255,5 +262,27 @@ impl PoolContents {
             self.satisfy_requests();
         }
         result
+    }
+}
+
+impl fmt::Debug for PoolContents {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("PoolContents")
+            .field("config", &self.config)
+            .field("free_connections", &self.free_connections.len())
+            .field(
+                "connections_requiring_ping",
+                &self.connections_requiring_ping.len(),
+            )
+            .field(
+                "connections_requiring_drop",
+                &self.connections_requiring_drop.len(),
+            )
+            .field("last_create_error", &self.last_create_error)
+            .field("num_busy", &self.num_busy)
+            .field("num_being_created", &self.num_being_created)
+            .field("num_being_pinged", &self.num_being_pinged)
+            .field("pending_requests", &self.pending_requests.len())
+            .finish()
     }
 }

@@ -1,0 +1,10 @@
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -337,7 +337,6 @@ impl InboundGate {
+         if self.also_accept.is_empty() {
+             // Single-verifier fast path: skip the issuer peek entirely.
+             let presented = self.presented(headers)?;
+-            self.validator.check_size(presented)?;
+             return self.establish_token(presented, now).await;
+         }
+         let (gate, presented) = self.select_gate(headers)?;

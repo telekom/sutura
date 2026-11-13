@@ -1,5 +1,3 @@
-# sutura - workspace root.
-#
 # The directory layout IS the architecture: `crates/sutura-domain` is the hexagon's interior -
 # domain types today, plus a port trait for each adapter as adapters land - every other crate
 # is an adapter that depends on it, and nothing depends on an adapter. That rule is
@@ -268,8 +266,8 @@ rustls-native-certs = "0.8.4"
 # links this adapter; both are already in `Cargo.lock` via other paths, so this adds no new package,
 # only a new feature activation on the one already there.
 #
-# VENDORED at an unreleased upstream commit plus six local patches - `VENDOR.md` records which,
-# and the condition under which this goes back to the registry.
+# VENDORED from an upstream release with local compatibility and security patches.
+# `VENDOR.md` records the residual changes and the condition for returning to the registry.
 oracledb = { path = "vendor/rust-oracledb" }
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
@@ -892,6 +890,7 @@ missing_assert_message = "allow"
 datafusion-proto = { path = "vendor/datafusion-proto" }
 datafusion-proto-common = { path = "vendor/datafusion-proto-common" }
 datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
+datafusion-sql = { path = "vendor/datafusion-sql" }
 arrow-ipc = { path = "vendor/arrow-ipc" }
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because

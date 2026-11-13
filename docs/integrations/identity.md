@@ -36,6 +36,7 @@ authenticates the deployment, and every question runs with the access of the dep
 | `key_set_file`              | path        | required unless `key_set_url` is set | A JWK set, or one PEM public key or certificate, of the identity provider. Set this or `key_set_url`                          |
 | `key_set_url`               | `https` URL | none                                 | The `jwks_uri` of the identity provider, instead of `key_set_file`                                                            |
 | `key_set_max_stale_seconds` | integer     | `3600`                               | How long the keys verify after the last look that read a usable key set, 300 to 86400                                         |
+| `max_token_bytes`           | integer     | `8192`                               | Maximum token bytes, excluding the header name and scheme; 1 to 12288                                                         |
 | `algorithms`                | list        | required                             | The accepted algorithms, of one key family: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` or `EdDSA` |
 | `token_type`                | string      | `at+jwt`                             | The required `typ` header. `any` turns the check off                                                                          |
 | `accept_any_token_type`     | boolean     | `false`                              | Must be `true` beside `token_type: any`                                                                                       |
@@ -56,6 +57,7 @@ authenticates the deployment, and every question runs with the access of the dep
 | `key_set_file`                 | path        | required unless `key_set_url` is set | A JWK set, or one PEM public key or certificate, of the gateway               |
 | `key_set_url`                  | `https` URL | none                                 | The JWK set URL of the gateway, instead of `key_set_file`                     |
 | `key_set_max_stale_seconds`    | integer     | `3600`                               | As for `direct`                                                               |
+| `max_token_bytes`              | integer     | `8192`                               | Maximum token bytes, excluding the header name and scheme; 1 to 12288         |
 | `algorithms`                   | list        | required                             | The accepted algorithms, as for `direct`                                      |
 | `transit_token_type`           | string      | required                             | The `typ` that the gateway sets, or `any`                                     |
 | `transit_max_lifetime_seconds` | integer     | `120`                                | The longest accepted `exp - iat`, 1 to 3600                                   |
@@ -75,6 +77,25 @@ request, so keep its lifetime short. With `transit_single_use: false`, sutura ac
 again and again until its `exp` plus 30 seconds: at most `transit_max_lifetime_seconds` plus 30
 seconds after its `iat`, 150 seconds at the default. See
 [Single use](../serving-behind-a-gateway.md#single-use).
+
+## Token size
+
+`security.inbound.max_token_bytes` applies to both modes, to `/v1` and to the HTTP
+`/mcp` mount. The default is 8192 bytes and the fixed ceiling is 12288. Zero and
+values above the ceiling refuse startup. The check runs before JWT decoding or key lookup.
+An oversized token receives `401`, an `invalid_token` challenge, and a detail naming the
+configured limit and actual token byte count. The log records the same counts, never the token.
+This size failure is the exception to the gateway mode's usual absence of a Bearer challenge.
+
+The ceiling is below the current HTTP/2 header-list limit of 16384 bytes; other headers consume
+that same allowance. HTTP/1 uses the implementation's 417792-byte buffer bound. Neither bound
+guarantees a request reaches the token check. Ingress routers and proxies have their own limits,
+which may reject a request earlier; raising this setting does not raise those limits.
+
+Prefer a smaller token: remove unnecessary group lists and other unused claims at the issuer.
+Operations use `scope`, plus `scp` or `roles` when `extra_scope_claims` declares them.
+Groups serve configured `security.audience_mapping` and source billing group selection; keep
+the memberships those mappings need.
 
 ## The key set
 
@@ -210,3 +231,54 @@ identity provider:
 ```
 
 [Serving over HTTP](../serving.md) has the complete serving settings: tokens, TLS and rate limits.
+
+## Several identity providers
+
+`security.inbound` also accepts a list. Every entry requires a stable `id` and a literal MCP
+`path`, beside its mode's existing token and key settings. For example:
+
+```yaml
+security:
+  inbound:
+    - id: warehouse
+      path: /warehouse/mcp
+      mode: direct
+      resource: https://sutura.example.com/warehouse/mcp
+      authorization_server: https://first.example.com
+      key_set_file: /etc/sutura/first-jwks.json
+      algorithms: [ES256]
+    - id: inventory
+      path: /inventory/mcp
+      mode: direct
+      resource: https://sutura.example.com/inventory/mcp
+      authorization_server: https://second.example.com
+      key_set_file: /etc/sutura/second-jwks.json
+      algorithms: [ES256]
+```
+
+A gateway entry uses its existing `behind-gateway` settings. Ids, issuers and audiences must
+be distinct. Two direct verifiers cannot share a path; a direct and a gateway verifier can.
+MCP first restricts verification to that path. The unverified issuer only selects one verifier,
+which still checks signature, audience, token type and lifetime. A request presenting credentials
+in two configured locations is refused. The versioned API and Flight select across all entries;
+when several direct verifiers are possible, their generic challenge chooses no authorization server.
+
+Each direct path publishes `/.well-known/oauth-protected-resource` followed by its MCP path.
+Its resource URL must have that exact path. A challenge advertises that document only when the
+request reproduces the configured resource URL. A gateway-only path publishes no document.
+The legacy single object keeps its existing discovery URL and defaults to id `primary`, path `/mcp`.
+
+With several verifiers, every source must declare `admitted_by: [warehouse]`, or another explicit
+list of configured ids. An empty list admits nobody. With one verifier, omission admits that
+verifier. Both shipped credential brokers check the whole requested source set before constructing
+or exchanging credentials; a denied source refuses the operation. Caller-run sources admit direct
+verifiers only; a delegation source admits exactly one. Custom in-process broker implementations
+remain a trust boundary.
+
+Caller state uses `(verifier id, exact signed sub)`, including spend windows, compute contexts and
+the authenticated rate quota shared by API, MCP and Flight. The outer network abuse quota remains:
+callers behind one address still share it. Catalog knowledge and scopes are computed from each
+request's verified grants. Backend principals and addresses keep their original spelling; internal
+caller isolation does not imply different database accounts. A reading grant authenticates verifier
+provenance and caller digest; workers trust the granting node's attestation and check their own
+source admission declaration. This does not establish a served human impersonation venue.

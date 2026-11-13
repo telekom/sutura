@@ -48,14 +48,25 @@ pub(crate) fn query_declared(
     stop: Stop,
     before_fetch: impl FnMut() -> Result<(), OracleError>,
 ) -> Result<Declared, OracleError> {
-    let sets = [params];
-    let batches = connection
+    let statement = connection
         .statement(sql)
         .map_err(execute_err_mapped)?
         .arrow_batch_per_round_trip()
         .exact_number_text()
         .build()
-        .map_err(execute_err_mapped)?
+        .map_err(execute_err_mapped)?;
+    prepared(statement, params, stop, before_fetch)
+}
+
+/// Reads an already admitted statement through the same type conversion and budget.
+pub(crate) fn prepared(
+    statement: oracledb::Statement,
+    params: &[&dyn oracledb::ToDbValue],
+    stop: Stop,
+    before_fetch: impl FnMut() -> Result<(), OracleError>,
+) -> Result<Declared, OracleError> {
+    let sets = [params];
+    let batches = statement
         .query_arrow_batches(sets.as_slice().into())
         .map_err(execute_err_mapped)?;
     let numbers = number_columns(batches.columns().iter().map(|column| (column.name(), column.db_type())))?;
@@ -154,8 +165,8 @@ fn dated(schema: &SchemaRef) -> SchemaRef {
     Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()))
 }
 
-const fn is_timestamp(data_type: &DataType) -> bool {
-    matches!(data_type, DataType::Timestamp(_, None))
+fn is_timestamp(data_type: &DataType) -> bool {
+    matches!(data_type, DataType::Timestamp(_, zone) if zone.as_deref().is_none_or(|zone| zone == "UTC"))
 }
 
 /// `batch` under `schema`, each date-typed column as its text.
@@ -164,18 +175,17 @@ fn dated_batch(schema: &SchemaRef, batch: &RecordBatch) -> Result<RecordBatch, O
         .columns()
         .iter()
         .map(|column| {
-            let texts = match column.data_type() {
-                DataType::Timestamp(TimeUnit::Second, None) => {
-                    texts::<TimestampSecondType>(column, |seconds| seconds.saturating_mul(1_000_000))?
-                }
-                DataType::Timestamp(TimeUnit::Millisecond, None) => {
-                    texts::<TimestampMillisecondType>(column, |millis| millis.saturating_mul(1_000))?
-                }
-                DataType::Timestamp(TimeUnit::Microsecond, None) => texts::<TimestampMicrosecondType>(column, |micros| micros)?,
-                DataType::Timestamp(TimeUnit::Nanosecond, None) => {
-                    texts::<TimestampNanosecondType>(column, |nanos| nanos.div_euclid(1_000))?
-                }
-                _ => return Ok(Arc::clone(column)),
+            let DataType::Timestamp(unit, _) = column.data_type() else {
+                return Ok(Arc::clone(column));
+            };
+            if !is_timestamp(column.data_type()) {
+                return Ok(Arc::clone(column));
+            }
+            let texts = match unit {
+                TimeUnit::Second => texts::<TimestampSecondType>(column, |seconds| seconds.saturating_mul(1_000_000))?,
+                TimeUnit::Millisecond => texts::<TimestampMillisecondType>(column, |millis| millis.saturating_mul(1_000))?,
+                TimeUnit::Microsecond => texts::<TimestampMicrosecondType>(column, |micros| micros)?,
+                TimeUnit::Nanosecond => texts::<TimestampNanosecondType>(column, |nanos| nanos.div_euclid(1_000))?,
             };
             Ok(Arc::new(texts) as ArrayRef)
         })
@@ -444,6 +454,36 @@ mod tests {
                 [text("2026-10-11T00:00:00.456789")]
             ]
         );
+    }
+
+    #[test]
+    fn utc_timestamp_metadata_keeps_each_units_instant_and_nulls() {
+        let columns: [(ArrayRef, &str); 4] = [
+            (
+                Arc::new(TimestampSecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
+                "1970-01-01T00:00:01",
+            ),
+            (
+                Arc::new(TimestampMillisecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
+                "1970-01-01T00:00:00.001",
+            ),
+            (
+                Arc::new(TimestampMicrosecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
+                "1970-01-01T00:00:00.000001",
+            ),
+            (
+                Arc::new(TimestampNanosecondArray::from(vec![Some(-1), None]).with_timezone("UTC")),
+                "1969-12-31T23:59:59.999999",
+            ),
+        ];
+        for (column, expected) in columns {
+            let batch = RecordBatch::try_from_iter([("D", column)]).expect("one UTC timestamp column");
+            let (answer, _) = read_counting(vec![batch], &[], stop(1 << 20, None), || Ok(()));
+            assert!(
+                matches!(&answer, Ok(rows) if rows.rows() == [text(expected), vec![Value::Null]]),
+                "{answer:?}"
+            );
+        }
     }
 
     #[test]

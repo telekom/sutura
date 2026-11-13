@@ -1,0 +1,14 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+@@ -251,9 +251,10 @@
+     let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
+     let task = reading::task_id(call.wire, call.partition, grant.caller_context());
+     // The first presented key occupies a slot even if its MAC fails; authenticated nodes are trusted
+     // not to preempt another task. Namespace by caller, never by a replacement presented key.
+-    keys.admit(task, call.key, |key| {
++    keys.admit(task, call.key, |_kept| {
++        let key = &reading::ReadingKey::of(call.key);
+         reading::verify(&reading::Verification {
+             key,
+             grant: &grant,
+             signature: &signature,

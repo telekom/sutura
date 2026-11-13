@@ -44,7 +44,7 @@ use crate::write_buffer::WriteBuffer;
 
 /// Represents the value of DATE, TIMESTAMP, TIMESTAMP WITH LOCAL TIME ZONE and
 /// TIMESTAMP WITH TIME ZONE columns in the database.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct OracleTimestamp {
     year: i16,
     month: u8,
@@ -72,6 +72,54 @@ impl Default for OracleTimestamp {
 }
 
 impl OracleTimestamp {
+    /// Adjusts the timestamp to be UTC based on the database time zone offset.
+    /// An error is returned if the database timezone offset is a named time
+    /// zone or if the conversion to chrono::NaiveDate is unsuccessful.
+    pub(crate) fn adjust_timestamp_ltz_to_utc(
+        &mut self,
+        db_timezone_offset: chrono::Duration,
+    ) -> Result<(), Error> {
+        if !db_timezone_offset.is_zero() {
+            let date = chrono::NaiveDate::from_ymd_opt(
+                self.year.into(),
+                self.month.into(),
+                self.day.into(),
+            )
+            .ok_or_else(|| {
+                Error::out_of_range(format!(
+                    "invalid date: {}-{}-{}",
+                    self.year, self.month, self.day
+                ))
+            })?
+            .and_hms_opt(
+                self.hour.into(),
+                self.minute.into(),
+                self.second.into(),
+            )
+            .ok_or_else(|| {
+                Error::out_of_range(format!(
+                    "invalid time: {}:{}:{}",
+                    self.hour, self.minute, self.second,
+                ))
+            })?;
+            let new_date = date
+                .checked_sub_signed(db_timezone_offset)
+                .ok_or_else(|| {
+                    Error::out_of_range(format!(
+                        "overflow adding offset {} to date {}",
+                        date, db_timezone_offset
+                    ))
+                })?;
+            self.year = new_date.year().try_into().unwrap();
+            self.month = new_date.month().try_into().unwrap();
+            self.day = new_date.day().try_into().unwrap();
+            self.hour = new_date.hour().try_into().unwrap();
+            self.minute = new_date.minute().try_into().unwrap();
+        }
+        self.is_utc = true;
+        Ok(())
+    }
+
     #[cfg(feature = "arrow")]
     /// Returns the timestamp in the specified Arrow time unit.
     pub(crate) fn to_timestamp(
@@ -195,19 +243,27 @@ impl fmt::Display for OracleTimestamp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:09}",
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
             self.year,
             self.month,
             self.day,
             self.hour,
             self.minute,
             self.second,
-            self.nanoseconds
         )?;
+        if self.nanoseconds != 0 {
+            write!(f, ".{:09}", self.nanoseconds)?;
+        }
         if self.is_utc {
             f.write_char('Z')?;
         }
         Ok(())
+    }
+}
+
+impl fmt::Debug for OracleTimestamp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_tuple("OracleTimestamp").field(&self.to_string()).finish()
     }
 }
 
@@ -261,9 +317,10 @@ impl ToBuf for OracleTimestamp {
         buf.write_u8(self.second() + 1);
         if actual_db_type != crate::DB_TYPE_DATE {
             buf.write_u32be(self.nanoseconds());
-        } else if actual_db_type == crate::DB_TYPE_TIMESTAMP_TZ {
-            buf.write_u8(constants::TZ_HOUR_OFFSET);
-            buf.write_u8(constants::TZ_MINUTE_OFFSET);
+            if actual_db_type == crate::DB_TYPE_TIMESTAMP_TZ {
+                buf.write_u8(constants::TZ_HOUR_OFFSET);
+                buf.write_u8(constants::TZ_MINUTE_OFFSET);
+            }
         }
     }
 }

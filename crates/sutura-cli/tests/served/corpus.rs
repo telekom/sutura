@@ -25,8 +25,8 @@
 //! `sutura-cli/src/serve.rs`'s name for the in-process `DataFusion` engine; `harness::postgres_settings`
 //! loads the same CSVs into the provisioned tier and declares the SAME source name
 //! (`harness::LOCAL_SOURCE`) as `kind: "postgres"` over verified TLS instead. Both run through the
-//! same catalog, the same `VERSION`, the same posture, so a byte-for-byte difference in what either
-//! one answers over HTTP is a claim about the adapter or the wire, never about the fixture.
+//! same catalog, the same `VERSION`, the same posture. Their engine-specific logical plans are
+//! checked separately; the remaining answer fields are compared with the float tolerance below.
 //!
 //! # What this caught, measured rather than hoped for
 //!
@@ -171,6 +171,23 @@ mod tests {
                 engine_status, postgres_status,
                 "`{stem}` came back with a different status over the served Postgres source than over the files engine"
             );
+            let mut engine_body = engine_body;
+            let mut postgres_body = postgres_body;
+            if stem == "active-subscriptions-by-month" {
+                assert_eq!(engine_body["executions"][0]["kind"], "datafusion");
+                assert_eq!(postgres_body["executions"][0]["kind"], "sql");
+                assert_eq!(postgres_body["executions"][0]["dialect"], "postgres");
+                assert_ne!(postgres_body["executions"][0]["sql"].as_str().expect("submitted SQL"), "");
+            }
+            // Plans describe each execution engine; compare the semantic answers below.
+            engine_body
+                .as_object_mut()
+                .expect("an answer is an object")
+                .remove("executions");
+            postgres_body
+                .as_object_mut()
+                .expect("an answer is an object")
+                .remove("executions");
             assert_eq!(
                 quantised(engine_body),
                 quantised(postgres_body),

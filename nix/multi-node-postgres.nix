@@ -14,9 +14,9 @@
 #
 # What this does not show: nobody signs in - the test mints the caller's token over one key. Every
 # node reads `geo` as one PostgreSQL role, so the log tells the nodes apart by address alone. One CA
-# signs every node certificate and PostgreSQL's, and is also the node authority. Each partition is
-# read twice (`telekom/sutura#1771`), so the log counts reads, not partitions. That `query` read no
-# range rests on PostgreSQL logging a statement only when it is executed: `query` describes the
+# signs every node certificate and PostgreSQL's, and is also the node authority. The current combiner
+# reads each partition once, with its link check in the joining plan; the native log measures
+# actual calls rather than inferring them from partition count. That `query` read no range rests on PostgreSQL logging a statement only when it is executed: `query` describes the
 # first partition's statement without running it. A stopped reader still resolves, so it is lost
 # rather than unresolved: `source_unavailable` for a reader that resolves to nothing is the
 # in-process cell's (`crates/sutura-cli/tests/served/split_grant.rs`). Nothing here measures load.
@@ -101,6 +101,13 @@ let
     posture = "shared-service-user";
   };
   acknowledged = { acknowledged_because = "every node reads fixture tables as one identity"; };
+  inbound = {
+    mode = "direct";
+    resource = "https://query";
+    authorization_server = "https://idp";
+    key_set_file = "${material}/jwks.json";
+    algorithms = [ "ES256" ];
+  };
 
   reader = own: {
     virtualisation.memorySize = 2048;
@@ -108,7 +115,7 @@ let
     systemd.services.sutura = serve
       (settings {
         server = pair own // { role = "reading-worker"; };
-        security = offHost // { identity = "single-user"; single_user_because = "a reading worker reads one source as its declared role"; };
+        security = offHost // { inherit inbound; identity = "single-user"; single_user_because = "a reading worker reads one source as its declared role"; };
         sources = { inherit geo; };
       });
   };
@@ -150,6 +157,11 @@ pkgs.testers.runNixOSTest {
         ssl_key_file = "/run/postgres-tls/db.key";
         password_encryption = "scram-sha-256";
         log_statement = "all";
+        logging_collector = true;
+        log_destination = pkgs.lib.mkForce "jsonlog";
+        log_filename = "worker-receipts.log";
+        log_rotation_age = 0;
+        log_rotation_size = 0;
         log_line_prefix = "%h ";
       };
     };
@@ -174,13 +186,7 @@ pkgs.testers.runNixOSTest {
         };
         security = offHost // {
           identity = "multi-user";
-          inbound = {
-            mode = "direct";
-            resource = "https://query";
-            authorization_server = "https://idp";
-            key_set_file = "${material}/jwks.json";
-            algorithms = [ "ES256" ];
-          };
+          inherit inbound;
         };
         sources = {
           local = {
@@ -195,6 +201,9 @@ pkgs.testers.runNixOSTest {
 
   testScript = { nodes, ... }: ''
     import json
+    import shlex
+    import time
+    from collections import Counter
 
     QUESTION = '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}'
     # Both families: PostgreSQL logs whichever one the client connected over.
@@ -222,31 +231,51 @@ pkgs.testers.runNixOSTest {
         return f"curl -sS --cacert ${material}/ca.pem -H 'Authorization: Bearer {token}' -H 'Content-Type: application/json' --data '{QUESTION}' https://query:8443/v1/query"
 
 
-    def ask() -> dict[str, int]:
+    def answered() -> dict:
         reply = json.loads(query.succeed(asking()))
+        assert reply.get("outcome") == "answer", reply
+        return reply
+
+
+    def ask() -> dict[str, int]:
+        reply = answered()
         assert reply.get("outcome") == "answer", reply
         region, revenue = reply["columns"].index("region"), reply["columns"].index("recurring_revenue")
         return {row[region]: int(row[revenue]) for row in reply["rows"]}
 
 
-    def statements() -> list[str]:
-        return db.succeed("journalctl -u postgresql -o cat").splitlines()
+    def statements() -> list[dict]:
+        # One bounded structured log; setup and observer records never enter the client set.
+        path = db.succeed("runuser -u postgres -- psql -Atc \"SELECT current_setting('data_directory') || '/' || pg_current_logfile('jsonlog')\"").strip()
+        assert path, "PostgreSQL did not open its JSON log"
+        raw = db.succeed(f"head -c 4194305 -- {shlex.quote(path)}")
+        assert len(raw.encode()) <= 4194304, "native query log exceeded the fixture bound"
+        records = [json.loads(line) for line in raw.splitlines()]
+        return [record for record in records if record.get("remote_host") in NODE]
 
 
-    def by_client(lines: list[str]) -> dict[str, list[str]]:
-        # A statement's continuation lines carry no prefix, so each goes to the client before it.
+    def by_client(records: list[dict]) -> dict[str, list[str]]:
         seen: dict[str, list[str]] = {}
-        client = ""
-        for line in lines:
-            first = line.split(" ", 1)[0]
-            if first in NODE or first == "[local]":
-                client = NODE.get(first, first)
-            seen.setdefault(client, []).append(line)
+        for record in records:
+            seen.setdefault(NODE[record["remote_host"]], []).append(record["message"])
         return seen
 
 
-    def ranges(lines: list[str], node: str) -> int:
-        return sum(1 for line in by_client(lines).get(node, []) if "ctid" in line)
+    def submitted(message: str) -> str | None:
+        if message.startswith("statement: "):
+            return message.removeprefix("statement: ")
+        if message.startswith("execute "):
+            return message.partition(": ")[2]
+        return None
+
+
+    def range_sql(records: list[dict], node: str) -> list[str]:
+        return [sql for message in by_client(records).get(node, [])
+                if (sql := submitted(message)) is not None and "ctid" in sql]
+
+
+    def ranges(records: list[dict], node: str) -> int:
+        return len(range_sql(records, node))
 
 
     def readers_up() -> None:
@@ -267,7 +296,28 @@ pkgs.testers.runNixOSTest {
     expected = golden()
     before = len(statements())
     with subtest("a lookup split across two reading workers answers what the whole leg answers"):
-        assert ask() == expected, expected
+        reply = answered()
+        region, revenue = reply["columns"].index("region"), reply["columns"].index("recurring_revenue")
+        assert {row[region]: int(row[revenue]) for row in reply["rows"]} == expected, reply
+
+    with subtest("native worker receipts match the per-query PostgreSQL submission multiset"):
+        lines = statements()[before:]
+        receipts = [record for record in reply["executions"]
+                    if record["kind"] == "sql" and record["source"] == "geo"]
+        assert receipts, receipts
+        assert all(record["dialect"] == "postgres" and record["parameters"] == [] for record in receipts), receipts
+        assert all(not record["sql"].endswith(";") for record in receipts), receipts
+        # A Counter preserves repeated native reads; a set would hide a lost receipt.
+        # The pinned ADBC driver wraps these parameterless SELECTs for transport.
+        expected_native = Counter("COPY (" + record["sql"] + ") TO STDOUT (FORMAT binary)"
+                                  for record in receipts)
+        for _ in range(100):
+            native = range_sql(lines, "reader1") + range_sql(lines, "reader2")
+            if expected_native == Counter(native):
+                break
+            time.sleep(0.1)
+            lines = statements()[before:]
+        assert native and expected_native == Counter(native), (receipts, native)
 
     with subtest("each reader read a ctid range of the lookup root, and the serving node read none"):
         lines = statements()[before:]

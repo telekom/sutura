@@ -234,6 +234,9 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
     )
 }
 
+pub mod execution;
+use execution::ExecutionBody;
+
 // ---------------------------------------------------------------- responses ----
 
 /// What a question produced.
@@ -261,6 +264,8 @@ pub enum OutcomeBody {
         /// so an `executed_as` inside it would be an empty list on every catalog response, which reads
         /// as "no leg ran" rather than as "this is not an answer".
         executed_as: Vec<LegBody>,
+        /// Actual engine submissions recorded with the answer. Requires the original execution context to replay.
+        executions: Vec<ExecutionBody>,
         /// Column labels, in projection order.
         columns: Vec<String>,
         /// Rows, each as many cells as there are columns. Every cell is rendered as text by the
@@ -399,6 +404,7 @@ impl From<&ToolOutcome> for Outcome {
                 body: OutcomeBody::Answer {
                     provenance: provenance_body(provenance),
                     executed_as: legs(provenance.executed_as()),
+                    executions: execution::list(provenance.executions()),
                     columns: rows.columns().to_vec(),
                     rows: render(rows),
                 },

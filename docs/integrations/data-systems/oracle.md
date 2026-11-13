@@ -179,6 +179,38 @@ sources:
 - `22222222-…` is the Entra ID app of the database. Each caller has their own database user, for
   example `CREATE USER caller IDENTIFIED GLOBALLY AS 'AZURE_USER=user@example.com';`.
 
+## Raw SQL
+
+`tools.run_sql.enabled` opts a shared-user Oracle source into the [raw tool](../../serving.md#the-raw-sql-tool).
+Each call opens a fresh session, starts `SET TRANSACTION READ ONLY`, admits one driver-classified
+query, rolls back and discards the session. Statements containing `;` or ending in `/` are refused,
+including delimiters inside literals or comments. DDL, DML, PL/SQL and session-control statements
+are refused. For `SELECT ... FOR UPDATE`, the verified fixture reports the read-only refusal
+`ORA-01456` as `403 source_refused`. On the native fixture, fetching instead receives an
+unprotected control packet, which the protected channel refuses as `422 statement_failed`.
+No Oracle error code is recovered on that path. The call returns no rows and its session is discarded.
+
+The database account's grants remain the security boundary. A pre-existing function can perform
+autonomous writes or external effects even when its caller's transaction is read-only. Grant only
+the required reads and callable functions. In a build without `sql`, the source list does not
+restrict tables: Oracle authorizes the caller's unchanged text. With `sql`, the planner admits
+only declared columns and tables on listed sources. The answer is ungoverned, without certified
+provenance or an executed plan. Successful audit records retain the source and posture even when
+the response omits them; refused calls carry no success witness, including refusals after work ran.
+
+Raw results use the adapter's existing exact number and date conversions. LOBs, LONG, RAW and
+unmapped types are refused from metadata before fetching values. Declared widths and collected
+values spend the materialisation budget, and fetching stops at the row cap plus one so overflow
+is a refusal rather than a successful prefix. This bounds collected results, not Oracle's optimizer
+memory or the memory of work executing at the server.
+
+The driver timeout applies to socket reads and writes. The adapter checks the remaining request budget before parsing
+and each fetch, but busy reads or writes, connect handshakes, rollback and session close have no hard total
+deadline. Native timeout recovery can disconnect rather than return a reusable session; raw calls
+never reuse that session. A suspended server function may ignore an interrupt. The hosted fixture
+checks an ordinary CPU query's exact session from ACTIVE to discarded and a later healthy call;
+it does not establish cancellation for every query or a hard end-to-end timeout.
+
 ## Identity
 
 The supported posture is `shared-service-user`. sutura connects as the one user in `user`, and

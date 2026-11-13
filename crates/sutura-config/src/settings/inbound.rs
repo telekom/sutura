@@ -10,7 +10,7 @@ use crate::inbound::{
     KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType,
     TransitProof,
 };
-use crate::raw::RawInbound;
+use crate::raw::{RawInbound, RawInboundDeclarations};
 use crate::settings::SettingsError;
 
 /// Turns an inbound-identity declaration into one of the two modes, or refuses it naming a key.
@@ -42,6 +42,13 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
     let key_set = key_set(written, mode)?;
     let algorithms = PinnedAlgorithms::parse(&written.algorithms).map_err(|cause| SettingsError::InboundAlgorithms { cause })?;
     let address_claim = address_claim(written)?;
+    let max_token_bytes = written
+        .max_token_bytes
+        .map_or(
+            Ok(crate::inbound::MaxTokenBytes::DEFAULT),
+            crate::inbound::MaxTokenBytes::parse,
+        )
+        .map_err(|cause| SettingsError::InboundValue { cause })?;
     match mode {
         "behind-gateway" => {
             read_only_in(written.audience.is_some(), TokenAudience::KEY, "direct")?;
@@ -80,6 +87,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     Some(seconds) => transit_lifetime(seconds, written.accept_long_transit_lifetime)?,
                 },
             )
+            .limiting_token_bytes(max_token_bytes)
             .admitting_once(written.transit_single_use)
             .reading_address_from(address_claim);
             Ok(InboundIdentity::BehindGateway {
@@ -93,7 +101,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
         // Written as the fallback arm rather than as `"direct" =>` plus an unreachable one, so there
         // is no arm here that a test cannot provoke.
         _ => Ok(InboundIdentity::Direct {
-            resource: direct_resource(written, mode)?,
+            resource: direct_resource(written, mode)?.limiting_token_bytes(max_token_bytes),
             authorization_server: IssuerUrl::parse(required(written.authorization_server.as_deref(), IssuerUrl::KEY, mode)?)
                 .map_err(|cause| SettingsError::InboundValue { cause })?,
             key_set,
@@ -195,6 +203,50 @@ fn transit_lifetime(seconds: u64, accepted: bool) -> Result<ProofLifetime, Setti
         });
     }
     Ok(lifetime)
+}
+
+/// Normalizes the legacy object or the named list to complete verifier declarations.
+pub(super) fn parse_verifiers(
+    written: Option<&RawInboundDeclarations>,
+) -> Result<Vec<crate::inbound::InboundVerifier>, SettingsError> {
+    match written {
+        None => Ok(Vec::new()),
+        Some(RawInboundDeclarations::Legacy(entry)) => Ok(vec![parse_verifier(entry, None)?]),
+        Some(RawInboundDeclarations::Named(entries)) if entries.is_empty() => Err(SettingsError::InboundListEmpty),
+        Some(RawInboundDeclarations::Named(entries)) => entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| parse_verifier(entry, Some(index)))
+            .collect(),
+    }
+}
+
+fn parse_verifier(written: &RawInbound, index: Option<usize>) -> Result<crate::inbound::InboundVerifier, SettingsError> {
+    use crate::inbound::{InboundVerifier, McpPath};
+    use sutura_domain::identity::VerifierId;
+
+    let id = match written.id.as_deref() {
+        Some(raw) => VerifierId::parse(raw).map_err(|cause| SettingsError::VerifierId { index, cause })?,
+        None if index.is_none() => VerifierId::primary(),
+        None => return Err(SettingsError::InboundEntryKeyMissing { index, key: "id" }),
+    };
+    let path = match written.path.as_deref() {
+        Some(raw) => McpPath::parse(raw).map_err(|cause| SettingsError::McpPath { index, cause })?,
+        None if index.is_none() => McpPath::conventional(),
+        None => return Err(SettingsError::InboundEntryKeyMissing { index, key: "path" }),
+    };
+    let identity = parse_inbound(written).map_err(|cause| match index {
+        Some(index) => SettingsError::InboundEntry {
+            index,
+            cause: Box::new(cause),
+        },
+        None => cause,
+    })?;
+    Ok(if index.is_none() {
+        InboundVerifier::legacy(id, path, identity)
+    } else {
+        InboundVerifier::new(id, path, identity)
+    })
 }
 
 /// The key this mode needs and did not get.

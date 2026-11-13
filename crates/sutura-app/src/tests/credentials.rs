@@ -292,10 +292,10 @@ fn a_grant_minted_for_another_subject_never_reaches_an_adapter() {
         panic!("the grant names another subject, and the failure says so: {failure:?}");
     };
     assert_eq!(
-        asked,
+        asked.as_ref(),
         &Subject::verified("someone@example.com").expect("a test subject is a subject")
     );
-    assert_eq!(granted, &Subject::TheDeploymentItself);
+    assert_eq!(granted.as_ref(), &Subject::TheDeploymentItself);
     // And it is an `Err` rather than a refusal, because a caller can do nothing about it and being
     // told "you have no credential there" would be a false statement about their access.
     assert!(!matches!(failure, ServiceError::Warehouse { .. }));

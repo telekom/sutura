@@ -113,12 +113,13 @@ pub(crate) fn stated_digest(metric: MetricName) -> MetricDigest {
 /// were served, so it cannot prevent a disclosure and does not attempt to. It makes one attributable
 /// and it makes a misconfiguration visible to whoever reads an answer; the thing that keeps a shared
 /// source from being served unnoticed is a boot refusal.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Provenance {
     version: DefinitionVersion,
     digest: DefinitionDigest,
     schema_digest: SchemaDigest,
     executed_as: ExecutedAs,
+    executions: Vec<crate::warehouse::execution::Execution>,
     /// One digest per metric this answer measured, in the order the question listed them.
     ///
     /// The bundle digest names the whole snapshot; each of these names the one metric whose
@@ -128,6 +129,19 @@ pub struct Provenance {
 }
 
 impl Provenance {
+    /// Records request-local execution details, outside the definition and schema digests.
+    #[must_use]
+    pub fn with_executions(mut self, executions: Vec<crate::warehouse::execution::Execution>) -> Self {
+        self.executions = executions;
+        self
+    }
+
+    /// Submissions in the supplied order, including repeated operations.
+    #[must_use]
+    pub fn executions(&self) -> &[crate::warehouse::execution::Execution] {
+        &self.executions
+    }
+
     /// Private, and that is the second half of the fix in this file.
     ///
     /// [`PinnedDefinitions::provenance`] is the only way to obtain one, so a `Provenance` is always a
@@ -148,6 +162,7 @@ impl Provenance {
             digest,
             schema_digest,
             executed_as,
+            executions: Vec::new(),
             metric_digests,
         }
     }

@@ -72,6 +72,8 @@ pub struct WorkUnitFeedDeclaration {
 }
 
 pub struct SetPlanRequest {
+    /// Requires one bounded terminal completion on this task channel when present.
+    pub completion: Option<crate::CompletionRequest>,
     /// The unique identifier of the task to which the subplan belongs to.
     pub task_key: TaskKey,
     /// The amount of tasks that share the same subplan. Necessary for building the DistributedTaskContext during execution.
@@ -115,6 +117,7 @@ pub struct WorkUnitMsg {
 }
 
 pub enum WorkerToCoordinatorMsg {
+    TaskCompletion(crate::TaskCompletion),
     /// Sends the metrics collected during task execution back to the coordinator.
     /// This is sent after all partitions of a task have finished (or been dropped),
     /// ensuring metrics are never lost due to early stream termination.

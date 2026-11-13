@@ -455,3 +455,12 @@ it moves when what a metric means changes and does not move when a document is m
 Quote both whenever you report a figure, alongside the period and any filters applied. If two
 answers in one conversation carry different digests, the definitions changed underneath you: say so
 rather than presenting the two numbers as comparable.
+
+Use `executions` to inspect the ordered submissions that produced an answer: final SQL with typed
+bindings, diagnostic DataFusion plans, native Cube queries, outbound Node legs and native BigQuery
+stream-read digests. Federated answers carry their individual submissions and combine steps.
+Logical plans and native read digests are not SQL or stable replay formats. Never invent
+verification SQL when a record supplies none. Replaying a statement needs the original tables and
+execution context; remote receipts describe what the peer reported, not cryptographic attestation.
+These details may reveal physical identifiers and certified filter values to the caller authorized
+to ask the metric.

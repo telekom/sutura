@@ -728,7 +728,13 @@ impl Warehouse for DuckDbWarehouse {
     ) -> Result<ResultBatches, Self::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        self.answered(&query, executable.row_limit(), Some(deadline))
+        let rows = self.answered(&query, executable.row_limit(), Some(deadline))?;
+        Ok(rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+            query.source().clone(),
+            sutura_domain::warehouse::schema::TypeDialect::DuckDb,
+            query.sql().to_owned(),
+            query.params(),
+        )))
     }
 
     /// Re-runs an anchor's plan, under the one identity this database was opened with.

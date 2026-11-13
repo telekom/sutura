@@ -181,11 +181,12 @@ mod tests {
     #[cfg(feature = "clickhouse")]
     fn the_broker_switches_to_the_verified_subject_and_refuses_the_service_user() {
         use sutura_domain::identity::{
-            CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject,
+            AdmittingVerifier, CredentialBroker as _, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject,
+            VerifierId, VerifierMode,
         };
 
         let file = password_file();
-        let registry = registry(&impersonating_entry(&file));
+        let registry = direct_registry(&impersonating_entry(&file));
         let _ignored = std::fs::remove_file(&file);
         let broker = crate::serve::broker::build_broker(&registry, None).expect("the source builds a broker");
         let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
@@ -193,7 +194,13 @@ mod tests {
         let ask = |subject: &str| {
             broker
                 .mint(
-                    &RequestContext::of(PrincipalChain::of(Subject::verified(subject).expect("a test subject"))),
+                    &RequestContext::of(PrincipalChain::of(Subject::verified(subject).expect("a test subject"))).admitted_by(
+                        AdmittingVerifier::of(
+                            VerifierId::primary(),
+                            String::from("https://idp.example.com"),
+                            VerifierMode::Direct,
+                        ),
+                    ),
                     &asked,
                 )
                 .expect("a mint answers")
@@ -223,7 +230,10 @@ mod tests {
     #[test]
     #[cfg(feature = "clickhouse")]
     fn a_declared_delegation_signs_callers_in_and_its_absence_switches_to_them() {
-        use sutura_domain::identity::{CredentialBroker as _, Minted, PrincipalChain, RequestContext, SourceSet, Subject};
+        use sutura_domain::identity::{
+            AdmittingVerifier, CredentialBroker as _, Minted, PrincipalChain, RequestContext, SourceSet, Subject, VerifierId,
+            VerifierMode,
+        };
 
         let file = password_file();
         let secret = std::env::temp_dir().join(format!("sutura-cli-ch-client-secret-{}", std::process::id()));
@@ -237,6 +247,11 @@ mod tests {
         let at = sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source");
         let without_assertion = RequestContext::of(PrincipalChain::of(
             Subject::verified("analyst-a@example.com").expect("a test subject"),
+        ))
+        .admitted_by(AdmittingVerifier::of(
+            VerifierId::primary(),
+            String::from("https://idp.example.com"),
+            VerifierMode::Direct,
         ));
         let minted = |entry: &str| {
             crate::serve::broker::build_broker(&direct_registry(entry), None)

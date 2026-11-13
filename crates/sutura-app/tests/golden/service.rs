@@ -358,7 +358,25 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
     // the instrument here pushes the other dimension: one row, one cell, one byte over the ceiling.
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
     let ceiling = ResponseByteLimit::DEFAULT.bytes();
-    let heavy_bytes = usize::try_from(ceiling).expect("the default ceiling fits a usize on every target this builds for") + 1;
+    let fixture_rows = sutura_domain::warehouse::RowSet::new(
+        vec![String::from("cell")],
+        vec![vec![sutura_domain::warehouse::Value::Text(String::new())]],
+    )
+    .expect("the fixture has one text cell");
+    let execution_bytes = crate::support::canned(&fixture_rows)
+        .take_executions()
+        .iter()
+        .map(sutura_domain::warehouse::execution::Execution::rendered_byte_len)
+        .sum::<u64>();
+    let at_the_ceiling = usize::try_from(
+        ceiling
+            .checked_sub(execution_bytes)
+            .expect("fixture executions fit the ceiling"),
+    )
+    .expect("the default ceiling fits a usize on every target this builds for");
+    let heavy_bytes = at_the_ceiling + 1;
+    assert_eq!(at_the_ceiling as u64 + execution_bytes, ceiling);
+    assert_eq!(heavy_bytes as u64 + execution_bytes, ceiling + 1);
 
     let heavy = sutura_app::Warehouses::of(crate::support::HeavyResult::of(heavy_bytes));
     let outcome = sutura_app::answer(
@@ -383,10 +401,7 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         "a result over the response byte ceiling must be refused, and refused for being too large"
     );
 
-    // A cell of EXACTLY the ceiling still answers, so this pins `>` rather than `>=`: the ceiling
-    // itself is not over it, and a result at the ceiling is not a test that would pass with every
-    // result refused.
-    let at_the_ceiling = usize::try_from(ceiling).expect("the default ceiling fits a usize on every target this builds for");
+    // Rows plus execution text exactly at the ceiling still answer, pinning `>` rather than `>=`.
     let light = sutura_app::Warehouses::of(crate::support::HeavyResult::of(at_the_ceiling));
     let outcome = sutura_app::answer(
         &validated,

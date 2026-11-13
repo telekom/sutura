@@ -29,6 +29,8 @@
 // publicly.
 //-----------------------------------------------------------------------------
 
+use std::fmt;
+
 use super::CachedStatement;
 
 #[cfg(feature = "arrow")]
@@ -113,8 +115,13 @@ impl Statement {
 
     /// Ensures that the statement is fully parsed by the database. If the
     /// statement has not been fully parsed by the database, a round trip will
-    /// be performed to ask the database to parse the statement. Note that DDL
-    /// statements will also result in execution.
+    /// be performed to ask the database to parse the statement. If a round
+    /// trip is desired regardless of whether the statement has been parsed
+    /// before, use
+    /// [exclude_from_cache()](crate::StatementBuilder::exclude_from_cache())
+    /// when building the statement.
+    ///
+    /// Note that DDL statements will also result in execution.
     pub fn ensure_fully_parsed(&mut self) -> Result<(), Error> {
         if !self.is_fully_parsed() {
             self.get_execute_response(BindParameters::default(), true)?;
@@ -297,5 +304,15 @@ impl Drop for Statement {
             let mut client = self.client_ref.lock().unwrap();
             client.return_statement(&self.statement);
         }
+    }
+}
+
+impl fmt::Debug for Statement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Statement")
+            .field("sql", &self.sql())
+            .field("cursor_id", &self.statement.cursor_id())
+            .field("bind_names", &self.bind_names())
+            .finish()
     }
 }

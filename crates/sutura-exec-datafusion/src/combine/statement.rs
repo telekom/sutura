@@ -23,7 +23,7 @@
 //! | a statement of more than `MOST_OPERATORS` operator tokens is refused, however shallow it is | the count is taken over the text, before any tree is built, because `recursive_protection` grows the stack for the parser, planner and optimizer but not for an expression's `Display`, `Clone` or `Drop` |
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
-//! | only `DuckDB` and `Postgres` sources plan a part | they are the adapters that take raw statements |
+//! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
 //! | unquoted identifiers are lowercased | the engine's own normalization, before the source sees the text |
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
@@ -68,6 +68,8 @@ use tokio::runtime::Runtime;
 
 use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
+
+mod oracle;
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
@@ -480,7 +482,8 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
     match dialect {
         TypeDialect::DuckDb => text(&DuckDBDialect::new()),
         TypeDialect::Postgres => text(&PostgreSqlDialect {}),
-        TypeDialect::BigQuery | TypeDialect::ClickHouse | TypeDialect::Oracle => {
+        TypeDialect::Oracle => oracle::unparsed(plan),
+        TypeDialect::BigQuery | TypeDialect::ClickHouse => {
             plan_err!("only a source that takes raw statements has a part")
         }
     }

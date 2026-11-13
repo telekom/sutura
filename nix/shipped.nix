@@ -232,6 +232,15 @@ let
     }
   ];
 
+  # One additional image build, holding the existing executable. The key is never a bin name.
+  imageBuilds = binaries ++ [ ((builtins.head binaries) // {
+    keyPrefix = "sql";
+    features = (builtins.head binaries).features ++ [ "sql" ];
+    alsoForbidden = [ "tokio-postgres" ];
+    description = "identity-aware semantic data runtime with SQL planning";
+  }) ];
+  packageKey = b: if b.keyPrefix == "" then b.bin else "sutura-${b.keyPrefix}";
+
   # The image/asset key for one binary at one target. `sutura` keeps the bare triple; any other
   # binary is prefixed, so `oci-operator-x86_64-unknown-linux-musl` names a different build than
   # `sutura`'s own `oci-x86_64-unknown-linux-musl`. A further executable is an entry in `binaries`
@@ -278,7 +287,7 @@ let
       # binary's derivation `sutura-<version>`. On the final attrset and never on `args`, so the
       # deps derivation stays as unscoped as it can be - see the measurement above for what sharing
       # with the checks is still available and what the `ci` profile already ended.
-      pname = binary.bin;
+      pname = packageKey binary;
       # ONE package. Without this, crane builds the whole workspace and the result held
       # three binaries - `sutura`, `sutura-dev` and `xtask` - which made two stated
       # invariants false: the image is supposed to hold one executable, and xtask's
@@ -325,7 +334,7 @@ let
     # `crossEnv`'s `args` already carry `doCheck = false`; restated where `buildDepsOnly` reads it.
     crossLib.buildPackage (args // inheritedArtifacts (crossLib.buildDepsOnly (args // { doCheck = false; })) // {
       # Same reasoning as `nativeFor`; crane appends the target itself.
-      pname = binary.bin;
+      pname = packageKey binary;
       # One package, and the target. Same reasoning as `nativeFor`.
       cargoExtraArgs = "--package ${binary.package} --target ${target}${featureArg features}";
       meta.mainProgram = binary.bin;
@@ -520,7 +529,7 @@ let
         let features = if v.suffix == "-ci" then [ ] else b.features; in
         (map
           (t: {
-            name = "${b.bin}-${t}${v.suffix}";
+            name = "${packageKey b}-${t}${v.suffix}";
             value = crossFor { binary = b; target = t; profile = v.profile; inherit features; };
           })
           # Never cross-build the host triple: it would compile the whole tree a second
@@ -528,29 +537,29 @@ let
           (builtins.filter (t: t != hostRustTarget) crossTargets))
         ++ (if hostRustTarget == null then [ ]
         else [{
-          name = "${b.bin}-${hostRustTarget}${v.suffix}";
+          name = "${packageKey b}-${hostRustTarget}${v.suffix}";
           value = nativeFor { binary = b; profile = v.profile; inherit features; };
         }]))
       variants)
-    binaries);
+    imageBuilds);
 
   # The unsuffixed native build of each binary, plus its performance sibling: `<bin>`,
   # `<bin>-performance`. Both carry `b.features` - the same all-features build the images and
   # `checks.shipped-features` read, since `github.com/telekom/sutura#685` step 5.
   nativeBinaries = builtins.listToAttrs (builtins.concatMap
     (b: [
-      { name = b.bin; value = nativeFor { binary = b; profile = "release"; features = b.features; }; }
+      { name = packageKey b; value = nativeFor { binary = b; profile = "release"; features = b.features; }; }
       {
-        name = "${b.bin}-performance";
+        name = "${packageKey b}-performance";
         value = nativeFor { binary = b; profile = "release-performance"; features = b.features; };
       }
       # The local fast build (`just build-dev`): the same features and linked drivers, no optimisation.
       {
-        name = "${b.bin}-dev";
+        name = "${packageKey b}-dev";
         value = nativeFor { binary = b; profile = "fast-install"; features = b.features; };
       }
     ])
-    binaries);
+    imageBuilds);
 
   # THE FEATURE-ON LINK CHECK, one package per binary per probe feature per release triple:
   # `sutura-bigquery-<triple>-ci`. The name is for a human reading `nix build`; nothing parses it,
@@ -692,14 +701,15 @@ let
         (t: {
           name = "oci-${keyFor b t}${suffix}";
           value = ociFor {
-            package = crossPackages."${b.bin}-${t}${suffix}";
+            package = crossPackages."${packageKey b}-${t}${suffix}";
             architecture = ociArch t;
             inherit (b) bin entrypoint cmd description;
+            name = packageKey b;
           };
         })
         imageTargets)
       [ "" "-performance" ])
-    binaries);
+    imageBuilds);
 
   # The local image per binary, and its performance sibling: `nix build .#oci` and
   # `.#oci-operator` are what a developer and the release workflow reach for. Containers are Linux,
@@ -716,9 +726,10 @@ let
           "x86_64-darwin" = "x86_64-unknown-linux-musl";
         }.${system} or hostRustTarget;
         imageOf = suffix: ociFor {
-          package = crossPackages."${b.bin}-${imageTarget}${suffix}";
+          package = crossPackages."${packageKey b}-${imageTarget}${suffix}";
           architecture = ociArch imageTarget;
           inherit (b) bin entrypoint cmd description;
+          name = packageKey b;
         };
       in
       [
@@ -728,7 +739,7 @@ let
           value = imageOf "-performance";
         }
       ])
-    binaries);
+    imageBuilds);
 
   # The two checks that assert what the list above SHIPPED, rather than what it was asked to
   # ship. Here rather than in `flake.nix` because every input they read is this module's -
@@ -758,8 +769,8 @@ let
     one-binary =
       let
         cells = pkgs.lib.concatMap
-          (b: map (target: { inherit target; inherit (b) bin; drv = crossPackages."${b.bin}-${target}"; }) imageTargets)
-          binaries;
+          (b: map (target: { inherit target; inherit (b) bin; drv = crossPackages."${packageKey b}-${target}"; }) imageTargets)
+          imageBuilds;
         checkOne = p: ''
           echo "one-binary: ${p.bin} ${p.target}"
           count="$(ls ${p.drv}/bin | wc -l)"
@@ -880,10 +891,10 @@ let
           fi
         '';
         checkOne = b:
-          let drv = nativeBinaries.${b.bin}; in ''
-          echo "shipped-features: ${b.bin}"
-          rust-audit-info ${drv}/bin/${if pkgs.stdenv.hostPlatform.isDarwin then ".${b.bin}-wrapped" else b.bin} > deps-${b.bin}.json
-          crates="$(grep -o '"name"' deps-${b.bin}.json | wc -l)"
+          let key = packageKey b; drv = nativeBinaries.${key}; in ''
+          echo "shipped-features: ${key} (executable ${b.bin})"
+          rust-audit-info ${drv}/bin/${if pkgs.stdenv.hostPlatform.isDarwin then ".${b.bin}-wrapped" else b.bin} > deps-${key}.json
+          crates="$(grep -o '"name"' deps-${key}.json | wc -l)"
           # A FLOOR, and the argument is not repeated here. It is what
           # `.github/actions/build-artefacts/action.yml` gives at its own copy of this number:
           # the exact count moves with every dependency bump, and what is checked is the difference
@@ -894,13 +905,13 @@ let
             exit 1
           fi
           echo "${b.bin}: $crates crate(s) embedded"
-          ${pkgs.lib.concatMapStrings (wantOne b.bin) required.${b.bin}}
-          ${pkgs.lib.concatMapStrings (banOne b.bin) (pkgs.lib.subtractLists b.permit (forbidden ++ b.alsoForbidden))}
+          ${pkgs.lib.concatMapStrings (wantOne key) (required.${b.bin} ++ pkgs.lib.optionals (b.keyPrefix == "sql") [ "sqlparser" "datafusion-sql" ])}
+          ${pkgs.lib.concatMapStrings (banOne key) (pkgs.lib.subtractLists b.permit (forbidden ++ b.alsoForbidden))}
         '';
       in
       pkgs.runCommand "sutura-shipped-features" { nativeBuildInputs = [ pkgs.rust-audit-info ]; } ''
         set -eu
-        ${pkgs.lib.concatMapStrings checkOne binaries}
+        ${pkgs.lib.concatMapStrings checkOne imageBuilds}
         touch $out
       '';
   };

@@ -29,7 +29,15 @@ fn scope_list(caller: &crate::inbound::VerifiedCaller) -> Vec<&str> {
 async fn an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_declared() {
     let pair = key_pair();
     let gate_for = |settings: &sutura_config::Settings| {
-        gate_over(settings.security().inbound().expect("an inbound identity"), &jwks(KID, &pair))
+        gate_over(
+            settings
+                .security()
+                .inbound()
+                .first()
+                .map(sutura_config::InboundVerifier::identity)
+                .expect("an inbound identity"),
+            &jwks(KID, &pair),
+        )
     };
     let declared = entra_declared(&format!(
         "    audience: \"{CLIENT_ID}\"\n    extra_scope_claims: [\"scp\", \"roles\"]\n"
@@ -101,11 +109,17 @@ async fn an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_de
 fn a_direct_audience_leaves_the_published_resource_https() {
     let settings = entra_declared(&format!("    audience: \"{CLIENT_ID}\"\n"));
     let gate = gate_over(
-        settings.security().inbound().expect("an inbound identity"),
+        settings
+            .security()
+            .inbound()
+            .first()
+            .map(sutura_config::InboundVerifier::identity)
+            .expect("an inbound identity"),
         &jwks(KID, &key_pair()),
     );
     let published = gate
-        .protected_resource()
+        .protected_resources()
+        .next()
         .expect("a `direct` deployment publishes its metadata");
     assert_eq!(
         published.url(),

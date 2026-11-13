@@ -28,6 +28,9 @@ impl Worker {
         stream: BoxStream<'static, Result<CoordinatorToWorkerMsg>>,
     ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
         let key = request.task_key;
+        let completion_request = request.completion;
+        let completion_deadline = completion_request.map(|v| tokio::time::Instant::now().checked_add(v.timeout)
+            .ok_or_else(|| exec_datafusion_err!("invalid completion deadline"))).transpose()?;
 
         let entry = self
             .task_data_entries
@@ -40,6 +43,9 @@ impl Worker {
         }
 
         let (metrics_tx, metrics_rx) = oneshot::channel();
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let stop_load_info = tokio_util::sync::CancellationToken::new();
+        let stop_load_info_on_eos = stop_load_info.clone();
         let mut load_info_rxs = vec![];
 
         let task_data = || async {
@@ -55,6 +61,9 @@ impl Worker {
                 }))
                 .with_distributed_option_extension_from_headers::<DistributedConfig>(&headers)?;
 
+            if let Some(completion) = completion_request {
+                cfg = cfg.with_extension(Arc::new(key)).with_extension(Arc::new(completion));
+            }
             let d_cfg = DistributedConfig::from_config_options(cfg.options())?;
             let shuffle_batch_size = d_cfg.shuffle_batch_size;
             let collect_metrics = d_cfg.collect_metrics;
@@ -73,6 +82,11 @@ impl Worker {
                 })
                 .await?;
 
+            if completion_request.is_some()
+                && session_state.config().get_extension::<crate::TaskCompletionProducer>().is_none()
+            {
+                return Err(exec_datafusion_err!("required task completion producer is absent"));
+            }
             let task_ctx = session_state.task_ctx();
             let plan = request.plan.decode(&task_ctx)?;
 
@@ -97,7 +111,11 @@ impl Worker {
             })
         };
 
-        let task_data_result = task_data().await.map_err(Arc::new);
+        let task_data_result = match completion_deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline, task_data()).await
+                .map_err(|cause| exec_datafusion_err!("task preparation deadline: {cause}"))?,
+            None => task_data().await,
+        }.map_err(Arc::new);
 
         entry
             .write(task_data_result.clone())
@@ -122,8 +140,17 @@ impl Worker {
         //    is closed.
         #[allow(clippy::disallowed_methods)]
         tokio::spawn(async move {
-            let mut stream = stream.map_ok(set_work_unit_received_time);
-            while let Some(Ok(msg)) = stream.next().await {
+            let stream = stream.map_ok(set_work_unit_received_time);
+            let mut stream = match completion_deadline {
+                Some(deadline) => stream.take_until(tokio::time::sleep_until(deadline)).boxed(),
+                None => stream.boxed(),
+            };
+            let mut input_error = None;
+            while let Some(msg) = stream.next().await {
+                let msg = match msg {
+                    Ok(msg) => msg,
+                    Err(cause) => { input_error = Some(cause); break; }
+                };
                 match msg {
                     CoordinatorToWorkerMsg::WorkUnitBatch(work_unit_batch) => {
                         let Some(work_unit_senders) = work_unit_senders.as_mut() else {
@@ -156,6 +183,7 @@ impl Worker {
                 }
             }
 
+            if completion_request.is_some() { stop_load_info_on_eos.cancel(); }
             let metrics_tx = task_data.metrics_tx.lock().unwrap().take();
             if let Some(Ok(plan)) = task_data.final_plan.get() {
                 let d_ctx = DistributedTaskContext {
@@ -168,10 +196,32 @@ impl Worker {
                     send_metrics_via_channel(metrics_tx, plan, d_ctx, task_data_metrics);
                 }
             }
+            if let (Some(request), Some(deadline)) = (completion_request, completion_deadline) {
+                // The callback owns native-operation finalization, including work surviving stream drop.
+                let completion = async {
+                    if let Some(cause) = input_error { return Err(cause); }
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(exec_datafusion_err!("task completion deadline elapsed"));
+                    }
+                    let producer = task_data.task_ctx.session_config().get_extension::<crate::TaskCompletionProducer>()
+                        .ok_or_else(|| exec_datafusion_err!("required task completion producer is absent"))?;
+                    let plan = match task_data.final_plan.get() {
+                        Some(Ok(plan)) => Arc::clone(plan),
+                        Some(Err(cause)) => return Err(DataFusionError::Shared(Arc::clone(cause))),
+                        None => Arc::clone(&task_data.base_plan),
+                    };
+                    let records = tokio::time::timeout_at(deadline, producer.produce(key, plan, request))
+                        .await.map_err(|cause| exec_datafusion_err!("task completion deadline: {cause}"))??;
+                    request.check(&records)?;
+                    Ok(WorkerToCoordinatorMsg::TaskCompletion(crate::TaskCompletion { task_key: key, records }))
+                }.await;
+                let _ = completion_tx.send(completion);
+            }
             task_data_entries.invalidate(&key).await
         });
 
         let load_info_stream = FuturesUnordered::from_iter(load_info_rxs)
+            .take_until(stop_load_info.cancelled_owned())
             .filter_map(async |load_info_or_channel_dropped| {
                 // This error can only happen if the LoadInfo sender was dropped, which is fine.
                 let load_info = load_info_or_channel_dropped.ok()?;
@@ -190,9 +240,14 @@ impl Worker {
             Some(WorkerToCoordinatorMsg::TaskMetrics(task_metrics))
         });
 
-        Ok(futures::stream::select(load_info_stream, metrics_stream)
-            .map(Ok)
-            .boxed())
+        let output = futures::stream::select(load_info_stream, metrics_stream).map(Ok);
+        if completion_request.is_none() {
+            return Ok(output.boxed());
+        }
+        let completion = futures::stream::once(async move {
+            completion_rx.await.map_err(|cause| exec_datafusion_err!("completion producer dropped: {cause}"))?
+        });
+        Ok(futures::stream::select(output, completion).boxed())
     }
 }
 

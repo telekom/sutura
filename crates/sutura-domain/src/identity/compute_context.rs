@@ -88,7 +88,7 @@ pub(super) fn feed_field(hasher: &mut Sha256, field: &[u8]) {
 /// two digests that can collide across schemes are two things a future comparison could confuse. The
 /// version in the tag is what lets the encoding change without a stale digest comparing equal to a
 /// fresh one.
-const SCHEME: &[u8] = b"sutura.compute-context.v1";
+const SCHEME: &[u8] = b"sutura.compute-context.v2";
 
 /// An opaque, stable discriminator for *which caller, on which data system* a federated leg runs as.
 ///
@@ -113,10 +113,8 @@ impl ComputeContext {
     /// The context for `subject` asking of `source`.
     ///
     /// The digest covers, each field contributing its own fixed-width digest, in this order: the
-    /// scheme tag, the data
-    /// system's name, the subject's own discriminant, and - for a verified caller - the full
-    /// [`SubjectKey`](crate::identity::SubjectKey), which contributes itself through
-    /// `SubjectKey::feed` and is never returned to this function.
+    /// scheme tag, source name, subject discriminant, verifier id, and exact signed `sub`.
+    /// Backend principal normalization does not merge caller contexts.
     ///
     /// **Both [`Subject`] variants contribute, and the discriminant is why they cannot collide.**
     /// [`Subject::TheDeploymentItself`] is a real principal - the honest answer on a deployment whose
@@ -131,8 +129,12 @@ impl ComputeContext {
         feed_field(&mut hasher, SCHEME);
         feed_field(&mut hasher, source.as_str().as_bytes());
         feed_field(&mut hasher, subject.established().as_bytes());
-        match subject.key() {
-            Some(key) => key.feed(&mut hasher),
+        feed_field(
+            &mut hasher,
+            subject.verifier_id().map_or(b"".as_slice(), |id| id.as_str().as_bytes()),
+        );
+        match subject.signed_sub() {
+            Some(raw) => feed_field(&mut hasher, raw.as_bytes()),
             // The absent half of the same field, rather than no field: an empty field still
             // contributes its own thirty-two bytes, so this is not the same digest as a verified
             // caller whose key happens to be empty - which `SubjectKey` refuses anyway, making this
@@ -208,6 +210,20 @@ mod tests {
         let first = ComputeContext::of(&source("warehouse"), &subject("user@example.com"));
         let second = ComputeContext::of(&source("warehouse"), &subject("user@example.com"));
         assert_eq!(first, second, "one caller's repeated scans must still fuse");
+    }
+
+    #[test]
+    fn equal_signed_subjects_from_different_verifiers_have_distinct_compute_contexts() {
+        use crate::identity::VerifierId;
+
+        let first = Subject::verified_by(VerifierId::parse("staff").unwrap(), "user@example.com").unwrap();
+        let repeat = Subject::verified_by(VerifierId::parse("staff").unwrap(), "user@example.com").unwrap();
+        let other = Subject::verified_by(VerifierId::parse("partners").unwrap(), "user@example.com").unwrap();
+        let padded = Subject::verified_by(VerifierId::parse("staff").unwrap(), " user@example.com ").unwrap();
+        let source = source("warehouse");
+        assert_eq!(ComputeContext::of(&source, &first), ComputeContext::of(&source, &repeat));
+        assert_ne!(ComputeContext::of(&source, &first), ComputeContext::of(&source, &other));
+        assert_ne!(ComputeContext::of(&source, &first), ComputeContext::of(&source, &padded));
     }
 
     /// One caller on two data systems is two contexts - the "active database" half of what the

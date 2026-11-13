@@ -304,6 +304,7 @@ pub struct VerifiedCaller {
     address: Option<sutura_domain::identity::VerifiedAddress>,
     /// The OAuth client the token named in `azp` and `client_id`, for the audit record only.
     client: sutura_domain::identity::ClientClaims,
+    verifier: sutura_domain::identity::AdmittingVerifier,
 }
 
 impl VerifiedCaller {
@@ -325,6 +326,7 @@ impl VerifiedCaller {
         assertion: sutura_domain::identity::Secret,
         expires: u64,
         client: sutura_domain::identity::ClientClaims,
+        verifier: sutura_domain::identity::AdmittingVerifier,
     ) -> Self {
         Self {
             chain,
@@ -334,7 +336,15 @@ impl VerifiedCaller {
             expires,
             address: None,
             client,
+            verifier,
         }
+    }
+
+    /// The configured verifier whose checks this caller passed.
+    #[inline]
+    #[must_use]
+    pub const fn verifier(&self) -> &sutura_domain::identity::AdmittingVerifier {
+        &self.verifier
     }
 
     /// The same caller, with the address [`crate::inbound::token::TokenValidator::verify`] read.

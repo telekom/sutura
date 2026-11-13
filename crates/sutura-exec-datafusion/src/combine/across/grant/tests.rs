@@ -127,6 +127,7 @@ fn an_engine_encoded_stage_and_its_task_pass_with_their_grant_and_are_refused_wi
     let (key, other) = (Key::drawn().expect("a key draws"), Key::drawn().expect("a key draws"));
     let grant = key.grant();
     let stage = || SetPlanRequest {
+        completion: None,
         task_key: task(ASKED),
         task_count: 1,
         plan: MaybeEncoded::Decoded(Arc::new(EmptyExec::new(Arc::new(Schema::empty())))),

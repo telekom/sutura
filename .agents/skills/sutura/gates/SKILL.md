@@ -1865,8 +1865,11 @@ What `causality::claim::validate` holds:
 its place - each mechanism removed, and the cell that goes red. Exit 1 `the base does not compile
 with nothing held back` is not that case: declare each test it names.
 
-**Never turn causality green by reverting a changed test** - that deletes the evidence rather than
-supplying it.
+**Never turn causality green by reverting an ordinary changed test** - that deletes the evidence
+rather than supplying it. After independent killing-mutation proof, a file whose only changes are
+accepted claim-test bodies may follow the existing held-file retry; ordinary cells remain at HEAD.
+`Separable::after_claims` requires identical bytes outside existing private bare-test bodies and
+refuses visible references or external modules. It uses the gate's lexer, without macro expansion.
 
 **A hollow green, measured once and not yet refused:** a range whose only other change is an
 untrailered patch under `devco/claim-mutations/` answers `NO BASE BEHAVIOUR TO COMPARE AGAINST` with

@@ -331,7 +331,14 @@ fn read_range(
         Some(snapshot) => session::partition(connection, snapshot, sql, bound, ceiling, deadline),
         None => session::answer(connection, sql, bound, ceiling, deadline),
     })?;
-    numeric::batches(batches)
+    numeric::batches(batches).map(|rows| {
+        rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+            adapter.source.clone(),
+            sutura_domain::warehouse::schema::TypeDialect::Postgres,
+            query.sql().to_owned(),
+            query.params(),
+        ))
+    })
 }
 
 /// The leg's root table as `to_regclass` reads a name: each part double-quoted, as the statement

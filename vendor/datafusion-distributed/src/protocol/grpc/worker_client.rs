@@ -450,6 +450,11 @@ fn encode_set_plan_request(
             .collect(),
         target_worker_url: request.target_worker_url.to_string(),
         query_start_time_ns: request.query_start_time_ns as u64,
+        completion: request.completion.map(|v| Ok::<_, DataFusionError>(pb::CompletionRequest {
+            max_records: u64::try_from(v.max_records).map_err(|cause| datafusion::common::exec_datafusion_err!("record budget: {cause}"))?,
+            max_bytes: u64::try_from(v.max_bytes).map_err(|cause| datafusion::common::exec_datafusion_err!("byte budget: {cause}"))?,
+            timeout_ms: u64::try_from(v.timeout.as_millis()).map_err(|cause| datafusion::common::exec_datafusion_err!("completion timeout: {cause}"))?.max(1),
+        })).transpose()?,
     })
 }
 
@@ -499,6 +504,17 @@ fn decode_worker_to_coordinator_msg(
             .inner
             .ok_or_else(|| missing("WorkerToCoordinatorMsg.inner"))?
         {
+            pb::worker_to_coordinator_msg::Inner::TaskCompletion(payload) => {
+                let key = payload.task_key.ok_or_else(|| missing("completion.task_key"))?;
+                WorkerToCoordinatorMsg::TaskCompletion(crate::TaskCompletion {
+                    task_key: TaskKey {
+                        query_id: crate::common::deserialize_uuid(&key.query_id)?,
+                        stage_id: usize::try_from(key.stage_id).map_err(|cause| datafusion::common::exec_datafusion_err!("completion stage: {cause}"))?,
+                        task_number: usize::try_from(key.task_number).map_err(|cause| datafusion::common::exec_datafusion_err!("completion task: {cause}"))?,
+                    },
+                    records: payload.records,
+                })
+            }
             pb::worker_to_coordinator_msg::Inner::TaskMetrics(task_metrics) => {
                 WorkerToCoordinatorMsg::TaskMetrics(decode_task_metrics(task_metrics)?)
             }

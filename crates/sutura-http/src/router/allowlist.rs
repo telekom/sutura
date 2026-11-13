@@ -64,12 +64,48 @@ const WORKER_ROUTE: UngovernedRoute = UngovernedRoute {
 /// [`super::Ungoverned::mount`], so an unrecorded merge is not expressible. The limit of THIS function
 /// alone is that it only sees what the type hands it - stating the mechanism whole is
 /// [`super::Ungoverned`]'s job.
-pub(crate) fn check_ungoverned(recorded: &[&str]) -> Result<(), RouterNotBuilt> {
+pub(crate) fn check_ungoverned(recorded: &[&str], inbound: &[sutura_config::InboundVerifier]) -> Result<(), RouterNotBuilt> {
     for path in recorded {
-        if !ungoverned_routes().iter().any(|row| row.path == *path) {
+        #[cfg(feature = "agent")]
+        let agent = if inbound.is_empty() {
+            *path == crate::constants::AGENT_MOUNT_PATH
+        } else {
+            inbound.iter().any(|declaration| declaration.path().as_str() == *path)
+        };
+        #[cfg(not(feature = "agent"))]
+        let agent = {
+            let _inbound = inbound;
+            false
+        };
+        let fixed = ungoverned_routes().iter().any(|row| row.path == *path && row.path != "/mcp");
+        if !agent && !fixed {
             return Err(RouterNotBuilt::UngovernedRouteNotAllowlisted {
                 path: String::from(*path),
             });
+        }
+    }
+    Ok(())
+}
+
+/// Check actual MCP mounts before Axum can merge a duplicate or a reserved service path.
+#[cfg(feature = "agent")]
+pub(super) fn check_agent_mounts(state: &crate::ServiceState) -> Result<(), RouterNotBuilt> {
+    let declarations = state.settings().security().inbound();
+    let mut mounted = std::collections::BTreeSet::new();
+    for mount in state.agent_surface() {
+        let path = mount.path();
+        let admitted = if declarations.is_empty() {
+            path.as_str() == crate::constants::AGENT_MOUNT_PATH
+        } else {
+            declarations.iter().any(|declaration| declaration.path() == path)
+        };
+        if !admitted {
+            return Err(RouterNotBuilt::UngovernedRouteNotAllowlisted {
+                path: path.as_str().to_owned(),
+            });
+        }
+        if !mounted.insert(path) {
+            return Err(RouterNotBuilt::DuplicateAgentMount { path: path.clone() });
         }
     }
     Ok(())

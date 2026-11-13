@@ -45,6 +45,7 @@ pub mod billed;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod csv;
 pub mod estimate;
+pub mod execution;
 pub mod labels;
 /// The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
 ///

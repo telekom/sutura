@@ -29,6 +29,7 @@ pub(super) fn granted_switching(key: &ReadingKey, wire: &[u8], partition: &[u8],
         Partition::of(partition.to_vec()),
         Expiry::at(core::time::Duration::from_secs(4_000_000_000)),
         MaskedCaller::of(&sutura_domain::identity::SubjectKey::parse(caller).expect("a test caller is a subject")),
+        (sutura_domain::identity::VerifierId::primary(), [0; 32]),
         StreamBound {
             rows: 1000,
             bytes: 1 << 20,
@@ -48,10 +49,12 @@ struct Switches(Switched);
 impl PartitionReader for Switches {
     fn read(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
         _schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         Err(Unread::Failed(DataFusionError::Execution(String::from(
             "read as no principal",
@@ -60,11 +63,13 @@ impl PartitionReader for Switches {
 
     fn read_switched(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
         schema: &SchemaRef,
         switched: SwitchedPrincipal,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         self.0.lock().push(String::from(switched.name().as_str()));
         Ok(Box::pin(RecordBatchStreamAdapter::new(
