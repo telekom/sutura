@@ -39,6 +39,26 @@ pub(crate) fn query(
 /// An answer, and the schema its columns are declared fixed as, where they are.
 pub(crate) type Declared = (RowSet, Option<SchemaRef>);
 
+/// Describes a generated SELECT without executing it or asking for rows.
+pub(crate) fn describe(connection: &oracledb::Connection, sql: &str) -> Result<Option<SchemaRef>, OracleError> {
+    let mut statement = connection
+        .statement(sql)
+        .map_err(execute_err_mapped)?
+        .build()
+        .map_err(execute_err_mapped)?;
+    statement.ensure_fully_parsed().map_err(execute_err_mapped)?;
+    let columns = statement.out_metadata();
+    if let Some(column) = columns
+        .iter()
+        .find(|column| column.db_type() == oracledb::DB_TYPE_TIMESTAMP_LTZ)
+    {
+        return Err(local_zone_refused(column.name()));
+    }
+    Ok(crate::split::columns::declared(columns.iter().map(|column| {
+        (column.name(), column.db_type(), column.precision(), column.scale())
+    })))
+}
+
 /// [`query`], with the schema the database declares the answer's columns fixed as, where it
 /// declares one ([`crate::split::columns::declared`]).
 pub(crate) fn query_declared(

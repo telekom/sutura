@@ -128,6 +128,10 @@ let
             "---\n" + json.dumps(value) + "\n---\nDeterministic capacity fixture.\n"
         )
 
+    document("declaration", dict(kind="declaration",
+        definitions=["structure", "descriptions", "relationships", "cardinality",
+                     "metrics", "grains", "allowed_values", "anchors"], knowledge=[]))
+
     for size, count in [("large", 131072), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
         with (root / "data" / (fact + ".csv")).open("w") as handle:
