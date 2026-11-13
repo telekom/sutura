@@ -33,6 +33,7 @@ const CACHE_ONLY: &[(&str, &str)] = &[
     ("downstream-deps", "deps-native-ci"),
     ("downstream-deps", "deps-native-release"),
     ("downstream-deps", "deps-musl-release"),
+    ("downstream-deps", "deps-postgres-kerberos-ci"),
     ("downstream-deps", "adbc-driver-bigquery-x86_64-unknown-linux-gnu"),
     ("downstream-deps", "adbc-driver-bigquery-x86_64-unknown-linux-musl"),
     ("downstream-deps", "adbc-driver-postgresql-x86_64-unknown-linux-musl"),
@@ -146,6 +147,7 @@ mod tests {
         "            .#deps-native-ci \\\n",
         "            .#deps-native-release \\\n",
         "            .#deps-musl-release \\\n",
+        "            .#deps-postgres-kerberos-ci \\\n",
         "            .#adbc-driver-bigquery-x86_64-unknown-linux-gnu \\\n",
         "            .#adbc-driver-bigquery-x86_64-unknown-linux-musl \\\n",
         "            .#adbc-driver-duckdb-x86_64-unknown-linux-musl \\\n",
@@ -167,6 +169,7 @@ mod tests {
         "            .#deps-native-ci \\\n",
         "            .#deps-native-release \\\n",
         "            .#deps-musl-release \\\n",
+        "            .#deps-postgres-kerberos-ci \\\n",
         "            .#adbc-driver-bigquery-x86_64-unknown-linux-gnu \\\n",
         "            .#adbc-driver-bigquery-x86_64-unknown-linux-musl \\\n",
         "            .#adbc-driver-postgresql-x86_64-unknown-linux-musl \\\n",
@@ -190,6 +193,7 @@ mod tests {
 
     #[test]
     fn a_cache_only_pair_the_workflow_still_builds_is_not_reported() {
+        assert_eq!(super::refused(EXEMPT, true), Vec::<String>::new());
         assert_eq!(super::unbuilt(EXEMPT, true), Vec::<String>::new());
     }
 

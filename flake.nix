@@ -667,7 +667,11 @@
           });
 
         }
-        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers // clickhouseAdbcDrivers;
+        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers // clickhouseAdbcDrivers
+        // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          # Dependency input only; the sign-in test remains in ordinary CI.
+          deps-postgres-kerberos-ci = shipped.linkedDriversTests.adbc-postgres-kerberos-x86_64-unknown-linux-musl-test.cargoArtifacts;
+        };
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
