@@ -197,7 +197,7 @@ mod tests {
                 }
             }
 
-            fn settings(&self, tier: &DiscoveredTier, extra: &str) -> String {
+            fn native_settings(&self, tier: &DiscoveredTier, extra: &str) -> String {
                 let base = settings(&self.data, tier, &self.schema)
                     .replace("    environment: \"test\"\n", "")
                     .replace(&format!("    dictionary_schema: \"{}\"\n", self.schema),
@@ -306,7 +306,7 @@ mod tests {
             .with_source_alias(SourceName::parse("warehouse").unwrap())
             .load()
             .unwrap();
-            let base = fixture.settings(&tier, "");
+            let base = fixture.native_settings(&tier, "");
             let served = start_configured("native-metadata", &base);
             assert_eq!(
                 catalog(&served)["provenance"]["definition_digest"],
@@ -317,12 +317,12 @@ mod tests {
             for (case, settings, expected) in [
                 (
                     "row-bound",
-                    fixture.settings(&tier, "    max_dictionary_rows: 1\n"),
+                    fixture.native_settings(&tier, "    max_dictionary_rows: 1\n"),
                     "maximum of 1 rows",
                 ),
                 (
                     "byte-bound",
-                    fixture.settings(&tier, "    max_dictionary_bytes: 1\n"),
+                    fixture.native_settings(&tier, "    max_dictionary_bytes: 1\n"),
                     "maximum of 1 bytes",
                 ),
                 ("no-columns", base.replace("['secret*']", "['*']"), "no included column"),
@@ -360,7 +360,7 @@ mod tests {
                 );
                 drop(start_configured(
                     "native-excluded-type",
-                    &fixture.settings(&tier, &format!("    exclude_types: ['{kind}']\n")),
+                    &fixture.native_settings(&tier, &format!("    exclude_types: ['{kind}']\n")),
                 ));
                 fixture
                     .admin
@@ -373,7 +373,7 @@ mod tests {
         fn a_served_native_dictionary_limits_real_planned_sql_and_composes_markdown_metrics() {
             let Some(tier) = discover_tier() else { return };
             let fixture = Native::new("native-planned", &tier);
-            let settings = fixture.compose(&fixture.settings(&tier, ""), None);
+            let settings = fixture.compose(&fixture.native_settings(&tier, ""), None);
             let served = start_configured("native-planned", &settings);
             let listing = catalog(&served);
             assert_eq!(listing["metrics"][0]["name"], "event_total");
@@ -412,7 +412,7 @@ mod tests {
         fn native_refresh_adds_allowed_columns_and_retains_the_last_bundle_on_refusal() {
             let Some(tier) = discover_tier() else { return };
             let mut fixture = Native::new("native-refresh", &tier);
-            let served = start_configured("native-refresh", &fixture.settings(&tier, ""));
+            let served = start_configured("native-refresh", &fixture.native_settings(&tier, ""));
             let before = catalog(&served)["provenance"]["definition_digest"].clone();
             fixture.admin.run(&format!("ALTER TABLE {}.events ADD allowed bigint DEFAULT 9; ALTER TABLE {}.events ADD secret_new text DEFAULT 'another private value'", fixture.schema, fixture.schema)).unwrap();
             let deadline = Instant::now() + Duration::from_secs(20);
@@ -444,7 +444,7 @@ mod tests {
         fn a_native_dictionary_refuses_composed_aliases_and_a_second_authority() {
             let Some(tier) = discover_tier() else { return };
             let fixture = Native::new("native-alias", &tier);
-            let base = fixture.settings(&tier, "");
+            let base = fixture.native_settings(&tier, "");
             let accepted = fixture.compose(&base, Some("id"));
             drop(start_configured("native-alias-control", &accepted));
             let rejected = fixture.compose(&base, Some("secret"));
