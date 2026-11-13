@@ -13,17 +13,17 @@ import tempfile
 import uuid
 from pathlib import Path
 
-SOURCE = "99d595794df455116d724b51956b89cd37130555"
-SOURCE_TREE = "c17a452ef6d150feae8062b3599ecd0fd9fbd23d"
+SOURCE = "b3cd23eac05a90212c494fd450a2c6462db7ffd0"
+SOURCE_TREE = "991850e66f23c4a87c4df414d7a026525b9680be"
 BASE = "3ee8874e6c5b3054a91a63c28aaca90302bf2dbe"
 BASE_TREE = "6903bc16ed77cb039a7bcd1de0638a848c372432"
 TIER = "a_clickhouse_lookup_split_reads_every_group_once_under_the_callers_grants_and_settings"
 GUARD = "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver"
-TEST = "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs/buckets.rs"
-OVERLAY_FILES = ("crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs", TEST)
+TEST = "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs"
+OVERLAY_FILES = (TEST,)
 IMPLEMENTATION = "crates/sutura-exec-clickhouse/src/adbc/buckets.rs"
-OVERLAY_HASH = "aa4d4cd1043ae5909690578defd46ab740112a99218240f0fb6beb5e7108f2d8"
-MUTATION_HASH = "67b30d00085091759c56a8c8656fda483deae485dba9626e4089b6506ffd50f0"
+OVERLAY_HASH = "626bc8c7d751c468a0de306b8ee74ce7e22e2ca94b9249decb3e84080d5b9ce0"
+MUTATION_HASH = "5fa70b7c3846e1d6fe45a90bb7c4115f3f52ae533a36b424fb5ca7559d83e34c"
 DIFF = (
     "diff",
     "--binary",
@@ -298,9 +298,6 @@ def base_proof(baseline: dict, tier_cell: str) -> None:
         status, _ = execute("base-apply", ["git", "apply", str(overlay_path)], base)
         assert status == 0
         applied = True
-        # A new test file is visible to Git-derived consumers immediately; no implementation is overlaid.
-        status, _ = execute("base-intent-add", ["git", "add", "-N", TEST], base)
-        assert status == 0
         exact(base, BASE, BASE_TREE, expected)
         assert git(base, "diff", "HEAD", "--name-only").decode().splitlines() == list(
             OVERLAY_FILES
@@ -333,7 +330,7 @@ def base_proof(baseline: dict, tier_cell: str) -> None:
             base,
             tier_cell,
             False,
-            (TEST, 111, "the 34-row lookup must split across two 17-row targets"),
+            (TEST, 794, "the 34-row lookup must split across two 17-row targets"),
         )
         exact(base, BASE, BASE_TREE, expected)
     finally:
@@ -342,10 +339,6 @@ def base_proof(baseline: dict, tier_cell: str) -> None:
                 "base-restore", ["git", "apply", "--reverse", str(overlay_path)], base
             )
             assert status == 0
-        status, _ = execute(
-            "base-remove-intent", ["git", "update-index", "--force-remove", TEST], base
-        )
-        assert status == 0
         final_index = git(base, "ls-files", "--stage", "-z")
         (OUT / "base-index-final.z").write_bytes(final_index)
         write(
@@ -394,7 +387,7 @@ def guard_proof(baseline: dict, guard_cell: str) -> None:
             ROOT,
             guard_cell,
             True,
-            (IMPLEMENTATION, 279, "could not load the ClickHouse ADBC driver:"),
+            (IMPLEMENTATION, 280, "could not load the ClickHouse ADBC driver:"),
         )
     finally:
         path.write_bytes(original)
