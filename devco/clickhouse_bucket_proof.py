@@ -1,7 +1,8 @@
-"""Hosted bucket/own-user witnesses only; full gates and fleet evidence remain separate."""
+"""Hosted isolated native bucket controls; full gates and fleet evidence remain separate."""
 
 import difflib
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -13,17 +14,19 @@ import tempfile
 import uuid
 from pathlib import Path
 
-SOURCE = "87d6f4ac9fc6d0500009cc66d4dcbb342c396c0e"
-SOURCE_TREE = "fa33861bed003eb48942a0e6636c928a90fc6697"
-BASE = "3ee8874e6c5b3054a91a63c28aaca90302bf2dbe"
-BASE_TREE = "6903bc16ed77cb039a7bcd1de0638a848c372432"
+SOURCE = "dc78fb01027cdea69dce3338b7b85614da9dc317"
+SOURCE_TREE = "fda87660821d59cdcb673e783eb36dfd4662e4a0"
+REF = "ci/clickhouse-later-controls-proof"
+REQUEST_ID = "284ae664-975d-4e88-babe-b948a5e8839e"
 TIER = "a_clickhouse_lookup_split_reads_every_group_once_under_the_callers_grants_and_settings"
-GUARD = "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver"
 TEST = "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs"
-OVERLAY_FILES = (TEST,)
-IMPLEMENTATION = "crates/sutura-exec-clickhouse/src/adbc/buckets.rs"
-OVERLAY_HASH = "d78bab13a92612daaf92fc7dab19d4a9a385e1a9076d0acddc8221a7a62bd63e"
-MUTATION_HASH = "ae3a1462886651b85ec1d7e8715093b14a7995aa659b38210046848b585c48c0"
+LOCKS = (
+    "Cargo.lock",
+    "flake.lock",
+    "fuzz/Cargo.lock",
+    "pixi.lock",
+    "nix/clickhouse-adbc.Cargo.lock",
+)
 DIFF = (
     "diff",
     "--binary",
@@ -33,7 +36,124 @@ DIFF = (
     "--unified=3",
     "--diff-algorithm=myers",
 )
-LOCKS = ("Cargo.lock", "flake.lock", "fuzz/Cargo.lock", "pixi.lock")
+CONTROLS = (
+    {
+        "name": "ungranted",
+        "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+        "edits": [
+            (
+                "            RunsAs::Switched(crate::execute_as::ClickHouseUser::parse(name.as_str()).map_err(AdbcError::NotAClickHouseUser)?)",
+                "            RunsAs::Deployment",
+            )
+        ],
+        "line": 824,
+        "message": "no IMPERSONATE means no bucket",
+        "scope": "bucket switching and refusal without service fallback; first bucket only",
+        "patch_sha256": "42033ea5e447ca130adeeb0bc33df2daff55147a6947b09fe519a2b67c72f5b1",
+        "original_sha256": "788d4b6b08a538b08e2da41a2ea968510bcb5f3bb47b01c367ffb4791c90b7af",
+        "mutant_sha256": "84712abc90cdb7ed11586f5d8a3224f60bb426a541b03b11ede7248a692258d3",
+    },
+    {
+        "name": "missing-principal",
+        "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+        "edits": [
+            (
+                "    let runs_as = match (&adapter.posture, identity) {\n",
+                "    let runs_as = match (&adapter.posture, identity) {\n        (SourcePosture::ImpersonationAtSource, PartitionIdentity::ServiceUser) => RunsAs::Deployment,\n",
+            )
+        ],
+        "line": 836,
+        "message": "a missing principal never falls back to the deployment",
+        "scope": "receiving bucket admission of a missing principal; first bucket only",
+        "patch_sha256": "608404eb4a9c8e277b3701c8d5b2e5b9015fb18502e166dacecbb8af43d263fa",
+        "original_sha256": "788d4b6b08a538b08e2da41a2ea968510bcb5f3bb47b01c367ffb4791c90b7af",
+        "mutant_sha256": "0a9012283c9e7b2582bd34452597c2ccad2e9002bafd3a6f3a719980c66d5ae4",
+    },
+    {
+        "name": "shared-mismatch",
+        "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+        "edits": [
+            (
+                "    let runs_as = match (&adapter.posture, identity) {\n",
+                "    let runs_as = match (&adapter.posture, identity) {\n        (SourcePosture::SharedServiceUser { .. }, PartitionIdentity::Switched(_)) => RunsAs::Deployment,\n",
+            )
+        ],
+        "line": 849,
+        "message": "a shared source does not silently drop a switched principal",
+        "scope": "receiving shared-source/switched-identity mismatch; first bucket only",
+        "patch_sha256": "a9456c61fb94563ca2c55905ee700781072d239b224bf1c2be2be7a1bd5c1088",
+        "original_sha256": "788d4b6b08a538b08e2da41a2ea968510bcb5f3bb47b01c367ffb4791c90b7af",
+        "mutant_sha256": "e9e84afa8ae9cc698d27952ebc5dbf2d5eb90e5f6aaac611a08cd2b29be644ec",
+    },
+    {
+        "name": "undeclared",
+        "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+        "edits": [
+            (
+                "    if !adapter.hash_buckets {\n        return Err(AdbcError::HashBucketsNotDeclared);\n    }\n",
+                "",
+            )
+        ],
+        "line": 861,
+        "message": "an undeclared source reads no bucket",
+        "scope": "receiving bucket opt-in only; planner guard unchanged; first bucket only",
+        "patch_sha256": "153fbb4890fe48271560b39581bdaea77fce20694382486b7920d6a5fd119bbf",
+        "original_sha256": "788d4b6b08a538b08e2da41a2ea968510bcb5f3bb47b01c367ffb4791c90b7af",
+        "mutant_sha256": "35850ba4fb6ffb7dcfa856c4549325c0459ac583119afef28ff7c4b594b715b1",
+    },
+    {
+        "name": "combined-schema",
+        "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+        "edits": [
+            (
+                "    if described != *granted {\n        return Err(AdbcError::PartitionSchemaChanged);\n    }\n",
+                "    let _ = granted;\n",
+            ),
+            (
+                "    if rows.schema() != granted {\n        return Err(AdbcError::PartitionSchemaChanged);\n    }\n",
+                "",
+            ),
+        ],
+        "line": 874,
+        "message": "a mismatched grant schema reads no bucket",
+        "scope": "combined schema agreement barriers only; neither barrier independently; first bucket only",
+        "patch_sha256": "b6fb27669499698c11ec84680f1a3835da2293f083eb9e693240f68ccfd0cf95",
+        "original_sha256": "788d4b6b08a538b08e2da41a2ea968510bcb5f3bb47b01c367ffb4791c90b7af",
+        "mutant_sha256": "196eb6f5d60f1cbdce81b1425f3808beb2ac5a6934e027800bc6ba75129ed506",
+    },
+    {
+        "name": "readonly-mapper",
+        "path": "crates/sutura-exec-clickhouse/src/adbc.rs",
+        "edits": [
+            (
+                "    const READONLY: Self = Self(164);",
+                "    const READONLY: Self = Self(165);",
+            )
+        ],
+        "line": 835,
+        "message": "ClickHouse ADBC call failed:",
+        "scope": "native code 164 to typed SettingRefused only; no code 452 or own-clause semantic credit",
+        "patch_sha256": "84d8317f99eb79e1526cac2bbdc7312637607e39b0afc5c1008f804aac6cdd3c",
+        "original_sha256": "5c426b7f0ee735e46010ba8e55bf9bc41865ad878f169389c7229f42a913da56",
+        "mutant_sha256": "21d484678d57a8d7b9da88466bf5dbc120aded2d9f96929d4d20cde18f5383e1",
+    },
+    {
+        "name": "readonly-settings",
+        "path": "crates/sutura-exec-clickhouse/src/adbc.rs",
+        "edits": [
+            (
+                "            .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;\n        let sql = match *runs_as {",
+                '            .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;\n        let sql = match sql.split_once(" SETTINGS ") {\n            Some((select, _)) => select.to_owned(),\n            None => sql,\n        };\n        let sql = match *runs_as {',
+            )
+        ],
+        "line": 834,
+        "message": "readonly must not drop required settings",
+        "scope": "SQL own-clause settings only; driver options retained; a survivor earns no credit",
+        "patch_sha256": "97572934e6e695bb699cb5385ea3bdcb8aed738a5690787907eb56c5cd211ee6",
+        "original_sha256": "5c426b7f0ee735e46010ba8e55bf9bc41865ad878f169389c7229f42a913da56",
+        "mutant_sha256": "d60f2805f758fcea4da20c765a9b72f6b236d76d5232cd509a99efedbc58d4ec",
+    },
+)
 
 
 def digest(data: bytes) -> str:
@@ -46,6 +166,19 @@ def git(root: Path, *args: str) -> bytes:
 
 def write(name: str, value: object) -> None:
     (OUT / name).write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def redact(text: str) -> str:
+    secrets = re.findall(r"^::add-mask::([^\r\n]+)", text, re.MULTILINE)
+    secrets.extend(
+        value
+        for key, value in os.environ.items()
+        if re.search(r"PASSWORD|TOKEN|SECRET|CREDENTIAL", key)
+    )
+    for secret in sorted(filter(None, secrets), key=len, reverse=True):
+        text = text.replace(secret, "***")
+    text = re.sub(r"^::add-mask::.*\n", "", text, flags=re.MULTILINE)
+    return text
 
 
 def execute(
@@ -64,15 +197,7 @@ def execute(
         text = log.read().decode(errors="replace")
     stdout = result.stdout.decode(errors="replace") if separate_stdout else ""
     text += stdout
-    secrets = re.findall(r"^::add-mask::([^\r\n]+)", text, re.MULTILINE)
-    secrets.extend(
-        value
-        for key, value in os.environ.items()
-        if re.search(r"PASSWORD|TOKEN|SECRET|CREDENTIAL", key)
-    )
-    for secret in sorted(filter(None, secrets), key=len, reverse=True):
-        text = text.replace(secret, "***")
-    text = re.sub(r"^::add-mask::.*\n", "", text, flags=re.MULTILINE)
+    text = redact(text)
     (OUT / (label + ".log")).write_text(text, encoding="utf-8")
     write(
         label + ".json",
@@ -104,10 +229,22 @@ def state(root: Path) -> dict:
     }
 
 
-def exact(root: Path, revision: str, tree: str, expected: dict) -> None:
+def index_bytes(root: Path) -> bytes:
+    path = (
+        git(root, "rev-parse", "--path-format=absolute", "--git-path", "index")
+        .decode()
+        .strip()
+    )
+    return Path(path).read_bytes()
+
+
+def exact(
+    root: Path, revision: str, tree: str, expected: dict, original_index: bytes
+) -> None:
     assert git(root, "rev-parse", "HEAD").decode().strip() == revision
     assert git(root, "rev-parse", "HEAD^{tree}").decode().strip() == tree
     assert state(root) == expected, "tracked bytes or modes changed"
+    assert index_bytes(root) == original_index, "raw source index changed"
     assert not git(root, "diff", "--cached", "--name-only")
     assert not git(root, "ls-files", "--others", "--exclude-standard"), (
         "untracked source"
@@ -143,7 +280,7 @@ def bootstrap() -> None:
     # ponytail: keep the source's warm target, provisioner and outer teardown trap; replace its test tail only.
     command = shlex.join(["python3", "-I", str(Path(__file__).resolve())])
     replacement = (
-        "export SUTURA_DEV_REQUIRE_TIER=1\n  export SUTURA_CLICKHOUSE_BUCKET_PROOF_BOUND=1\n  exec "
+        "export SUTURA_DEV_REQUIRE_TIER=1\n  export SUTURA_CLICKHOUSE_LATER_CONTROLS_PROOF_BOUND=1\n  exec "
         + command
     )
     script = original.replace(marker, replacement)
@@ -168,8 +305,8 @@ def bootstrap() -> None:
     )
 
 
-def test_command(unit: bool) -> list[str]:
-    command = [
+def test_command() -> list[str]:
+    return [
         "cargo",
         "test",
         "--locked",
@@ -178,41 +315,20 @@ def test_command(unit: bool) -> list[str]:
         "-p",
         "sutura-exec-clickhouse",
         "--all-features",
+        "--test",
+        "adbc_execute_as_legs",
     ]
-    if unit:
-        command += ["--lib"]
-        # The own-user cell uses a deliberately absent driver and needs no tier credentials.
-        command = [
-            "env",
-            "-u",
-            "SUTURA_DEV_REQUIRE_TIER",
-            "-u",
-            "SUTURA_CLICKHOUSE_TIER_USER",
-            "-u",
-            "SUTURA_CLICKHOUSE_TIER_PASSWORD",
-            "-u",
-            "SUTURA_CLICKHOUSE_TIER_TOKEN",
-            *command,
-        ]
-    else:
-        command += ["--test", "adbc_execute_as_legs"]
-    return command
 
 
-def discover(label: str, root: Path, unit: bool) -> str:
-    status, text = execute(label, [*test_command(unit), "--", "--list"], root)
+def discover(label: str, root: Path) -> str:
+    status, text = execute(label, [*test_command(), "--", "--list"], root)
     assert status == 0, "listing/build failure is not behavior evidence"
-    suffix = GUARD if unit else TIER
     names = re.findall(r"^([^\n ]+): test$", text, re.MULTILINE)
-    selected = [name for name in names if name.split("::")[-1] == suffix]
+    selected = [name for name in names if name.split("::")[-1] == TIER]
     assert len(selected) == 1
     assert selected[0] in (
-        ("adbc::buckets::tests::" + GUARD,)
-        if unit
-        else (
-            "adbc_execute_as_legs::buckets::" + TIER,
-            "buckets::" + TIER,
-        )
+        "adbc_execute_as_legs::buckets::" + TIER,
+        "buckets::" + TIER,
     ), "unexpected actual libtest namespace"
     write(
         label + "-selection.json",
@@ -225,12 +341,11 @@ def test(
     label: str,
     root: Path,
     cell: str,
-    unit: bool,
     failure: tuple[str, int, str] | None = None,
-) -> None:
+) -> str:
     status, text = execute(
         label,
-        [*test_command(unit), cell, "--", "--exact", "--nocapture", "--test-threads=1"],
+        [*test_command(), cell, "--", "--exact", "--nocapture", "--test-threads=1"],
         root,
     )
     assert re.findall(r"^running (\d+) test[s]?$", text, re.MULTILINE) == ["1"], (
@@ -258,6 +373,9 @@ def test(
     )
     if failure:
         path, line, message = failure
+        assert (
+            len(re.findall(r"^thread [^\n]+ panicked at ", text, re.MULTILINE)) == 1
+        ), "not exactly one first panic"
         panic = re.search(
             rf"^thread '{re.escape(cell)}'(?: \([^\n]*\))? panicked at {re.escape(path)}:{line}:\d+:\n([^\n]+)",
             text,
@@ -269,136 +387,179 @@ def test(
             {"cell": cell, "site": f"{path}:{line}", "panic": panic[0]},
         )
 
+    return text
 
-def base_proof(baseline: dict, tier_cell: str) -> None:
-    overlay = git(ROOT, *DIFF, BASE, SOURCE, "--", *OVERLAY_FILES)
-    assert digest(overlay) == OVERLAY_HASH
-    overlay_path = OUT / "base-test-only.patch"
-    overlay_path.write_bytes(overlay)
-    base = (
-        Path(
-            tempfile.mkdtemp(
-                prefix="clickhouse-proof-base-", dir=os.environ["RUNNER_TEMP"]
-            )
-        )
-        / "source"
+
+def native_query(sql: str) -> str:
+    endpoint = json.loads(
+        (ROOT / ".sutura-dev/endpoints.json").read_text(encoding="utf-8")
+    )["services"]["clickhouse"]
+    assert endpoint["host"] == "127.0.0.1" and 0 < endpoint["port"] < 65536
+    connection = http.client.HTTPConnection(
+        endpoint["host"], endpoint["port"], timeout=30
     )
-    status, _ = execute(
-        "base-worktree", ["git", "worktree", "add", "--detach", str(base), BASE], ROOT
-    )
-    assert status == 0
-    before = state(base)
-    initial_index = git(base, "ls-files", "--stage", "-z")
-    (OUT / "base-index-initial.z").write_bytes(initial_index)
-    exact(base, BASE, BASE_TREE, before)
-    expected = before | {name: baseline[name] for name in OVERLAY_FILES}
-    discovery = ROOT / ".sutura-dev/endpoints.json"
-    applied = False
     try:
-        status, _ = execute("base-apply", ["git", "apply", str(overlay_path)], base)
-        assert status == 0
-        applied = True
-        exact(base, BASE, BASE_TREE, expected)
-        assert git(base, "diff", "HEAD", "--name-only").decode().splitlines() == list(
-            OVERLAY_FILES
-        )
-        assert digest(git(base, *DIFF, "HEAD")) == OVERLAY_HASH
-        (base / ".sutura-dev").mkdir()
-        shutil.copyfile(discovery, base / ".sutura-dev/endpoints.json")
-        write(
-            "base-overlay.json",
-            {
-                "base": BASE,
-                "base_tree": BASE_TREE,
-                "source": SOURCE,
-                "overlay_sha256": digest(overlay),
-                "allowed_changes": OVERLAY_FILES,
-                "base_manifest": before,
-                "injected_manifest": expected,
-                "shared_discovery_sha256": digest(
-                    (base / ".sutura-dev/endpoints.json").read_bytes()
-                ),
-                "locks": {
-                    name: {"source": baseline[name][1], "base": before[name][1]}
-                    for name in LOCKS
-                },
+        connection.request(
+            "POST",
+            "/?log_queries=0",
+            body=sql.encode(),
+            headers={
+                "X-ClickHouse-User": os.environ["SUTURA_CLICKHOUSE_TIER_USER"],
+                "X-ClickHouse-Key": os.environ["SUTURA_CLICKHOUSE_TIER_PASSWORD"],
             },
         )
-        assert discover("base-list", base, False) == tier_cell
-        test(
-            "tier-base",
-            base,
-            tier_cell,
-            False,
-            (TEST, 793, "the 34-row lookup must split across two 17-row targets"),
-        )
-        exact(base, BASE, BASE_TREE, expected)
+        response = connection.getresponse()
+        text = response.read().decode()
+        assert response.status == 200, redact(text)
+        return text
     finally:
-        if applied:
-            status, _ = execute(
-                "base-restore", ["git", "apply", "--reverse", str(overlay_path)], base
-            )
-            assert status == 0
-        final_index = git(base, "ls-files", "--stage", "-z")
-        (OUT / "base-index-final.z").write_bytes(final_index)
-        write(
-            "base-final-state.json",
-            {
-                "manifest": state(base),
-                "staged_entries_unchanged": final_index == initial_index,
-                "status": git(base, "status", "--porcelain").decode(),
-            },
+        connection.close()
+
+
+def native_test(
+    label: str, cell: str, failure: tuple[str, int, str] | None = None
+) -> tuple[str, list[dict]]:
+    since = native_query("SELECT toUnixTimestamp64Micro(now64(6)) FORMAT TSV").strip()
+    assert re.fullmatch(r"[0-9]+", since)
+    write(
+        label + "-checkpoint.json",
+        {
+            "since_microseconds": since,
+            "scope": "entire combined cell phase, not a per-call absence witness",
+        },
+    )
+    try:
+        text = test(label, ROOT, cell, failure)
+    finally:
+        native_query("SYSTEM FLUSH LOGS")
+        raw = native_query(
+            "SELECT event_time_microseconds, toString(type) AS type, query_id, initial_query_id, "
+            "user, initial_user, toString(address) AS address, toString(initial_address) AS initial_address, "
+            "toString(query_kind) AS query_kind, current_database, query, Settings, "
+            "result_rows, result_bytes, read_rows, read_bytes, exception_code, exception "
+            "FROM system.query_log WHERE toUnixTimestamp64Micro(event_time_microseconds) >= "
+            + since
+            + " ORDER BY event_time_microseconds, query_id, type FORMAT JSONEachRow"
         )
-        exact(base, BASE, BASE_TREE, before)
-        assert final_index == initial_index
-        subprocess.run(["git", "worktree", "remove", str(base)], cwd=ROOT, check=True)
+        raw = redact(raw)
+        (OUT / (label + "-native-query-log.jsonl")).write_text(raw, encoding="utf-8")
+    events = [json.loads(line) for line in raw.splitlines() if line]
+    return text, events
 
 
-def guard_proof(baseline: dict, guard_cell: str) -> None:
-    path = ROOT / IMPLEMENTATION
-    original = path.read_bytes()
-    guard = b" if name.as_str() != adapter.username"
-    assert original.count(guard) == 1
-    mutant = original.replace(guard, b"", 1)
+def native_causes(events: list[dict]) -> dict:
+    return {
+        "ungranted_497_impersonate": any(
+            event["exception_code"] == 497
+            and 'EXECUTE AS "sutura_switched_ungranted"' in event["query"]
+            and "IMPERSONATE" in event["exception"].upper()
+            and "sutura_switched_ungranted" in event["exception"]
+            for event in events
+        ),
+        "readonly_164": any(
+            event["exception_code"] == 164
+            and (
+                'EXECUTE AS "sutura_switched_readonly"' in event["query"]
+                or event["user"] == "sutura_switched_readonly"
+            )
+            for event in events
+        ),
+    }
+
+
+def control_proof(
+    control: dict, baseline: dict, original_index: bytes, cell: str, pristine_label: str
+) -> dict:
+    exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+    fixture_config = (ROOT / ".sutura-dev/clickhouse/config.yaml").read_bytes()
+    discovery_bytes = (ROOT / ".sutura-dev/endpoints.json").read_bytes()
+    name, relative = control["name"], control["path"]
+    path = ROOT / relative
+    original, mode = path.read_bytes(), path.stat().st_mode
+    assert digest(original) == control["original_sha256"]
+    mutant = original
+    for before, after in control["edits"]:
+        assert mutant.count(before.encode()) == 1, "mutation anchor not unique"
+        mutant = mutant.replace(before.encode(), after.encode(), 1)
+    assert digest(mutant) == control["mutant_sha256"]
     patch = "".join(
         difflib.unified_diff(
             original.decode().splitlines(keepends=True),
             mutant.decode().splitlines(keepends=True),
-            fromfile="a/" + IMPLEMENTATION,
-            tofile="b/" + IMPLEMENTATION,
+            fromfile="a/" + relative,
+            tofile="b/" + relative,
         )
     ).encode()
-    assert digest(patch) == MUTATION_HASH
-    patch_path = OUT / "own-user-guard-removed.patch"
+    assert digest(patch) == control["patch_sha256"]
+    patch_path = OUT / (name + ".patch")
     patch_path.write_bytes(patch)
-    test("guard-head", ROOT, guard_cell, True)
+    result = {
+        "name": name,
+        "scope": control["scope"],
+        "patch_sha256": digest(patch),
+        "intended_first_assertion": f"{TEST}:{control['line']}",
+        "pristine_pass_reference": pristine_label,
+        "own_assertion_killed": False,
+        "accepted_kill": False,
+        "restored_pass": False,
+        "status": "UNRUN",
+    }
+    write(name + "-verdict.json", result)
     try:
-        status, _ = execute("guard-apply", ["git", "apply", str(patch_path)], ROOT)
-        assert status == 0
-        expected = baseline | {
-            IMPLEMENTATION: [baseline[IMPLEMENTATION][0], digest(mutant)]
-        }
-        exact(ROOT, SOURCE, SOURCE_TREE, expected)
-        assert git(ROOT, "diff", "--name-only").decode().splitlines() == [
-            IMPLEMENTATION
-        ]
-        test(
-            "guard-removed",
-            ROOT,
-            guard_cell,
-            True,
-            (IMPLEMENTATION, 284, "could not load the ClickHouse ADBC driver:"),
+        status, _ = execute(
+            name + "-check", ["git", "apply", "--check", str(patch_path)], ROOT
         )
+        assert status == 0
+        status, _ = execute(name + "-apply", ["git", "apply", str(patch_path)], ROOT)
+        assert status == 0
+        expected = baseline | {relative: [baseline[relative][0], digest(mutant)]}
+        exact(ROOT, SOURCE, SOURCE_TREE, expected, original_index)
+        assert git(ROOT, "diff", "--name-only").decode().splitlines() == [relative]
+        try:
+            text, events = native_test(
+                name + "-mutant", cell, (TEST, control["line"], control["message"])
+            )
+            if name == "readonly-mapper":
+                assert (
+                    re.search(r"Code: 164\b", text)
+                    and native_causes(events)["readonly_164"]
+                ), "mapper failed without the native 164 cause"
+            result.update(
+                own_assertion_killed=True,
+                status="OWN_ASSERTION_KILLED_RESTORATION_PENDING",
+            )
+        except AssertionError as error:
+            result.update(status="NO_ACCEPTED_KILL", reason=redact(str(error)))
+        write(name + "-verdict.json", result)
     finally:
         path.write_bytes(original)
-        exact(ROOT, SOURCE, SOURCE_TREE, baseline)
-    test("guard-restored", ROOT, guard_cell, True)
+        path.chmod(mode)
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+        _, restored_events = native_test(name + "-restored", cell)
+        assert all(native_causes(restored_events).values()), (
+            "restored fixture native causes changed"
+        )
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+        assert (
+            ROOT / ".sutura-dev/clickhouse/config.yaml"
+        ).read_bytes() == fixture_config, "tier configuration changed"
+        assert (ROOT / ".sutura-dev/endpoints.json").read_bytes() == discovery_bytes, (
+            "tier endpoint changed"
+        )
+        result["restored_pass"] = True
+        result["accepted_kill"] = result["own_assertion_killed"]
+        if result["accepted_kill"]:
+            result["status"] = "OWN_ASSERTION_KILLED_AND_RESTORED"
+        write(name + "-verdict.json", result)
+    return result
 
 
 def proof() -> None:
     assert os.environ.get("SUTURA_DEV_REQUIRE_TIER") == "1"
     baseline = state(ROOT)
-    exact(ROOT, SOURCE, SOURCE_TREE, baseline)
+    original_index = index_bytes(ROOT)
+    (OUT / "index-initial.bin").write_bytes(original_index)
+    exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
     initial_index = git(ROOT, "ls-files", "--stage", "-z")
     (OUT / "index-initial.z").write_bytes(initial_index)
     write("source-manifest.json", baseline)
@@ -429,7 +590,12 @@ def proof() -> None:
         ),
         "credential_values_retained": False,
         "shared_live_fixture": True,
+        "server_version": native_query("SELECT version() FORMAT TSV").strip(),
+        "fixture_config_sha256": digest(
+            (ROOT / ".sutura-dev/clickhouse/config.yaml").read_bytes()
+        ),
     }
+    assert environment["server_version"] == "26.9.15.5"
     for name in ("cargo", "rustc", "clang"):
         tool = shutil.which(name)
         assert tool and tool.startswith("/nix/store/"), (name, tool)
@@ -444,16 +610,34 @@ def proof() -> None:
     environment["native_cargo_home"] = os.environ["CARGO_HOME"]
     write("environment.json", environment)
     try:
-        tier_cell = discover("head-tier-list", ROOT, False)
-        guard_cell = discover("head-guard-list", ROOT, True)
-        test("tier-head", ROOT, tier_cell, False)
-        exact(ROOT, SOURCE, SOURCE_TREE, baseline)
-        base_proof(baseline, tier_cell)
-        guard_proof(baseline, guard_cell)
-        test("tier-restored", ROOT, tier_cell, False)
+        tier_cell = discover("head-tier-list", ROOT)
+        _, events = native_test("tier-head", tier_cell)
+        causes = native_causes(events)
+        write("native-baseline-causes.json", causes)
+        assert all(causes.values()), (
+            "native IMPERSONATE/readonly causes not established"
+        )
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+        results = []
+        pristine_label = "tier-head"
+        for control in CONTROLS:
+            assert (
+                digest((ROOT / ".sutura-dev/clickhouse/config.yaml").read_bytes())
+                == environment["fixture_config_sha256"]
+            )
+            assert discovery.read_bytes() == (OUT / "endpoints.json").read_bytes()
+            results.append(
+                control_proof(
+                    control, baseline, original_index, tier_cell, pristine_label
+                )
+            )
+            pristine_label = control["name"] + "-restored"
+        native_test("tier-final", tier_cell)
     finally:
         final_index = git(ROOT, "ls-files", "--stage", "-z")
         final_manifest = state(ROOT)
+        final_raw_index = index_bytes(ROOT)
+        (OUT / "index-final.bin").write_bytes(final_raw_index)
         (OUT / "index-final.z").write_bytes(final_index)
         write(
             "final-state.json",
@@ -462,18 +646,33 @@ def proof() -> None:
                 "locks": {name: final_manifest[name] for name in LOCKS},
                 "status": git(ROOT, "status", "--porcelain").decode(),
                 "staged_entries_unchanged": initial_index == final_index,
+                "raw_index_unchanged": original_index == final_raw_index,
             },
         )
-        exact(ROOT, SOURCE, SOURCE_TREE, baseline)
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
         assert final_index == initial_index
+    killed = {result["name"]: result["accepted_kill"] for result in results}
     write(
         "verdict.json",
         {
-            "status": "named tier head/base split witness; own-user guard head/mutation/restored; final tier pass",
-            "guard_base_verdict": "NONE_SAME_FILE",
-            "later_controls_independently_killed": False,
-            "limit": "One source-pinned live tier shared by head/base. No fleet, two distinct successful callers, placement, served grant negatives, full gates or delivery verdict.",
+            "status": "all isolated controls killed"
+            if all(killed.values())
+            else "incomplete; ineffective attempts receive no credit",
+            "controls": results,
+            "later_controls_independently_killed": len(killed) == 7
+            and all(killed.values()),
+            "readonly_semantic_killed": killed["readonly-settings"],
+            "readonly_mapper_killed": killed["readonly-mapper"],
+            "schema_combined_barrier_killed": killed["combined-schema"],
+            "schema_pre_read_independently_killed": False,
+            "schema_post_read_independently_killed": False,
+            "native_code_452_proven": False,
+            "prior_r4_credit_transferred": False,
+            "limit": "One native tier and unchanged combined cell; first bucket only. Phase query logs do not isolate a negative call or prove data absence. No fleet, placement, two successful differently granted callers, served grant, full gates, delivery or issue-completion claim.",
         },
+    )
+    assert len(killed) == 7 and all(killed.values()), (
+        "not all required controls have accepted own-assertion witnesses"
     )
 
 
@@ -481,13 +680,14 @@ if __name__ == "__main__":
     assert os.environ.get("GITHUB_ACTIONS") == "true", "hosted execution only"
     assert os.environ["GITHUB_RUN_ATTEMPT"] == "1", "new request required; no rerun"
     assert not sys.flags.optimize and not os.environ.get("SKIP")
-    assert (
-        os.environ["SOURCE_SHA"],
-        os.environ["SOURCE_TREE"],
-        os.environ["COMPARISON_SHA"],
-    ) == (SOURCE, SOURCE_TREE, BASE)
+    assert (os.environ["SOURCE_SHA"], os.environ["SOURCE_TREE"]) == (
+        SOURCE,
+        SOURCE_TREE,
+    )
     assert str(uuid.UUID(os.environ["REQUEST_ID"])) == os.environ["REQUEST_ID"]
-    assert os.environ["GITHUB_REF_NAME"] == "ci/clickhouse-bucket-proof"
+    assert os.environ["REQUEST_ID"] == REQUEST_ID
+    assert os.environ["GITHUB_REF_NAME"] == REF
+    assert re.fullmatch(r"[0-9a-f]{40}", os.environ["HELPER_TREE"])
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     ROOT = Path.cwd().resolve()
@@ -495,16 +695,18 @@ if __name__ == "__main__":
     assert ROOT != HELPER
     assert git(ROOT, "rev-parse", "HEAD").decode().strip() == SOURCE
     assert git(ROOT, "rev-parse", "HEAD^{tree}").decode().strip() == SOURCE_TREE
-    assert git(ROOT, "rev-parse", BASE + "^{tree}").decode().strip() == BASE_TREE
-    assert git(ROOT, "merge-base", BASE, SOURCE).decode().strip() == BASE
     assert (
         git(HELPER, "rev-parse", "HEAD").decode().strip()
         == os.environ["GITHUB_WORKFLOW_SHA"]
     )
+    assert (
+        git(HELPER, "rev-parse", "HEAD^{tree}").decode().strip()
+        == os.environ["HELPER_TREE"]
+    )
     assert not git(HELPER, "status", "--porcelain", "--untracked-files=no")
     assert not git(ROOT, "status", "--porcelain")
-    OUT = ROOT / "target/clickhouse-bucket-proof"
-    if os.environ.get("SUTURA_CLICKHOUSE_BUCKET_PROOF_BOUND") == "1":
+    OUT = ROOT / "target/clickhouse-later-controls-proof"
+    if os.environ.get("SUTURA_CLICKHOUSE_LATER_CONTROLS_PROOF_BOUND") == "1":
         assert (OUT / "provenance.json").is_file()
         proof()
     else:
@@ -514,7 +716,7 @@ if __name__ == "__main__":
             "inputs": {
                 "source_sha": SOURCE,
                 "source_tree": SOURCE_TREE,
-                "comparison_sha": BASE,
+                "helper_tree": os.environ["HELPER_TREE"],
                 "request_id": os.environ["REQUEST_ID"],
             },
         }
@@ -522,7 +724,7 @@ if __name__ == "__main__":
         write(
             "provenance.json",
             {
-                "schema": "clickhouse-bucket-proof/v1",
+                "schema": "clickhouse-later-controls-proof/v1",
                 "request_sha256": digest(
                     json.dumps(request, indent=2).encode() + b"\n"
                 ),
@@ -534,8 +736,9 @@ if __name__ == "__main__":
                 ),
                 "source": SOURCE,
                 "source_tree": SOURCE_TREE,
-                "base": BASE,
-                "base_tree": BASE_TREE,
+                "controls_sha256": digest(
+                    json.dumps(CONTROLS, sort_keys=True).encode()
+                ),
                 "run_id": os.environ["GITHUB_RUN_ID"],
                 "run_attempt": 1,
             },

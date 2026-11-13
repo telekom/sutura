@@ -1,5 +1,5 @@
 name: format
-run-name: ClickHouse bucket proof ${{ inputs.request_id }}
+run-name: ClickHouse later controls ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
@@ -12,8 +12,8 @@ on:
         description: Exact frozen source tree
         type: string
         required: true
-      comparison_sha:
-        description: Exact comparison commit
+      helper_tree:
+        description: Exact reviewed helper tree
         type: string
         required: true
       request_id:
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: clickhouse-bucket-proof-${{ github.ref }}
+  group: clickhouse-later-controls-proof-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -52,12 +52,12 @@ jobs:
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
-      - name: Prove exact-source ClickHouse buckets and worker identity refusal
+      - name: Prove seven isolated exact-source native bucket controls
         working-directory: source
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_TREE: ${{ inputs.source_tree }}
-          COMPARISON_SHA: ${{ inputs.comparison_sha }}
+          HELPER_TREE: ${{ inputs.helper_tree }}
           REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
@@ -68,7 +68,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: clickhouse-bucket-proof-${{ inputs.request_id }}-${{ github.run_id }}
-          path: source/target/clickhouse-bucket-proof/
+          name: clickhouse-later-controls-proof-${{ inputs.request_id }}-${{ github.run_id }}
+          path: source/target/clickhouse-later-controls-proof/
           if-no-files-found: error
           retention-days: 14
