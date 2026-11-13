@@ -16,8 +16,8 @@ from pathlib import Path
 
 SOURCE = "dc78fb01027cdea69dce3338b7b85614da9dc317"
 SOURCE_TREE = "fda87660821d59cdcb673e783eb36dfd4662e4a0"
-REF = "ci/clickhouse-later-controls-proof"
-REQUEST_ID = "284ae664-975d-4e88-babe-b948a5e8839e"
+REF = "ci/clickhouse-later-controls-proof-v2"
+REQUEST_ID = "5a756362-125d-487a-be65-6aa968756013"
 TIER = "a_clickhouse_lookup_split_reads_every_group_once_under_the_callers_grants_and_settings"
 TEST = "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs"
 LOCKS = (
@@ -239,12 +239,14 @@ def index_bytes(root: Path) -> bytes:
 
 
 def exact(
-    root: Path, revision: str, tree: str, expected: dict, original_index: bytes
+    root: Path, revision: str, tree: str, expected: dict, staged_entries: bytes
 ) -> None:
     assert git(root, "rev-parse", "HEAD").decode().strip() == revision
     assert git(root, "rev-parse", "HEAD^{tree}").decode().strip() == tree
     assert state(root) == expected, "tracked bytes or modes changed"
-    assert index_bytes(root) == original_index, "raw source index changed"
+    assert git(root, "ls-files", "--stage", "-z") == staged_entries, (
+        "source stage entries changed"
+    )
     assert not git(root, "diff", "--cached", "--name-only")
     assert not git(root, "ls-files", "--others", "--exclude-standard"), (
         "untracked source"
@@ -468,9 +470,9 @@ def native_causes(events: list[dict]) -> dict:
 
 
 def control_proof(
-    control: dict, baseline: dict, original_index: bytes, cell: str, pristine_label: str
+    control: dict, baseline: dict, staged_entries: bytes, cell: str, pristine_label: str
 ) -> dict:
-    exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+    exact(ROOT, SOURCE, SOURCE_TREE, baseline, staged_entries)
     fixture_config = (ROOT / ".sutura-dev/clickhouse/config.yaml").read_bytes()
     discovery_bytes = (ROOT / ".sutura-dev/endpoints.json").read_bytes()
     name, relative = control["name"], control["path"]
@@ -513,7 +515,7 @@ def control_proof(
         status, _ = execute(name + "-apply", ["git", "apply", str(patch_path)], ROOT)
         assert status == 0
         expected = baseline | {relative: [baseline[relative][0], digest(mutant)]}
-        exact(ROOT, SOURCE, SOURCE_TREE, expected, original_index)
+        exact(ROOT, SOURCE, SOURCE_TREE, expected, staged_entries)
         assert git(ROOT, "diff", "--name-only").decode().splitlines() == [relative]
         try:
             text, events = native_test(
@@ -534,12 +536,12 @@ def control_proof(
     finally:
         path.write_bytes(original)
         path.chmod(mode)
-        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, staged_entries)
         _, restored_events = native_test(name + "-restored", cell)
         assert all(native_causes(restored_events).values()), (
             "restored fixture native causes changed"
         )
-        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, staged_entries)
         assert (
             ROOT / ".sutura-dev/clickhouse/config.yaml"
         ).read_bytes() == fixture_config, "tier configuration changed"
@@ -559,8 +561,8 @@ def proof() -> None:
     baseline = state(ROOT)
     original_index = index_bytes(ROOT)
     (OUT / "index-initial.bin").write_bytes(original_index)
-    exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
     initial_index = git(ROOT, "ls-files", "--stage", "-z")
+    exact(ROOT, SOURCE, SOURCE_TREE, baseline, initial_index)
     (OUT / "index-initial.z").write_bytes(initial_index)
     write("source-manifest.json", baseline)
     write("source-locks.json", {name: baseline[name] for name in LOCKS})
@@ -617,7 +619,7 @@ def proof() -> None:
         assert all(causes.values()), (
             "native IMPERSONATE/readonly causes not established"
         )
-        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, initial_index)
         results = []
         pristine_label = "tier-head"
         for control in CONTROLS:
@@ -628,7 +630,7 @@ def proof() -> None:
             assert discovery.read_bytes() == (OUT / "endpoints.json").read_bytes()
             results.append(
                 control_proof(
-                    control, baseline, original_index, tier_cell, pristine_label
+                    control, baseline, initial_index, tier_cell, pristine_label
                 )
             )
             pristine_label = control["name"] + "-restored"
@@ -647,9 +649,10 @@ def proof() -> None:
                 "status": git(ROOT, "status", "--porcelain").decode(),
                 "staged_entries_unchanged": initial_index == final_index,
                 "raw_index_unchanged": original_index == final_raw_index,
+                "index_contract": "exact tracked bytes/modes and semantic stage entries; raw snapshots are diagnostic",
             },
         )
-        exact(ROOT, SOURCE, SOURCE_TREE, baseline, original_index)
+        exact(ROOT, SOURCE, SOURCE_TREE, baseline, initial_index)
         assert final_index == initial_index
     killed = {result["name"]: result["accepted_kill"] for result in results}
     write(

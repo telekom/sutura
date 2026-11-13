@@ -1,5 +1,5 @@
 name: format
-run-name: ClickHouse later controls ${{ inputs.request_id }}
+run-name: ClickHouse later controls v2 ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
