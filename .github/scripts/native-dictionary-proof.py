@@ -122,6 +122,11 @@ def assert_cell(root, cell, label, red=None):
             for site in red["sites"]
         )
         assert all(needle in text for needle in red["needles"]), (label, red)
+        if "unknown_native_fields" in red:
+            assert any(
+                f"unknown field `{field}`" in text
+                for field in red["unknown_native_fields"]
+            ), (label, red)
         if "last_probe" in red:
             diagnostic_text = "\n".join(line.lstrip() for line in text.splitlines())
             probes = re.findall(
@@ -340,20 +345,10 @@ def main():
     NEXTEST, ORACLE = wrappers()
     cells = FROZEN["cells"]
     assert len(cells) == 9 and sum(c["venue"] == "oracle" for c in cells) == 1
-    assert (
-        execute(ROOT, ["bash", str(OUT / "fixture-clear.sh")], "head-clear-before")[0]
-        == 0
-    )
-    try:
-        for number, cell in enumerate(cells):
-            assert_cell(ROOT, cell, f"head-{number}")
-    finally:
-        assert (
-            execute(
-                ROOT, ["bash", str(OUT / "fixture-cleanup.sh")], "head-fixture-cleanup"
-            )[0]
-            == 0
-        )
+    prior = FROZEN["continuation"]
+    assert prior["head_green_cells"] == list(range(9))
+    assert prior["base_own_assertion_red_cells"] == [0]
+    assert prior["missing_base_cells"] == list(range(1, 9))
     with worktree(FROZEN["base"], "base") as base:
         baseline = inventory(base)
         for name, digest in FROZEN["overlays"].items():
@@ -387,7 +382,8 @@ def main():
             git(base, "diff", "--cached", "--binary")
         )
         record(OUT / "base-overlay-files.json", after)
-        for number, cell in enumerate(cells):
+        for number in prior["missing_base_cells"]:
+            cell = cells[number]
             assert_cell(base, cell, f"base-{number}", cell["base_red"])
     assert len(FROZEN["mutations"]) == 5
     for mutation in FROZEN["mutations"]:
@@ -425,12 +421,15 @@ def main():
     record(
         OUT / "summary.json",
         {
-            "stable_cells": 9,
-            "head_green": 9,
-            "base_own_assertion_red": 9,
-            "mutations": len(FROZEN["mutations"]),
+            "prior_run": prior["run"],
+            "retained_head_green": len(prior["head_green_cells"]),
+            "retained_base_own_assertion_red": len(
+                prior["base_own_assertion_red_cells"]
+            ),
+            "measured_base_own_assertion_red": len(prior["missing_base_cells"]),
+            "measured_mutation_families": len(FROZEN["mutations"]),
             "source_restored": True,
-            "limits": "Five native claims use existing singleton workflow separately; no final CI/validate credit.",
+            "limits": "Prior outcomes retain their original source and failed-run attribution. This continuation measures only missing base and mutation obligations; no final CI/validate credit.",
         },
     )
 
@@ -440,6 +439,8 @@ if __name__ == "__main__":
         git(Path.cwd(), "rev-parse", "--git-path", "index").decode().strip()
     ).resolve()
     original_index = root_index.read_bytes()
+    root_before = inventory(Path.cwd())
+    root_stages = git(Path.cwd(), "ls-files", "--stage", "-z")
     try:
         main()
     finally:
@@ -449,4 +450,20 @@ if __name__ == "__main__":
             record(
                 OUT / "root-index-restored.json",
                 {"before": sha(original_index), "after": sha(root_index.read_bytes())},
+            )
+            root_after = inventory(Path.cwd())
+            stages_after = git(Path.cwd(), "ls-files", "--stage", "-z")
+            status = git(Path.cwd(), "status", "--porcelain").decode()
+            record(
+                OUT / "root-final.json",
+                {
+                    "files_before": root_before,
+                    "files_after": root_after,
+                    "stages_before_sha256": sha(root_stages),
+                    "stages_after_sha256": sha(stages_after),
+                    "status": status,
+                },
+            )
+            assert (
+                root_after == root_before and stages_after == root_stages and not status
             )

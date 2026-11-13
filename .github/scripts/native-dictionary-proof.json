@@ -67,14 +67,16 @@
       "test_path": "crates/sutura-config/tests/native_dictionary.rs",
       "base_red": {
         "needles": [
-          "the positive control is a complete native declaration",
-          "unknown field `include`"
+          "the positive control is a complete native declaration"
         ],
         "sites": [
           {
             "path": "crates/sutura-config/tests/native_dictionary.rs",
             "line": 60
           }
+        ],
+        "unknown_native_fields": [
+          "include"
         ]
       }
     },
@@ -86,14 +88,16 @@
       "test_path": "crates/sutura-config/tests/native_dictionary.rs",
       "base_red": {
         "needles": [
-          "the positive control opens the native mode",
-          "unknown field `include`"
+          "the positive control opens the native mode"
         ],
         "sites": [
           {
             "path": "crates/sutura-config/tests/native_dictionary.rs",
             "line": 77
           }
+        ],
+        "unknown_native_fields": [
+          "include"
         ]
       }
     },
@@ -105,14 +109,16 @@
       "test_path": "crates/sutura-cli/src/serve/tests/rdbms_served.rs",
       "base_red": {
         "needles": [
-          "native settings need no documentation view environment",
-          "unknown field `include`"
+          "native settings need no documentation view environment"
         ],
         "sites": [
           {
             "path": "crates/sutura-cli/src/serve/tests/rdbms_served.rs",
             "line": 217
           }
+        ],
+        "unknown_native_fields": [
+          "include"
         ]
       }
     },
@@ -124,14 +130,17 @@
       "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
       "base_red": {
         "needles": [
-          "the service never reported a listener",
-          "unknown field `include`"
+          "the service never reported a listener"
         ],
         "sites": [
           {
             "path": "crates/sutura-cli/tests/served/harness.rs",
             "line": 762
           }
+        ],
+        "unknown_native_fields": [
+          "include",
+          "exclude_columns"
         ]
       }
     },
@@ -143,14 +152,17 @@
       "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
       "base_red": {
         "needles": [
-          "the service never reported a listener",
-          "unknown field `include`"
+          "the service never reported a listener"
         ],
         "sites": [
           {
             "path": "crates/sutura-cli/tests/served/harness.rs",
             "line": 762
           }
+        ],
+        "unknown_native_fields": [
+          "include",
+          "exclude_columns"
         ]
       }
     },
@@ -162,14 +174,17 @@
       "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
       "base_red": {
         "needles": [
-          "the service never reported a listener",
-          "unknown field `include`"
+          "the service never reported a listener"
         ],
         "sites": [
           {
             "path": "crates/sutura-cli/tests/served/harness.rs",
             "line": 762
           }
+        ],
+        "unknown_native_fields": [
+          "include",
+          "exclude_columns"
         ]
       }
     },
@@ -181,14 +196,17 @@
       "test_path": "crates/sutura-cli/tests/served/rdbms.rs",
       "base_red": {
         "needles": [
-          "the service never reported a listener",
-          "unknown field `include`"
+          "the service never reported a listener"
         ],
         "sites": [
           {
             "path": "crates/sutura-cli/tests/served/harness.rs",
             "line": 762
           }
+        ],
+        "unknown_native_fields": [
+          "include",
+          "exclude_columns"
         ]
       }
     },
@@ -200,14 +218,18 @@
       "test_path": "crates/sutura-cli/tests/served/native_oracle_dictionary.rs",
       "base_red": {
         "needles": [
-          "the service never reported a listener",
-          "unknown field `include`"
+          "the service never reported a listener"
         ],
         "sites": [
           {
             "path": "crates/sutura-cli/tests/served/harness.rs",
             "line": 762
           }
+        ],
+        "unknown_native_fields": [
+          "include",
+          "exclude_columns",
+          "exclude_types"
         ]
       }
     }
@@ -469,5 +491,36 @@
         "patch_sha256": "f720ed72ed7f185d8220e322ef30f415ccbc4a2a12515d29b0ab52a176360908"
       }
     ]
+  },
+  "continuation": {
+    "run": 43467914978,
+    "helper": "1e0b04689231ee16cb3b78e534b1c7b3284ab6ca",
+    "logs_sha256": "cede01de217923ed49cb9ef88f15c70f3ae1dddd2075221249491fc134e1df32",
+    "artifact_sha256": "57a84f7f5e9a0371415212b5a48144a705eb5fd634594cae4fd11e483ecfd2e8",
+    "head_green_cells": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "base_own_assertion_red_cells": [
+      0
+    ],
+    "missing_base_cells": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "limit": "The prior run failed its include-only diagnostic criterion at base cell0. Its actual own-assertion error names exclude_types. Prior evidence is retained without replay or relabelling; this continuation does not execute those completed cells."
   }
 }
