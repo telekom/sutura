@@ -1,0 +1,5 @@
+---
+source: crates/sutura-cli/tests/served/duckdb.rs
+expression: body["executions"]
+---
+[]

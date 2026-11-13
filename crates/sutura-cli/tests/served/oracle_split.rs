@@ -346,6 +346,41 @@ fn an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertifie
         answer["rows"], whole["rows"],
         "every split row and its position match the whole"
     );
+    let executions = answer["executions"].as_array().expect("the split reports its submissions");
+    let oracle: Vec<_> = executions.iter().filter(|record| record["kind"] == "sql").collect();
+    assert_eq!(oracle.len(), 2, "the split lost an Oracle worker receipt");
+    let mut scns = Vec::new();
+    let mut statements = Vec::new();
+    for record in oracle {
+        assert_eq!(record["source"], LOOKUP_SOURCE);
+        assert_eq!(record["dialect"], "oracle");
+        assert_eq!(record["parameters"], serde_json::json!([]));
+        let sql = record["sql"].as_str().expect("an Oracle receipt contains SQL");
+        let (before, after) = sql.split_once(" AS OF SCN ").expect("each bucket names its snapshot");
+        let (scn, rest) = after.split_once(' ').expect("a snapshot precedes the bucket predicate");
+        let scn = scn.parse::<u64>().expect("the snapshot is an integer");
+        assert!(scn > 0, "the snapshot is positive");
+        scns.push(scn);
+        statements.push(format!("{before} AS OF SCN {{SCN}} {rest}"));
+    }
+    assert_eq!(scns[0], scns[1], "the buckets must share one snapshot");
+    let prefix = format!(r#"SELECT "{TABLE}"."customer_key" AS "0_link", "{TABLE}"."region" AS "region" FROM "{TABLE}" AS OF SCN {{SCN}} WHERE "#);
+    let suffix = format!(r#" GROUP BY "{TABLE}"."customer_key", "{TABLE}"."region" ORDER BY "{TABLE}"."customer_key", "{TABLE}"."region""#);
+    let mut expected = vec![
+        format!(r#"{prefix}("{TABLE}"."customer_key" IS NULL OR ORA_HASH("{TABLE}"."customer_key", 1) = 0){suffix}"#),
+        format!(r#"{prefix}(NOT "{TABLE}"."customer_key" IS NULL AND ORA_HASH("{TABLE}"."customer_key", 1) = 1){suffix}"#),
+    ];
+    statements.sort();
+    expected.sort();
+    assert_eq!(statements, expected, "Oracle worker receipts differ from both expected bucket statements");
+    let other: Vec<_> = executions.iter().filter(|record| record["kind"] != "sql").collect();
+    assert_eq!(other.len(), 2, "the files input and final combine are both accounted for");
+    assert_eq!(other[0]["kind"], "datafusion");
+    assert_eq!(other[0]["source"], LOCAL_SOURCE);
+    assert_eq!(other[0]["stage"], "files");
+    assert_eq!(other[1]["kind"], "datafusion");
+    assert!(other[1]["source"].is_null());
+    assert_eq!(other[1]["stage"], "combine");
     assert_eq!(
         answer["executed_as"],
         serde_json::json!([

@@ -26,6 +26,8 @@ mod acceptance {
     use sutura_domain::plan::{Executable, InternalLabel, LegPlan, PlanBindings, PlanColumn, PlanKey, ResultLabel};
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
+    use sutura_domain::warehouse::execution::Execution;
+    use sutura_domain::warehouse::schema::TypeDialect;
     use sutura_domain::warehouse::{ResultBudget, Value, Warehouse as _};
     use sutura_exec_oracle::{Channel, Dial, OracleError, OracleWarehouse, Planned, SplitLeg};
 
@@ -231,11 +233,18 @@ mod acceptance {
             .partitions()
             .iter()
             .map(|partition| {
-                rows(
-                    &warehouse
-                        .read_partition(&leg, &partition.to_bytes(), deadline(60))
-                        .expect("a fresh partition reads"),
-                )
+                let expected = sutura_sql::generate_leg_as_of(&leg, partition.scn(), Some(partition.bucket()))
+                    .expect("the actual descriptor renders its snapshot and bucket");
+                let mut read = warehouse
+                    .read_partition(&leg, &partition.to_bytes(), deadline(60))
+                    .expect("a fresh partition reads");
+                assert_eq!(read.take_executions(), vec![Execution::Sql {
+                    source: corpus::source(),
+                    dialect: TypeDialect::Oracle,
+                    sql: String::from(expected.sql()),
+                    parameters: vec![],
+                }], "Oracle partition receipt differs from its descriptor's SQL");
+                rows(&read)
             })
             .collect();
         for row in &whole {

@@ -1,0 +1,5 @@
+---
+source: crates/sutura-exec-datafusion/src/combine/merge.rs
+expression: records
+---
+[]

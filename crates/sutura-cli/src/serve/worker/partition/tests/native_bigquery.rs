@@ -1,7 +1,7 @@
 //! A real forwarded-token native read through the CLI reader and worker receipt barrier.
 //! No HTTP caller or delegation hop participates; assertions are the existing live pool fixture's.
 use core::convert::Infallible;
-use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use core::num::{NonZeroU64, NonZeroUsize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,15 +27,15 @@ use sutura_domain::model::{
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use sutura_domain::plan::{
     AnswerKey, Executable, FederatedPlan, FederationCombiner as _, Granted, Grantee, InternalLabel, LegPlan, LegRunner, LegTerm,
-    LinkCast, Looked, LookupLegs, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables,
+    LinkCast, Looked, LookupLegs, Partitioned, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, ResultLabel, StatementTables,
     range_filters,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::execution::Execution;
+use sutura_domain::warehouse::execution::{Binding, BindingIdentity, BindingValue, Execution, PlanStage};
+use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::labels::JobLabels;
-use sutura_domain::warehouse::{ResultBatches, Warehouse as _};
+use sutura_domain::warehouse::{ParamValue, ResultBatches, Warehouse as _};
 use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation, WorkloadPool};
 use sutura_exec_bigquery::{BigQueryWarehouse, JobBilling};
 use sutura_exec_datafusion::{DataFusionCombiner, DataFusionWarehouse, NodeIdentity, Nodes, TaskGrant};
@@ -223,12 +223,12 @@ fn plan() -> (PinnedDefinitions, FederatedPlan) {
     (pinned, plan)
 }
 
-struct Actual {
+struct Actual<'g> {
     fact: Mutex<Option<ResultBatches>>,
-    grant: Mutex<Option<Granted<'static>>>,
+    grant: Mutex<Option<Granted<'g>>>,
 }
 
-impl LegRunner for Actual {
+impl LegRunner for Actual<'_> {
     type Error = Infallible;
     #[expect(
         clippy::panic_in_result_fn,
@@ -389,42 +389,30 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
     let lookup = plan.lookups().legs().first().unwrap().leg();
     let labels = JobLabels::of(&RequestContext::of(PrincipalChain::of(subject.clone())));
     let until = SystemTime::now() + Duration::from_secs(600);
-    let split = opened()
-        .split_leg(lookup, &presented, deadline(), NonZeroUsize::new(4).unwrap(), until, &labels)
-        .unwrap_or_else(|_| panic!("the real BigQuery split did not run"));
-    let schema = Arc::clone(split.schema());
-    let ends = split.until();
-    let (descriptors, token) = split.into_parts();
-    assert!(descriptors.len() >= 2, "fixture did not produce multiple real native streams");
-    let mut expected: Vec<[u8; 32]> = descriptors
-        .iter()
-        .map(|descriptor| sha2::Sha256::digest(descriptor).into())
-        .collect();
     let sources = SourceSet::of(source("warehouse"));
     let minted = LegCredentials::minted(
         subject.clone(),
         Expiry::NothingExpires,
         &sources,
-        BTreeMap::from([(source("warehouse"), presented)]),
+        BTreeMap::from([(source("warehouse"), presented.clone())]),
     )
     .unwrap();
     let Ok(Agreed::Granted { credentials }) = (Minted::Granted { credentials: minted }).agreeing_with(&subject, &sources, 0)
     else {
         panic!("fixture credentials disagree with their source");
     };
-    let grant = Grantee::new(lookup, &credentials, ends)
-        .unwrap()
-        .forwarding(token)
-        .unwrap()
-        .grant(
-            schema,
-            descriptors.into_iter().map(Some),
-            NonZeroU32::new(1_000_000).unwrap(),
-            EstimatedBytes::parse(32 << 20),
-            (),
-            SystemTime::now(),
-        )
-        .unwrap();
+    let warehouse = crate::serve::kind::AnyWarehouse::BigQuery(Box::new(opened()));
+    let split = warehouse.split_lookup(
+        lookup, &presented, deadline(), NonZeroU64::new(1).unwrap(),
+        NonZeroUsize::new(4).unwrap(), Some(Grantee::new(lookup, &credentials, until).unwrap()), &labels,
+    ).unwrap_or_else(|_| panic!("the real BigQuery split dispatch did not run"));
+    let Partitioned::Granted(grant) = split else {
+        panic!("the native fixture must actually take the multiple-stream Granted branch");
+    };
+    assert!(grant.partitions().len() >= 2, "fixture did not produce multiple real native streams");
+    let mut expected: Vec<[u8; 32]> = grant.partitions().iter()
+        .map(|descriptor| sha2::Sha256::digest(descriptor).into()).collect();
+    let expected_sql = sutura_sql::generate_leg(lookup, sutura_sql::Dialect::BigQuery).unwrap();
 
     let (servers, stopping, nodes) = listening(&settings, pinned, &room);
     let combiner = DataFusionCombiner::across(nodes).unwrap();
@@ -451,17 +439,34 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
     let measured = rows.columns().iter().position(|label| label == "native_reads").unwrap();
     assert_eq!(rows.cell(0, id), Some(&sutura_domain::warehouse::Value::Text(fact_id)));
     assert_eq!(rows.cell(0, measured).unwrap().render(), "7");
+    let records = answer.take_executions();
+    let sqls: Vec<_> = records.iter().filter(|record| matches!(record, Execution::Sql { .. })).collect();
+    assert_eq!(sqls.len(), 1, "the forwarded answer lost the BigQuery split creation SQL receipt");
+    let Execution::Sql { source: at, dialect, sql, parameters } = sqls[0] else { unreachable!() };
+    assert_eq!(at, &source("warehouse"));
+    assert_eq!(*dialect, TypeDialect::BigQuery);
+    assert_eq!(sql, expected_sql.sql(), "BigQuery split creation receipt differs from the submitted lookup SQL");
+    assert!(parameters.is_empty(), "the unfiltered lookup has no bindings");
+    assert_eq!(records.len(), expected.len() + 3, "the complete native answer receipt census differs");
     let mut hashes = Vec::new();
-    for execution in answer.take_executions() {
-        if let Execution::BigQueryRead {
-            source: actual_source,
-            descriptor_sha256,
-        } = execution
-        {
-            assert_eq!(actual_source, source("warehouse"));
-            hashes.push(descriptor_sha256);
+    let mut files_count = 0;
+    let mut combine_count = 0;
+    for record in &records {
+        match record {
+            Execution::BigQueryRead { source: at, descriptor_sha256 } => {
+                assert_eq!(at, &source("warehouse"));
+                hashes.push(*descriptor_sha256);
+            }
+            Execution::Sql { .. } => {}
+            Execution::DataFusion { source: Some(at), stage: PlanStage::Files, .. } => {
+                assert_eq!(at, &source("facts"));
+                files_count += 1;
+            }
+            Execution::DataFusion { source: None, stage: PlanStage::Combine, .. } => combine_count += 1,
+            _ => panic!("the native answer contains an unclassified receipt"),
         }
     }
+    assert_eq!((files_count, combine_count), (1, 1), "files and final combine are accounted for once");
     hashes.sort_unstable();
     expected.sort_unstable();
     assert_eq!(
@@ -470,4 +475,35 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
     );
     stopping.trigger(sutura_runtime::ShutdownReason::Requested);
     servers.shutdown_timeout(Duration::from_secs(5));
+
+    let mut empty_lookup = lookup.clone();
+    let LegPlan::Lookup { table, bindings, .. } = &mut empty_lookup else { unreachable!() };
+    *bindings = PlanBindings::parse(vec![PlanFilter::new(
+        PredicateOrigin::Requested,
+        PlanPredicate::Equals { column: PlanColumn::new(table.table().name().clone(), column("id")), param: 0 },
+    )], vec![ParamValue::Text(String::from("sutura-no-seed-row"))]).unwrap();
+    let empty_sql = sutura_sql::generate_leg(&empty_lookup, sutura_sql::Dialect::BigQuery).unwrap();
+    let empty = warehouse.split_lookup(
+        &empty_lookup, &presented, deadline(), NonZeroU64::new(1).unwrap(),
+        NonZeroUsize::new(4).unwrap(), Some(Grantee::new(&empty_lookup, &credentials, until).unwrap()), &labels,
+    ).unwrap_or_else(|_| panic!("the empty native split dispatch did not run"));
+    let Partitioned::Split(reads) = empty else {
+        panic!("no <=1-stream credit: the empty native query did not actually take Partitioned::Split");
+    };
+    let mut empty_records = Vec::new();
+    for read in reads {
+        let mut read = read.unwrap_or_else(|_| panic!("the local empty native stream did not read"));
+        assert_eq!(read.rows(), 0, "the absent fixture id must return no rows");
+        empty_records.extend(read.take_executions());
+    }
+    let creation: Vec<_> = empty_records.iter().filter(|record| matches!(record, Execution::Sql { .. })).collect();
+    assert_eq!(creation.len(), 1, "the <=1-stream branch lost its BigQuery creation SQL receipt");
+    assert_eq!(creation[0], &Execution::Sql {
+        source: source("warehouse"), dialect: TypeDialect::BigQuery, sql: String::from(empty_sql.sql()),
+        parameters: vec![Binding::new(BindingIdentity::Position(0), BindingValue::Utf8(String::from("sutura-no-seed-row")))],
+    }, "the <=1-stream creation SQL or typed binding differs");
+    let native_reads: Vec<_> = empty_records.iter().filter(|record| matches!(record,
+        Execution::BigQueryRead { source: at, .. } if *at == source("warehouse"))).collect();
+    assert!(native_reads.len() <= 1, "the local branch has at most one empty native stream");
+    assert_eq!(empty_records.len(), 1 + native_reads.len(), "no local-branch receipt is unclassified");
 }

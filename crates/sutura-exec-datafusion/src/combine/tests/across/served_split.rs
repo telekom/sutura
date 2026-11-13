@@ -38,9 +38,10 @@ use sutura_domain::model::SourceName;
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::leg::LegPlan;
 use sutura_domain::plan::{
-    ExecuteError, FederatedPlan, FederationCombiner as _, Granted, InternalLabel, LegRunner, LinkCast, Looked,
+    ExecuteError, FederationCombiner as _, Granted, InternalLabel, LegRunner, LinkCast, Looked,
 };
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::execution::{Execution, PlanStage};
 use sutura_domain::warehouse::{ResultBatches, Value};
 use tokio::runtime::Runtime;
 use url::Url;
@@ -560,61 +561,6 @@ fn a_granted_lookup_with_a_link_unmatched_on_each_side_answers_what_the_whole_le
 /// The byte a partition's descriptor carries for a null link.
 const NULL: u8 = u8::MAX;
 
-/// One row per entry of `links`, each column of `schema` holding that entry's label, or null for
-/// [`NULL`].
-fn filled(schema: &SchemaRef, links: &[u8]) -> Result<RecordBatch, DataFusionError> {
-    let column = || -> ArrayRef {
-        Arc::new(StringArray::from_iter(
-            links.iter().map(|&link| (link != NULL).then(|| label(link))),
-        ))
-    };
-    Ok(RecordBatch::try_new(
-        Arc::clone(schema),
-        schema.fields().iter().map(|_| column()).collect(),
-    )?)
-}
-
-/// A reader answering a partition with [`filled`]'s one row for its link, each ask logged in `asked`.
-fn filling(asked: Asked) -> Arc<dyn PartitionReader> {
-    Arc::new(FixtureReader(
-        move |_: &SourceName, partition: &[u8], schema: &SchemaRef| -> Result<SendableRecordBatchStream, DataFusionError> {
-            asked.lock().push(partition.to_vec());
-            let batch = filled(schema, partition.get(1..).unwrap_or_default())?;
-            Ok(Box::pin(RecordBatchStreamAdapter::new(
-                Arc::clone(schema),
-                stream::iter(vec![Ok::<_, DataFusionError>(batch)]),
-            )))
-        },
-    ))
-}
-
-/// [`Peer::serve`], each partition read by [`filling`].
-fn filling_peer(servers: &Runtime, authority: &Authority) -> Peer {
-    let signed = authority.sign();
-    let asked = Asked::default();
-    let worker = Nodes::worker_reading(roomy(), authority.identity(&signed), Some(filling(Arc::clone(&asked))))
-        .expect("a reading worker builds");
-    let sent = Arc::new(AtomicUsize::new(0));
-    let url = served(servers, listening(&signed, authority.peers()), worker, Arc::clone(&sent));
-    Peer { url, sent, asked }
-}
-
-/// `plan` answered for `runner` across this planning node and two nodes reading `geo` and `crm`,
-/// each partition read by [`filling`].
-fn answered_filling<R>(plan: &FederatedPlan, runner: &R) -> Answer
-where
-    R: LegRunner<Error = Infallible> + Sync,
-{
-    let servers = servers();
-    let authority = Authority::generate();
-    let readers = [filling_peer(&servers, &authority), filling_peer(&servers, &authority)];
-    let nodes = planning(&servers, &authority, both_readers(&readers))
-        .reading(source("geo"), both_readers(&readers))
-        .reading(source("crm"), both_readers(&readers));
-    let combiner = DataFusionCombiner::across(nodes).map_err(ExecuteError::Combine)?;
-    combiner.execute(combiner.plan(plan), runner, UNBOUNDED)
-}
-
 /// [`DISTINCT`]'s first four links, and two partitions each holding a null link.
 const NULLS: Links = [0, 1, 2, 3, NULL, NULL];
 
@@ -652,46 +598,8 @@ fn a_granted_lookup_with_two_null_linked_rows_answers_what_the_whole_leg_answers
     assert_eq!(answer.rows(), combined(&sum_plan(true), &fact(), &read, UNBOUNDED).rows());
 }
 
-/// [`fan_in_plan`]'s question: a fact row per entry of `fact`, under its link value for both `geo`
-/// and `ops`, `geo` and `crm` granted as their partitions, and `ops` read here holding `c1`.
-struct GrantingGeoAndCrm {
-    fact: Vec<(&'static str, i64)>,
-    geo: Vec<Vec<u8>>,
-    crm: Vec<Vec<u8>>,
-}
-
-impl LegRunner for GrantingGeoAndCrm {
-    type Error = Infallible;
-
-    fn run(&self, _leg: &LegPlan) -> Result<ResultBatches, Infallible> {
-        Ok(batches_of(
-            vec![linked(0), linked(2), String::from(TIME_BUCKET_LABEL), leaf(0)],
-            self.fact
-                .iter()
-                .map(|&(link, cents)| vec![text(link), text(link), text("2026-06"), Value::Integer(cents)])
-                .collect(),
-        ))
-    }
-
-    fn lookup(&self, leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
-        if *leg.source() == source("ops") {
-            return Ok(Looked::Rows(vec![batches_of(
-                vec![linked(2), String::from("tier")],
-                vec![vec![text("c1"), text("gold")]],
-            )]));
-        }
-        let (columns, granted) = if *leg.source() == source("geo") {
-            (vec![linked(0), linked(1), String::from("region")], &self.geo)
-        } else {
-            (vec![linked(1), String::from("area")], &self.crm)
-        };
-        let fields: Vec<Field> = columns
-            .into_iter()
-            .map(|name| Field::new(name, DataType::Utf8, true))
-            .collect();
-        Ok(grant(Arc::new(Schema::new(fields)), granted.clone(), &caller()))
-    }
-}
+mod fan_in;
+use fan_in::{GrantingGeoAndCrm, Partitions, answered_filling, asked_filling, filled, filling_peer};
 
 /// `crm`, granted and joined INNER onto `geo`, has no row its join can match: each partition holds
 /// a null link, or no row at all. An INNER join of it would end the plan before `geo`'s count ran;
@@ -715,24 +623,6 @@ fn a_granted_lookup_whose_link_repeats_is_refused_beside_a_later_granted_inner_l
     }
 }
 
-/// Partition descriptors, one per partition.
-type Partitions = Vec<Vec<u8>>;
-
-/// [`answered_filling`]'s combine, and every partition either reader was asked for, sorted.
-fn asked_filling(plan: &FederatedPlan, runner: &GrantingGeoAndCrm) -> (Answer, Partitions) {
-    let servers = servers();
-    let authority = Authority::generate();
-    let readers = [filling_peer(&servers, &authority), filling_peer(&servers, &authority)];
-    let nodes = planning(&servers, &authority, both_readers(&readers))
-        .reading(source("geo"), both_readers(&readers))
-        .reading(source("crm"), both_readers(&readers));
-    let combiner = DataFusionCombiner::across(nodes).expect("a combiner builds");
-    let answer = combiner.execute(combiner.plan(plan), runner, UNBOUNDED);
-    let mut asked: Partitions = readers.iter().flat_map(|peer| peer.asked.lock().clone()).collect();
-    asked.sort();
-    (answer, asked)
-}
-
 /// Two granted legs on one shared pair of readers, `crm` joined INNER onto `geo`, each holding a null
 /// link: the fact's `c2` reaches `geo` but no `crm` row, its `c5` no `geo` row, and `crm`'s `c3` and
 /// `c9` meet no joined `geo` row. Each leg is counted in the plan that joins it, so every partition
@@ -740,10 +630,11 @@ fn asked_filling(plan: &FederatedPlan, runner: &GrantingGeoAndCrm) -> (Answer, P
 #[test]
 fn two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_not_match() {
     let geo = partitions([0, 1, 2, 3, 4, NULL]);
-    let crm: Partitions = (6..)
+    let mut crm: Partitions = (6..)
         .zip([0, 1, 3, 9, NULL, NULL])
         .map(|(index, link)| vec![index, link])
         .collect();
+    crm[5] = crm[4].clone();
     let runner = GrantingGeoAndCrm {
         fact: vec![("c0", 10), ("c1", 20), ("c2", 30), ("c5", 40)],
         geo: geo.clone(),
@@ -752,9 +643,9 @@ fn two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_
 
     let (answer, asked) = asked_filling(&fan_in_plan(), &runner);
 
-    let answer = answer
-        .expect("two granted lookups answered")
-        .to_rows()
+    let mut batches = answer.expect("two granted lookups answered");
+    let records = batches.take_executions();
+    let answer = batches.to_rows()
         .expect("a combined answer decodes");
     assert_eq!(
         answer.rows(),
@@ -763,9 +654,46 @@ fn two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_
             vec![text("c1"), text("c1"), text("gold"), text("2026-06"), Value::Integer(20)],
         ]
     );
-    let mut every: Partitions = geo.into_iter().chain(crm).collect();
+    let mut every: Partitions = geo.iter().chain(&crm).cloned().collect();
     every.sort();
     assert_eq!(asked, every, "a granted partition was read other than once");
+    assert_eq!(records.len(), 18, "the complete worker/input/probe/combine receipt census differs");
+    let inputs: Vec<_> = [("facts", "fixture fact submission"), ("geo", "fixture geo grant creation"),
+        ("crm", "fixture crm grant creation"), ("ops", "fixture ops submission")]
+        .into_iter().map(|(at, text)| Execution::DataFusion {
+            source: Some(source(at)), stage: PlanStage::Files, logical_plan: String::from(text),
+        }).collect();
+    assert_eq!(&records[..4], inputs.as_slice(), "a contributing input or grant receipt was lost");
+    let mut expected: Vec<_> = geo.iter().map(|part| ("geo", part)).chain(crm.iter().map(|part| ("crm", part)))
+        .map(|(at, part)| Execution::DataFusion {
+            source: Some(source(at)), stage: PlanStage::Files,
+            logical_plan: format!("fixture in-memory partition {part:?}"),
+        }).collect();
+    let mut plans = Vec::new();
+    for record in records.iter().skip(4) {
+        if matches!(record, Execution::DataFusion { source: None, stage: PlanStage::Combine, .. }) {
+            plans.push(record);
+        } else {
+            let at = expected.iter().position(|wanted| wanted == record)
+                .expect("a worker supplied an unexpected or duplicate partition receipt");
+            expected.remove(at);
+        }
+    }
+    assert!(expected.is_empty(), "a worker dropped a partition receipt, including a repeated descriptor");
+    assert_eq!(plans.len(), 2, "the ops ambiguity probe and final combine must both be retained");
+    let mut partitions: Vec<_> = records.iter().skip(4).filter(|record| matches!(record,
+        Execution::DataFusion { source: Some(_), stage: PlanStage::Files, .. })).collect();
+    partitions.sort_by_key(|record| format!("{record:?}"));
+    let mut partitions = partitions.into_iter();
+    let mut canonical: Vec<_> = records.iter().collect();
+    for record in canonical.iter_mut().skip(4) {
+        if matches!(*record, Execution::DataFusion { source: Some(_), stage: PlanStage::Files, .. }) {
+            *record = partitions.next().expect("each partition slot has one sorted receipt");
+        }
+    }
+    insta::with_settings!({prepend_module_to_snapshot => false, snapshot_path => "../snapshots"}, {
+        insta::assert_debug_snapshot!("worker-input-receipts", canonical);
+    });
 }
 
 use std::collections::BTreeMap;

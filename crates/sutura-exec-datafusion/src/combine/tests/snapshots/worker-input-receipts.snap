@@ -1,0 +1,5 @@
+---
+source: crates/sutura-exec-datafusion/src/combine/tests/across/served_split.rs
+expression: canonical
+---
+[]

@@ -230,8 +230,10 @@ mod tests {
         );
         assert_eq!(reply.status, 200, "{}", reply.body);
         let body = reply.json();
+        assert_eq!(body["executions"].as_array().expect("all files submissions").len(), 1);
         assert_eq!(body["executions"][0]["kind"], "datafusion");
         assert_eq!(body["executions"][0]["source"], "local");
+        assert_eq!(body["executions"][0]["stage"], "files");
         let plan = body
             .pointer("/executions/0/logical_plan")
             .and_then(serde_json::Value::as_str)
@@ -244,6 +246,9 @@ mod tests {
             "the logical display must not print the file provider: {plan}"
         );
         assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "202121"]]));
+        insta::with_settings!({prepend_module_to_snapshot => false, snapshot_path => "../snapshots"}, {
+            insta::assert_yaml_snapshot!("files-receipts-single", body["executions"]);
+        });
         let stacked = served.post(
             &v1(sutura_http::constants::base_paths::QUERY),
             Some(TOKEN),
@@ -262,6 +267,9 @@ mod tests {
             serde_json::json!(["period", "recurring_revenue", "data_per_subscription"])
         );
         assert_eq!(body["rows"][0][1], "202121");
+        insta::with_settings!({prepend_module_to_snapshot => false, snapshot_path => "../snapshots"}, {
+            insta::assert_yaml_snapshot!("files-receipts-stacked", body["executions"]);
+        });
         let combined = start_configured(
             "combined-execution-unavailable",
             &crate::harness::settings_spanning_two_sources("combined-execution-unavailable"),
@@ -274,16 +282,22 @@ mod tests {
         assert_eq!(reply.status, 200, "{}", reply.body);
         let body = reply.json();
         let executions = body["executions"].as_array().expect("all source and combine submissions");
-        assert!(executions.len() >= 3, "{body}");
+        assert_eq!(executions.len(), 4, "the complete files/probe/final-combine census differs");
         assert_eq!(executions[0]["stage"], "files");
         assert_eq!(executions[1]["stage"], "files");
-        assert_ne!(executions[0]["source"], executions[1]["source"]);
+        assert_eq!(executions[0]["source"], crate::harness::LOCAL_SOURCE);
+        assert_eq!(executions[1]["source"], crate::harness::LOOKUP_SOURCE);
+        assert!(executions.iter().all(|execution| execution["kind"] == "datafusion"));
+        assert!(executions.iter().skip(2).all(|execution| execution["source"].is_null()));
         assert!(executions.iter().skip(2).all(|execution| execution["stage"] == "combine"));
         assert!(
             executions
                 .iter()
                 .all(|execution| execution["logical_plan"].as_str().is_some_and(|plan| !plan.is_empty()))
         );
+        insta::with_settings!({prepend_module_to_snapshot => false, snapshot_path => "../snapshots"}, {
+            insta::assert_yaml_snapshot!("files-receipts-combined", body["executions"]);
+        });
     }
 }
 
