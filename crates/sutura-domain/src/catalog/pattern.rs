@@ -144,3 +144,28 @@ impl DictionarySelection {
             .any(|pattern| pattern.matches(native) || pattern.matches(base))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::DictionaryPattern;
+
+    fn pattern(text: &str) -> DictionaryPattern {
+        DictionaryPattern::parse(text).expect("a fixture pattern parses")
+    }
+
+    #[test]
+    fn native_identifier_globs_preserve_case_unicode_and_sql_metacharacters() {
+        for (glob, yes, no) in [
+            ("Event?", "Events", "events"),
+            ("a*b?", "axxbz", "axxb"),
+            ("a%b_\\c'", "a%b_\\c'", "axxbzc'"),
+            ("?", "\u{e9}", "ab"),
+            ("*ab*cd", "zabxcd", "abdc"),
+        ] {
+            assert!(pattern(glob).matches(yes), "{glob} must match {yes}");
+            assert!(!pattern(glob).matches(no), "{glob} must not match {no}");
+        }
+        assert_eq!(pattern("a%_\\'*").sql_like(), "a\\%\\_\\\\'%");
+        assert!(!pattern("*").matches(&"x".repeat(257)));
+    }
+}
