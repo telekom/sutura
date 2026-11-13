@@ -2699,15 +2699,12 @@ answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
 <li><code>NotFinite</code> - A <code>BINARY_DOUBLE</code> column came back as a value that is not a number.</li>
 <li><code>Shape</code></li>
 <li><code>OverBudget</code> - The collected result would cost more than this adapter's materialisation budget to hold.</li>
+<li><code>PartitionTooManyRows</code> - A partition's fetched and decoded rows exceed the limit, before its final typed output.</li>
+<li><code>Unannounced</code> - The driver's batches did not match the schema it announced - a driver defect.</li>
+<li><code>Unreadable</code> - A column of the driver's batches did not read as its own schema's type - a driver defect.</li>
+<li><code>Batch</code> - A batch could not be rebuilt with its dates read as days - a defect in this adapter.</li>
+<li><code>KeyCounts</code> - A key probe's result was not the pair of counts its statement projects.</li>
 </ul>
-<p>The sibling of <code>Self::Shape</code> for the byte budget the port's
-  <code>result_did_not_fit</code> reads: a
-  result refused for crossing it is <em>the result did not fit</em>, never a data-system failure, so
-  a caller is refused rather than told to retry.
-- <code>Unannounced</code> - The driver's batches did not match the schema it announced - a driver defect.
-- <code>Unreadable</code> - A column of the driver's batches did not read as its own schema's type - a driver defect.
-- <code>Batch</code> - A batch could not be rebuilt with its dates read as days - a defect in this adapter.
-- <code>KeyCounts</code> - A key probe's result was not the pair of counts its statement projects.</p>
 <p>A defect in the rendering or in this adapter's value mapping, never anything about the data:
   the probe projects two aggregates over no group, so one row of two integers is the only
   shape it can have. It travels as an <code>Err</code> from the port, which the boot path reads as <em>this
@@ -2769,12 +2766,16 @@ empty cell is <code>NULL</code>.</p>
 </span></code></pre></div>
 <p>The rows of the partition <code>descriptor</code> names of <code>leg</code>, at its snapshot as the service user,
 once the database answered that the snapshot is no older than <code>deadline</code>'s budget. Takes no
-presented identity and does not authenticate the descriptor: the task grant does both.</p>
+presented identity and does not authenticate the descriptor: the task grant does both.
+Collects at most <code>MOST_PARTITION_ROWS</code> plus one, refusing the extra row after fetch and
+decode, before the final typed output. A fetched batch can be larger; this is no prefetch
+or process-memory bound.</p>
 <h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
 <p><code>OracleError::FlashbackNotDeclared</code>, <code>OracleError::MalformedDescriptor</code> and
 <code>OracleError::PartitionRender</code> before any round trip; then <code>OracleError::SnapshotStale</code>,
-<code>OracleError::SnapshotGone</code>, <code>OracleError::NotOfItsColumnType</code>, a spent deadline, and
-the database's failure.</p>
+<code>OracleError::SnapshotGone</code>, <code>OracleError::PartitionTooManyRows</code>,
+<code>OracleError::OverBudget</code>, <code>OracleError::NotOfItsColumnType</code>, a spent deadline, and the
+database's failure.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">split_by_estimate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">leg</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">LegPlan</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Presented</span><span class="p">,</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">Deadline</span><span class="p">,</span><span class="w"> </span><span class="n">above_bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroU64</span><span class="p">,</span><span class="w"> </span><span class="n">per_stream_bound</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">ready_workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Planned</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p><code>leg</code> read whole, split into buckets at one snapshot, or refused -
@@ -2835,6 +2836,9 @@ for every other refused dial or login. Neither carries the token.</p>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="use-invaliddescriptor"><code>use InvalidDescriptor</code><a class="headerlink" href="#use-invaliddescriptor" title="Permanent link">&para;</a></h2>
 <p>Why bytes are not a <code>PartitionDescriptor</code>. No variant carries the bytes themselves.</p>
+<h2 id="use-most_partition_rows"><code>use MOST_PARTITION_ROWS</code><a class="headerlink" href="#use-most_partition_rows" title="Permanent link">&para;</a></h2>
+<p>The most rows a partition may return. Collection retains one extra row to detect overflow;
+this check follows fetch/decode and does not bound a fetched batch or process memory.</p>
 <h2 id="use-partitiondescriptor"><code>use PartitionDescriptor</code><a class="headerlink" href="#use-partitiondescriptor" title="Permanent link">&para;</a></h2>
 <p>A partition's snapshot and bucket, minted by <code>super::SplitLeg::partitions</code> and parsed from
 bytes by <code>TryFrom&lt;&amp;[u8]&gt;</code>.</p>
