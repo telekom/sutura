@@ -1,0 +1,150 @@
+{
+  "base": "a70aa4fbc16a1a7bd7735675f1a2e7419adb771e",
+  "base_tree": "308146aa489ff12038b037161a9cff276760aa87",
+  "prepared_tree": "10f0b31ed8bd8d68bf305265b6aca65838908c01",
+  "prepared_tree_is_commit": false,
+  "patch_sha256": "a999e89595667a638732bc5bb0b4958287f993f7d989f16ff26cc772b5a51a2c",
+  "lock_generation_outstanding": true,
+  "files": {
+    "crates/sutura-app/Cargo.toml": {
+      "sha256": "83b4f32bc2e2362dfee3c7f181e98520467fcac892d86775a6f842a41dd0a3ff",
+      "size": 10053,
+      "mode": "0o644",
+      "blob": "ec217bd7e898762670c7c4b9214f76ed44bbdcec",
+      "base_blob": "1ce1252740747b00ae047e26ff59c0a9edd5d386"
+    },
+    "crates/sutura-app/src/federated/tests/split_test.rs": {
+      "sha256": "3b7ec4ddb4cbc7e12c2d7347a526931661f0bd64ae5169a9bfdad3962d314776",
+      "size": 28187,
+      "mode": "0o644",
+      "blob": "57c261d7dcaeee6c1b69b3681ff6e32e72a15d8b",
+      "base_blob": "dae9035c29815a8040f0a4ba1b6fcd03cfd6ef58"
+    },
+    "crates/sutura-app/src/federated/tests/split_test/warehouse.rs": {
+      "sha256": "60c617ab97bd5541ee6970dea6dbf3677c524e5cb5f243cd20dd681c988b9cf2",
+      "size": 4018,
+      "mode": "0o644",
+      "blob": "67d07ba299318ab6fcd56639cbc844bc3f9efa83",
+      "base_blob": null
+    },
+    "crates/sutura-app/src/tests_support.rs": {
+      "sha256": "e391de1c7581024610722dc90f81833fed099b5113203afccbebf724b733393d",
+      "size": 40110,
+      "mode": "0o644",
+      "blob": "9a9b9f1f808f5da7d972083ab692d9311a40ab2f",
+      "base_blob": "a5473e69a6133b4466bcbfb5330a41efe3c56aa4"
+    },
+    "crates/sutura-domain/src/warehouse.rs": {
+      "sha256": "89d37aadc6341017fa00329b03ed74ce5a3cb381ec3fc3e4e0c115ef053be7f5",
+      "size": 54931,
+      "mode": "0o644",
+      "blob": "f88b1a1bd75068c2916e9334651556d815ad2b0c",
+      "base_blob": "aed38f97ff5dac3a3fe589bc959112e865efb652"
+    },
+    "crates/sutura-domain/src/warehouse/limits.rs": {
+      "sha256": "20579a6ce718053ff5a2839bbdd6940a4741b9bca8df338deab4993fadd69af0",
+      "size": 424,
+      "mode": "0o644",
+      "blob": "a7e0bee756e6627d1589bdf9e9b8edf97558795f",
+      "base_blob": null
+    },
+    "crates/sutura-exec-node/Cargo.toml": {
+      "sha256": "63b5489f96a38292e7645fe2639f5aecd5d0fc1873735007cef1bf3dc833b1fe",
+      "size": 1581,
+      "mode": "0o644",
+      "blob": "64bca87686153c283f79733be7d0f10475a3ee7c",
+      "base_blob": "a4196dd4703b0846bf457623829ce069d2edd6f0"
+    },
+    "crates/sutura-exec-node/src/lib.rs": {
+      "sha256": "dd429eebdf1957b58f7fc8202d59f17d1839b11c5e1cc2b65b0a89cfa67a9ab9",
+      "size": 8673,
+      "mode": "0o644",
+      "blob": "871ffd933a56f8610d36523a509c1a837c536600",
+      "base_blob": "12d2ab8ffea6b97df6a9382e799ea0c88d76e47e"
+    },
+    "crates/sutura-exec-node/src/test_support.rs": {
+      "sha256": "69b6782caeafe8590add5d9a8e96eed735dba53ee4331f742262a5e67a4359ad",
+      "size": 11000,
+      "mode": "0o644",
+      "blob": "2326b03d33bf5844865d29a812934e35b8790eb3",
+      "base_blob": null
+    },
+    "crates/sutura-exec-node/src/tests/fake.rs": {
+      "sha256": "7934590b0a15b2e1e8fb05c512e79d7a6ecb8455ee0a605cba61c4a8905eef02",
+      "size": 60,
+      "mode": "0o644",
+      "blob": "56882d07c0c93cb3ee4bf3e732f7870d7be3ccca",
+      "base_blob": "673ca9aa9627da0f4f400ff40b3257b2208307ca"
+    },
+    "devco/claim-mutations/a_local_node_decode_bound_reaches_the_application.patch": {
+      "sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+      "size": 534,
+      "mode": "0o644",
+      "blob": "b60860cf021328eb39a7bdff78886a4623c6bb6a",
+      "base_blob": null
+    },
+    "devco/claim-mutations/a_mono_byte_bound_reaches_both_transport_outputs.patch": {
+      "sha256": "fd574ce03cdc96ccd692368e3976d5815bce298ec90a010d7973e8cc40539e9a",
+      "size": 507,
+      "mode": "0o644",
+      "blob": "ac117940324abd9a8bd4afb71813e05deaf5da42",
+      "base_blob": null
+    },
+    "devco/claim-mutations/a_mono_opaque_bound_stays_numberless.patch": {
+      "sha256": "fd574ce03cdc96ccd692368e3976d5815bce298ec90a010d7973e8cc40539e9a",
+      "size": 507,
+      "mode": "0o644",
+      "blob": "ac117940324abd9a8bd4afb71813e05deaf5da42",
+      "base_blob": null
+    },
+    "devco/claim-mutations/a_mono_row_bound_reaches_both_transport_outputs.patch": {
+      "sha256": "fd574ce03cdc96ccd692368e3976d5815bce298ec90a010d7973e8cc40539e9a",
+      "size": 507,
+      "mode": "0o644",
+      "blob": "ac117940324abd9a8bd4afb71813e05deaf5da42",
+      "base_blob": null
+    },
+    "devco/claim-mutations/a_remote_node_size_code_stays_numberless_in_the_application.patch": {
+      "sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+      "size": 534,
+      "mode": "0o644",
+      "blob": "b60860cf021328eb39a7bdff78886a4623c6bb6a",
+      "base_blob": null
+    },
+    "devco/claim-mutations/an_opaque_whole_or_partition_bound_stays_numberless.patch": {
+      "sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+      "size": 534,
+      "mode": "0o644",
+      "blob": "b60860cf021328eb39a7bdff78886a4623c6bb6a",
+      "base_blob": null
+    },
+    "devco/claim-mutations/local_partition_byte_bound_reaches_the_outputs.patch": {
+      "sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+      "size": 534,
+      "mode": "0o644",
+      "blob": "b60860cf021328eb39a7bdff78886a4623c6bb6a",
+      "base_blob": null
+    },
+    "devco/claim-mutations/local_partition_row_bound_reaches_the_outputs.patch": {
+      "sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+      "size": 534,
+      "mode": "0o644",
+      "blob": "b60860cf021328eb39a7bdff78886a4623c6bb6a",
+      "base_blob": null
+    },
+    "devco/claim-mutations/whole_leg_byte_bound_reaches_the_outputs.patch": {
+      "sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+      "size": 534,
+      "mode": "0o644",
+      "blob": "b60860cf021328eb39a7bdff78886a4623c6bb6a",
+      "base_blob": null
+    },
+    "devco/claim-mutations/whole_leg_row_bound_reaches_the_outputs.patch": {
+      "sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+      "size": 534,
+      "mode": "0o644",
+      "blob": "b60860cf021328eb39a7bdff78886a4623c6bb6a",
+      "base_blob": null
+    }
+  }
+}
