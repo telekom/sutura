@@ -1,4 +1,4 @@
-//! The ClickHouse fleet arm of the real aggregate shell, through its existing harness.
+//! The `ClickHouse` fleet arm of the real aggregate shell, through its existing harness.
 
 use super::aggregate_shell::run_aggregator;
 
