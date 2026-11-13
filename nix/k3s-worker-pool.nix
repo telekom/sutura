@@ -4,13 +4,12 @@
 # node. IPv4 only, one KVM host, shared fixture identity; neither RSS nor human identity is proved.
 # Deletion cost is a preference with a read-to-delete race, even when this controlled run observes
 # the idle UID removed. Venue-only source policies know addresses the generic chart cannot know.
-{
-  pkgs,
-  chartHelm,
-  ociImage,
-  operatorImage,
-  chart,
-  ...
+{ pkgs
+, chartHelm
+, ociImage
+, operatorImage
+, chart
+, ...
 }:
 let
   # File names ending in `.tar`, which is what k3s imports from its images directory.
@@ -97,7 +96,22 @@ let
     }
   );
 
-  fixture = pkgs.runCommand "k3s-worker-pool-fixture" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+  sourceTls =
+    dbHost:
+    pkgs.runCommand "k3s-worker-pool-source-tls" { nativeBuildInputs = [ pkgs.openssl ]; } ''
+      mkdir "$out" && cd "$out"
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+        -keyout ca.key -out ca.pem -days 3650 -subj /CN=k3s-worker-pool-source-ca \
+        -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign'
+      openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+        -keyout db.key -out db.csr -subj /CN=db
+      printf 'subjectAltName=IP:%s\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n' \
+        ${dbHost} > db.ext
+      openssl x509 -req -in db.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
+        -out db.pem -days 3650 -extfile db.ext
+      rm ca.key ca.srl db.csr db.ext
+    '';
+  fixture = dbHost: pkgs.runCommand "k3s-worker-pool-fixture" { nativeBuildInputs = [ pkgs.python3 ]; } ''
     python - <<'PY'
     import csv
     import json
@@ -134,6 +148,7 @@ let
                                   values=["north", "south"])],
                  anchor=dict(range=dict(start="2026-06-01", end="2026-07-01"), value=count * 100)))
     PY
+    cp ${sourceTls dbHost}/ca.pem "$out/postgres-ca.pem"
   '';
   files = {
     kind = "files";
@@ -211,7 +226,8 @@ let
               database = "sutura";
               user = "sutura";
               password_file = "/srv/sutura/password";
-              transport_mode = "plaintext";
+              transport_mode = "verified";
+              transport_anchors = "/srv/sutura/postgres-ca.pem";
               posture = "shared-service-user";
             };
           };
@@ -224,7 +240,7 @@ let
           {
             name = "fixture";
             hostPath = {
-              path = "${fixture}";
+              path = "${fixture dbHost}";
               type = "Directory";
             };
           }
@@ -284,7 +300,7 @@ pkgs.testers.runNixOSTest {
 
   nodes.agent1 = agent;
   nodes.agent2 = agent;
-  nodes.db = {
+  nodes.db = { config, ... }: {
     virtualisation.memorySize = 1024;
     networking = {
       firewall.allowedTCPPorts = [
@@ -293,14 +309,25 @@ pkgs.testers.runNixOSTest {
       ];
       enableIPv6 = false;
     };
+    systemd.services.postgres-tls = {
+      before = [ "postgresql.service" ];
+      requiredBy = [ "postgresql.service" ];
+      serviceConfig.Type = "oneshot";
+      script = "install -d -m 0700 -o postgres -g postgres /run/postgres-tls && install -m 0600 -o postgres -g postgres ${sourceTls config.networking.primaryIPAddress}/db.key /run/postgres-tls/db.key";
+    };
     services.postgresql = {
       enable = true;
       package = pkgs.postgresql_18;
       enableTCPIP = true;
       authentication = pkgs.lib.mkForce ''
         local all postgres peer
-        host sutura sutura all scram-sha-256
+        hostssl sutura sutura all scram-sha-256
       '';
+      settings = {
+        ssl = true;
+        ssl_cert_file = "${sourceTls config.networking.primaryIPAddress}/db.pem";
+        ssl_key_file = "/run/postgres-tls/db.key";
+      };
       initialScript = pkgs.writeText "worker-pool-init.sql" ''
         CREATE ROLE sutura LOGIN PASSWORD 'fixture-password';
         CREATE DATABASE sutura OWNER sutura;
