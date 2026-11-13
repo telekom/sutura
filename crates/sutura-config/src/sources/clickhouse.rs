@@ -23,7 +23,7 @@ const HASH_BUCKETS_KEY: &str = "sources.<alias>.hash_buckets_acknowledged_becaus
 /// Records the `hash_buckets_acknowledged_because` written on the entry `written`, after the entry
 /// itself parsed - the body of [`SourceRegistry::acknowledge_hash_buckets`].
 ///
-/// The composition root hands this witness to the ClickHouse adapter. Refused beside a
+/// The composition root hands this witness to the `ClickHouse` adapter. Refused beside a
 /// `delegation`, and at boot by
 /// [`crate::NotFitToServe::HashBucketsOnTheOnlySource`] and
 /// [`crate::NotFitToServe::HashBucketsReadByNoNode`].
