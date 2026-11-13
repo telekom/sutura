@@ -1,5 +1,4 @@
 //! The real coordinator and worker, with loss injected only on the existing channel port.
-use crate::protocol::in_process::InProcessWorkerClient;
 use crate::{
     ChannelResolver, CoordinatorToWorkerMsg, DistributedExec, DistributedExt, ExecuteTaskRequest, GetWorkerInfoRequest,
     GetWorkerInfoResponse, NetworkCoalesceExec, QueryCompletion, SessionStateBuilderExt, SetPlanRequest, TaskCompletionProducer,
@@ -24,7 +23,7 @@ use tokio::time::Instant;
 use url::Url;
 
 struct Channel {
-    inner: InProcessWorkerClient,
+    inner: Box<dyn WorkerChannel>,
     cut: bool,
     worker_timeout: Option<Duration>,
     cuts: Arc<AtomicUsize>,
@@ -89,7 +88,11 @@ struct Resolver {
 impl ChannelResolver for Resolver {
     async fn get_worker_client_for_url(&self, _: &Url) -> Result<Box<dyn WorkerChannel>> {
         Ok(Box::new(Channel {
-            inner: InProcessWorkerClient::new(self.worker.clone()),
+            inner: crate::LocalWorkerContext {
+                local_worker: self.worker.clone(),
+                self_url: Url::parse("http://worker").unwrap(),
+            }
+            .to_worker_channel(),
             cut: self.cut,
             worker_timeout: self.worker_timeout,
             cuts: Arc::clone(&self.cuts),
@@ -124,7 +127,7 @@ fn execution(
         .with_distributed_planner()
         .with_distributed_dynamic_task_count(false)
         .unwrap()
-        .with_distributed_route_tasks_handler(|_| {
+        .with_distributed_route_tasks_handler(|_: crate::RouteTasksEvent<'_>| {
             Some(Ok(crate::RouteTasksEventResponse::new(vec![
                 Url::parse("http://worker").unwrap(),
             ])))

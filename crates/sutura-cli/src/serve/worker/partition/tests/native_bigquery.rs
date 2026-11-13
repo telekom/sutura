@@ -312,20 +312,23 @@ fn listening(
         .build()
         .unwrap();
     let stopping = sutura_runtime::Shutdown::new();
-    let mut urls = Vec::new();
-    for worker in [own.clone(), reading] {
-        let mount = sutura_http::WorkerMount::new(
-            worker
-                .with_call_authorizer(TaskGrant::default())
-                .into_worker_server()
-                .max_decoding_message_size(working_set.bytes()),
-        );
+    let listeners = [(); 2].map(|()| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+    let [own_url, reader_url] = listeners
+        .each_ref()
+        .map(|listener| format!("https://{}", listener.local_addr().unwrap()));
+    let nodes = Nodes::declared(own, own_url.parse().unwrap(), [reader_url.parse().unwrap()], identity())
+        .reading(source("warehouse"), [reader_url.parse().unwrap()])
+        .across_above(NonZeroU64::new(1));
+    for (worker, listener) in [nodes.served(), reading.with_call_authorizer(TaskGrant::default())]
+        .into_iter()
+        .zip(listeners)
+    {
+        let mount = sutura_http::WorkerMount::new(worker.into_worker_server().max_decoding_message_size(working_set.bytes()));
         let router = servers
             .block_on(async { sutura_http::worker_router(settings, &mount) })
             .unwrap();
-        let address = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|listener| listener.local_addr())
-            .unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
         let tls = tls.clone();
         let shutdown = stopping.clone();
         drop(servers.spawn(async move { sutura_http::serve_tls(router, address, shutdown, &tls).await }));
@@ -336,12 +339,7 @@ fn listening(
             }),
             "fixture worker never listened"
         );
-        urls.push(format!("https://{address}"));
     }
-    let [own_url, reader_url]: [_; 2] = urls.try_into().unwrap();
-    let nodes = Nodes::declared(own, own_url.parse().unwrap(), [reader_url.parse().unwrap()], identity())
-        .reading(source("warehouse"), [reader_url.parse().unwrap()])
-        .across_above(NonZeroU64::new(1));
     (servers, stopping, nodes)
 }
 
