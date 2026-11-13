@@ -1,0 +1,41 @@
+{
+  "head": "64540017461ec2951063c29a0fe1818b784b3c3a",
+  "head_tree": "6d28301464b7c1fc9e888db96882653f1d545704",
+  "base": "2e1691ea9bf1decc4807108b66e8bd37a96b1581",
+  "base_tree": "f042eea32c0beaf97b631590d2d19b0a5155b0cf",
+  "overlay_path": "crates/sutura-config/src/settings/tests/rdbms_catalog.rs",
+  "base_file_sha256": "2429ccf1b8a0bb59e6b18308c1a97be3abcaf7b2b405e2b8ae7fbbe1a0b48eec",
+  "overlay_sha256": "2fb1249b868b4fc52f44828d9298b0e58aea676278a220c9005bdceb2f50dedd",
+  "overlay_tree": "a69c62cf11fd41d7f26bc256851cc26cc312ae4c",
+  "runtime_sha256": "98917b43227e324b465daf1013d1fe4beccaf6b2d88faec71a1bb33bb26c1531",
+  "flake_sha256": "bd46da9b9c0ac36c9ce649b9a957ee8156b854241ccca9139cff09b2ac89b295",
+  "wrapper_cut_before_regex": "^\\. /nix/store/[^\\n]+with-tier\\.sh\\n",
+  "cell": {
+    "name": "settings::tests::rdbms_catalog::a_native_dictionary_source_is_parsed_as_written",
+    "package": "sutura-config",
+    "binary": "sutura-config",
+    "venue": "nextest"
+  },
+  "red": {
+    "sites": [
+      {
+        "path": "crates/sutura-config/src/settings/tests/rdbms_catalog.rs",
+        "line": 373
+      }
+    ],
+    "needles": [
+      "the entry loads",
+      "unknown field `include`"
+    ]
+  },
+  "head_reuse": {
+    "source": "846903fb816485be118f4cdf5fb92937e3e2a078",
+    "run": 43471301714,
+    "job": 132043607228,
+    "name": "settings::tests::rdbms_catalog::a_native_dictionary_source_is_parsed_as_written",
+    "named_result": "PASS",
+    "raw_log_line": 22071,
+    "independent_receipt_sha256": "2a0eea8487e860eec7a23be2dfc4dae19828b87703a65712cd545fa20d62ef0e",
+    "limit": "Named846-associated generated-merge538 unit PASS from an ordinary run that later failed CRAP; no exact645 runtime claim."
+  }
+}

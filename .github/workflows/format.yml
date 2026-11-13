@@ -52,7 +52,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [native-dictionary-proof]
+        options: [native-dictionary-proof, config-unit-base-cause]
 
 permissions:
   contents: read
@@ -112,6 +112,7 @@ jobs:
           scope: ci
 
       - name: Measure exact dictionary cells and mutations
+        if: inputs.operation == 'native-dictionary-proof'
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_TREE: ${{ inputs.source_tree }}
@@ -126,11 +127,26 @@ jobs:
           git show "$GITHUB_WORKFLOW_SHA:.github/scripts/native-dictionary-proof.json" > /tmp/native-dictionary-proof.json
           python3 /tmp/native-dictionary-proof.py /tmp/native-dictionary-proof.json
 
+      - name: Retain the missing base config unit cause
+        if: inputs.operation == 'config-unit-base-cause'
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          BASE_SHA: ${{ inputs.main_sha }}
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/native-dictionary-proof.py" > /tmp/native-dictionary-runtime.py
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/native-config-cause.py" > /tmp/native-config-cause.py
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/native-config-cause.json" > /tmp/native-config-cause.json
+          python3 /tmp/native-config-cause.py /tmp/native-config-cause.json
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: native-dictionary-proof-${{ inputs.source_sha }}
-          path: target/native-dictionary-proof/
+          path: |
+            target/native-dictionary-proof/
+            target/native-config-cause/
           if-no-files-found: error
           retention-days: 14
 
