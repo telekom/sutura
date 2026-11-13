@@ -1,0 +1,63 @@
+--- a/crates/sutura-cli/src/serve/worker/partition.rs
++++ b/crates/sutura-cli/src/serve/worker/partition.rs
+@@ -102,10 +102,57 @@
+         let (wire, source, partition) = (wire.to_vec(), source.clone(), partition.to_vec());
+         Ok(read_later(Arc::clone(schema), async move {
+             sutura_runtime::spawn_carrying_span(move || {
+-                let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
+-                let mut answered = opened.read_forwarded(&wire, &source, &partition, forwarded)?;
++                use sutura_domain::warehouse::UnannouncedBatch;
++                use sutura_exec_bigquery::{BigQueryError, adbc::AdbcError};
++
++                let observe = |phase: &str, failure: &Unread| {
++                    let reason = match failure {
++                        Unread::LegNotCertified => "leg_not_certified",
++                        Unread::DidNotFit => "did_not_fit",
++                        Unread::Failed(cause) => match core::error::Error::source(cause)
++                            .and_then(|cause| cause.downcast_ref::<BigQueryError<AdbcError>>())
++                        {
++                            Some(BigQueryError::Endpoint { cause }) => match cause {
++                                AdbcError::Load(_) => "adbc_load",
++                                AdbcError::Adbc(_) => "adbc_call",
++                                AdbcError::Batch(_) => "adbc_batch",
++                                AdbcError::Unannounced(cause) => match cause {
++                                    UnannouncedBatch::OverBound { .. } => "adbc_over_bound",
++                                    UnannouncedBatch::OverBudget { .. } => "adbc_over_budget",
++                                    UnannouncedBatch::Width { .. } => "adbc_width",
++                                    UnannouncedBatch::Mislabelled { .. } => "adbc_mislabelled",
++                                },
++                                AdbcError::Uncovered(_) => "adbc_uncovered",
++                                AdbcError::NoDryRun => "adbc_no_dry_run",
++                                AdbcError::DeadlineSpent => "adbc_deadline_spent",
++                                AdbcError::DeadlineElapsed => "adbc_deadline_elapsed",
++                                AdbcError::Parameters { .. } => "adbc_parameters",
++                                AdbcError::PoolExchange { .. } => "adbc_pool_exchange",
++                            },
++                            Some(_) => "bigquery_other",
++                            None => "unclassified_failure",
++                        },
++                    };
++                    eprintln!("observed, completion_diagnostic worker_phase={phase} worker_reason={reason}");
++                };
++                let recording = capture
++                    .as_ref()
++                    .map(SubmissionCapture::begin)
++                    .transpose()
++                    .inspect_err(|cause| observe("capture_begin", cause))?;
++                eprintln!(
++                    "observed, completion_diagnostic worker_phase=capture_begin capture_present={}",
++                    recording.is_some()
++                );
++                let mut answered = opened
++                    .read_forwarded(&wire, &source, &partition, forwarded)
++                    .inspect_err(|cause| observe("read_forwarded", cause))?;
++                eprintln!("observed, completion_diagnostic worker_phase=read_forwarded worker_reason=ok");
+                 if let Some(recording) = recording {
+-                    recording.complete(&mut answered)?;
++                    recording
++                        .complete(&mut answered)
++                        .inspect_err(|cause| observe("capture_complete", cause))?;
++                    eprintln!("observed, completion_diagnostic worker_phase=capture_complete worker_reason=ok");
+                 }
+                 Ok(answered)
+             })

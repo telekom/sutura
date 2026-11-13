@@ -413,19 +413,36 @@ def run_postgres(config, out):
 def run_cli_diagnostic(config, out, root, baseline):
     diagnostic = config["diagnostic"]
     assert GROUP == "bigquery-cli" and not config["cases"]
-    path = diagnostic["path"]
-    overlay = PAYLOAD / diagnostic["overlay"]
-    assert sha(overlay.read_bytes()) == diagnostic["overlay_sha256"]
-    assert sha((root / path).read_bytes()) == diagnostic["before_sha256"]
+    overlays = diagnostic["overlays"]
+    paths = [item["path"] for item in overlays]
+    assert paths == [
+        "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
+        "crates/sutura-cli/src/serve/worker/partition.rs",
+    ]
+    for item in overlays:
+        overlay = PAYLOAD / item["overlay"]
+        assert sha(overlay.read_bytes()) == item["overlay_sha256"]
+        assert sha((root / item["path"]).read_bytes()) == item["before_sha256"]
+        assert (
+            git(root, "apply", "--numstat", str(overlay))
+            .decode()
+            .strip()
+            .split("\t")[2]
+            == item["path"]
+        )
     try:
-        subprocess.run(["git", "apply", "--check", str(overlay)], cwd=root, check=True)
-        subprocess.run(["git", "apply", str(overlay)], cwd=root, check=True)
-        assert sha((root / path).read_bytes()) == diagnostic["after_sha256"]
+        for item in overlays:
+            overlay = PAYLOAD / item["overlay"]
+            subprocess.run(
+                ["git", "apply", "--check", str(overlay)], cwd=root, check=True
+            )
+            subprocess.run(["git", "apply", str(overlay)], cwd=root, check=True)
+            assert sha((root / item["path"]).read_bytes()) == item["after_sha256"]
         changed = snapshot(root)
         assert changed["stages_sha256"] == baseline["stages_sha256"]
         assert {
             p for p in baseline["files"] if baseline["files"][p] != changed["files"][p]
-        } == {path}
+        } == set(paths)
         record(out / "diagnostic-overlay.json", diagnostic)
         code, raw = invoke(root, out, "census", task(root, "proof-census", GROUP))
         assert code == 0, "diagnostic census did not compile"
@@ -446,7 +463,7 @@ def run_cli_diagnostic(config, out, root, baseline):
             {
                 "source": config["source"],
                 "tree": config["tree"],
-                "overlay_sha256": diagnostic["overlay_sha256"],
+                "overlay_sha256": [item["overlay_sha256"] for item in overlays],
                 "exit": code,
                 "named_test_pass": outcome(
                     text, "PASS", diagnostic["binary"], diagnostic["test"]
@@ -455,11 +472,11 @@ def run_cli_diagnostic(config, out, root, baseline):
                 "runtime_credit": False,
                 "mutations_run": 0,
                 "markers": (out / "diagnostic.log").read_text().splitlines(),
-                "limit": "fixture-only error categories; remote external types may already be erased; absent marker is not_observed",
+                "limit": "fixed fixture and worker phases only; immediate typed source downcast may be unavailable; absent marker is not_observed",
             },
         )
     finally:
-        restore(root, out, "diagnostic-overlay", [path], baseline)
+        restore(root, out, "diagnostic-overlay", paths, baseline)
     assert code == 0, (
         "diagnostic fixture failed; retained categories confer no proof credit"
     )
