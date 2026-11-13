@@ -2648,7 +2648,7 @@ so this adapter owns no <code>tokio</code> runtime and calls the driver directly
 Instant Client the way an ODPI-C wrapper would, which was <code>#127</code>'s original blocker.</p>
 <p>SQL renders through <code>sutura-sql</code> (<code>Dialect::Oracle</code>); nothing here is compiled or translated.</p>
 <h2 id="the-one-caveat-this-crate-exists-to-hold-per-the-spike-behind-127">The one caveat this crate exists to hold, per the spike behind <code>#127</code><a class="headerlink" href="#the-one-caveat-this-crate-exists-to-hold-per-the-spike-behind-127" title="Permanent link">&para;</a></h2>
-<p><code>Connection::set_call_timeout</code> is a PER-READ idle timeout (<code>TcpStream::set_read_timeout</code>), not a
+<p><code>Connection::set_call_timeout</code> applies an idle timeout to socket reads and writes. It is not a
 total-call budget, and there is no cancellation API - a slow statement that keeps the socket
 busy is not stopped by it. Worse, <code>sutura_domain::warehouse::deadline::Deadline::remaining_at</code>
 returns <code>None</code> when the deadline is EXPIRED, and <code>set_call_timeout(None)</code> means <em>wait forever</em> -
@@ -2829,12 +2829,8 @@ for every other refused dial or login. Neither carries the token.</p>
 <h2 id="struct-drivererror"><code>struct DriverError</code><a class="headerlink" href="#struct-drivererror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DriverError</span>
 </span></code></pre></div>
-<p>Wraps <code>oracledb::Error</code> so it can be a <code>thiserror</code> <code>#[source]</code>.</p>
-<p><strong>Measured, not assumed:</strong> <code>oracledb::Error</code> implements <code>Debug</code> and <code>Display</code> but not
-<code>std::error::Error</code> - <code>oracledb::error::ErrorKind</code> and <code>DbError</code> are its own typed detail, and
-nothing upstream ties the type into <code>core::error::Error</code>'s chain. <code>#[source]</code> needs that trait,
-and there is no orphan-rule obstacle to implementing it for a LOCAL wrapper around a foreign
-type, so this is the newtype rather than a second, string-only error shape.</p>
+<p>The driver's typed error, wrapped for this adapter's classification methods.</p>
+<p>The driver implements <code>std::error::Error</code>; this wrapper currently exposes no nested source.</p>
 <h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="use-invaliddescriptor"><code>use InvalidDescriptor</code><a class="headerlink" href="#use-invaliddescriptor" title="Permanent link">&para;</a></h2>
