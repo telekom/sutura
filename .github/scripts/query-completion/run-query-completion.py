@@ -413,6 +413,48 @@ def run_cases(config, out):
             (out / "vendor-cargo-config.toml").write_bytes(
                 (vendor_home / "config.toml").read_bytes()
             )
+            library_expr = (
+                "let flake = builtins.getFlake "
+                + json.dumps("git+file://" + str(SOURCE) + "?rev=" + config["source"])
+                + "; pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux; "
+                + "in builtins.toString (pkgs.lib.getLib pkgs.xz)"
+            )
+            library = Path(
+                subprocess.check_output(
+                    ["nix", "eval", "--raw", "--expr", library_expr]
+                ).decode()
+            )
+            library_context = json.loads(
+                subprocess.check_output(
+                    [
+                        "nix",
+                        "eval",
+                        "--json",
+                        "--apply",
+                        "builtins.getContext",
+                        "--expr",
+                        library_expr,
+                    ]
+                )
+            )
+            assert library_context
+            for store_path, value in library_context.items():
+                assert store_path.endswith(".drv") or value == {"path": True}
+                subprocess.run(["nix-store", "--realise", store_path], check=True)
+            assert (library / "lib/liblzma.so.5").is_file()
+            previous_libraries = os.environ.get("LD_LIBRARY_PATH", "")
+            os.environ["LD_LIBRARY_PATH"] = str(library / "lib") + (
+                ":" + previous_libraries if previous_libraries else ""
+            )
+            record(
+                out / "vendor-runtime-library.json",
+                {
+                    "expression": library_expr,
+                    "context": library_context,
+                    "library": str(library),
+                    "appended_existing_path": bool(previous_libraries),
+                },
+            )
         assert snapshot(root)["stages_sha256"] == baseline["stages_sha256"]
         expected = snapshot(root)
         record(out / "approved-overlays.json", expected)
