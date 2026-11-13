@@ -50,7 +50,7 @@ const VECTOR_FLAG_NORM_RESERVED: u16 = 0x0010;
 const VECTOR_FLAG_SPARSE: u16 = 0x0020;
 
 /// Storage formats possible for vectors.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum VectorStorageFormat {
     Float32 = 0x02,
     Float64 = 0x03,
@@ -83,7 +83,7 @@ impl TryFrom<u8> for VectorStorageFormat {
 }
 
 /// Types of data supported by vectors.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum VectorData {
     Float32(Vec<f32>),
     Float64(Vec<f64>),
@@ -180,7 +180,7 @@ impl VectorData {
 }
 
 /// Represents a sparse vector.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SparseVector {
     num_dimensions: usize,
     indices: Vec<usize>,
@@ -239,7 +239,7 @@ impl SparseVector {
 }
 
 /// Tyeps of vectors supported by the library.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Vector {
     Dense(VectorData),
     Sparse(SparseVector),

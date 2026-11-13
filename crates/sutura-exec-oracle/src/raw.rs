@@ -1,5 +1,5 @@
 //! Raw queries use a fresh shared-user session and a read-only transaction. The account's grants
-//! remain the boundary for autonomous functions and external effects. Driver timeouts are per-read;
+//! remain the boundary for autonomous functions and external effects. Driver timeouts apply to socket reads and writes;
 //! connect handshakes and drop cleanup are not a total deadline. Native recovery may disconnect.
 
 use sutura_domain::identity::Presented;

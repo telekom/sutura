@@ -33,6 +33,7 @@ mod conn_impl;
 pub(crate) use conn_impl::ConnImpl;
 pub(crate) use conn_impl::ConnImplStatus;
 
+use std::fmt;
 use std::sync::Arc;
 
 use crate::bind_params::BindParameters;
@@ -103,8 +104,8 @@ impl Connection {
 
     /// Returns the "call timeout" value currently in effect by the connection
     /// or an error if the connection is closed. A value of None means that
-    /// there is no limit to the amount of time the client will wait for a
-    /// database response and is the initial default value.
+    /// there is no timeout on socket reads or writes and is the initial
+    /// default value.
     pub fn call_timeout(&self) -> Result<Option<std::time::Duration>, Error> {
         self.get_impl()?.get_call_timeout()
     }
@@ -295,9 +296,8 @@ impl Connection {
     }
 
     /// Sets the "call timeout" value which is the length of time that is
-    /// permitted for the database response to be returned to a request sent by
-    /// the client. If None, there is no limit and the client will wait
-    /// indefinitely.
+    /// permitted for socket reads and writes. If None, there is no limit and
+    /// the client will wait indefinitely.
     pub fn set_call_timeout(
         &self,
         duration: Option<std::time::Duration>,
@@ -361,6 +361,23 @@ impl Connection {
     /// Returns the version of the database.
     pub fn version(&self) -> Result<OracleVersion, Error> {
         Ok(self.get_impl()?.get_server_version())
+    }
+}
+
+impl fmt::Debug for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut s = f.debug_struct("Connection");
+        s.field("open", &self.conn_impl.is_some());
+        s.field("pooled", &self.pool_contents_ref.is_some());
+        if let Some(ref conn_impl) = self.conn_impl {
+            s.field("db_name", &conn_impl.get_db_name());
+            s.field("db_domain", &conn_impl.get_db_domain());
+            s.field("service_name", &conn_impl.get_service_name());
+            s.field("instance_name", &conn_impl.get_instance_name());
+            s.field("session_id", &conn_impl.get_session_id());
+            s.field("serial_num", &conn_impl.get_serial_num());
+        }
+        s.finish()
     }
 }
 
