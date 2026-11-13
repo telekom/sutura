@@ -980,6 +980,36 @@
             else
               pkgs.runCommand "multi-node-postgres-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
 
+          # Five VMs with an Oracle lookup split across two readers; the source trace distinguishes
+          # metadata parsing from row reads. Forty fixture rows prove placement, not capacity.
+          multi-node-oracle =
+            if system == "x86_64-linux" then
+              import ./nix/multi-node-oracle.nix {
+                inherit pkgs;
+                sutura = shipped.nativeFor {
+                  binary = builtins.head shipped.binaries;
+                  profile = "ci";
+                  features = [ "oracle" "tls" "distributed" ];
+                };
+                oracleImage = pkgs.dockerTools.pullImage {
+                  imageName = "gvenzl/oracle-free";
+                  imageDigest = "sha256:33322969a450d72c507b08d7f690d9e1d9b60aebaebc35a75b7c0b8ab4baac77";
+                  hash = "sha256-7cFAO4k+2auipVc57gWyn2KukHCSY1X2Jf66U1n4YVk=";
+                  finalImageName = "gvenzl/oracle-free";
+                  finalImageTag = "23.26.3-faststart";
+                };
+                walletImage = pkgs.dockerTools.pullImage {
+                  imageName = "container-registry.oracle.com/database/free";
+                  imageDigest = "sha256:f988b0c04c4c386cd306a2a914c0d7a9702d83acc31b064a28ad8eb6278a8fba";
+                  hash = "sha256-zcXS3l3YyfVy/f19URPGGbXgzrjG4PI8VuSmt6BD7b8=";
+                  finalImageName = "container-registry.oracle.com/database/free";
+                  finalImageTag = "23.26.3.0";
+                };
+                example = ./examples/single-player;
+              }
+            else
+              pkgs.runCommand "multi-node-oracle-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
+
           # This chart in a k3s cluster inside a NixOS VM, scaled up by its CPU autoscaler under load
           # and back down (`telekom/sutura#828`) - `nix/k3s-autoscaling.nix` says what it observes and
           # what it does not. A stub on any other system, for `multi-node`'s reason.
