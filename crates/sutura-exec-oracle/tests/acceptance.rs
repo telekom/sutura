@@ -133,16 +133,38 @@ mod acceptance {
             .execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline())
             .expect("Oracle accepts the rendered whole plan");
         let records = result.take_executions();
-        let [Execution::Sql { source, dialect, sql, parameters }] = records.as_slice() else {
+        let [
+            Execution::Sql {
+                source,
+                dialect,
+                sql,
+                parameters,
+            },
+        ] = records.as_slice()
+        else {
             panic!("one whole-query Oracle receipt: {records:?}");
         };
         assert_eq!(source, &corpus::source());
         assert_eq!(*dialect, TypeDialect::Oracle);
-        assert_eq!(sql, rendered.sql(), "Oracle whole-query receipt SQL differs from the rendered statement");
-        assert_eq!(parameters, &vec![
-            Binding::new(BindingIdentity::Position(0), BindingValue::OracleDate(Date::new(2026, 1, 1).unwrap())),
-            Binding::new(BindingIdentity::Position(1), BindingValue::OracleDate(Date::new(2026, 1, 3).unwrap())),
-        ], "Oracle whole-query receipt lost its positional date bindings");
+        assert_eq!(
+            sql,
+            rendered.sql(),
+            "Oracle whole-query receipt SQL differs from the rendered statement"
+        );
+        assert_eq!(
+            parameters,
+            &vec![
+                Binding::new(
+                    BindingIdentity::Position(0),
+                    BindingValue::OracleDate(Date::new(2026, 1, 1).unwrap())
+                ),
+                Binding::new(
+                    BindingIdentity::Position(1),
+                    BindingValue::OracleDate(Date::new(2026, 1, 3).unwrap())
+                ),
+            ],
+            "Oracle whole-query receipt lost its positional date bindings"
+        );
         let answered = result.to_rows().expect("Oracle's answer decodes to rows");
         assert_eq!(
             answered,

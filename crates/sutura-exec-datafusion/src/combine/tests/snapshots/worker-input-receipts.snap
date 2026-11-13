@@ -2,4 +2,159 @@
 source: crates/sutura-exec-datafusion/src/combine/tests/across/served_split.rs
 expression: canonical
 ---
-[]
+[
+    DataFusion {
+        source: Some(
+            SourceName(
+                "facts",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture fact submission",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "geo",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture geo grant creation",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "crm",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture crm grant creation",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "ops",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture ops submission",
+    },
+    DataFusion {
+        source: None,
+        stage: Combine,
+        logical_plan: "Limit: skip=0, fetch=1\n  Filter: 0_leaf_18446744073709551615 > Int64(1)\n    Aggregate: groupBy=[[lookup_2.2_link]], aggr=[[count(Int64(1)) AS 0_leaf_18446744073709551615]]\n      Filter: Boolean(true) AND lookup_2.2_link IS NOT NULL\n        TableScan: lookup_2",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "crm",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [10, 255]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "crm",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [10, 255]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "crm",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [6, 0]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "crm",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [7, 1]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "crm",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [8, 3]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "crm",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [9, 9]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "geo",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [0, 0]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "geo",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [1, 1]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "geo",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [2, 2]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "geo",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [3, 3]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "geo",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [4, 4]",
+    },
+    DataFusion {
+        source: Some(
+            SourceName(
+                "geo",
+            ),
+        ),
+        stage: Files,
+        logical_plan: "fixture in-memory partition [5, 255]",
+    },
+    DataFusion {
+        source: None,
+        stage: Combine,
+        logical_plan: "Sort: region ASC NULLS LAST, area ASC NULLS LAST, tier ASC NULLS LAST, period ASC NULLS LAST\n  Projection: lookup.region AS region, lookup_1.area AS area, lookup_2.tier AS tier, fact.period AS period, sum(fact.0_leaf_0) AS revenue\n    Aggregate: groupBy=[[lookup.region, lookup_1.area, lookup_2.tier, fact.period]], aggr=[[sum(CAST(fact.0_leaf_0 AS Decimal256(76, 0)))]]\n      Left Join:  Filter: fact.2_link = lookup_2.2_link\n        Filter: sutura_matched(lookup_1.1_link)\n          Right Join:  Filter: lookup.1_link = lookup_1.1_link\n            SubqueryAlias: lookup_1\n              Projection: lookup_1.1_link, area\n                Filter: sutura_one_row_per_link(0_leaf_18446744073709551615)\n                  Aggregate: groupBy=[[lookup_1.1_link]], aggr=[[max(lookup_1.area) AS area, count(Int64(1)) AS 0_leaf_18446744073709551615]]\n                    Filter: Boolean(true) AND lookup_1.1_link IS NOT NULL\n                      TableScan: lookup_1\n            Right Join:  Filter: fact.0_link = lookup.0_link\n              SubqueryAlias: lookup\n                Projection: lookup.0_link, 1_link, region\n                  Filter: sutura_one_row_per_link(0_leaf_18446744073709551615)\n                    Aggregate: groupBy=[[lookup.0_link]], aggr=[[max(lookup.1_link) AS 1_link, max(lookup.region) AS region, count(Int64(1)) AS 0_leaf_18446744073709551615]]\n                      Filter: Boolean(true) AND lookup.0_link IS NOT NULL\n                        TableScan: lookup\n              TableScan: fact\n        TableScan: lookup_2",
+    },
+]

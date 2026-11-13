@@ -537,7 +537,11 @@ mod tests {
     fn a_joined_arm_and_a_local_arm_merge_under_one_plan() {
         for joined_first in [true, false] {
             let (arm, plan) = joined("revenue");
-            let drill = plan_of(if joined_first { vec![arm, local("visits")] } else { vec![local("visits"), arm] });
+            let drill = plan_of(if joined_first {
+                vec![arm, local("visits")]
+            } else {
+                vec![local("visits"), arm]
+            });
             let fact = batches(
                 [InternalLabel::link(0).label(), String::from(TIME_BUCKET_LABEL), leaf()],
                 vec![
@@ -557,28 +561,61 @@ mod tests {
             let results = results_of(&plan, [fact, lookup]);
             let legs = Legs::assign(&plan, &results).expect("one result per leg");
             let visits_metric = metric("visits");
-            let local = ArmLegs::Local { metric: &visits_metric, batches: &visits };
-            let arms = if joined_first { [ArmLegs::Joined(legs), local] } else { [local, ArmLegs::Joined(legs)] };
+            let local = ArmLegs::Local {
+                metric: &visits_metric,
+                batches: &visits,
+            };
+            let arms = if joined_first {
+                [ArmLegs::Joined(legs), local]
+            } else {
+                [local, ArmLegs::Joined(legs)]
+            };
             let mut batches = combiner().merge(&drill, &arms, UNBOUNDED).expect("the arms merge");
             let records = batches.take_executions();
             let answered = batches.to_rows().expect("the answer decodes");
-    
-            let columns = if joined_first { ["region", "period", "revenue", "visits"] } else { ["region", "period", "visits", "revenue"] };
+
+            let columns = if joined_first {
+                ["region", "period", "revenue", "visits"]
+            } else {
+                ["region", "period", "visits", "revenue"]
+            };
             assert_eq!(answered.columns(), &columns);
             assert_eq!(
                 answered.rows(),
                 &[
-                    if joined_first { vec![text("north"), text("2026-06"), Value::Integer(300), Value::Integer(7)] }
-                        else { vec![text("north"), text("2026-06"), Value::Integer(7), Value::Integer(300)] },
-                    if joined_first { vec![text("south"), text("2026-06"), Value::Null, Value::Integer(3)] }
-                        else { vec![text("south"), text("2026-06"), Value::Integer(3), Value::Null] },
+                    if joined_first {
+                        vec![text("north"), text("2026-06"), Value::Integer(300), Value::Integer(7)]
+                    } else {
+                        vec![text("north"), text("2026-06"), Value::Integer(7), Value::Integer(300)]
+                    },
+                    if joined_first {
+                        vec![text("south"), text("2026-06"), Value::Null, Value::Integer(3)]
+                    } else {
+                        vec![text("south"), text("2026-06"), Value::Integer(3), Value::Null]
+                    },
                 ]
             );
-            assert_eq!(records.len(), 2, "the joined arm probe and final merge must both survive either arm order");
-            assert!(records.iter().all(|record| matches!(record, Execution::DataFusion {
-                source: None, stage: sutura_domain::warehouse::execution::PlanStage::Combine, ..
-            })), "merge directly submits only its probe and final plan");
-            let name = if joined_first { "merge-receipts-joined-first" } else { "merge-receipts-local-first" };
+            assert_eq!(
+                records.len(),
+                2,
+                "the joined arm probe and final merge must both survive either arm order"
+            );
+            assert!(
+                records.iter().all(|record| matches!(
+                    record,
+                    Execution::DataFusion {
+                        source: None,
+                        stage: sutura_domain::warehouse::execution::PlanStage::Combine,
+                        ..
+                    }
+                )),
+                "merge directly submits only its probe and final plan"
+            );
+            let name = if joined_first {
+                "merge-receipts-joined-first"
+            } else {
+                "merge-receipts-local-first"
+            };
             insta::with_settings!({prepend_module_to_snapshot => false, snapshot_path => "tests/snapshots"}, {
                 insta::assert_debug_snapshot!(name, records);
             });

@@ -568,14 +568,11 @@ impl ExecutionPlan for PartitionScanExec {
                 switched,
                 capture,
             ),
-            Carried::Nothing | Carried::Taken { .. } => reader.0.read(
-                &admitted.verifier,
-                &self.wire,
-                &self.source,
-                &self.partition,
-                schema,
-                capture,
-            ),
+            Carried::Nothing | Carried::Taken { .. } => {
+                reader
+                    .0
+                    .read(&admitted.verifier, &self.wire, &self.source, &self.partition, schema, capture)
+            }
         }
         .map_err(Unread::into_error)?;
         let schema = Arc::clone(schema);

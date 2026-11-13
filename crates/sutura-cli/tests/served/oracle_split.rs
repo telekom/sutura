@@ -364,15 +364,22 @@ fn an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertifie
         statements.push(format!("{before} AS OF SCN {{SCN}} {rest}"));
     }
     assert_eq!(scns[0], scns[1], "the buckets must share one snapshot");
-    let prefix = format!(r#"SELECT "{TABLE}"."customer_key" AS "0_link", "{TABLE}"."region" AS "region" FROM "{TABLE}" AS OF SCN {{SCN}} WHERE "#);
-    let suffix = format!(r#" GROUP BY "{TABLE}"."customer_key", "{TABLE}"."region" ORDER BY "{TABLE}"."customer_key", "{TABLE}"."region""#);
+    let prefix = format!(
+        r#"SELECT "{TABLE}"."customer_key" AS "0_link", "{TABLE}"."region" AS "region" FROM "{TABLE}" AS OF SCN {{SCN}} WHERE "#
+    );
+    let suffix = format!(
+        r#" GROUP BY "{TABLE}"."customer_key", "{TABLE}"."region" ORDER BY "{TABLE}"."customer_key", "{TABLE}"."region""#
+    );
     let mut expected = vec![
         format!(r#"{prefix}("{TABLE}"."customer_key" IS NULL OR ORA_HASH("{TABLE}"."customer_key", 1) = 0){suffix}"#),
         format!(r#"{prefix}(NOT "{TABLE}"."customer_key" IS NULL AND ORA_HASH("{TABLE}"."customer_key", 1) = 1){suffix}"#),
     ];
     statements.sort();
     expected.sort();
-    assert_eq!(statements, expected, "Oracle worker receipts differ from both expected bucket statements");
+    assert_eq!(
+        statements, expected,
+        "Oracle worker receipts differ from both expected bucket statements"
+    );
     let other: Vec<_> = executions.iter().filter(|record| record["kind"] != "sql").collect();
     assert_eq!(other.len(), 2, "the files input and final combine are both accounted for");
     assert_eq!(other[0]["kind"], "datafusion");

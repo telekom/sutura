@@ -16,10 +16,12 @@ use sutura_domain::plan::{ExecuteError, FederatedPlan, FederationCombiner as _, 
 use sutura_domain::warehouse::execution::{Execution, PlanStage};
 use sutura_domain::warehouse::{ResultBatches, Value};
 
-use super::{Answer, Asked, Authority, FixtureReader, NULL, Peer, UNBOUNDED, TIME_BUCKET_LABEL, batches_of, both_readers, caller,
-    grant, label, leaf, linked, listening, planning, roomy, served, servers, source, text};
-use tokio::runtime::Runtime;
+use super::{
+    Answer, Asked, Authority, FixtureReader, NULL, Peer, TIME_BUCKET_LABEL, UNBOUNDED, batches_of, both_readers, caller, grant,
+    label, leaf, linked, listening, planning, roomy, served, servers, source, text,
+};
 use crate::combine::{DataFusionCombiner, Nodes, PartitionReader};
+use tokio::runtime::Runtime;
 
 /// [`super::fan_in_plan`]'s question: a fact row per entry of `fact`, under its link value for both `geo`
 /// and `ops`, `geo` and `crm` granted as their partitions, and `ops` read here holding `c1`.
@@ -39,21 +41,25 @@ impl LegRunner for GrantingGeoAndCrm {
                 .iter()
                 .map(|&(link, cents)| vec![text(link), text(link), text("2026-06"), Value::Integer(cents)])
                 .collect(),
-        ).with_execution(Execution::DataFusion {
-            source: Some(leg.source().clone()), stage: PlanStage::Files,
+        )
+        .with_execution(Execution::DataFusion {
+            source: Some(leg.source().clone()),
+            stage: PlanStage::Files,
             logical_plan: String::from("fixture fact submission"),
         }))
     }
 
     fn lookup(&self, leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
         if *leg.source() == source("ops") {
-            return Ok(Looked::Rows(vec![batches_of(
-                vec![linked(2), String::from("tier")],
-                vec![vec![text("c1"), text("gold")]],
-            ).with_execution(Execution::DataFusion {
-                source: Some(leg.source().clone()), stage: PlanStage::Files,
-                logical_plan: String::from("fixture ops submission"),
-            })]));
+            return Ok(Looked::Rows(vec![
+                batches_of(vec![linked(2), String::from("tier")], vec![vec![text("c1"), text("gold")]]).with_execution(
+                    Execution::DataFusion {
+                        source: Some(leg.source().clone()),
+                        stage: PlanStage::Files,
+                        logical_plan: String::from("fixture ops submission"),
+                    },
+                ),
+            ]));
         }
         let (columns, granted) = if *leg.source() == source("geo") {
             (vec![linked(0), linked(1), String::from("region")], &self.geo)
@@ -64,11 +70,10 @@ impl LegRunner for GrantingGeoAndCrm {
             .into_iter()
             .map(|name| Field::new(name, DataType::Utf8, true))
             .collect();
-        let Looked::Granted(granted) = grant(Arc::new(Schema::new(fields)), granted.clone(), &caller()) else {
-            unreachable!();
-        };
+        let granted = grant(Arc::new(Schema::new(fields)), granted.clone(), &caller());
         Ok(Looked::Granted(granted.with_executions(vec![Execution::DataFusion {
-            source: Some(leg.source().clone()), stage: PlanStage::Files,
+            source: Some(leg.source().clone()),
+            stage: PlanStage::Files,
             logical_plan: format!("fixture {} grant creation", leg.source()),
         }])))
     }
@@ -146,4 +151,3 @@ where
     let combiner = DataFusionCombiner::across(nodes).map_err(ExecuteError::Combine)?;
     combiner.execute(combiner.plan(plan), runner, UNBOUNDED)
 }
-

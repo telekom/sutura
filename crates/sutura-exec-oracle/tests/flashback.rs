@@ -238,12 +238,16 @@ mod acceptance {
                 let mut read = warehouse
                     .read_partition(&leg, &partition.to_bytes(), deadline(60))
                     .expect("a fresh partition reads");
-                assert_eq!(read.take_executions(), vec![Execution::Sql {
-                    source: corpus::source(),
-                    dialect: TypeDialect::Oracle,
-                    sql: String::from(expected.sql()),
-                    parameters: vec![],
-                }], "Oracle partition receipt differs from its descriptor's SQL");
+                assert_eq!(
+                    read.take_executions(),
+                    vec![Execution::Sql {
+                        source: corpus::source(),
+                        dialect: TypeDialect::Oracle,
+                        sql: String::from(expected.sql()),
+                        parameters: vec![],
+                    }],
+                    "Oracle partition receipt differs from its descriptor's SQL"
+                );
                 rows(&read)
             })
             .collect();

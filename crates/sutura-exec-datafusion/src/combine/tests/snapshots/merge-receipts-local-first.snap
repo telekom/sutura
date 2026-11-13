@@ -2,4 +2,15 @@
 source: crates/sutura-exec-datafusion/src/combine/merge.rs
 expression: records
 ---
-[]
+[
+    DataFusion {
+        source: None,
+        stage: Combine,
+        logical_plan: "Limit: skip=0, fetch=1\n  Filter: 0_leaf_18446744073709551615 > Int64(1)\n    Aggregate: groupBy=[[lookup.0_link]], aggr=[[count(Int64(1)) AS 0_leaf_18446744073709551615]]\n      Filter: Boolean(true) AND lookup.0_link IS NOT NULL\n        TableScan: lookup",
+    },
+    DataFusion {
+        source: None,
+        stage: Combine,
+        logical_plan: "Sort: region ASC NULLS LAST, period ASC NULLS LAST\n  Projection: merged.region AS region, merged.period AS period, merged.visits AS visits, merged.revenue AS revenue\n    SubqueryAlias: merged\n      Projection: coalesce(merged.region, next_arm.region) AS region, coalesce(merged.period, next_arm.period) AS period, merged.visits, next_arm.revenue\n        Full Join: merged.region = next_arm.region, merged.period = next_arm.period\n          SubqueryAlias: merged\n            Projection: fact.region AS region, fact.period AS period, sum(fact.0_leaf_0) AS visits\n              Aggregate: groupBy=[[fact.region, fact.period]], aggr=[[sum(CAST(fact.0_leaf_0 AS Decimal256(76, 0)))]]\n                TableScan: fact\n          SubqueryAlias: next_arm\n            Sort: region ASC NULLS LAST, period ASC NULLS LAST\n              Projection: lookup.region AS region, fact.period AS period, sum(fact.0_leaf_0) AS revenue\n                Aggregate: groupBy=[[lookup.region, fact.period]], aggr=[[sum(CAST(fact.0_leaf_0 AS Decimal256(76, 0)))]]\n                  Left Join:  Filter: fact.0_link = lookup.0_link\n                    TableScan: fact\n                    TableScan: lookup",
+    },
+]

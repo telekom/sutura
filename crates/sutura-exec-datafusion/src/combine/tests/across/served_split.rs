@@ -37,9 +37,7 @@ use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::SourceName;
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::leg::LegPlan;
-use sutura_domain::plan::{
-    ExecuteError, FederationCombiner as _, Granted, InternalLabel, LegRunner, LinkCast, Looked,
-};
+use sutura_domain::plan::{ExecuteError, FederationCombiner as _, Granted, InternalLabel, LegRunner, LinkCast, Looked};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::execution::{Execution, PlanStage};
 use sutura_domain::warehouse::{ResultBatches, Value};
@@ -188,7 +186,7 @@ impl Peer {
 }
 
 /// `partitions` of a leg answering `schema`, granted to `caller` for an hour.
-fn grant(schema: SchemaRef, partitions: Vec<Vec<u8>>, caller: &Subject) -> Looked<'static> {
+fn grant(schema: SchemaRef, partitions: Vec<Vec<u8>>, caller: &Subject) -> Granted<'static> {
     let now = SystemTime::now();
     let granted = Granted::new(
         b"granted-leg".to_vec(),
@@ -201,7 +199,7 @@ fn grant(schema: SchemaRef, partitions: Vec<Vec<u8>>, caller: &Subject) -> Looke
         EstimatedBytes::parse(1 << 10),
         (),
     );
-    Looked::Granted(granted.expect("a grant ending in an hour is not past"))
+    granted.expect("a grant ending in an hour is not past")
 }
 
 /// A runner reading the fact leg here and granting the lookup leg, counting each time it was asked
@@ -224,7 +222,11 @@ impl LegRunner for Granting {
     }
 
     fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
-        Ok(grant(Arc::clone(&self.schema), self.partitions.clone(), &self.caller))
+        Ok(Looked::Granted(grant(
+            Arc::clone(&self.schema),
+            self.partitions.clone(),
+            &self.caller,
+        )))
     }
 }
 
@@ -368,7 +370,11 @@ impl LegRunner for NoFactRow {
     }
 
     fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
-        Ok(grant(Arc::clone(whole(REPEATED).schema()), partitions(REPEATED), &caller()))
+        Ok(Looked::Granted(grant(
+            Arc::clone(whole(REPEATED).schema()),
+            partitions(REPEATED),
+            &caller(),
+        )))
     }
 }
 
@@ -458,7 +464,7 @@ impl LegRunner for GrantingTwo {
             Field::new(linked(on), DataType::Utf8, true),
             Field::new(named, DataType::Utf8, true),
         ]));
-        Ok(grant(schema, partitions(DISTINCT), &caller()))
+        Ok(Looked::Granted(grant(schema, partitions(DISTINCT), &caller())))
     }
 }
 
@@ -575,7 +581,11 @@ impl LegRunner for GrantingNulls {
     }
 
     fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
-        Ok(grant(Arc::clone(whole(NULLS).schema()), partitions(NULLS), &caller()))
+        Ok(Looked::Granted(grant(
+            Arc::clone(whole(NULLS).schema()),
+            partitions(NULLS),
+            &caller(),
+        )))
     }
 }
 
@@ -645,8 +655,7 @@ fn two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_
 
     let mut batches = answer.expect("two granted lookups answered");
     let records = batches.take_executions();
-    let answer = batches.to_rows()
-        .expect("a combined answer decodes");
+    let answer = batches.to_rows().expect("a combined answer decodes");
     assert_eq!(
         answer.rows(),
         &[
@@ -657,37 +666,93 @@ fn two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_
     let mut every: Partitions = geo.iter().chain(&crm).cloned().collect();
     every.sort();
     assert_eq!(asked, every, "a granted partition was read other than once");
-    assert_eq!(records.len(), 18, "the complete worker/input/probe/combine receipt census differs");
-    let inputs: Vec<_> = [("facts", "fixture fact submission"), ("geo", "fixture geo grant creation"),
-        ("crm", "fixture crm grant creation"), ("ops", "fixture ops submission")]
-        .into_iter().map(|(at, text)| Execution::DataFusion {
-            source: Some(source(at)), stage: PlanStage::Files, logical_plan: String::from(text),
-        }).collect();
-    assert_eq!(&records[..4], inputs.as_slice(), "a contributing input or grant receipt was lost");
-    let mut expected: Vec<_> = geo.iter().map(|part| ("geo", part)).chain(crm.iter().map(|part| ("crm", part)))
+    assert_eq!(
+        records.len(),
+        18,
+        "the complete worker/input/probe/combine receipt census differs"
+    );
+    let inputs: Vec<_> = [
+        ("facts", "fixture fact submission"),
+        ("geo", "fixture geo grant creation"),
+        ("crm", "fixture crm grant creation"),
+        ("ops", "fixture ops submission"),
+    ]
+    .into_iter()
+    .map(|(at, text)| Execution::DataFusion {
+        source: Some(source(at)),
+        stage: PlanStage::Files,
+        logical_plan: String::from(text),
+    })
+    .collect();
+    assert_eq!(
+        &records[..4],
+        inputs.as_slice(),
+        "a contributing input or grant receipt was lost"
+    );
+    let mut expected: Vec<_> = geo
+        .iter()
+        .map(|part| ("geo", part))
+        .chain(crm.iter().map(|part| ("crm", part)))
         .map(|(at, part)| Execution::DataFusion {
-            source: Some(source(at)), stage: PlanStage::Files,
+            source: Some(source(at)),
+            stage: PlanStage::Files,
             logical_plan: format!("fixture in-memory partition {part:?}"),
-        }).collect();
+        })
+        .collect();
     let mut plans = Vec::new();
     for record in records.iter().skip(4) {
-        if matches!(record, Execution::DataFusion { source: None, stage: PlanStage::Combine, .. }) {
+        if matches!(
+            record,
+            Execution::DataFusion {
+                source: None,
+                stage: PlanStage::Combine,
+                ..
+            }
+        ) {
             plans.push(record);
         } else {
-            let at = expected.iter().position(|wanted| wanted == record)
+            let at = expected
+                .iter()
+                .position(|wanted| wanted == record)
                 .expect("a worker supplied an unexpected or duplicate partition receipt");
             expected.remove(at);
         }
     }
-    assert!(expected.is_empty(), "a worker dropped a partition receipt, including a repeated descriptor");
-    assert_eq!(plans.len(), 2, "the ops ambiguity probe and final combine must both be retained");
-    let mut partitions: Vec<_> = records.iter().skip(4).filter(|record| matches!(record,
-        Execution::DataFusion { source: Some(_), stage: PlanStage::Files, .. })).collect();
+    assert!(
+        expected.is_empty(),
+        "a worker dropped a partition receipt, including a repeated descriptor"
+    );
+    assert_eq!(
+        plans.len(),
+        2,
+        "the ops ambiguity probe and final combine must both be retained"
+    );
+    let mut partitions: Vec<_> = records
+        .iter()
+        .skip(4)
+        .filter(|record| {
+            matches!(
+                record,
+                Execution::DataFusion {
+                    source: Some(_),
+                    stage: PlanStage::Files,
+                    ..
+                }
+            )
+        })
+        .collect();
     partitions.sort_by_key(|record| format!("{record:?}"));
     let mut partitions = partitions.into_iter();
     let mut canonical: Vec<_> = records.iter().collect();
     for record in canonical.iter_mut().skip(4) {
-        if matches!(*record, Execution::DataFusion { source: Some(_), stage: PlanStage::Files, .. }) {
+        if matches!(
+            *record,
+            Execution::DataFusion {
+                source: Some(_),
+                stage: PlanStage::Files,
+                ..
+            }
+        ) {
             *record = partitions.next().expect("each partition slot has one sorted receipt");
         }
     }

@@ -1,5 +1,20 @@
 ---
 source: crates/sutura-cli/tests/served/duckdb.rs
-expression: body["executions"]
+expression: "body[\"executions\"]"
 ---
-[]
+- kind: datafusion
+  source: local
+  stage: files
+  logical_plan: "Sort: 0_link ASC NULLS LAST, period ASC NULLS LAST\n  Projection: fct_subscription_monthly.customer_key AS 0_link, date_trunc(Utf8(\"month\"),fct_subscription_monthly.month) AS period, sum(fct_subscription_monthly.mrr_cents) AS 0_leaf_0\n    Aggregate: groupBy=[[fct_subscription_monthly.customer_key, CAST(date_trunc(Utf8(\"month\"), fct_subscription_monthly.month) AS Date32)]], aggr=[[sum(fct_subscription_monthly.mrr_cents)]]\n      Filter: fct_subscription_monthly.month >= Date32(\"2026-06-01\") AND fct_subscription_monthly.month < Date32(\"2026-07-01\") AND fct_subscription_monthly.status = Utf8(\"active\")\n        TableScan: fct_subscription_monthly"
+- kind: datafusion
+  source: geo
+  stage: files
+  logical_plan: "Sort: 0_link ASC NULLS LAST, region ASC NULLS LAST\n  Projection: dim_customer.customer_key AS 0_link, dim_customer.region AS region\n    Aggregate: groupBy=[[dim_customer.customer_key, dim_customer.region]], aggr=[[]]\n      TableScan: dim_customer"
+- kind: datafusion
+  source: ~
+  stage: combine
+  logical_plan: "Limit: skip=0, fetch=1\n  Filter: 0_leaf_18446744073709551615 > Int64(1)\n    Aggregate: groupBy=[[lookup.0_link]], aggr=[[count(Int64(1)) AS 0_leaf_18446744073709551615]]\n      Filter: Boolean(true) AND lookup.0_link IS NOT NULL\n        TableScan: lookup"
+- kind: datafusion
+  source: ~
+  stage: combine
+  logical_plan: "Sort: region ASC NULLS LAST, period ASC NULLS LAST\n  Projection: lookup.region AS region, fact.period AS period, sum(fact.0_leaf_0) AS recurring_revenue\n    Aggregate: groupBy=[[lookup.region, fact.period]], aggr=[[sum(CAST(fact.0_leaf_0 AS Decimal256(76, 0)))]]\n      Left Join:  Filter: fact.0_link = lookup.0_link\n        TableScan: fact\n        TableScan: lookup"
