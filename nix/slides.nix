@@ -25,7 +25,7 @@ pkgs.buildNpmPackage {
     ];
   };
 
-  npmDepsHash = "sha256-y4Ier5inh7ajL3SaXr6MwfC8qfrF0VFzsm2cWSWz+ys=";
+  npmDepsHash = "sha256-47B8MBCZLbsK+LEmU8OS0Ds7l2hLAYqkg2xzckXrsjc=";
   npmFlags = [ "--ignore-scripts" ];
 
   # The deck embeds the two diagrams and the mark that the docs site already ships, so there is
