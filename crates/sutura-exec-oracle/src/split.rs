@@ -48,7 +48,7 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches, RowSet, Value};
 use sutura_sql::{KeyBucket, Scn, generate_leg_as_of, generate_table_as_of};
 
-use crate::{OracleError, OracleWarehouse, Session};
+use crate::{OracleError, OracleWarehouse, Session, refuse_if_spent};
 
 pub(crate) mod columns;
 mod descriptor;
@@ -211,11 +211,8 @@ pub(super) fn split_by_estimate(
     }
 }
 
-/// [`OracleWarehouse::describe_split`]: the first partition's statement, stopped before its first
-/// fetch, at a probed source only.
-///
-/// **The limit:** the statement runs, as the partition read does; the driver may still have the
-/// database produce a first round of rows before the read stops.
+/// [`OracleWarehouse::describe_split`]: parse and describe the first partition's generated SELECT
+/// without executing or fetching it, at a probed source only.
 pub(super) fn describe(
     warehouse: &OracleWarehouse,
     leg: &LegPlan,
@@ -232,10 +229,13 @@ pub(super) fn describe(
     };
     let query =
         generate_leg_as_of(leg, split.scn, Some(first.bucket())).map_err(|cause| OracleError::PartitionRender { cause })?;
-    let (_, declared) = warehouse
-        .run_declared(Session::Boot, (query.sql(), query.params()), deadline, Some(0))
-        .map_err(gone)?;
-    Ok(declared)
+    let _guard = warehouse.execution_lock.lock();
+    let remaining = refuse_if_spent(deadline)?;
+    warehouse
+        .connection
+        .set_call_timeout(Some(remaining))
+        .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
+    crate::batches::describe(&warehouse.connection, query.sql()).map_err(gone)
 }
 
 /// [`OracleWarehouse::read_partition`]. A partition whose columns are all declared fixed is
