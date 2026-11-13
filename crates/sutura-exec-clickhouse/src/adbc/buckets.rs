@@ -3,6 +3,10 @@
 //! Each bucket is consistent per integer key. There is no snapshot across buckets, and the
 //! estimate reads the root table's active parts alone; joined tables and row policies can make
 //! that estimate conservative. Every partition retains the adapter's row and byte bounds.
+//! The estimate uses the leg's identity, which needs
+//! `SELECT(rows, bytes_on_disk, active, database, table) ON system.parts`. This column grant does
+//! not restrict metadata access to the root table. A source denial is returned without retrying
+//! as the deployment user.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 

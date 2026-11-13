@@ -68,8 +68,9 @@ PY
 #
 # The ADBC cells (crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs and adbc_execute_as_legs.rs):
 # `sutura_switched` and `sutura_switched_ungranted` have no password and may read `adbc_switched`
-# and the two `adbc_switched_legs` databases only, and `IMPERSONATE` is granted on the first alone -
-# so a statement switched to the second is refused by the server.
+# and the two `adbc_switched_legs` databases. The first also reads the five `system.parts` columns
+# used by bucket estimates; `IMPERSONATE` is granted on the first alone, so a statement switched
+# to the second is refused by the server.
 #
 # Token sign-in: `sutura_caller_a` and `sutura_caller_b` sign in through `checker`, which answers
 # ClickHouse's `GET` with 200 only for a valid token whose `sub` is the Basic user. A row policy on
@@ -122,6 +123,9 @@ $(for switched in sutura_switched sutura_switched_ungranted; do
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
     printf '    grants:\n      query:\n        - GRANT SELECT ON adbc_switched.*\n'
     printf '        - GRANT SELECT ON adbc_switched_legs.*\n        - GRANT SELECT ON adbc_switched_legs_log.*\n'
+    if [ "$switched" = sutura_switched ]; then
+      printf '        - GRANT SELECT(rows, bytes_on_disk, active, database, table) ON system.parts\n'
+    fi
   done)
   sutura_switched_readonly:
     no_password: 1
