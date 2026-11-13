@@ -1,6 +1,6 @@
 {
-  "source": "44fb5aa4d5f430da3d0f16487fd7876b8f651749",
-  "tree": "6b3df857576d764cab255420a8338b7b3101360d",
+  "source": "df4258ebffbd613e7f1a0fc7f5c98b6b0a76467d",
+  "tree": "43c3e1f518ec20dbcfff33cfb7395d8618d14598",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
   "binding": "Exact final-source static binding; runtime not yet observed",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
@@ -11,20 +11,20 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 449,
-        "last": 618,
-        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+        "first": 429,
+        "last": 596,
+        "function_sha256": "f557d52e22c310f398854797beba3008390435ec8bbd73b1596002e49ed6356b"
       },
       "patch": "mutations/native-cli-forwarded.patch",
       "patch_sha256": "0d70724ff13914a76f31e47fb6d3eaca88818d9ceb13ac924dac89befcc248c5",
       "marker": "forwarded native CLI receipt barrier: successful source read supplied no submission facts",
       "panic_lines": [
-        492,
-        492
+        472,
+        472
       ],
       "assertion_source_lines": [
-        492,
-        492
+        472,
+        472
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "94718f49d8a91c3009e4ada84c1ad6b1640ea5c78d4baa7e518182c9a2776fc0",
@@ -38,21 +38,21 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 449,
-        "last": 618,
-        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+        "first": 429,
+        "last": 596,
+        "function_sha256": "f557d52e22c310f398854797beba3008390435ec8bbd73b1596002e49ed6356b"
       },
       "patch": "mutations/bigquery-grant-creation.patch",
       "patch_sha256": "0ce2830431d70afd131f31c36be02aaa37512ab6cf448c9cb60dda35e809138b",
       "marker": null,
       "limit": "actual Granted branch and successful native result required",
       "panic_lines": [
-        502,
-        506
+        482,
+        486
       ],
       "assertion_source_lines": [
-        502,
-        506
+        482,
+        486
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f",
@@ -66,21 +66,21 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 449,
-        "last": 618,
-        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+        "first": 429,
+        "last": 596,
+        "function_sha256": "f557d52e22c310f398854797beba3008390435ec8bbd73b1596002e49ed6356b"
       },
       "patch": "mutations/bigquery-domain-creation.patch",
       "patch_sha256": "a48083cea0a045d0da560d60d0c93bd19f805644ee58fb9a062d283fb640e7e9",
       "marker": null,
       "limit": "distinct propagation edge; no full SQL equality credit",
       "panic_lines": [
-        502,
-        506
+        482,
+        486
       ],
       "assertion_source_lines": [
-        502,
-        506
+        482,
+        486
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f",
@@ -94,21 +94,21 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 449,
-        "last": 618,
-        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+        "first": 429,
+        "last": 596,
+        "function_sha256": "f557d52e22c310f398854797beba3008390435ec8bbd73b1596002e49ed6356b"
       },
       "patch": "mutations/bigquery-creation-sql.patch",
       "patch_sha256": "531bd72863d434b6e79c1da55dfb74fe0a054bb9e1a76d5792633883843c632b",
       "marker": null,
       "limit": "count/source/dialect must pass first",
       "panic_lines": [
-        518,
-        522
+        498,
+        502
       ],
       "assertion_source_lines": [
-        518,
-        522
+        498,
+        502
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "d646d64ca6114c69fbf4ca37090452ea38c2a1e4ad7f6da89dc470a4f30957ad",
@@ -122,21 +122,21 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 449,
-        "last": 618,
-        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+        "first": 429,
+        "last": 596,
+        "function_sha256": "f557d52e22c310f398854797beba3008390435ec8bbd73b1596002e49ed6356b"
       },
       "patch": "mutations/bigquery-local-creation.patch",
       "patch_sha256": "e32d4cec7be91b8c5027083ac58f958d99de5ad0c0e1220b13358fdcceb09035",
       "marker": null,
       "limit": "main Granted subcase and actual Partitioned::Split must pass; no local descriptor completeness",
       "panic_lines": [
-        584,
-        588
+        568,
+        572
       ],
       "assertion_source_lines": [
-        584,
-        588
+        568,
+        572
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "500da1eff6a292ff4f6145eb4cfe5703ffa48e2f948f535a9306e33bf59e1078",

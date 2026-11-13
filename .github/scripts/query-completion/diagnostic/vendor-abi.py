@@ -62,7 +62,7 @@ record(
         "size": binary.stat().st_size,
         "mode": binary.stat().st_mode,
         "census_exit": code,
-        "tests_or_mutations_run": False,
+        "tests_or_mutations_run_at_capture": False,
     },
 )
 readelf = identities["readelf"]["path"]

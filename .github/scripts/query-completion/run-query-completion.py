@@ -442,6 +442,67 @@ def run_cases(config, out):
                 assert store_path.endswith(".drv") or value == {"path": True}
                 subprocess.run(["nix-store", "--realise", store_path], check=True)
             assert (library / "lib/liblzma.so.5").is_file()
+            discovery_expr = (
+                "let flake = builtins.getFlake "
+                + json.dumps("git+file://" + str(SOURCE) + "?rev=" + config["source"])
+                + "; pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux; "
+                + 'in builtins.toJSON { executable = "${pkgs.pkg-config}/bin/pkg-config"; '
+                + 'pcdir = "${pkgs.lib.getDev pkgs.xz}/lib/pkgconfig"; }'
+            )
+            discovery = json.loads(
+                subprocess.check_output(
+                    ["nix", "eval", "--raw", "--expr", discovery_expr]
+                )
+            )
+            discovery_context = json.loads(
+                subprocess.check_output(
+                    [
+                        "nix",
+                        "eval",
+                        "--json",
+                        "--apply",
+                        "builtins.getContext",
+                        "--expr",
+                        discovery_expr,
+                    ]
+                )
+            )
+            assert discovery_context
+            for store_path, value in discovery_context.items():
+                assert store_path.endswith(".drv") or value == {"path": True}
+                subprocess.run(["nix-store", "--realise", store_path], check=True)
+            executable = Path(discovery["executable"])
+            pcfile = Path(discovery["pcdir"]) / "liblzma.pc"
+            assert executable.is_file() and os.access(executable, os.X_OK)
+            assert pcfile.is_file()
+            for name, value in {
+                "PKG_CONFIG": str(executable),
+                "PKG_CONFIG_PATH": discovery["pcdir"],
+                "PKG_CONFIG_LIBDIR": discovery["pcdir"],
+                "PKG_CONFIG_SYSROOT_DIR": "",
+            }.items():
+                for key in [
+                    name,
+                    "HOST_" + name,
+                    name + "_x86_64-unknown-linux-gnu",
+                    name + "_x86_64_unknown_linux_gnu",
+                ]:
+                    os.environ[key] = value
+            for name in ["PKG_CONFIG_PATH_FOR_BUILD", "PKG_CONFIG_PATH_FOR_TARGET"]:
+                os.environ[name] = discovery["pcdir"]
+            os.environ["PATH"] = str(executable.parent) + ":" + os.environ["PATH"]
+            record(
+                out / "vendor-native-discovery.json",
+                {
+                    "expression": discovery_expr,
+                    "context": discovery_context,
+                    "executable": str(executable),
+                    "executable_sha256": sha(executable.read_bytes()),
+                    "pcfile": str(pcfile),
+                    "pcfile_sha256": sha(pcfile.read_bytes()),
+                    "pcfile_contents": pcfile.read_text(),
+                },
+            )
             previous_libraries = os.environ.get("LD_LIBRARY_PATH", "")
             os.environ["LD_LIBRARY_PATH"] = str(library / "lib") + (
                 ":" + previous_libraries if previous_libraries else ""
@@ -476,8 +537,7 @@ def run_cases(config, out):
             "census",
             task(root, "proof-census", "offline" if GROUP == "claims" else GROUP),
         )
-        if GROUP == "vendor" and config.get("abi_diagnostic"):
-            assert config["cases"] == []
+        if GROUP == "vendor" and config.get("abi_metadata"):
             if code == 0:
                 record(out / "census.json", json.loads(raw))
             subprocess.run(
@@ -489,7 +549,6 @@ def run_cases(config, out):
                 ],
                 check=True,
             )
-            return
         assert code == 0, "containing-binary census did not compile"
         census = json.loads(raw)
         record(out / "census.json", census)
