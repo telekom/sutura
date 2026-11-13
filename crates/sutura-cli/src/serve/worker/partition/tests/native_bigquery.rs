@@ -28,15 +28,15 @@ use sutura_domain::model::{
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use sutura_domain::plan::{
     AnswerKey, Executable, FederatedPlan, FederationCombiner as _, Granted, Grantee, InternalLabel, LegPlan, LegRunner, LegTerm,
-    LinkCast, Looked, LookupLegs, Partitioned, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate,
-    PlanTerm, PredicateOrigin, ResultLabel, StatementTables, range_filters,
+    LinkCast, Looked, LookupLegs, Partitioned, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel,
+    StatementTables, range_filters,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::execution::{Binding, BindingIdentity, BindingValue, Execution, PlanStage};
+use sutura_domain::warehouse::execution::{Execution, PlanStage};
 use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::schema::TypeDialect;
-use sutura_domain::warehouse::{ParamValue, ResultBatches, Warehouse as _};
+use sutura_domain::warehouse::{ResultBatches, Warehouse as _};
 use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation, WorkloadPool};
 use sutura_exec_bigquery::{BigQueryWarehouse, JobBilling};
 use sutura_exec_datafusion::{DataFusionCombiner, DataFusionWarehouse, NodeIdentity, Nodes, TaskGrant};
@@ -157,10 +157,9 @@ fn pin(table: &QualifiedTable, metric: &MetricName, measure: &Measure, dimension
     .unwrap()
 }
 
-/// One lookup over the existing split table, certified by the same pin the actual reader holds.
-fn plan() -> (PinnedDefinitions, FederatedPlan) {
-    let table =
-        QualifiedTable::parse(live("SUTURA_BQ_SPLIT_TABLE")).unwrap_or_else(|_| panic!("fixture table declaration is invalid"));
+/// One lookup over a declared fixture table, certified by its own metadata pin.
+fn plan_for(table_env: &str) -> (PinnedDefinitions, FederatedPlan) {
+    let table = QualifiedTable::parse(live(table_env)).unwrap_or_else(|_| panic!("fixture table declaration is invalid"));
     let metric = MetricName::parse("native_reads").unwrap();
     let measure = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount"))));
     let dimension = DimensionName::parse("id").unwrap();
@@ -398,25 +397,6 @@ fn native_credentials(subject: &Subject) -> BoundToTheRequest {
     credentials
 }
 
-fn empty_lookup(lookup: &LegPlan) -> LegPlan {
-    let mut empty_lookup = lookup.clone();
-    let LegPlan::Lookup { table, bindings, .. } = &mut empty_lookup else {
-        panic!("the fixture lookup is a lookup leg")
-    };
-    *bindings = PlanBindings::parse(
-        vec![PlanFilter::new(
-            PredicateOrigin::Requested,
-            PlanPredicate::Equals {
-                column: PlanColumn::new(table.table().name().clone(), column("id")),
-                param: 0,
-            },
-        )],
-        vec![ParamValue::Text(String::from("sutura-no-seed-row"))],
-    )
-    .unwrap();
-    empty_lookup
-}
-
 fn native_split<'w>(
     warehouse: &'w crate::serve::kind::AnyWarehouse,
     lookup: &LegPlan,
@@ -447,7 +427,7 @@ fn sql_receipts(records: &[Execution]) -> Vec<&Execution> {
 #[test]
 #[ignore = "needs the existing CI pool assertions, native BigQuery driver and split table"]
 fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
-    let (pinned, plan) = plan();
+    let (pinned, plan) = plan_for("SUTURA_BQ_SPLIT_TABLE");
     let (settings, room, fact_id, fact) = local_fact(&plan);
     assert_eq!(fact.rows(), 1);
 
@@ -568,19 +548,23 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
     stopping.trigger(sutura_runtime::ShutdownReason::Requested);
     servers.shutdown_timeout(Duration::from_secs(5));
 
-    let empty_lookup = empty_lookup(lookup);
-    let empty_sql = sutura_sql::generate_leg(&empty_lookup, sutura_sql::Dialect::BigQuery).unwrap();
-    let empty = native_split(&warehouse, &empty_lookup, &credentials, until, &labels);
-    let Partitioned::Split(reads) = empty else {
-        panic!("no <=1-stream credit: the empty native query did not actually take Partitioned::Split");
+    // The existing one-row fixture takes the local branch without unsupported bound parameters.
+    let (_, local_plan) = plan_for("SUTURA_BQ_A_ONLY_TABLE");
+    let local_lookup = local_plan.lookups().legs().first().unwrap().leg();
+    let local_sql = sutura_sql::generate_leg(local_lookup, sutura_sql::Dialect::BigQuery).unwrap();
+    let local = native_split(&warehouse, local_lookup, &credentials, until, &labels);
+    let Partitioned::Split(reads) = local else {
+        panic!("no <=1-stream credit: the one-row native query did not actually take Partitioned::Split");
     };
-    let mut empty_records = Vec::new();
+    let mut local_records = Vec::new();
+    let mut local_rows = 0;
     for read in reads {
-        let mut read = read.unwrap_or_else(|_| panic!("the local empty native stream did not read"));
-        assert_eq!(read.rows(), 0, "the absent fixture id must return no rows");
-        empty_records.extend(read.take_executions());
+        let mut read = read.unwrap_or_else(|_| panic!("the local native stream did not read"));
+        local_rows += read.rows();
+        local_records.extend(read.take_executions());
     }
-    let creation = sql_receipts(&empty_records);
+    assert_eq!(local_rows, 1, "the local fixture must return its one real row");
+    let creation = sql_receipts(&local_records);
     assert_eq!(
         creation.len(),
         1,
@@ -591,27 +575,21 @@ fn forwarded_bigquery_native_read_keeps_its_descriptor_receipt() {
         &Execution::Sql {
             source: source("warehouse"),
             dialect: TypeDialect::BigQuery,
-            sql: String::from(empty_sql.sql()),
-            parameters: vec![Binding::new(
-                BindingIdentity::Position(0),
-                BindingValue::Utf8(String::from("sutura-no-seed-row"))
-            )],
+            sql: String::from(local_sql.sql()),
+            parameters: vec![],
         },
-        "the <=1-stream creation SQL or typed binding differs"
+        "the <=1-stream creation SQL or empty bindings differ"
     );
-    let native_reads: Vec<_> = empty_records
+    let native_reads: Vec<_> = local_records
         .iter()
         .filter(|record| {
             matches!(record,
         Execution::BigQueryRead { source: at, .. } if *at == source("warehouse"))
         })
         .collect();
-    assert!(
-        native_reads.len() <= 1,
-        "the local branch has at most one empty native stream"
-    );
+    assert_eq!(native_reads.len(), 1, "the local branch must read its one real native stream");
     assert_eq!(
-        empty_records.len(),
+        local_records.len(),
         1 + native_reads.len(),
         "no local-branch receipt is unclassified"
     );
