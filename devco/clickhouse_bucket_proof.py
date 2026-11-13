@@ -13,8 +13,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
-SOURCE = "b3cd23eac05a90212c494fd450a2c6462db7ffd0"
-SOURCE_TREE = "991850e66f23c4a87c4df414d7a026525b9680be"
+SOURCE = "0d3a16239f9aa252126603879afc2886d692ae73"
+SOURCE_TREE = "217714b5777ae921f50f9d409abd21aea23fbab8"
 BASE = "3ee8874e6c5b3054a91a63c28aaca90302bf2dbe"
 BASE_TREE = "6903bc16ed77cb039a7bcd1de0638a848c372432"
 TIER = "a_clickhouse_lookup_split_reads_every_group_once_under_the_callers_grants_and_settings"
@@ -22,7 +22,7 @@ GUARD = "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_l
 TEST = "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs"
 OVERLAY_FILES = (TEST,)
 IMPLEMENTATION = "crates/sutura-exec-clickhouse/src/adbc/buckets.rs"
-OVERLAY_HASH = "626bc8c7d751c468a0de306b8ee74ce7e22e2ca94b9249decb3e84080d5b9ce0"
+OVERLAY_HASH = "d78bab13a92612daaf92fc7dab19d4a9a385e1a9076d0acddc8221a7a62bd63e"
 MUTATION_HASH = "5fa70b7c3846e1d6fe45a90bb7c4115f3f52ae533a36b424fb5ca7559d83e34c"
 DIFF = (
     "diff",
@@ -330,7 +330,7 @@ def base_proof(baseline: dict, tier_cell: str) -> None:
             base,
             tier_cell,
             False,
-            (TEST, 794, "the 34-row lookup must split across two 17-row targets"),
+            (TEST, 793, "the 34-row lookup must split across two 17-row targets"),
         )
         exact(base, BASE, BASE_TREE, expected)
     finally:
