@@ -105,7 +105,28 @@ def invoke(root, out, label, argv):
     stdout = result.stdout.decode(errors="replace")
     text = ANSI.sub("", stdout + result.stderr.decode(errors="replace"))
     # Credentialed logs stay outside the exported output, following the source venue's digest.
-    if GROUP.startswith("bigquery"):
+    if GROUP == "bigquery-cli" and label == "diagnostic":
+        diagnostic = json.loads((PAYLOAD / "bigquery-cli.json").read_text())[
+            "diagnostic"
+        ]
+        markers = [
+            line
+            for line in text.splitlines()
+            if re.fullmatch(diagnostic["marker_pattern"], line.strip())
+        ]
+        statuses = [
+            status
+            for status in ["PASS", "FAIL", "TIMEOUT", "SIGABRT", "SIGSEGV"]
+            if outcome(text, status, diagnostic["binary"], diagnostic["test"])
+        ]
+        verdicts = [
+            "diagnostic test=" + diagnostic["test"] + " status=" + status
+            for status in statuses
+        ]
+        (out / f"{label}.log").write_text(
+            "\n".join(line.strip() for line in markers + verdicts) + "\n"
+        )
+    elif GROUP.startswith("bigquery"):
         raw = Path(os.environ["RUNNER_TEMP"]) / f"completion-{label}.raw"
         raw.write_text(text)
         try:
@@ -389,6 +410,61 @@ def run_postgres(config, out):
     assert killed and restored
 
 
+def run_cli_diagnostic(config, out, root, baseline):
+    diagnostic = config["diagnostic"]
+    assert GROUP == "bigquery-cli" and not config["cases"]
+    path = diagnostic["path"]
+    overlay = PAYLOAD / diagnostic["overlay"]
+    assert sha(overlay.read_bytes()) == diagnostic["overlay_sha256"]
+    assert sha((root / path).read_bytes()) == diagnostic["before_sha256"]
+    try:
+        subprocess.run(["git", "apply", "--check", str(overlay)], cwd=root, check=True)
+        subprocess.run(["git", "apply", str(overlay)], cwd=root, check=True)
+        assert sha((root / path).read_bytes()) == diagnostic["after_sha256"]
+        changed = snapshot(root)
+        assert changed["stages_sha256"] == baseline["stages_sha256"]
+        assert {
+            p for p in baseline["files"] if baseline["files"][p] != changed["files"][p]
+        } == {path}
+        record(out / "diagnostic-overlay.json", diagnostic)
+        code, raw = invoke(root, out, "census", task(root, "proof-census", GROUP))
+        assert code == 0, "diagnostic census did not compile"
+        census = json.loads(raw)
+        record(out / "census.json", census)
+        suite = census["rust-suites"][diagnostic["binary"]]
+        assert suite["binary-id"] == diagnostic["binary"]
+        ignored = [n for n, row in suite["testcases"].items() if row["ignored"]]
+        assert ignored == [diagnostic["test"]]
+        code, text = invoke(
+            root,
+            out,
+            "diagnostic",
+            task(root, "proof-bigquery-cli", diagnostic["binary"]),
+        )
+        record(
+            out / "diagnostic-result.json",
+            {
+                "source": config["source"],
+                "tree": config["tree"],
+                "overlay_sha256": diagnostic["overlay_sha256"],
+                "exit": code,
+                "named_test_pass": outcome(
+                    text, "PASS", diagnostic["binary"], diagnostic["test"]
+                ),
+                "diagnostic_only": True,
+                "runtime_credit": False,
+                "mutations_run": 0,
+                "markers": (out / "diagnostic.log").read_text().splitlines(),
+                "limit": "fixture-only error categories; remote external types may already be erased; absent marker is not_observed",
+            },
+        )
+    finally:
+        restore(root, out, "diagnostic-overlay", [path], baseline)
+    assert code == 0, (
+        "diagnostic fixture failed; retained categories confer no proof credit"
+    )
+
+
 def run_cases(config, out):
     root = SOURCE / "target" / f"completion-{GROUP}"
     assert not root.exists()
@@ -398,6 +474,9 @@ def run_cases(config, out):
     baseline = snapshot(root)
     record(out / "worktree-initial.json", baseline)
     try:
+        if config.get("diagnostic"):
+            run_cli_diagnostic(config, out, root, baseline)
+            return
         if GROUP == "vendor":
             for name in ["Cargo.toml", "Cargo.lock"]:
                 data = (PAYLOAD / "vendor" / name).read_bytes()
@@ -805,6 +884,12 @@ def main():
             run_base(config, out)
         assert same_source(snapshot(SOURCE), before)
         record(out / "source-after.json", snapshot(SOURCE))
+        if config.get("diagnostic"):
+            record(
+                out / "diagnostic-complete.json",
+                {"diagnostic_only": True, "runtime_credit": False},
+            )
+            return
         record(
             out / "complete.json",
             {
