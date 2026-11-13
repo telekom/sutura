@@ -360,6 +360,7 @@ jobs:
           set -eu
           nix build --print-build-logs \
             .#deps-native-ci .#deps-native-release .#deps-musl-release \
+            .#deps-postgres-kerberos-ci \
             .#adbc-driver-bigquery-x86_64-unknown-linux-gnu \
             .#adbc-driver-bigquery-x86_64-unknown-linux-musl \
             .#adbc-driver-postgresql-x86_64-unknown-linux-musl \
