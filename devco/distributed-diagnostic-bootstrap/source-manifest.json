@@ -1,0 +1,128 @@
+{
+  "base": "1a30b5783bbc0e987927fdbbed9503cf51477f13",
+  "base_tree": "2d7e0f6c06ff5b696fccc376f592ef82905d4eda",
+  "files": {
+    ".github/workflows/ci.yml": {
+      "mode": "0o644",
+      "sha256": "4ffb122ddfb9467fbb261f5e0407bab8bcec642334774c14a570584a0864e3c5",
+      "size": 193889
+    },
+    "VENDOR.md": {
+      "mode": "0o644",
+      "sha256": "4ca59867fc88dc40f4e47b55c4a38febf3beb2032a975bee86d1d178c1d057f6",
+      "size": 110585
+    },
+    "crates/sutura-cli/src/serve/worker/partition.rs": {
+      "mode": "0o644",
+      "sha256": "73d900fc4557158353767e2667d1fc339633153f3163b82c51d23218a8085e29",
+      "size": 6722
+    },
+    "crates/sutura-exec-datafusion/Cargo.toml": {
+      "mode": "0o644",
+      "sha256": "3ea1a99a9fab00a9aba659b4505b258eb10418da408c8c46d841797d78b51886",
+      "size": 8995
+    },
+    "crates/sutura-exec-datafusion/src/combine/across.rs": {
+      "mode": "0o644",
+      "sha256": "4f0ea145b3c73d6ccdb6a4a66f132aa126082a3e5c5344585114a320da50f04d",
+      "size": 45591
+    },
+    "crates/sutura-exec-datafusion/src/combine/across/partition.rs": {
+      "mode": "0o644",
+      "sha256": "a1a9e8b86e5738cd129f18aaf662fa05a1129b4d765a38491b1873e1d67af633",
+      "size": 33900
+    },
+    "crates/sutura-exec-datafusion/src/combine/across/receipts.rs": {
+      "mode": "0o644",
+      "sha256": "cb15b82cb2f791fb69fbc8a89984b94eecf251b9099757c9d01ff3cd7681f7a6",
+      "size": 6815
+    },
+    "crates/sutura-exec-datafusion/src/combine/across/receipts/capture.rs": {
+      "mode": "0o644",
+      "sha256": "7a0830fd94a5aa2d1b0c347f5850d13fd9989ad667bbaad4338d1fd66a4667f1",
+      "size": 7160
+    },
+    "devco/required-contexts": {
+      "mode": "0o644",
+      "sha256": "08168df005cb140184adf8cf209dbe873ec40cf5818cf5f186c67e0641b17a52",
+      "size": 25517
+    },
+    "flake.nix": {
+      "mode": "0o644",
+      "sha256": "8a187196221478cf91466b5df2f4c34e25db77d4237266d7e3704d37b3ec337d",
+      "size": 123560
+    },
+    "justfile": {
+      "mode": "0o644",
+      "sha256": "5d464d3085771c5c5a7816a07ddbb03584b098890a7e0ec9bd92d96622e6f590",
+      "size": 58185
+    },
+    "nix/multi-node-oracle-seed.py": {
+      "mode": "0o644",
+      "sha256": "1cf5ac40b3627581560c1a49a96cf92e12d9cf1beb36aea3a4083efbb946171c",
+      "size": 2332
+    },
+    "nix/multi-node-oracle.nix": {
+      "mode": "0o644",
+      "sha256": "8b0b5ff56fcf8ddb0e9e71b34bf06c3b5f081c4ad9c0ea074249a8177fc1df88",
+      "size": 11171
+    },
+    "nix/multi-node-oracle.py": {
+      "mode": "0o644",
+      "sha256": "13a9e5cd87ab22ddbe2ec54d1e4143b64b6069fa33cb0cab506fca02f74b7f24",
+      "size": 14556
+    },
+    "vendor/datafusion-distributed/Cargo.toml": {
+      "mode": "0o644",
+      "sha256": "9155e9358033175bd8576971d94006e80a770d76e3954e31bde8c7b27d2fca04",
+      "size": 3982
+    },
+    "vendor/datafusion-distributed/src/coordinator/distributed.rs": {
+      "mode": "0o644",
+      "sha256": "f8ad65c719a38bc29c31f71762cb1a4ffcc545044066ade613c1afc26f992a6f",
+      "size": 13528
+    },
+    "vendor/datafusion-distributed/src/coordinator/query_coordinator.rs": {
+      "mode": "0o644",
+      "sha256": "40adee23ef226d27174acae20f804c63171396ed70a2983d34c267a223ba0538",
+      "size": 27525
+    },
+    "vendor/datafusion-distributed/src/protocol/grpc/worker_client.rs": {
+      "mode": "0o644",
+      "sha256": "98dd1476b4e182cf48992302887acba0a7b85f507aefbb963a480c0aa9d37a2a",
+      "size": 35701
+    },
+    "vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs": {
+      "mode": "0o644",
+      "sha256": "b6d89d3c60d7934985f10e12d3d1de5f2e4d1c7e998b3aa126bccea6bde65650",
+      "size": 14551
+    },
+    "vendor/datafusion-distributed/src/worker/impl_execute_task.rs": {
+      "mode": "0o644",
+      "sha256": "fc5d4fba47bad4c04fc1ebe361f05ab474edf1c59a029c6657c677a240e80007",
+      "size": 3291
+    },
+    "xtask/src/affected/aggregate_shell.rs": {
+      "mode": "0o644",
+      "sha256": "215ec2065c1aff7e3b6ba19042367b2167dae8b320adc155f666d6638417067f",
+      "size": 3508
+    },
+    "xtask/src/affected/oracle_aggregate.rs": {
+      "mode": "0o644",
+      "sha256": "85cae12bedac6c5fee17bfdfa322088dbfed7e696acd263da30fe27dc04630ed",
+      "size": 4887
+    },
+    "xtask/src/workflows/aggregate_inputs.rs": {
+      "mode": "0o644",
+      "sha256": "cba3ebd5ca72a10801e3b1605c9207a69f9d9d32440d794cb89a494c73153c98",
+      "size": 32712
+    },
+    "xtask/src/workflows/aggregate_inputs/queue_validated.rs": {
+      "mode": "0o644",
+      "sha256": "ba46b6d2af2838f3fc2f5832268f67ebc319afca48c9a00cebea5f2d5055c953",
+      "size": 9792
+    }
+  },
+  "patch_sha256": "fb21dfd69efebf72366c5013c79f66c207599dadc232d6ca7cda73e6c878299f",
+  "prepared_tree": "957cad621e1c8711e684ea1db6e81010f28490bc"
+}
