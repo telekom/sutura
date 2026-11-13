@@ -839,10 +839,19 @@ impl Warehouse for OracleWarehouse {
 
     /// The materialisation budget and fixed partition row limit are result refusals; other failures retain their own mapping.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(
-            *error,
-            OracleError::OverBudget { .. } | OracleError::PartitionTooManyRows { .. }
-        )
+        self.result_limit(error).is_some()
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        match *error {
+            OracleError::PartitionTooManyRows { most_rows } => {
+                Some(sutura_domain::warehouse::ResultLimit::StreamRows { limit: most_rows })
+            }
+            OracleError::OverBudget { most_bytes } => {
+                Some(sutura_domain::warehouse::ResultLimit::MaterializationBytes { limit_bytes: most_bytes })
+            }
+            _ => None,
+        }
     }
 }
 

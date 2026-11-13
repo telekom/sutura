@@ -772,24 +772,14 @@ pub trait JobTransport {
 
     /// Was this failure the endpoint declining to return the whole result at once?
     ///
-    /// **The `Warehouse::result_did_not_fit` question, one port further down, and it has to be asked
-    /// here for the same reason it is asked there.** `Self::Error` is the implementor's own type, so
-    /// `BigQueryWarehouse` - which holds the failure as `BigQueryError::Endpoint` - cannot read it.
-    /// The domain port names what it needs of an adapter; this names what the adapter needs of its
-    /// transport.
-    ///
-    /// `true` becomes `RefusalReason::ResultTooLarge` carrying `ResultBound::Volume` above the domain
-    /// port, so the answer a caller gets is *too much data, ask a narrower question* and not the
-    /// `503` a dead endpoint produces. `jobs.query` returns one page - as many rows as fit the maximum
-    /// permitted reply size - so a result INSIDE the row cap can still be over that, and a retry
-    /// returns the same page.
-    ///
-    /// **A predicate rather than a conversion, and a `bool` rather than a byte count**, both for the
-    /// reasons the domain port states: the refusal vocabulary is the domain's, and the reply-size cap
-    /// is the service's own number, reported in neither the answer nor the refusal - so there is
-    /// nothing honest to put in a numeric field.
-    ///
-    /// Defaulted to `false`, which is the answer a fake gives unless a test is about this bound.
+    /// Source-result facts for the warehouse above this transport. The default preserves an
+    /// opaque size refusal; known ADBC stream limits override it without guessing a remote cap.
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        self.result_did_not_fit(error)
+            .then_some(sutura_domain::warehouse::ResultLimit::Unknown)
+    }
+
+    /// Boolean view for callers that do not consume numeric facts. Unknown failures stay false.
     fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
         false
     }

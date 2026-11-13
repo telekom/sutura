@@ -1,26 +1,12 @@
-//! The two bounds behind [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge),
-//! and the ceiling that names one of them.
-//!
-//! Its own module because it is a self-contained concept `sutura-domain/src/query.rs` was carrying
-//! at the byte cap `cargo xtask max-lines` enforces: one refusal, honest about two - now three -
-//! causes it can fire for.
+//! Bounds behind a result refusal. Source streams, split capacity and final answers have
+//! different units and scope; a known threshold is not the complete rejected result size.
 
-/// Which bound a result was too large for.
-///
-/// **The vocabulary exists so one refusal can be honest about two causes.** The answer a caller gets
-/// is one sentence - *too much data, ask a narrower question* - and
-/// [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge) is that one
-/// answer. This is what the deployment knows about why, and the two arms differ in who measured
-/// it: the row cap is a number an operator configured here, and the volume bound belongs to the
-/// data system and is not one this process was told.
-///
-/// **Closed, and read by exhaustive matches with no wildcard arm in both transports.** A third bound
-/// is a compile error in each of them rather than a case one renders as another - which is what stops
-/// a bound with no number being described using somebody else's number. The agent-facing prompt is
-/// deliberately NOT one of those matches: `sutura_app::prompt::guide_for` keys on the
-/// [`RefusalReason`](crate::query::RefusalReason) variant and never the payload, because what it
-/// must tell an agent - *too much data, ask a narrower question* - is the same for both bounds and
-/// a guide per bound would give an agent two paragraphs saying one thing.
+use core::num::NonZeroUsize;
+
+use crate::plan::SplitRefusal;
+use crate::warehouse::ResultLimit;
+
+/// Which bound refused the result. Both transports match this closed vocabulary exhaustively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum ResultBound {
     /// The plan's row cap, in rows.
@@ -36,40 +22,43 @@ pub enum ResultBound {
     /// waiting for a probe row to come back, because a `top` question already states the limit it
     /// wants and there is nothing to detect.
     Rows { limit: u32 },
-    /// The data system would not hand this result back in one piece.
-    ///
-    /// Raised through `Warehouse::result_did_not_fit`, a predicate for the reason that port method's
-    /// own documentation gives. It is *not* the row cap: the statement carries `MAX_ROWS + 1` as its
-    /// `LIMIT`, so a result reaching this arm was inside the cap and was still more data than the
-    /// data system would deliver at once - a wide result rather than a tall one.
-    ///
-    /// **Carries no number, and that is a decision rather than a field somebody forgot.** The bound
-    /// belongs to the data system and is not stated to a client: the endpoint this arm was built for
-    /// caps a reply by size and reports neither that cap nor the reply's size, so the only figures
-    /// in scope are how much was scanned and how much would be billed - neither of which is the
-    /// bound that fired. An `Option<u64>` here would make every reader decide what an absence
-    /// permits, and a figure filled in from one of those would be a certified-looking number for a
-    /// bound that is not the one that refused. A fabricated limit is worse than an absent one.
-    ///
-    /// **The limit, stated with the claim:** a caller is told to narrow the question and is not told
-    /// by how much. That is the whole of what this deployment honestly knows.
+    /// A result was refused without a known threshold. No scanned volume, estimated size or
+    /// deployment default may stand in for the unknown limit. The fieldless remote protocol
+    /// still reaches this fallback; it cannot yet preserve reader-bound provenance.
     Volume,
-    /// This deployment's own rendered-response ceiling, in bytes.
-    ///
-    /// **The third arm, and it exists because the first two do not cover a wide-but-short result.**
-    /// A result inside `plan::MAX_ROWS` and inside every data system's own reply cap can still carry
-    /// [`MAX_DIMENSIONS`](crate::query::MAX_DIMENSIONS) grouped columns of arbitrary text -
-    /// `crate::catalog::MAX_DIMENSION_VALUE_CHARS` bounds a caller's filter value and a catalog
-    /// author's allowlist entry, and says nothing about the length of a value a data system
-    /// actually returns - so the row cap counts rows and the volume bound is the data system's, and
-    /// neither measures what a caller's own cells add up to. Raised by
-    /// `sutura_app::answer` against [`ResponseByteLimit`], after the row cap has already passed, over
-    /// `RowSet::rendered_byte_len` - the same canonical cell text an anchor is compared against, not
-    /// the wire bytes a transport wraps it in.
-    ///
-    /// Carries the ceiling, because unlike [`Self::Volume`] this is a number the deployment chose
-    /// rather than one it was never told.
+    /// A source stream crossed this row limit, before the final answer was combined.
+    SourceRows { limit: usize },
+    /// A source result crossed its materialisation budget, not its rendered response size.
+    Materialization { limit_bytes: usize },
+    /// The estimate cannot fit the available partition capacity. No overflow was observed.
+    SplitCapacity {
+        estimated_rows: u64,
+        per_stream_rows: NonZeroUsize,
+        ready_readers: NonZeroUsize,
+    },
+    /// The final answer's rendered-cell ceiling, measured after the row cap against
+    /// [`ResponseByteLimit`]. This is neither source materialisation nor complete wire size.
     Encoded { limit_bytes: u64 },
+}
+
+impl From<ResultLimit> for ResultBound {
+    fn from(limit: ResultLimit) -> Self {
+        match limit {
+            ResultLimit::Unknown => Self::Volume,
+            ResultLimit::StreamRows { limit } => Self::SourceRows { limit },
+            ResultLimit::MaterializationBytes { limit_bytes } => Self::Materialization { limit_bytes },
+        }
+    }
+}
+
+impl From<SplitRefusal> for ResultBound {
+    fn from(refusal: SplitRefusal) -> Self {
+        Self::SplitCapacity {
+            estimated_rows: refusal.rows().rows(),
+            per_stream_rows: refusal.per_stream_bound(),
+            ready_readers: refusal.ready_workers(),
+        }
+    }
 }
 
 /// The most bytes an answer's rendered cells may occupy before this deployment declines to encode

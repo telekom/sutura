@@ -87,33 +87,10 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         // bound rather than a field: nothing about the question was wrong, and the same question over
         // a narrower range or with fewer dimensions is answerable.
         //
-        // One code for both bounds - the remedy an agent has to carry out is the same narrowing - and
-        // a nested exhaustive match for the sentence, so a bound with no number cannot be described
+        // One code for these bounds - the remedy an agent has to carry out is the same narrowing - and
+        // a separate exhaustive match for the sentence, so a bound with no number cannot be described
         // using the other one's.
-        RefusalReason::ResultTooLarge { bound } => match bound {
-            ResultBound::Rows { limit } => format!(
-                "the answer would have been more than {limit} rows; ask a narrower question, or add \
-                 `top: {{ n, by, direction }}` to ask for exactly the rows you want ranked by the \
-                 metric or the period - {limit} is this deployment's own bound and not one you or \
-                 the caller can raise; report it to whoever operates this deployment if it is \
-                 consistently too small"
-            ),
-            // No figure: the bound is the data system's and this deployment is not told it, so
-            // there is nothing to divide a range by. What an agent needs instead is that the
-            // remedy is still narrowing and that a retry is not one - see `ResultBound::Volume`.
-            ResultBound::Volume => String::from(
-                "the answer was more data than the data system would return at once; nothing was \
-                 cut down to fit and retrying will not help. Ask a narrower question - a shorter \
-                 period, or fewer dimensions.",
-            ),
-            // This deployment's own ceiling, and unlike `Volume` a figure it was told - so the
-            // sentence names it rather than leaving an agent to guess how much to narrow by.
-            ResultBound::Encoded { limit_bytes } => format!(
-                "the answer would have occupied more than {limit_bytes} bytes once rendered; nothing \
-                 was cut down to fit and retrying will not help. Ask a narrower question - a shorter \
-                 period, or fewer dimensions."
-            ),
-        },
+        RefusalReason::ResultTooLarge { bound } => result_too_large(bound),
         RefusalReason::TimeRangeTooLong { days, limit } => {
             format!("the period asked about is {days} days; at most {limit} are allowed")
         }
@@ -256,6 +233,53 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         ),
     };
     (code, detail)
+}
+
+fn result_too_large(bound: ResultBound) -> String {
+    match bound {
+        ResultBound::Rows { limit } => format!(
+            "the answer would have been more than {limit} rows; ask a narrower question, or add \
+             `top: {{ n, by, direction }}` to ask for exactly the rows you want ranked by the \
+             metric or the period - {limit} is this deployment's own bound and not one you or \
+             the caller can raise; report it to whoever operates this deployment if it is \
+             consistently too small"
+        ),
+        // No figure: the bound is the data system's and this deployment is not told it, so
+        // there is nothing to divide a range by. What an agent needs instead is that the
+        // remedy is still narrowing and that a retry is not one - see `ResultBound::Volume`.
+        ResultBound::Volume => String::from(
+            "the answer was more data than the data system would return at once; nothing was \
+             cut down to fit and retrying will not help. Ask a narrower question - a shorter \
+             period, or fewer dimensions. Ask the deployment operator to investigate the source limit.",
+        ),
+        ResultBound::SourceRows { limit } => format!(
+            "a source stream exceeded its limit of {limit} rows; the answer was NOT truncated to fit. \
+             Ask the deployment operator to add partition or reader capacity, or narrow the question. \
+             This is a per-stream limit, not the final answer's row cap; this request cannot raise it"
+        ),
+        ResultBound::Materialization { limit_bytes } => format!(
+            "a source result exceeded its materialisation budget of {limit_bytes} bytes; the answer \
+             was NOT truncated to fit. Ask the deployment operator to add partition or reader capacity \
+             or adjust configurable materialisation limits, or narrow the question. This is not the rendered answer size"
+        ),
+        ResultBound::SplitCapacity {
+            estimated_rows,
+            per_stream_rows,
+            ready_readers,
+        } => format!(
+            "an estimated {estimated_rows} source rows cannot fit the available partition capacity: \
+             {ready_readers} ready readers with a per-stream limit of {per_stream_rows} rows. \
+             This is a planning estimate, not an observed stream overflow; the answer was NOT truncated to fit. Ask the deployment \
+             operator to add partition or reader capacity, or narrow the question; the estimate is not a limit"
+        ),
+        // This deployment's own ceiling, and unlike `Volume` a figure it was told - so the
+        // sentence names it rather than leaving an agent to guess how much to narrow by.
+        ResultBound::Encoded { limit_bytes } => format!(
+            "the answer would have occupied more than {limit_bytes} bytes once rendered; nothing \
+             was cut down to fit and retrying will not help. Ask a narrower question - a shorter \
+             period, or fewer dimensions."
+        ),
+    }
 }
 
 fn dimension_not_conformed(

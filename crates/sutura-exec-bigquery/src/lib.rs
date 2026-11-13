@@ -889,8 +889,12 @@ where
     /// Exhaustive with no wildcard arm, so a variant added to `BigQueryError` has to be decided here
     /// rather than inheriting `false`.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        self.result_limit(error).is_some()
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
         match *error {
-            BigQueryError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),
+            BigQueryError::Endpoint { ref cause } => self.transport.result_limit(cause),
             // `NoIdentityInTheAnswer` joins the `false` group rather than getting an arm of its
             // own: the identity read projects ONE cell, so there is no narrower page to ask for and
             // a retry returns the same shape. `clippy::match_same_arms` is denied here and is right
@@ -903,7 +907,7 @@ where
             | BigQueryError::TableNamesNoProject { .. }
             | BigQueryError::NoPayer { .. }
             | BigQueryError::PresentedDisagreesWithPosture { .. }
-            | BigQueryError::Unreadable { .. } => false,
+            | BigQueryError::Unreadable { .. } => None,
         }
     }
 }

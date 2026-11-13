@@ -553,7 +553,27 @@ fn too_much_data(bound: ResultBound) -> String {
             "the answer was more data than the data system would return at once and was NOT \
              truncated to fit; the bound is the data system's own and this service is not told what \
              it is, so narrow the period or group by fewer dimensions and ask again. Retrying it \
-             unchanged returns this same refusal",
+             unchanged returns this same refusal. Ask the deployment operator to investigate the source limit",
+        ),
+        ResultBound::SourceRows { limit } => format!(
+            "a source stream exceeded its limit of {limit} rows; the answer was NOT truncated to fit. \
+             Ask the deployment operator to add partition or reader capacity, or narrow the question. \
+             This is a per-stream limit, not the final answer's row cap; this request cannot raise it"
+        ),
+        ResultBound::Materialization { limit_bytes } => format!(
+            "a source result exceeded its materialisation budget of {limit_bytes} bytes; the answer \
+             was NOT truncated to fit. Ask the deployment operator to add partition or reader capacity \
+             or adjust configurable materialisation limits, or narrow the question. This is not the rendered answer size"
+        ),
+        ResultBound::SplitCapacity {
+            estimated_rows,
+            per_stream_rows,
+            ready_readers,
+        } => format!(
+            "an estimated {estimated_rows} source rows cannot fit the available partition capacity: \
+             {ready_readers} ready readers with a per-stream limit of {per_stream_rows} rows. \
+             This is a planning estimate, not an observed stream overflow; the answer was NOT truncated to fit. Ask the deployment \
+             operator to add partition or reader capacity, or narrow the question; the estimate is not a limit"
         ),
         // A figure again, and this one IS this deployment's own: unlike the row cap it is not a
         // count a caller can subtract dimensions from directly, so the sentence names the ceiling

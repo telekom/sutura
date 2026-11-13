@@ -178,12 +178,16 @@ impl Warehouse for DataFusionWarehouse {
     /// operators were refused is told resources were exhausted; one whose result was refused is
     /// told the result was too large. The two are different numbers' worth of the same bytes.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        self.result_limit(error).is_some()
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
         let DataFusionError::Unannounced { ref cause } = *error else {
-            return false;
+            return None;
         };
         match *cause {
-            UnannouncedBatch::OverBudget { .. } => true,
-            UnannouncedBatch::OverBound { .. } | UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => false,
+            UnannouncedBatch::OverBudget { .. } => cause.result_limit(),
+            UnannouncedBatch::OverBound { .. } | UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => None,
         }
     }
 }

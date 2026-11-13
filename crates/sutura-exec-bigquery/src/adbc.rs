@@ -808,11 +808,12 @@ impl JobTransport for AdbcBigQuery {
     /// mis-width batch is a driver disagreeing with its own announced schema, which no narrower
     /// request fixes and which a retry may not repeat.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        self.result_limit(error).is_some()
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
         match *error {
-            AdbcError::Unannounced(ref cause) => match *cause {
-                UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. } => true,
-                UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => false,
-            },
+            AdbcError::Unannounced(ref cause) => cause.result_limit(),
             AdbcError::Load(_)
             | AdbcError::Adbc(_)
             | AdbcError::Batch(_)
@@ -821,7 +822,7 @@ impl JobTransport for AdbcBigQuery {
             | AdbcError::DeadlineSpent
             | AdbcError::DeadlineElapsed
             | AdbcError::Parameters { .. }
-            | AdbcError::PoolExchange { .. } => false,
+            | AdbcError::PoolExchange { .. } => None,
         }
     }
 
