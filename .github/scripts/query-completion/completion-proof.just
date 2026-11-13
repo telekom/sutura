@@ -28,8 +28,8 @@ proof-vendor-registry:
     printf '%s\n' "$vendor"
     install -m 644 "$vendor/config.toml" "$CARGO_HOME/config.toml"
 
-proof-vendor binary:
-    cargo nextest run --cargo-profile ci -p datafusion-distributed --lib --all-features --no-fail-fast -E 'binary_id(={{binary}})'
+proof-vendor filterset:
+    cargo nextest run --cargo-profile ci -p datafusion-distributed --lib --all-features --no-fail-fast -E '{{filterset}}'
 
 proof-bigquery-cli binary:
     cargo nextest run --cargo-profile ci -p sutura-cli --bin sutura --all-features --run-ignored only --no-fail-fast -E 'binary_id(={{binary}})'

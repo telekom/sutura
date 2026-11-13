@@ -659,6 +659,27 @@ def run_cases(config, out):
                     "census": "census.json",
                 }
                 argv = task(root, "proof-oracle-adapter", binary)
+            elif GROUP == "vendor":
+                declared = [
+                    binary_for(census, item["cell"]) for item in config["cases"]
+                ]
+                assert len(declared) == len(set(declared)) == 7
+                assert all(found == binary for found, _ in declared)
+                selected = sorted(n for _, n in declared)
+                assert set(selected) <= set(ordinary)
+                assert all(re.fullmatch(r"[A-Za-z0-9_:]+", n) for n in selected)
+                scope = {
+                    "kind": "declared-seven-control-union",
+                    "selected": selected,
+                    "excluded": sorted(set(suite["testcases"]) - set(selected)),
+                    "census": "census.json",
+                }
+                filterset = (
+                    f"binary_id(={binary}) & ("
+                    + " | ".join(f"test(={n})" for n in selected)
+                    + ")"
+                )
+                argv = task(root, "proof-vendor", filterset)
             else:
                 only_ignored = GROUP.startswith("bigquery")
                 scope = {
@@ -715,7 +736,11 @@ def run_cases(config, out):
                         },
                     )
                     return live_code, live_log, passed
-                selected = scope["selected"] if GROUP == "native-oracle" else [name]
+                selected = (
+                    scope["selected"]
+                    if GROUP in {"native-oracle", "vendor"}
+                    else [name]
+                )
                 return (
                     code,
                     log,

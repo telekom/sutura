@@ -1,6 +1,6 @@
 {
-  "source": "df4258ebffbd613e7f1a0fc7f5c98b6b0a76467d",
-  "tree": "43c3e1f518ec20dbcfff33cfb7395d8618d14598",
+  "source": "1e21ef0e596e7f1c86d2a439a2cc77a643a908c2",
+  "tree": "b97c822e976500ec306112772dacd90d35ee3e46",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
   "binding": "Exact final-source static binding; runtime not yet observed",
   "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
@@ -11,20 +11,20 @@
         "name": "completion_chain_publishes_receipts_only_after_real_worker_rows",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 182,
-        "last": 196,
-        "function_sha256": "bdb5faac88347682bc49d7a04e635597b0a84b93efba21313195b3a4a4afa496"
+        "first": 194,
+        "last": 208,
+        "function_sha256": "a352769fc52d932eb377c04f8c3f48f5ac38638c855ca585a204e5b2744773da"
       },
       "patch": "mutations/query-barrier-finish.patch",
       "patch_sha256": "7063adb211482b610ca089953bd7090bd05581c21d73a6752aa54037d7d600e2",
       "marker": null,
       "panic_lines": [
-        193,
-        193
+        205,
+        205
       ],
       "assertion_source_lines": [
-        193,
-        193
+        205,
+        205
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "6fcf6e4beb017a26dfb19228cdc807790dcffa3983428763226d8e7eccf1a5bc",
@@ -38,20 +38,20 @@
         "name": "completion_chain_refuses_worker_channel_eof_after_rows_without_a_receipt",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 199,
-        "last": 214,
-        "function_sha256": "a96a4bce2a8cd11f26f4a156e8e63cf85be7908822a7b4738d70d595fdde0af3"
+        "first": 211,
+        "last": 232,
+        "function_sha256": "03593928fae95dc8e331e0a20d108e9046e421352432f7fbc8d6a8523340919d"
       },
       "patch": "mutations/channel-eof.patch",
       "patch_sha256": "78327c52f4f0b0be5df9a10bbe27fbcde3b1995a25da2ec39aba3c1ce35bef91",
       "marker": null,
       "panic_lines": [
-        208,
-        212
+        226,
+        230
       ],
       "assertion_source_lines": [
-        208,
-        212
+        226,
+        230
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "29063f32500cb5bf772c766c1e354566e4239ed92c22c224fbcc372b6b3c917d",
@@ -65,20 +65,20 @@
         "name": "completion_chain_refuses_a_missing_producer_before_worker_rows",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 217,
-        "last": 229,
-        "function_sha256": "b7e96b9740b36a2ef8353e2555c1714cc03ec9f391289297056d6ff90af4b4cd"
+        "first": 235,
+        "last": 247,
+        "function_sha256": "0c699d0c2dd7a17d9f4f9177ff3d439c0c0b77781fb1abfa55f9c94e25ba9e42"
       },
       "patch": "mutations/missing-producer-preparation.patch",
       "patch_sha256": "2ca4e541365bac62e5fb38c63750ee06f2f26baac2828709e4497871f0fb0b99",
       "marker": null,
       "panic_lines": [
-        222,
-        222
+        240,
+        240
       ],
       "assertion_source_lines": [
-        222,
-        222
+        240,
+        240
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "297151e3d943cc5b9e90b5f0b31c513d46aede184e3ba3644d0280ef3c54f51b",
@@ -92,20 +92,20 @@
         "name": "completion_chain_bounds_a_pending_producer_after_worker_rows",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 232,
-        "last": 252,
-        "function_sha256": "1cde1be38395c2a18b8bc5db7dd0e8113dae519636cef01aa909434679b31c1a"
+        "first": 250,
+        "last": 270,
+        "function_sha256": "63b9353f7aa53502864f0b43c4ccf39f082b5c9827570ddd0454d225dacee6ce"
       },
       "patch": "mutations/query-producer-timer.patch",
       "patch_sha256": "a2b5161a505eaa9a0faef69e9498ba9a2bd0b89624f14fc401ddc72327834f7f",
       "marker": null,
       "panic_lines": [
-        246,
-        246
+        264,
+        264
       ],
       "assertion_source_lines": [
-        246,
-        246
+        264,
+        264
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "66eb5e851e01fa8ce0b283bfe43a99f4516ed440e719675c27f29b6a977cad81",
@@ -119,20 +119,20 @@
         "name": "completion_worker_bounds_its_pending_producer_without_a_query_timer",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 255,
-        "last": 299,
+        "first": 273,
+        "last": 317,
         "function_sha256": "0af2622662f0988961bc8cf8fcd16ac0804933e160237d56818843360a6393fb"
       },
       "patch": "mutations/worker-producer-timer.patch",
       "patch_sha256": "4d99cf944fbcd935a9f236152cd1d793ca5eb0582c2857a78e29889c472908fb",
       "marker": null,
       "panic_lines": [
-        296,
-        296
+        314,
+        314
       ],
       "assertion_source_lines": [
-        296,
-        296
+        314,
+        314
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "6168b5b7badff3158668c9a0263797bd35219011bcacf5ad699cc4516262774d",
@@ -199,7 +199,7 @@
     "Cargo.toml": "4e79f8aa391ded7af4a6e2446d1afb8c16d6790c6789a1c46aefd07c257f21f7",
     "Cargo.lock": "ee35810ba9910a9f18a3eb8ce2c9762d276ffe9230eadf7c60a833007a0208ef"
   },
-  "venue_limit": "in-process actual coordinator/worker protocol only, not gRPC/native systems; producer timeout does not stop detached native work",
+  "venue_limit": "in-process actual coordinator/worker protocol only, not gRPC/native systems; producer timeout does not stop detached native work; complete containing-binary discovery retained, execution selects only the seven declared control cells in every phase; no whole upstream vendor-suite coverage",
   "integration_hold": "Private final-source proposal; application/publication/dispatch held for concrete acceptance",
   "historical_routing": {
     "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
