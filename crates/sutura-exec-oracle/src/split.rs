@@ -55,6 +55,10 @@ mod descriptor;
 
 pub use descriptor::{InvalidDescriptor, PartitionDescriptor};
 
+/// The most rows a partition may return. Collection retains one extra row to detect overflow;
+/// this check follows fetch/decode and does not bound a fetched batch or process memory.
+pub const MOST_PARTITION_ROWS: usize = 1_000_000;
+
 /// The root's statistics and its integer columns, in the session's own schema.
 const ROOT_IN_SCHEMA: &str = "SELECT t.NUM_ROWS, t.AVG_ROW_LEN, c.COLUMN_NAME FROM SYS.ALL_TABLES t LEFT \
                               JOIN SYS.ALL_TAB_COLUMNS c ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME AND \
@@ -261,8 +265,18 @@ pub(super) fn read_partition(
         budget,
     )?;
     let (rows, declared) = warehouse
-        .run_declared(Session::Boot, (query.sql(), query.params()), deadline, None)
+        .run_declared(
+            Session::Boot,
+            (query.sql(), query.params()),
+            deadline,
+            Some(MOST_PARTITION_ROWS + 1),
+        )
         .map_err(gone)?;
+    if rows.rows().len() > MOST_PARTITION_ROWS {
+        return Err(OracleError::PartitionTooManyRows {
+            most_rows: MOST_PARTITION_ROWS,
+        });
+    }
     declared
         .map_or_else(
             || of_row_set(&rows).map_err(|cause| OracleError::Shape { cause }),

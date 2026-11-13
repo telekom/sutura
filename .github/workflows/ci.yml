@@ -747,9 +747,9 @@ jobs:
         run: |
           set -eu
           if [ -n "$BASE" ]; then
-            nix run .#xtask -- classify --since "$BASE"
+            nix run .#classify -- --since "$BASE"
           else
-            nix run .#xtask -- classify
+            nix run .#classify
           fi
 
       - name: Format
@@ -1448,7 +1448,8 @@ jobs:
   # This job pays the SAME `nix run .#xtask -- classify` cost `ci`'s own "Classify the change"
   # step does (median 24s, p90 238s over the same window) but in parallel with `ci` rather than
   # behind it, so it is not a free lunch - it is a second, independent classification, cheap
-  # enough that duplicating it beats waiting for the first one to finish.
+  # enough that duplicating it beats waiting for the first one to finish. Those timings predate
+  # the dedicated `classify` app, which leaves the general wrapper's copy detector out of the closure.
   #
   # TIMEOUT AND CACHE, CORRECTED IN REVIEW: `.#xtask` inherits `ciArtifacts`, and the first
   # version of this job read no PR cache at all, so a PR that moves dependencies built the whole
@@ -1577,9 +1578,9 @@ jobs:
         run: |
           set -eu
           if [ -n "$BASE" ]; then
-            nix run .#xtask -- classify --since "$BASE"
+            nix run .#classify -- --since "$BASE"
           else
-            nix run .#xtask -- classify
+            nix run .#classify
           fi
 
   # On a push to `main`, which of the legs below the merge queue already ran green on this same
