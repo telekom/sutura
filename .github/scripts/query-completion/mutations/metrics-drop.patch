@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs b/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
+index 1478013d1..35debdaa8 100644
+--- a/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
++++ b/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
+@@ -446,7 +446,7 @@ async fn receive_worker_messages(
+             continue;
+         }
+         // Completion is consumed before the detached metrics collector, within the query JoinSet.
+-        if worker_to_coordinator_tx.send(msg).is_err() && completion.is_none() {
++        if worker_to_coordinator_tx.send(msg).is_err() {
+             break;
+         }
+     }

@@ -44,7 +44,15 @@ proof-oracle-served-live-census binary name:
     cargo nextest list -p sutura-cli --test served --all-features --message-format json -E 'binary_id(={{binary}}) & test(={{name}})'
 
 proof-oracle-served-default binary:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source nix/with-tier.sh
+    sutura_tier_up
     cargo nextest run --cargo-profile ci -p sutura-cli --test served --all-features --no-fail-fast -E 'binary_id(={{binary}})'
 
 proof-oracle-served-live binary name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source nix/with-tier.sh
+    sutura_tier_up
     cargo nextest run --cargo-profile ci -p sutura-cli --test served --all-features --run-ignored only --no-fail-fast -E 'binary_id(={{binary}}) & test(={{name}})'

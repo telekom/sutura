@@ -1,8 +1,8 @@
 {
-  "source": null,
-  "tree": null,
+  "source": "9c2146ea5740ff08665730492b158d760b663864",
+  "tree": "2192f2b1180c7d2ee4dfd80b2b76198024dad9ee",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
   "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
   "cases": [
     {
@@ -11,13 +11,23 @@
         "name": "receipt_setup_preserves_registered_tables_for_later_queries",
         "package": "sutura-exec-datafusion",
         "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 147,
+        "last": 187,
+        "function_sha256": "34a310f2e0185f01409ce01f1e5685cd4d1a787594688a92a5ed099c3a98d9d2"
       },
       "patch": "mutations/catalog-preservation.patch",
-      "patch_sha256": null,
-      "marker": "receipt setup replaced the registered catalog"
+      "patch_sha256": "8e5e2b77707f5140743bb2cedd982f1ebb268793dec4d1847c539a77940d85b6",
+      "marker": "receipt setup replaced the registered catalog",
+      "panic_lines": [
+        177,
+        180
+      ],
+      "assertion_source_lines": [
+        177,
+        180
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "8a9b68074170ed3bcc2da69fe6f29883ee8b04bb9a3050c1b9a1c6bff27f080e"
     },
     {
       "id": "execution-charge",
@@ -25,13 +35,23 @@
         "name": "a_result_within_the_row_cap_but_too_wide_to_encode_is_refused",
         "package": "sutura-app",
         "path": "crates/sutura-app/tests/golden/service.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 354,
+        "last": 421,
+        "function_sha256": "959e2d1b7c355c096551002640c5d1b04428d1d680b5394a7a7bbb97db20a16c"
       },
       "patch": "mutations/execution-charge.patch",
-      "patch_sha256": null,
-      "marker": "a result over the response byte ceiling must be refused, and refused for being too large"
+      "patch_sha256": "b66be242fd1cc89e54019409cfe2f35f659c7d3106ef72bb9bf2d6a3cf4f0fd5",
+      "marker": "a result over the response byte ceiling must be refused, and refused for being too large",
+      "panic_lines": [
+        396,
+        402
+      ],
+      "assertion_source_lines": [
+        396,
+        402
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "4c96917e0bb47066ecd3e3c974e590b6016b283d139712a1c4ee536d4d7ab8d2"
     },
     {
       "id": "native-wait",
@@ -39,13 +59,23 @@
         "name": "worker_capture_waits_for_native_work_after_its_async_receiver_is_dropped",
         "package": "sutura-exec-datafusion",
         "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 32,
+        "last": 109,
+        "function_sha256": "2fba3c35b191a6839e6d8a6354f6ca32f2db0735f26ea05db19978609e9f05a5"
       },
       "patch": "mutations/native-wait.patch",
-      "patch_sha256": null,
-      "marker": "stream drop must not finalize running native work"
+      "patch_sha256": "f503d269f81facbb55a5ed1caab84149451396578146d1916d2609a17b9c2fd3",
+      "marker": "stream drop must not finalize running native work",
+      "panic_lines": [
+        63,
+        63
+      ],
+      "assertion_source_lines": [
+        63,
+        63
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "26a48a4c04c49d9aa2032b70600d8f271f5805d1b2b5cef09d6cd30533e6ac45"
     },
     {
       "id": "local-scope",
@@ -53,13 +83,23 @@
         "name": "worker_capture_accepts_only_a_witnessed_local_plan_without_worker_receipts",
         "package": "sutura-exec-datafusion",
         "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 112,
+        "last": 144,
+        "function_sha256": "370cce5333832db95e814d0bad4ef89b22b7ae1df3df1ffb7addad2bf7bb3a91"
       },
       "patch": "mutations/local-scope.patch",
-      "patch_sha256": null,
-      "marker": "assertion failed: capture.is_none()"
+      "patch_sha256": "56a3befeb0828c3ad6c39dff9596926f7a6e0f341a052b8427d6beb516859523",
+      "marker": "assertion failed: capture.is_none()",
+      "panic_lines": [
+        124,
+        124
+      ],
+      "assertion_source_lines": [
+        124,
+        124
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "3716f7b8251c6863598351115f46628fd77549ccb1fd321eadd1c80a2caf9dba"
     },
     {
       "id": "provenance-dedup",
@@ -67,13 +107,23 @@
         "name": "provenance_keeps_repeated_execution_receipts_in_submission_order",
         "package": "sutura-domain",
         "path": "crates/sutura-domain/src/pinned/tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 751,
+        "last": 769,
+        "function_sha256": "ae6a8255d8bcdf66d9fa2a0b29432b69ae51f6f46a5ceed9ea548e917d4494c2"
       },
       "patch": "mutations/provenance-dedup.patch",
-      "patch_sha256": null,
-      "marker": null
+      "patch_sha256": "55e5f0438d7217936ddbfb304829e1107f3e3ec7f8de30a6c1c3d994ed20c251",
+      "marker": null,
+      "panic_lines": [
+        768,
+        768
+      ],
+      "assertion_source_lines": [
+        768,
+        768
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "a56b2db758b6b6446f21a73e0c749edfb2a55bf597ea3c6843cfc464ab0aad13"
     },
     {
       "id": "source-identity",
@@ -81,33 +131,292 @@
         "name": "worker_capture_waits_for_native_work_after_its_async_receiver_is_dropped",
         "package": "sutura-exec-datafusion",
         "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 32,
+        "last": 109,
+        "function_sha256": "2fba3c35b191a6839e6d8a6354f6ca32f2db0735f26ea05db19978609e9f05a5"
       },
       "patch": "mutations/source-identity.patch",
-      "patch_sha256": null,
+      "patch_sha256": "75f622de4ffedb781f72439bab0863be03da9d99f87d4dffc8ba81ff8a0c5f1a",
       "marker": null,
-      "panic_lines": null,
-      "binding_limit": "Bind only the first rejecting complete() assertion interval; later marker is unreachable."
+      "panic_lines": [
+        89,
+        95
+      ],
+      "binding_limit": "Bind only the first rejecting complete() assertion interval; later marker is unreachable.",
+      "assertion_source_lines": [
+        89,
+        95
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "87cc4d4cb599130592c22e57f0c7580769cdc25493ffcfceccc8e07231d63a80"
+    },
+    {
+      "id": "clickhouse-raw-query",
+      "cell": {
+        "name": "a_switched_leg_reports_final_rewrites_and_typed_bindings",
+        "package": "sutura-exec-clickhouse",
+        "path": "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs",
+        "first": 530,
+        "last": 681,
+        "function_sha256": "d09db152185ad838bc881d981c5989212b90601cf5e04468aa1891032fa71151"
+      },
+      "patch": "mutations/clickhouse-raw-query.patch",
+      "patch_sha256": "e51da682ce0423196eeecfb85597a903c758369e2b27975bbc5800e9c3a5ebd4",
+      "marker": null,
+      "limit": "Append a receipt-only SQL comment while preserving earlier rewrite/settings/EXECUTE AS substring guards; only raw full-query equality may credit the kill after earlier guards survive.",
+      "panic_lines": [
+        680,
+        680
+      ],
+      "assertion_source_lines": [
+        680,
+        680
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "48c48b0d4b051999ce9d6519cfea1455f82ffaf42b327aada6230163f35a7dac"
+    },
+    {
+      "id": "files-plan-text",
+      "cell": {
+        "name": "files_and_combined_answers_report_every_submitted_plan",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/tests/served/duckdb.rs",
+        "first": 221,
+        "last": 301,
+        "function_sha256": "ca683c72150108c6e1b0bc03a9b116aefde48524f29a9d4183543bba2e364350"
+      },
+      "patch": "mutations/files-plan-text.patch",
+      "patch_sha256": "b9cb88fb382a18b14298f2bc1955a9c51c4cbd3f03ac05c33243c009165ef4c2",
+      "marker": null,
+      "limit": "old substring guards must survive; no credit for unreached later snapshots",
+      "panic_lines": [
+        250,
+        250
+      ],
+      "assertion_source_lines": [
+        250,
+        250
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "129298f5ea2309672151c1400fd8df0fee0fa398bf3d37bbb9087650118584eb"
+    },
+    {
+      "id": "files-probe-count",
+      "cell": {
+        "name": "files_and_combined_answers_report_every_submitted_plan",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/tests/served/duckdb.rs",
+        "first": 221,
+        "last": 301,
+        "function_sha256": "ca683c72150108c6e1b0bc03a9b116aefde48524f29a9d4183543bba2e364350"
+      },
+      "patch": "mutations/files-probe-count.patch",
+      "patch_sha256": "25e30f0c6565fbc3cfd69393c5ffe8e3e564232b3947d003a899130fe0d80e83",
+      "marker": null,
+      "limit": "earlier single/stacked snapshots must pass",
+      "panic_lines": [
+        285,
+        285
+      ],
+      "assertion_source_lines": [
+        285,
+        285
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "0e1e2b27afe6a300d9d2a453ece87c021a3bf2119cb5bf4ac2173c332e40ec61"
+    },
+    {
+      "id": "files-final-count",
+      "cell": {
+        "name": "files_and_combined_answers_report_every_submitted_plan",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/tests/served/duckdb.rs",
+        "first": 221,
+        "last": 301,
+        "function_sha256": "ca683c72150108c6e1b0bc03a9b116aefde48524f29a9d4183543bba2e364350"
+      },
+      "patch": "mutations/files-final-count.patch",
+      "patch_sha256": "37a65faf0e1bbf3c05b06378e792d80aa61da77e55f0ef82db5e9fd268cf41bb",
+      "marker": null,
+      "limit": "no full text credit from count failure",
+      "panic_lines": [
+        285,
+        285
+      ],
+      "assertion_source_lines": [
+        285,
+        285
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "0e1e2b27afe6a300d9d2a453ece87c021a3bf2119cb5bf4ac2173c332e40ec61"
+    },
+    {
+      "id": "files-prior-attachment",
+      "cell": {
+        "name": "files_and_combined_answers_report_every_submitted_plan",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/tests/served/duckdb.rs",
+        "first": 221,
+        "last": 301,
+        "function_sha256": "ca683c72150108c6e1b0bc03a9b116aefde48524f29a9d4183543bba2e364350"
+      },
+      "patch": "mutations/files-prior-attachment.patch",
+      "patch_sha256": "50eeba1c122c31ee9c4d7cdd558315a3210d780e388d7993f9e5c6ff6883b9ec",
+      "marker": null,
+      "limit": "receipt attachment only; preserve computation",
+      "panic_lines": [
+        285,
+        285
+      ],
+      "assertion_source_lines": [
+        285,
+        285
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "0e1e2b27afe6a300d9d2a453ece87c021a3bf2119cb5bf4ac2173c332e40ec61"
+    },
+    {
+      "id": "worker-drop-count",
+      "cell": {
+        "name": "two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_not_match",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/tests/across/served_split.rs",
+        "first": 641,
+        "last": 762,
+        "function_sha256": "550f672e6560749ad9e39f7ee48d6d162adc2c2f32f2d5e9dec3003eda26fe43"
+      },
+      "patch": "mutations/worker-drop-count.patch",
+      "patch_sha256": "a2eb9a63ee0f34f0d083f3d7a5ec5b6ceb5ad65d211d4e9d5be53a1b7a0d7fb0",
+      "marker": null,
+      "limit": "rows/asked must pass; not later prefix or text",
+      "panic_lines": [
+        669,
+        673
+      ],
+      "assertion_source_lines": [
+        669,
+        673
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "1e44c1f741594fd5061ae101bb503ca102eed3aa4963af20bb1f539f7e721869"
+    },
+    {
+      "id": "worker-dedup-count",
+      "cell": {
+        "name": "two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_not_match",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/tests/across/served_split.rs",
+        "first": 641,
+        "last": 762,
+        "function_sha256": "550f672e6560749ad9e39f7ee48d6d162adc2c2f32f2d5e9dec3003eda26fe43"
+      },
+      "patch": "mutations/worker-dedup-count.patch",
+      "patch_sha256": "de6ba6d57786b54b38aa864df78fe7371162c734b40e6117d42a59c2030ac222",
+      "marker": null,
+      "limit": "retain real identical descriptor multiplicity",
+      "panic_lines": [
+        669,
+        673
+      ],
+      "assertion_source_lines": [
+        669,
+        673
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "1e44c1f741594fd5061ae101bb503ca102eed3aa4963af20bb1f539f7e721869"
+    },
+    {
+      "id": "worker-input-count",
+      "cell": {
+        "name": "two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_not_match",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/tests/across/served_split.rs",
+        "first": 641,
+        "last": 762,
+        "function_sha256": "550f672e6560749ad9e39f7ee48d6d162adc2c2f32f2d5e9dec3003eda26fe43"
+      },
+      "patch": "mutations/worker-input-count.patch",
+      "patch_sha256": "622ab8bde2c11a6b5013c5ca6f578f0c75851a363e25279b9712607cbee8e5ad",
+      "marker": null,
+      "limit": "ordinary omission terminates before prefix equality; source/sentinel corruption preserving count would be separate",
+      "panic_lines": [
+        669,
+        673
+      ],
+      "assertion_source_lines": [
+        669,
+        673
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "1e44c1f741594fd5061ae101bb503ca102eed3aa4963af20bb1f539f7e721869"
+    },
+    {
+      "id": "merge-later-arm",
+      "cell": {
+        "name": "a_joined_arm_and_a_local_arm_merge_under_one_plan",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/merge.rs",
+        "first": 537,
+        "last": 623,
+        "function_sha256": "88ab64bf703b7bbf696a30d6b96019dcaf74448074b5e42cd021eb1d122fafba"
+      },
+      "patch": "mutations/merge-later-arm.patch",
+      "patch_sha256": "a7fa7d139ea0b89336bd6051cf6f5720b6d167b039c0fa002290d1fab562709c",
+      "marker": null,
+      "limit": "joined-first snapshot must pass before later iteration is reached",
+      "panic_lines": [
+        598,
+        602
+      ],
+      "assertion_source_lines": [
+        598,
+        602
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "96fc7be5a70edbbe63cae800f422cbd9260bfa087fbd36eb1ff1df8e888ff539"
+    },
+    {
+      "id": "merge-prior-attachment",
+      "cell": {
+        "name": "a_joined_arm_and_a_local_arm_merge_under_one_plan",
+        "package": "sutura-exec-datafusion",
+        "path": "crates/sutura-exec-datafusion/src/combine/merge.rs",
+        "first": 537,
+        "last": 623,
+        "function_sha256": "88ab64bf703b7bbf696a30d6b96019dcaf74448074b5e42cd021eb1d122fafba"
+      },
+      "patch": "mutations/merge-prior-attachment.patch",
+      "patch_sha256": "65d78ebd2274d861ea9fc3d504d7f99ce19b5669f845f93aa4f1f9877fea653f",
+      "marker": null,
+      "limit": "first iteration only; no later snapshot credit",
+      "panic_lines": [
+        598,
+        602
+      ],
+      "assertion_source_lines": [
+        598,
+        602
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "96fc7be5a70edbbe63cae800f422cbd9260bfa087fbd36eb1ff1df8e888ff539"
     }
   ],
   "base_catalog": {
-    "source": null,
+    "source": "e5ec141fae2ca4f63792cd83ce6e4658b10819b3",
     "cell": {
       "name": "receipt_setup_preserves_registered_tables_for_later_queries",
       "package": "sutura-exec-datafusion",
       "path": "crates/sutura-exec-datafusion/src/combine/across/receipts/tests.rs",
-      "first": null,
-      "last": null,
-      "function_sha256": null
+      "first": 147,
+      "last": 187,
+      "function_sha256": "34a310f2e0185f01409ce01f1e5685cd4d1a787594688a92a5ed099c3a98d9d2"
     },
-    "overlay_sha256": null,
+    "overlay_sha256": "d88b9616de6a8240c594fcf407660be3a12a3a1fb408aae7ee42bd53361e8872",
     "marker": "receipt setup replaced the registered catalog",
     "historical_source": "e5ec141fae2ca4f63792cd83ce6e4658b10819b3"
   },
-  "venue_limit": "process fixtures; no native data-system/served-caller credit",
-  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "venue_limit": "Process fixtures plus ClickHouse native raw-query control through existing just test-only tier route; no served-human/native cancellation credit",
+  "integration_hold": "No publication, dispatch or runtime credit until concrete acceptance",
   "historical_routing": {
     "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
     "tree": "b3841f325d2cf6e1b9049741174d363299901779"

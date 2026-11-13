@@ -1,0 +1,32 @@
+diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
+--- a/crates/sutura-app/src/lib.rs
++++ b/crates/sutura-app/src/lib.rs
+@@ -615,27 +615,7 @@
+         return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
+     }
+     let bill_to = credentials.bill_to_for(source);
+-    let preflight = match warehouse
+-        .dry_run_billed(asked_plan, presented, bill_to, &labels, deadline)
+-        .map_err(Billed::into_source)
+-    {
+-        Ok(preflight) => preflight,
+-        Err(Err(reason)) => return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason })),
+-        Err(Ok(cause)) => {
+-            if warehouse.deadline_exceeded(&cause) {
+-                return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
+-            }
+-            if warehouse.source_refused(&cause) {
+-                return Ok(Answered::refused(
+-                    &credentials,
+-                    RefusalReason::SourceRefused {
+-                        source: warehouse.source().clone(),
+-                    },
+-                ));
+-            }
+-            return Err(ServiceError::Warehouse { cause });
+-        }
+-    };
++    let preflight = PreFlight::NotAsked;
+     // The spend ledger, consulted with the dry run's own price and nobody else's - an adapter that
+     // did not price charges nothing, "not counted" rather than "free", so this only ever refuses
+     // for the one adapter that prices today (BigQuery). See `budget_exhausted`'s own doc.

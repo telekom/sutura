@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-clickhouse/src/adbc.rs
++++ b/crates/sutura-exec-clickhouse/src/adbc.rs
+@@ -464,7 +464,7 @@
+         let execution = sutura_domain::warehouse::execution::Execution::sql(
+             self.source.clone(),
+             TypeDialect::ClickHouse,
+-            sql.clone(),
++            format!("{sql} /* receipt-control */"),
+             query.params(),
+         );
+         statement

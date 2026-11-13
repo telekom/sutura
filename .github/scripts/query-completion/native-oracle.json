@@ -1,7 +1,7 @@
 {
-  "source": null,
-  "tree": null,
-  "binding": "UNBOUND PRIVATE PROPOSAL; no executable source/function/mutation bindings",
+  "source": "9c2146ea5740ff08665730492b158d760b663864",
+  "tree": "2192f2b1180c7d2ee4dfd80b2b76198024dad9ee",
+  "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
   "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
   "cases": [
     {
@@ -10,15 +10,24 @@
         "name": "a_quoted_identifier_names_the_object_the_dictionary_stores",
         "package": "sutura-exec-oracle",
         "path": "crates/sutura-exec-oracle/tests/acceptance.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 38,
+        "last": 175,
+        "function_sha256": "4d1ed8ff334ce946ee13e346103fcc89d1f1948770c6c3659d8d5f3a9352b74b"
       },
       "patch": "mutations/oracle-whole-sql.patch",
-      "patch_sha256": null,
+      "patch_sha256": "84958a97bf542952ab88c1c7f0b9746a724aa62049a6830275fe92b6d8623b5f",
       "marker": null,
-      "panic_lines": null,
-      "limit": "first whole SQL equality only; same generator, no server-log fidelity"
+      "panic_lines": [
+        149,
+        153
+      ],
+      "limit": "first whole SQL equality only; same generator, no server-log fidelity",
+      "assertion_source_lines": [
+        149,
+        153
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "78e2be81a50bc5225ed523896491587dd6977e98ea01b679666beb5363f77b07"
     },
     {
       "id": "oracle-whole-bindings",
@@ -26,15 +35,24 @@
         "name": "a_quoted_identifier_names_the_object_the_dictionary_stores",
         "package": "sutura-exec-oracle",
         "path": "crates/sutura-exec-oracle/tests/acceptance.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 38,
+        "last": 175,
+        "function_sha256": "4d1ed8ff334ce946ee13e346103fcc89d1f1948770c6c3659d8d5f3a9352b74b"
       },
       "patch": "mutations/oracle-whole-bindings.patch",
-      "patch_sha256": null,
+      "patch_sha256": "e97128fe12bddd3f52938ae5242cc348d7409b0a880b798dd01da4fcf10573e7",
       "marker": null,
-      "panic_lines": null,
-      "limit": "separate receipt-only OracleDate binding mutation; native execution unchanged"
+      "panic_lines": [
+        154,
+        167
+      ],
+      "limit": "separate receipt-only OracleDate binding mutation; native execution unchanged",
+      "assertion_source_lines": [
+        154,
+        167
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "fc4e1feba865ae4fdf1cbb53828435a81cc22d8d6ce3bf37e05712a4f778a1ca"
     },
     {
       "id": "oracle-partition-sql",
@@ -42,15 +60,24 @@
         "name": "a_split_leg_reads_every_row_once_at_its_snapshot_and_a_null_key_in_bucket_zero_alone",
         "package": "sutura-exec-oracle",
         "path": "crates/sutura-exec-oracle/tests/flashback.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 206,
+        "last": 277,
+        "function_sha256": "229043285c4d4680e2283267f3db1cc3326f6f8b0a478da37da8e432a322c437"
       },
       "patch": "mutations/oracle-partition-sql.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a66dba9b21ebedc3db265a836581b09bffc2960b40923df966da4f4269de6872",
       "marker": null,
-      "panic_lines": null,
-      "limit": "first descriptor equality only; actual descriptor generator, no generator correctness"
+      "panic_lines": [
+        241,
+        250
+      ],
+      "limit": "first descriptor equality only; actual descriptor generator, no generator correctness",
+      "assertion_source_lines": [
+        241,
+        250
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "0dcc478df847446ac50e6dffa70374daecc285b057a2ca43d307b722710f9f2e"
     },
     {
       "id": "oracle-worker-propagation",
@@ -58,15 +85,24 @@
         "name": "an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertified_readers",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/tests/served/oracle_split.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 291,
+        "last": 428,
+        "function_sha256": "9d3f4e5c2e85a44dcf4e21ea25c4f276923af7a2b1d490298d45b8cf7db1a5ef"
       },
       "patch": "mutations/oracle-worker-propagation.patch",
-      "patch_sha256": null,
+      "patch_sha256": "5950ed1a6c5efe3d1c04712d6c958a7eb0cfd9a8a336e9bc0fb6bf416ecc6859",
       "marker": null,
-      "panic_lines": null,
-      "limit": "first SQL count only; no later SQL multiset equality credit"
+      "panic_lines": [
+        351,
+        351
+      ],
+      "limit": "first SQL count only; no later SQL multiset equality credit",
+      "assertion_source_lines": [
+        351,
+        351
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "1c6213fefac3588ad411c99b81e59d00c574ede92dba4e4290f55af3e854d8d8"
     },
     {
       "id": "oracle-worker-sql-equality",
@@ -74,16 +110,26 @@
         "name": "an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertified_readers",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/tests/served/oracle_split.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 291,
+        "last": 428,
+        "function_sha256": "9d3f4e5c2e85a44dcf4e21ea25c4f276923af7a2b1d490298d45b8cf7db1a5ef"
       },
       "patch": "mutations/oracle-worker-sql-equality.patch",
-      "patch_sha256": null,
+      "patch_sha256": "b7f03d8fba04cf56e80a89d9c843a7091c5eeb48fe81b0b8da252fdea0e480d2",
       "marker": null,
-      "panic_lines": null,
-      "limit": "separate count-preserving receipt-only SQL corruption; bind full multiset assertion only after every earlier guard survives"
+      "panic_lines": [
+        379,
+        382
+      ],
+      "limit": "separate count-preserving receipt-only SQL corruption; bind full multiset assertion only after every earlier guard survives",
+      "assertion_source_lines": [
+        379,
+        382
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "acd9efb977382b89698196bfe3b498f869df6143f5eeb217bd2e8c34311c406b"
     }
   ],
-  "venue_limit": "Adapter acceptance and flashback complete containing binaries including ignored; served complete nonignored plus exactly one declared Oracle split ignored row, all other ignored names excluded explicitly. Proposed mutations have no bytes or credit."
+  "venue_limit": "Adapter acceptance and flashback complete containing binaries including ignored; served complete nonignored plus exactly one declared Oracle split ignored row, all other ignored names excluded explicitly. Five bound receipt mutations remain runtime-unproved: whole SQL, explicit typed bindings, partition descriptor SQL, worker count, and separate count-preserving SQL multiset equality.",
+  "integration_hold": "No publication, dispatch or runtime credit until concrete acceptance"
 }

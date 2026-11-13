@@ -1,8 +1,8 @@
 {
-  "source": null,
-  "tree": null,
+  "source": "9c2146ea5740ff08665730492b158d760b663864",
+  "tree": "2192f2b1180c7d2ee4dfd80b2b76198024dad9ee",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
   "cases": [
     {
@@ -11,17 +11,127 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 451,
+        "last": 620,
+        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
       },
       "patch": "mutations/native-cli-forwarded.patch",
-      "patch_sha256": null,
-      "marker": "forwarded native CLI receipt barrier: successful source read supplied no submission facts"
+      "patch_sha256": "0d70724ff13914a76f31e47fb6d3eaca88818d9ceb13ac924dac89befcc248c5",
+      "marker": "forwarded native CLI receipt barrier: successful source read supplied no submission facts",
+      "panic_lines": [
+        494,
+        494
+      ],
+      "assertion_source_lines": [
+        494,
+        494
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "94718f49d8a91c3009e4ada84c1ad6b1640ea5c78d4baa7e518182c9a2776fc0"
+    },
+    {
+      "id": "bigquery-grant-creation",
+      "cell": {
+        "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
+        "first": 451,
+        "last": 620,
+        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+      },
+      "patch": "mutations/bigquery-grant-creation.patch",
+      "patch_sha256": "0ce2830431d70afd131f31c36be02aaa37512ab6cf448c9cb60dda35e809138b",
+      "marker": null,
+      "limit": "actual Granted branch and successful native result required",
+      "panic_lines": [
+        504,
+        508
+      ],
+      "assertion_source_lines": [
+        504,
+        508
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f"
+    },
+    {
+      "id": "bigquery-domain-creation",
+      "cell": {
+        "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
+        "first": 451,
+        "last": 620,
+        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+      },
+      "patch": "mutations/bigquery-domain-creation.patch",
+      "patch_sha256": "a48083cea0a045d0da560d60d0c93bd19f805644ee58fb9a062d283fb640e7e9",
+      "marker": null,
+      "limit": "distinct propagation edge; no full SQL equality credit",
+      "panic_lines": [
+        504,
+        508
+      ],
+      "assertion_source_lines": [
+        504,
+        508
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f"
+    },
+    {
+      "id": "bigquery-creation-sql",
+      "cell": {
+        "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
+        "first": 451,
+        "last": 620,
+        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+      },
+      "patch": "mutations/bigquery-creation-sql.patch",
+      "patch_sha256": "531bd72863d434b6e79c1da55dfb74fe0a054bb9e1a76d5792633883843c632b",
+      "marker": null,
+      "limit": "count/source/dialect must pass first",
+      "panic_lines": [
+        520,
+        524
+      ],
+      "assertion_source_lines": [
+        520,
+        524
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "d646d64ca6114c69fbf4ca37090452ea38c2a1e4ad7f6da89dc470a4f30957ad"
+    },
+    {
+      "id": "bigquery-local-creation",
+      "cell": {
+        "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
+        "package": "sutura-cli",
+        "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
+        "first": 451,
+        "last": 620,
+        "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
+      },
+      "patch": "mutations/bigquery-local-creation.patch",
+      "patch_sha256": "e32d4cec7be91b8c5027083ac58f958d99de5ad0c0e1220b13358fdcceb09035",
+      "marker": null,
+      "limit": "main Granted subcase and actual Partitioned::Split must pass; no local descriptor completeness",
+      "panic_lines": [
+        586,
+        590
+      ],
+      "assertion_source_lines": [
+        586,
+        590
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "500da1eff6a292ff4f6145eb4cfe5703ffa48e2f948f535a9306e33bf59e1078"
     }
   ],
-  "venue_limit": "native Reader::read_forwarded descriptor/capture witness with manually built grant; no split-dispatch receipt propagation, served-human, inbound issuer or real delegation hop credit",
-  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "venue_limit": "In-process native split creation and forwarded partition reader: actual multiple-stream Granted and <=1-stream Split branches, descriptor capture barrier, creation propagation/count, full creation SQL equality, and local creation attachment. Each earns only its reached bound assertion; no served-human, inbound-issuer, real-delegation-hop, forced duplicate native read or native-cancellation credit.",
+  "integration_hold": "No publication, dispatch or runtime credit until concrete acceptance",
   "historical_routing": {
     "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
     "tree": "b3841f325d2cf6e1b9049741174d363299901779"

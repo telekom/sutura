@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-cli/src/serve/worker/partition.rs b/crates/sutura-cli/src/serve/worker/partition.rs
+index 80fc6a644..903b58d62 100644
+--- a/crates/sutura-cli/src/serve/worker/partition.rs
++++ b/crates/sutura-cli/src/serve/worker/partition.rs
+@@ -85,7 +85,8 @@ impl PartitionReader for Reader {
+                 let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
+                 let mut answered = opened.read_forwarded(&wire, &source, &partition, forwarded)?;
+                 if let Some(recording) = recording {
+-                    recording.complete(&mut answered)?;
++                    let _answered = &mut answered;
++                    drop(recording);
+                 }
+                 Ok(answered)
+             })

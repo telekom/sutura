@@ -1,0 +1,17 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
+@@ -89,7 +89,13 @@
+         }
+         records.extend(captured);
+     }
+-    Ok(records)
++    let mut distinct = Vec::new();
++    for record in records {
++        if !distinct.contains(&record) {
++            distinct.push(record);
++        }
++    }
++    Ok(distinct)
+ }
+ 
+ pub(super) fn install(mut builder: SessionStateBuilder) -> SessionStateBuilder {

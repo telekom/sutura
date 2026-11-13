@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-distributed/src/coordinator/distributed.rs b/vendor/datafusion-distributed/src/coordinator/distributed.rs
+index 18bdf1894..d9532bf92 100644
+--- a/vendor/datafusion-distributed/src/coordinator/distributed.rs
++++ b/vendor/datafusion-distributed/src/coordinator/distributed.rs
+@@ -251,7 +251,7 @@ impl ExecutionPlan for DistributedExec {
+                 if tx.is_closed() {
+                     return exec_err!("query output dropped before completion");
+                 }
+-                completion.finish()?;
++                drop(completion);
+                 drop(tx);
+             } else {
+                 drop(tx);

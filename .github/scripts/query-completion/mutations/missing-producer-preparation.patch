@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs b/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs
+index 6cb440645..d3c2d8659 100644
+--- a/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs
++++ b/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs
+@@ -82,7 +82,7 @@ impl Worker {
+                 })
+                 .await?;
+ 
+-            if completion_request.is_some()
++            if false
+                 && session_state.config().get_extension::<crate::TaskCompletionProducer>().is_none()
+             {
+                 return Err(exec_datafusion_err!("required task completion producer is absent"));

@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -532,7 +532,7 @@
+         let (logical, executions) = arm_plan(plan, legs, context, ceiling_bytes, working_set).await?;
+         executed(context, logical, answer_labels(plan), 1, ceiling_bytes, working_set)
+             .await
+-            .map(|rows| rows.with_prior_executions(executions))
++            .map(|rows| { drop(executions); rows })
+     }
+ }
+ 

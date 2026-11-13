@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across.rs
+@@ -490,7 +490,7 @@
+         let count = all.0.len();
+         let mut links = DistributedConfig::default();
+         links.worker_connection_buffer_budget_bytes =
+-            working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
++            working_set.bytes().checked_div(count.saturating_mul(2)).unwrap_or_default();
+         let planned = SessionStateBuilder::new()
+             .with_config(
+                 SessionConfig::new()

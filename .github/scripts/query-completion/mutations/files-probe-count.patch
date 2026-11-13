@@ -1,0 +1,13 @@
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -962,8 +962,8 @@
+     if found.rows() > 0 {
+         return Err(CombineError::AmbiguousLink);
+     }
+-    let mut executions = found.take_executions();
+-    executions.push(execution);
++    let executions = found.take_executions();
++    drop(execution);
+     Ok(executions)
+ }
+ 

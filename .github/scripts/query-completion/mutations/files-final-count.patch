@@ -1,0 +1,12 @@
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -569,7 +569,8 @@
+     }
+     let answered = collected(frame, ceiling_bytes, working_set).await?;
+     refuse_non_finite(&answered, measures)?;
+-    Ok(answered.with_execution(execution))
++    drop(execution);
++    Ok(answered)
+ }
+ 
+ /// One joined arm's logical plan over `context`: its legs checked, registered under the fixed leg

@@ -1,0 +1,14 @@
+diff --git a/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs b/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs
+index 6cb440645..ee845f3da 100644
+--- a/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs
++++ b/vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs
+@@ -210,8 +210,7 @@ impl Worker {
+                         Some(Err(cause)) => return Err(DataFusionError::Shared(Arc::clone(cause))),
+                         None => Arc::clone(&task_data.base_plan),
+                     };
+-                    let records = tokio::time::timeout_at(deadline, producer.produce(key, plan, request))
+-                        .await.map_err(|cause| exec_datafusion_err!("task completion deadline: {cause}"))??;
++                    let records = producer.produce(key, plan, request).await?;
+                     request.check(&records)?;
+                     Ok(WorkerToCoordinatorMsg::TaskCompletion(crate::TaskCompletion { task_key: key, records }))
+                 }.await;

@@ -1,8 +1,8 @@
 {
-  "source": null,
-  "tree": null,
+  "source": "9c2146ea5740ff08665730492b158d760b663864",
+  "tree": "2192f2b1180c7d2ee4dfd80b2b76198024dad9ee",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
   "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
   "cases": [
     {
@@ -11,14 +11,24 @@
         "name": "a_cast_first_fact_is_probed_for_a_repeated_tuple_of_every_link",
         "package": "sutura-exec-datafusion",
         "path": "crates/sutura-exec-datafusion/src/combine/tests/fan_in.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 400,
+        "last": 426,
+        "function_sha256": "04b9477776f8a70149d5f985503c91fb0430fb7558f08dd67d8403f179236852"
       },
       "patch": "mutations/a_cast_first_fact_is_probed_for_a_repeated_tuple_of_every_link.patch",
-      "patch_sha256": null,
+      "patch_sha256": "424a1c5d10463ddd78918327e1ea2b13538e7ea6b0ed8f9e40325ea99f894dcb",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "22/827",
+      "panic_lines": [
+        410,
+        414
+      ],
+      "assertion_source_lines": [
+        410,
+        414
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "97c5bd7776fd5d22cc4d4414ff7b29c419a88d7386939948fafbecff1a307ff5"
     },
     {
       "id": "a_cell_cannot_forge_a_row",
@@ -26,14 +36,24 @@
         "name": "a_cell_cannot_forge_a_row",
         "package": "sutura-mcp",
         "path": "crates/sutura-mcp/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 704,
+        "last": 709,
+        "function_sha256": "05da689c74b3ef735561589a2b9eb6f0007558a023640f361dec4e9a0f4a225b"
       },
       "patch": "mutations/a_cell_cannot_forge_a_row.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a6cb70417386104a696a6d314142f51d69adb4df60deef8e2c3f39bcd9216536",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "26/827",
+      "panic_lines": [
+        706,
+        706
+      ],
+      "assertion_source_lines": [
+        707,
+        707
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "d6195b8d6ca58be28ade032565c4dfbb16be5182ccb11a41686fc28ea0f46a3f"
     },
     {
       "id": "a_cell_cannot_forge_the_provenance_trailer",
@@ -41,14 +61,24 @@
         "name": "a_cell_cannot_forge_the_provenance_trailer",
         "package": "sutura-mcp",
         "path": "crates/sutura-mcp/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 747,
+        "last": 755,
+        "function_sha256": "315cbddcd752956d6bc838958350f4de39ad932a1982a38ed9b54b79eac21451"
       },
       "patch": "mutations/a_cell_cannot_forge_the_provenance_trailer.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a6cb70417386104a696a6d314142f51d69adb4df60deef8e2c3f39bcd9216536",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "27/827",
+      "panic_lines": [
+        749,
+        753
+      ],
+      "assertion_source_lines": [
+        750,
+        754
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "96aff4e4d434e5e87737df50f060e2c58d6dcf911c8e77c9e3282eba4513a11b"
     },
     {
       "id": "a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short",
@@ -56,14 +86,24 @@
         "name": "a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short",
         "package": "sutura-exec-datafusion",
         "path": "crates/sutura-exec-datafusion/src/combine/tests/refusals.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 596,
+        "last": 632,
+        "function_sha256": "3e7c3e0bfba052d68c9e08ee2029b6131ad69a7403561c5fcdba5068fba3a481"
       },
       "patch": "mutations/a_combined_answer_past_the_result_budget_is_refused_and_never_cut_short.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a6cc201076ba69b230fa967d626ad02fba80aad9565b7ceee7ebe331ad7459a0",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "55/827",
+      "panic_lines": [
+        621,
+        621
+      ],
+      "assertion_source_lines": [
+        621,
+        621
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "52c945b07dd0427ff64edcd3af7c5660281b2aa8d816735dd2b3f799f8dced9b"
     },
     {
       "id": "a_cross_posture_answer_discloses_both_postures_and_no_acknowledgement_prose",
@@ -71,14 +111,24 @@
         "name": "a_cross_posture_answer_discloses_both_postures_and_no_acknowledgement_prose",
         "package": "sutura-http",
         "path": "crates/sutura-http/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 813,
+        "last": 851,
+        "function_sha256": "5ae23fb49927a86985d1fcefeba581861d649624b1e6a80a7f4d049dd92c3595"
       },
       "patch": "mutations/a_cross_posture_answer_discloses_both_postures_and_no_acknowledgement_prose.patch",
-      "patch_sha256": null,
+      "patch_sha256": "fea4fb0986a32b8a4cea884c2ccdfe6533906c6c0574547aa6598a65a5006441",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "79/827",
+      "panic_lines": [
+        834,
+        834
+      ],
+      "assertion_source_lines": [
+        839,
+        839
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "05023293f17efde08596390b0d1bd2a04f1a5df419b1a5fcbde5b5cf4198ad2d"
     },
     {
       "id": "a_cross_posture_answer_names_both_postures_on_both_halves",
@@ -86,14 +136,24 @@
         "name": "a_cross_posture_answer_names_both_postures_on_both_halves",
         "package": "sutura-mcp",
         "path": "crates/sutura-mcp/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 768,
+        "last": 793,
+        "function_sha256": "a1dafb4d2c0c734247c8301da565582f812f194be1c603bcd68ac4aa4063bf3b"
       },
       "patch": "mutations/a_cross_posture_answer_names_both_postures_on_both_halves.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a6cb70417386104a696a6d314142f51d69adb4df60deef8e2c3f39bcd9216536",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "80/827",
+      "panic_lines": [
+        775,
+        775
+      ],
+      "assertion_source_lines": [
+        776,
+        776
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "10f0d71cb155ff58b437c48f30aa024103de1ae4fb5ba9402f8cbb9779ff7e7b"
     },
     {
       "id": "a_dry_run_refusal_stops_the_answer_before_execute",
@@ -101,14 +161,24 @@
         "name": "a_dry_run_refusal_stops_the_answer_before_execute",
         "package": "sutura-app",
         "path": "crates/sutura-app/src/tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 340,
+        "last": 375,
+        "function_sha256": "16b4fc8741912cba09e9dce411fb5b40a904c21cfc1332a8c8609ba4a39129d9"
       },
       "patch": "mutations/a_dry_run_refusal_stops_the_answer_before_execute.patch",
-      "patch_sha256": null,
+      "patch_sha256": "e795ceaae48bbe497c9d9ee1457f4ceadb5fccbca59f261e400e5b1ddbd07d1e",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "151/827",
+      "panic_lines": [
+        363,
+        363
+      ],
+      "assertion_source_lines": [
+        363,
+        363
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "c4753c227ff2c021582ddba11993b43d93e2612a6635a32fa5b4846b9e2b0d51"
     },
     {
       "id": "a_grant_that_expires_during_one_partition_refuses_the_leg_before_the_next_is_read",
@@ -116,14 +186,24 @@
         "name": "a_grant_that_expires_during_one_partition_refuses_the_leg_before_the_next_is_read",
         "package": "sutura-app",
         "path": "crates/sutura-app/src/federated/tests/split_test.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 347,
+        "last": 370,
+        "function_sha256": "bb7655ebce7a636b767674cdda6576bc81e312b572fdb90ff56e8e42c51046d9"
       },
       "patch": "mutations/a_grant_that_expires_during_one_partition_refuses_the_leg_before_the_next_is_read.patch",
-      "patch_sha256": null,
+      "patch_sha256": "2d58a92f728e76c702c01c94bf9d2405bcdd28284bbdf6efbbee803de7d01c50",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "218/827",
+      "panic_lines": [
+        355,
+        355
+      ],
+      "assertion_source_lines": [
+        355,
+        355
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "eb6e28d79a8af6d84c4e30001c4165f8efa98b83266f7f9cf3af7ce5a818c049"
     },
     {
       "id": "a_multi_metric_answer_carries_one_digest_per_metric",
@@ -131,14 +211,24 @@
         "name": "a_multi_metric_answer_carries_one_digest_per_metric",
         "package": "sutura-http",
         "path": "crates/sutura-http/src/wire/multi_metric_tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 62,
+        "last": 103,
+        "function_sha256": "b0032a11492c60ccf6a60651d50148195653d41dbf19148953759af71c9588cb"
       },
       "patch": "mutations/a_multi_metric_answer_carries_one_digest_per_metric.patch",
-      "patch_sha256": null,
+      "patch_sha256": "fea4fb0986a32b8a4cea884c2ccdfe6533906c6c0574547aa6598a65a5006441",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "313/827",
+      "panic_lines": [
+        92,
+        92
+      ],
+      "assertion_source_lines": [
+        92,
+        92
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "39f6b3d2c10b98d77b91f151bced8f158933eb2396c4141932a26ab1ae7898d5"
     },
     {
       "id": "a_multi_metric_answer_carries_one_digest_per_metric_in_both_halves",
@@ -146,14 +236,24 @@
         "name": "a_multi_metric_answer_carries_one_digest_per_metric_in_both_halves",
         "package": "sutura-mcp",
         "path": "crates/sutura-mcp/src/wire/multi_metric_tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 66,
+        "last": 109,
+        "function_sha256": "82a58214a29e9990c1786dfabea2564114a6e3efcce7af00f23ed262b31754ba"
       },
       "patch": "mutations/a_multi_metric_answer_carries_one_digest_per_metric_in_both_halves.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a6cb70417386104a696a6d314142f51d69adb4df60deef8e2c3f39bcd9216536",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "314/827",
+      "panic_lines": [
+        93,
+        93
+      ],
+      "assertion_source_lines": [
+        93,
+        93
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "39f6b3d2c10b98d77b91f151bced8f158933eb2396c4141932a26ab1ae7898d5"
     },
     {
       "id": "a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set",
@@ -161,14 +261,24 @@
         "name": "a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set",
         "package": "sutura-exec-datafusion",
         "path": "crates/sutura-exec-datafusion/src/combine/tests/across.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 461,
+        "last": 479,
+        "function_sha256": "c0f03134c5acfc6d15288eec71af0f9beba5d7939415c89a6e973a9e0647a25a"
       },
       "patch": "mutations/a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set.patch",
-      "patch_sha256": null,
+      "patch_sha256": "8a15ceddb08588ede71eb31c38eb5d8760f97784a58a3be9bfd7d86800827d71",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "386/827",
+      "panic_lines": [
+        473,
+        477
+      ],
+      "assertion_source_lines": [
+        473,
+        477
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "4cf22eeb595f744ce3b04bbd2c3652d6c6ee47971e1fc5bcec1c1669f8f95b55"
     },
     {
       "id": "a_question_in_flight_answers_from_the_snapshot_it_started_with",
@@ -176,14 +286,24 @@
         "name": "a_question_in_flight_answers_from_the_snapshot_it_started_with",
         "package": "sutura-app",
         "path": "crates/sutura-app/src/tests/adopt.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 249,
+        "last": 278,
+        "function_sha256": "e3607551b7a73401938419396bba99ebdb780767a3b71094ef590cb42c2de84e"
       },
       "patch": "mutations/a_question_in_flight_answers_from_the_snapshot_it_started_with.patch",
-      "patch_sha256": null,
+      "patch_sha256": "e298c66dec61bfc1b35fa558f4c06582546031d3b6d5c36ff0dc0fb4ee324eb1",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "387/827",
+      "panic_lines": [
+        275,
+        275
+      ],
+      "assertion_source_lines": [
+        275,
+        275
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "6089470de689b2c3e855664b8d3efefd48c5bfbef2386d1258d94c8a7e2c3ff0"
     },
     {
       "id": "a_question_in_flight_keeps_the_schema_set_it_started_with",
@@ -191,14 +311,24 @@
         "name": "a_question_in_flight_keeps_the_schema_set_it_started_with",
         "package": "sutura-app",
         "path": "crates/sutura-app/src/tests/adopt.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 498,
+        "last": 520,
+        "function_sha256": "ddc5e6b152d0b27471c17a35212859afd138e47c929071b47ca8d7a3a234e72b"
       },
       "patch": "mutations/a_question_in_flight_keeps_the_schema_set_it_started_with.patch",
-      "patch_sha256": null,
+      "patch_sha256": "5b746d423948bdd25b5a4b955f69559434fe2c45b13cfb6dab30f329bf82df4f",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "388/827",
+      "panic_lines": [
+        518,
+        518
+      ],
+      "assertion_source_lines": [
+        518,
+        518
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "5d41393ffb86051370bd632f0b28c2f8d437502effdbc7cf0b5aabdad26bcf29"
     },
     {
       "id": "a_subject_credential_is_refused_by_execute_before_anything_is_run",
@@ -206,14 +336,24 @@
         "name": "a_subject_credential_is_refused_by_execute_before_anything_is_run",
         "package": "sutura-exec-duckdb",
         "path": "crates/sutura-exec-duckdb/tests/identity.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 48,
+        "last": 58,
+        "function_sha256": "8ab64ab93a3bc5b294bab59ca9c4871c3f76170c68c5634b3e42bcdd0c19380d"
       },
       "patch": "mutations/a_subject_credential_is_refused_by_execute_before_anything_is_run.patch",
-      "patch_sha256": null,
+      "patch_sha256": "1a6dd238b0629112af1967aea5b7d709076acd65c53a97307ee8c37d5066d1d5",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "492/827",
+      "panic_lines": [
+        53,
+        56
+      ],
+      "assertion_source_lines": [
+        53,
+        56
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "45e88a12e3231f9a9f702ea6bef9f289346abfdde1564c360c7be5f01ce821ec"
     },
     {
       "id": "an_answer_carries_its_provenance_in_both_halves_of_the_result",
@@ -221,14 +361,24 @@
         "name": "an_answer_carries_its_provenance_in_both_halves_of_the_result",
         "package": "sutura-mcp",
         "path": "crates/sutura-mcp/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 651,
+        "last": 679,
+        "function_sha256": "a011a2b53146985b2c62a787d4eec5d6e38c875dbaf2306bacf1a4d6f8116a88"
       },
       "patch": "mutations/an_answer_carries_its_provenance_in_both_halves_of_the_result.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a6cb70417386104a696a6d314142f51d69adb4df60deef8e2c3f39bcd9216536",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "567/827",
+      "panic_lines": [
+        661,
+        661
+      ],
+      "assertion_source_lines": [
+        662,
+        662
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "6367c39c8a1ed3bb2394fd60773fa1a4ebb2addf056e797560e683a688d32c21"
     },
     {
       "id": "an_answer_is_the_only_outcome_that_comes_back_as_a_success",
@@ -236,14 +386,24 @@
         "name": "an_answer_is_the_only_outcome_that_comes_back_as_a_success",
         "package": "sutura-http",
         "path": "crates/sutura-http/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 780,
+        "last": 810,
+        "function_sha256": "d1560e665800fcba8127dd93c466a48aac22c4ea45f20decddab607e87160b55"
       },
       "patch": "mutations/an_answer_is_the_only_outcome_that_comes_back_as_a_success.patch",
-      "patch_sha256": null,
+      "patch_sha256": "fea4fb0986a32b8a4cea884c2ccdfe6533906c6c0574547aa6598a65a5006441",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "568/827",
+      "panic_lines": [
+        790,
+        790
+      ],
+      "assertion_source_lines": [
+        795,
+        795
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "05023293f17efde08596390b0d1bd2a04f1a5df419b1a5fcbde5b5cf4198ad2d"
     },
     {
       "id": "an_authored_metric_through_the_surface_is_a_compile_failure",
@@ -251,14 +411,24 @@
         "name": "an_authored_metric_through_the_surface_is_a_compile_failure",
         "package": "sutura-app",
         "path": "crates/sutura-app/src/tests/mapped_refusals.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 53,
+        "last": 65,
+        "function_sha256": "057b4832a3659aeee5c97f504ab5ff27c2cb28b3bbe919a32cb0213e0043fbb4"
       },
       "patch": "mutations/an_authored_metric_through_the_surface_is_a_compile_failure.patch",
-      "patch_sha256": null,
+      "patch_sha256": "fa08726c61f9ed5ed37d9a64cf7c276c8787a08751946ae2ecf41197d2f94f1f",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "581/827",
+      "panic_lines": [
+        61,
+        64
+      ],
+      "assertion_source_lines": [
+        61,
+        64
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "71f3fdd14e0059ffc72a28f2d8d81200325ace496dde828338587ed111f24841"
     },
     {
       "id": "answer_calls_dry_run_even_when_the_preflight_accepts",
@@ -266,14 +436,24 @@
         "name": "answer_calls_dry_run_even_when_the_preflight_accepts",
         "package": "sutura-app",
         "path": "crates/sutura-app/src/tests.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 299,
+        "last": 337,
+        "function_sha256": "0294dbe9df4ffe902cd171acc0524dc9e9ff3470bb487a98de10a5370adb4d51"
       },
       "patch": "mutations/answer_calls_dry_run_even_when_the_preflight_accepts.patch",
-      "patch_sha256": null,
+      "patch_sha256": "e795ceaae48bbe497c9d9ee1457f4ceadb5fccbca59f261e400e5b1ddbd07d1e",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "659/827",
+      "panic_lines": [
+        327,
+        331
+      ],
+      "assertion_source_lines": [
+        327,
+        331
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "4a3e1d65758ac4c50e80eca30a2c1626065f5ad3932f639b2efa60505092b9b6"
     },
     {
       "id": "the_injection_corpus_cells_cannot_forge_the_answer_text_half",
@@ -281,14 +461,24 @@
         "name": "the_injection_corpus_cells_cannot_forge_the_answer_text_half",
         "package": "sutura-mcp",
         "path": "crates/sutura-mcp/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 886,
+        "last": 895,
+        "function_sha256": "a9dd02069c12a18ac40349486add0fe88cc6a789eaf2024ed42e46df3562ab31"
       },
       "patch": "mutations/the_injection_corpus_cells_cannot_forge_the_answer_text_half.patch",
-      "patch_sha256": null,
+      "patch_sha256": "a6cb70417386104a696a6d314142f51d69adb4df60deef8e2c3f39bcd9216536",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "769/827",
+      "panic_lines": [
+        888,
+        892
+      ],
+      "assertion_source_lines": [
+        889,
+        893
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "8bc0b84c36d480c2237907cb5ba452b7ecba3b7034ef7347dac690fb99b0c0b6"
     },
     {
       "id": "the_injection_corpus_cells_stay_single_opaque_json_strings_on_http",
@@ -296,14 +486,24 @@
         "name": "the_injection_corpus_cells_stay_single_opaque_json_strings_on_http",
         "package": "sutura-http",
         "path": "crates/sutura-http/src/wire.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 949,
+        "last": 977,
+        "function_sha256": "2cfc92e5cb9f990dc9f5b4a6b33477861979cdfa89c70a053f7ffd201e4d9654"
       },
       "patch": "mutations/the_injection_corpus_cells_stay_single_opaque_json_strings_on_http.patch",
-      "patch_sha256": null,
+      "patch_sha256": "fea4fb0986a32b8a4cea884c2ccdfe6533906c6c0574547aa6598a65a5006441",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "770/827",
+      "panic_lines": [
+        969,
+        969
+      ],
+      "assertion_source_lines": [
+        974,
+        974
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "e727951973124ca148e755f51064e5ccd0e6098c1df990c77d4d521375367f5b"
     },
     {
       "id": "when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced",
@@ -311,18 +511,28 @@
         "name": "when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced",
         "package": "sutura-app",
         "path": "crates/sutura-app/src/federated/tests/leg_refusal_test.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 337,
+        "last": 371,
+        "function_sha256": "e250d562a9e74b2adc955bf5adb4d370f220badb640daf8b3a159a2db56564e6"
       },
       "patch": "mutations/when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced.patch",
-      "patch_sha256": null,
+      "patch_sha256": "d3c5ae1b02f0a7a2f4b545dff41c6cda98b6c86e3f3e69911f147c19accacfc4",
       "marker": null,
-      "claim_shard": null
+      "claim_shard": "823/827",
+      "panic_lines": [
+        362,
+        370
+      ],
+      "assertion_source_lines": [
+        362,
+        370
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "23da1a8c031f5383ffae6fc786187d58488aaa61d4b3f010eb9014c65e28b66c"
     }
   ],
   "venue_limit": "current wholebinary compiled own-assertion claims only; native backend execution requires its own explicit venue",
-  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "integration_hold": "No publication, dispatch or runtime credit until concrete acceptance",
   "historical_routing": {
     "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
     "tree": "b3841f325d2cf6e1b9049741174d363299901779"

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/receipts.rs b/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
+index 14f88e750..74b2c6263 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
+@@ -65,7 +65,7 @@ pub(in crate::combine) async fn executing(
+     }
+     // Execute exactly the inspected Arc. Local plans without source leaves submit no worker tasks.
+     let stream = datafusion::physical_plan::execute_stream(plan, context)?;
+-    Ok((stream, (distributed == 1).then_some(capture)))
++    Ok((stream, Some(capture)))
+ }
+ 
+ pub(in crate::combine) fn completed(

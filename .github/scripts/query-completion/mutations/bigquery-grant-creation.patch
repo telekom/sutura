@@ -1,0 +1,11 @@
+--- a/crates/sutura-cli/src/serve/kind/split/bigquery.rs
++++ b/crates/sutura-cli/src/serve/kind/split/bigquery.rs
+@@ -85,7 +85,7 @@
+                 SystemTime::now(),
+             )
+             .map_or_else(Partitioned::NotGranted, |grant| {
+-                Partitioned::Granted(grant.with_executions(executions))
++                Partitioned::Granted({ drop(executions); grant })
+             }))
+     }
+ 

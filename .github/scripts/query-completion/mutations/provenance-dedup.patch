@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-domain/src/pinned.rs b/crates/sutura-domain/src/pinned.rs
+index 511b8a972..21289edb9 100644
+--- a/crates/sutura-domain/src/pinned.rs
++++ b/crates/sutura-domain/src/pinned.rs
+@@ -132,7 +132,11 @@ impl Provenance {
+     /// Records request-local execution details, outside the definition and schema digests.
+     #[must_use]
+     pub fn with_executions(mut self, executions: Vec<crate::warehouse::execution::Execution>) -> Self {
+-        self.executions = executions;
++        let mut unique = Vec::new();
++        for execution in executions {
++            if !unique.contains(&execution) { unique.push(execution); }
++        }
++        self.executions = unique;
+         self
+     }
+ 

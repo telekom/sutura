@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-distributed/src/coordinator/distributed.rs b/vendor/datafusion-distributed/src/coordinator/distributed.rs
+index 18bdf1894..428460cca 100644
+--- a/vendor/datafusion-distributed/src/coordinator/distributed.rs
++++ b/vendor/datafusion-distributed/src/coordinator/distributed.rs
+@@ -205,7 +205,7 @@ impl ExecutionPlan for DistributedExec {
+         let mut builder = RecordBatchReceiverStreamBuilder::new(self.schema(), 1);
+         let tx = builder.tx();
+ 
+-        let completion_deadline = completion.as_ref().map(|v| v.deadline);
++        let completion_deadline: Option<tokio::time::Instant> = None;
+         let execution = async move {
+             // Dropping this `guard` is what signals the coordinator->worker channel to be dropped,
+             // which triggers a chain reaction that ends up also gracefully closing the

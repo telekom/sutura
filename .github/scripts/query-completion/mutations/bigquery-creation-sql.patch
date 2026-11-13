@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-bigquery/src/over_adbc.rs
++++ b/crates/sutura-exec-bigquery/src/over_adbc.rs
+@@ -112,7 +112,7 @@
+                 split.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+                     self.source.clone(),
+                     sutura_domain::warehouse::schema::TypeDialect::BigQuery,
+-                    query.sql().to_owned(),
++                    format!("{} /* receipt-control */", query.sql()),
+                     query.params(),
+                 ))
+             })

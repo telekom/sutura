@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-datafusion/src/combine/merge.rs
++++ b/crates/sutura-exec-datafusion/src/combine/merge.rs
+@@ -115,7 +115,7 @@
+         .map_err(|cause| CombineError::Build { cause })?;
+     executed(context, logical, labels, measures.len(), ceiling_bytes, working_set)
+         .await
+-        .map(|rows| rows.with_prior_executions(executions))
++        .map(|rows| { drop(executions); rows })
+ }
+ 
+ /// One arm's logical plan.

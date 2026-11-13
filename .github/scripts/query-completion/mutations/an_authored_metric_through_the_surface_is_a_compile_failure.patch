@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/surface.rs b/crates/sutura-app/src/surface.rs
+--- a/crates/sutura-app/src/surface.rs
++++ b/crates/sutura-app/src/surface.rs
+@@ -718,7 +718,7 @@
+             ServiceError::MissingExecution => SurfaceFailure::Miswired {
+                 cause: Box::new(sutura_domain::warehouse::execution::MissingExecution),
+             },
+-            ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
++            ServiceError::Compile { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+             ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+             // Two brokers' worth of failure, kept apart on the way out for the reason the variants
+             // give: an authorization server that is down and a broker that answered about the wrong

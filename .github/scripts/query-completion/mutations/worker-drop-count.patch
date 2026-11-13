@@ -1,0 +1,10 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/receipts.rs
+@@ -89,6 +89,7 @@
+         }
+         records.extend(captured);
+     }
++    records.truncate(records.len().saturating_sub(1));
+     Ok(records)
+ }
+ 

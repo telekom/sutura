@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/bounds.rs b/crates/sutura-app/src/bounds.rs
+index b246a7d97..9e1fdb672 100644
+--- a/crates/sutura-app/src/bounds.rs
++++ b/crates/sutura-app/src/bounds.rs
+@@ -46,6 +46,7 @@ pub(crate) fn exceeds_response_bound(rows: &sutura_domain::warehouse::RowSet, ex
+     (rows.rendered_byte_len().saturating_add(
+         executions
+             .iter()
++            .take(0)
+             .fold(0_u64, |bytes, execution| bytes.saturating_add(execution.rendered_byte_len())),
+     ) > limit.bytes())
+     .then_some(limit.bytes())

@@ -1,0 +1,13 @@
+--- a/crates/sutura-exec-datafusion/src/combine/collecting.rs
++++ b/crates/sutura-exec-datafusion/src/combine/collecting.rs
+@@ -58,6 +58,9 @@
+     drop(stream);
+     let answered = accumulating.finish();
+     #[cfg(feature = "distributed")]
+-    let answered = answered.with_executions(across::completed(capture, working_set)?);
++    let answered = answered.with_executions(
++        across::completed(capture, working_set)?.into_iter().filter(|record| !matches!(record,
++            sutura_domain::warehouse::execution::Execution::Sql { .. })).collect(),
++    );
+     Ok(answered)
+ }

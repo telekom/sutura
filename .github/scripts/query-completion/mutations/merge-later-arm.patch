@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-datafusion/src/combine/merge.rs
++++ b/crates/sutura-exec-datafusion/src/combine/merge.rs
+@@ -85,7 +85,7 @@
+     let mut measures = vec![plan.arms().first().measure_label()];
+     for (index, (arm, legs)) in plan.arms().iter().zip(arms).enumerate().skip(1) {
+         let (next, submitted) = cut(index, arm, legs, &grouped, context, (ceiling_bytes, working_set)).await?;
+-        executions.extend(submitted);
++        drop(submitted);
+         agreeing_kinds(&grouped, plan.bucket_label(), &first_kinds, &kinds_of(&next, &grouped)?)?;
+         running = joined_with(running, next, &grouped, &measures, arm.measure_label())?;
+         measures.push(arm.measure_label());

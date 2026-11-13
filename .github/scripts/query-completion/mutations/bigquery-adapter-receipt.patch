@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-exec-bigquery/src/over_adbc.rs b/crates/sutura-exec-bigquery/src/over_adbc.rs
+index d33ff2baa..31d4a3126 100644
+--- a/crates/sutura-exec-bigquery/src/over_adbc.rs
++++ b/crates/sutura-exec-bigquery/src/over_adbc.rs
+@@ -145,12 +145,7 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
+         let payer = self.unstated_payer(&billing::executable_projects(Executable::Leg(leg))?)?;
+         self.transport
+             .read_partition(&payer, token, descriptor, JobDeadline::Port(deadline))
+-            .map(|rows| {
+-                rows.with_execution(sutura_domain::warehouse::execution::Execution::bigquery_read(
+-                    self.source.clone(),
+-                    descriptor,
+-                ))
+-            })
++
+             .map_err(|cause| BigQueryError::Endpoint { cause })
+     }
+ }

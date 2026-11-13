@@ -1,0 +1,11 @@
+--- a/crates/sutura-cli/src/serve/kind/split/bigquery.rs
++++ b/crates/sutura-cli/src/serve/kind/split/bigquery.rs
+@@ -67,7 +67,7 @@
+                 || Ok(ResultBatches::none_under(schema)),
+                 |descriptor| read_here(self, (leg, descriptor), token, until, deadline),
+             );
+-            let read = read.map(|rows| rows.with_prior_executions(executions));
++            let read = read.map(|rows| { drop(executions); rows });
+             return Ok(Partitioned::Split(Box::new(iter::once(read))));
+         }
+         let rows = NonZeroUsize::new(MOST_RESULT_ROWS)

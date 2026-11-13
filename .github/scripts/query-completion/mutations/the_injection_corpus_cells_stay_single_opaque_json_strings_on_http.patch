@@ -1,0 +1,27 @@
+diff --git a/crates/sutura-http/src/wire.rs b/crates/sutura-http/src/wire.rs
+--- a/crates/sutura-http/src/wire.rs
++++ b/crates/sutura-http/src/wire.rs
+@@ -399,17 +399,12 @@
+             ToolOutcome::Answer {
+                 ref provenance,
+                 ref rows,
+-            } => Self {
+-                status: axum::http::StatusCode::OK,
+-                body: OutcomeBody::Answer {
+-                    provenance: provenance_body(provenance),
+-                    executed_as: legs(provenance.executed_as()),
+-                    executions: execution::list(provenance.executions()),
+-                    columns: rows.columns().to_vec(),
+-                    rows: render(rows),
+-                },
+-                retry_after_seconds: None,
+-            },
++            } => {
++                let _ = (provenance_body(provenance), legs(provenance.executed_as()), execution::list(provenance.executions()), render(rows));
++                Self::from(&ToolOutcome::Refusal {
++                    reason: sutura_domain::query::RefusalReason::FederationNotExecutable,
++                })
++            }
+             ToolOutcome::Refusal { ref reason } => {
+                 let retry_after_seconds = refusal::retry_after(reason);
+                 let (status, reason) = refusal::refused(reason);

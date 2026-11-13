@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs b/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
+index 1478013d1..014ff0f54 100644
+--- a/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
++++ b/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
+@@ -450,7 +450,7 @@ async fn receive_worker_messages(
+             break;
+         }
+     }
+-    if completion.is_some() && !completed {
++    if false {
+         return exec_err!("worker channel closed without task completion");
+     }
+     Ok::<_, DataFusionError>(())

@@ -1,0 +1,1009 @@
+# The directory layout IS the architecture: `crates/sutura-domain` is the hexagon's interior -
+# domain types today, plus a port trait for each adapter as adapters land - every other crate
+# is an adapter that depends on it, and nothing depends on an adapter. That rule is
+# machine-checked - `cargo xtask check-boundaries`, which also fails a library crate whose
+# types or errors stop being a typed contract.
+#
+# Crates arrive with the milestone that needs them rather than as empty placeholders: an
+# empty crate is a compile target and a maintenance surface for no value. So does a port
+# trait: with no adapter to invert, its signature is a guess.
+
+[workspace]
+resolver = "3"
+members = [
+  "vendor/datafusion-distributed",
+  "crates/sutura-domain",
+  # Declaring source: conformance is against its declaration; see docs/adr/0016.
+  "crates/sutura-catalog-datahub",
+  "crates/sutura-catalog-local",
+  # Declaring source: capabilities and limits are in docs/adr/0011.
+  "crates/sutura-catalog-rdbms",
+  # Declaring source: capabilities and limits are in docs/what-okf-can-carry.md.
+  "crates/sutura-catalog-okf",
+  # Declaring source: capabilities and limits are in docs/what-a-data-contract-can-carry.md.
+  "crates/sutura-catalog-datacontract",
+  # Declaring source: capabilities and limits are in docs/what-openmetadata-can-carry.md.
+  "crates/sutura-catalog-openmetadata",
+  # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
+  "crates/sutura-catalog-cube",
+  "crates/sutura-catalog-openapi", # EXPERIMENTAL: declaring source configured by an OpenAPI document - `#1727`.
+  "crates/sutura-catalog-wren",
+  "crates/sutura-semantic",
+  # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
+  # plan because the `Warehouse` port carries one, so the generator is reachable from SQL adapters
+  # and from nothing else - and putting it here is what keeps `polyglot-sql` out of the core's
+  # transitive closure. `cargo xtask check-boundaries` fails if `sutura-semantic` acquires either
+  # edge back.
+  "crates/sutura-sql",
+  "crates/sutura-app",
+  # The conformance packs: test bodies written ONCE against the ports, bound to an adapter by a
+  # macro. `docs/adr/0012` is the construction. It depends on `sutura-domain` and on no adapter -
+  # which is what lets an adapter's OWN crate take it as a dev-dependency and prove itself, instead
+  # of a second hand-written suite per adapter. Never shipped: every consumer is a dev-dependency,
+  # so it is in no artefact's closure.
+  "crates/sutura-conformance",
+  "crates/sutura-exec-duckdb",
+  # The first cloud data source: renders through `sutura-sql` in the fourth dialect and pushes down.
+  # NOTHING LINKS IT, and that is recorded rather than incidental - its `JobTransport` port has no
+  # implementor that speaks to the endpoint, because no test in this repository can verify one.
+  # `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory and `docs/adr/0017` carry the argument.
+  "crates/sutura-exec-bigquery",
+  "crates/sutura-exec-datafusion",
+  # A network data system over an existing `Dialect::Postgres` rendering. THE DATA SOURCE, not an
+  # engine, and shipped (`nix/shipped.nix` lists its feature): it proves the Postgres statement we
+  # render is accepted by a real Postgres, reached through the compose tier.
+  "crates/sutura-exec-postgres",
+  # A network data system over the third rendering, `Dialect::ClickHouse`. Shipped since the
+  # release linked by `github.com/telekom/sutura#1237`. It proves the ClickHouse statement we render is accepted by
+  # a real ClickHouse, reached over HTTP (`compose.services.yaml`'s `clickhouse` service).
+  "crates/sutura-exec-clickhouse",
+  # A network data system over an existing `Dialect::Oracle` rendering (`github.com/telekom/
+  # sutura#127` PR 2). THE DATA SOURCE, not an engine. Shipped: `nix/shipped.nix` lists the
+  # `oracle` feature of `sutura-cli`.
+  "crates/sutura-exec-oracle",
+  # The Oracle connector, held off `sutura-sql` so the catalog's Oracle reader can share it.
+  "crates/sutura-oracle-connect",
+  # A Warehouse over a Cube metrics serving layer's REST API: Cube computes each metric.
+  "crates/sutura-exec-cube",
+  # A Warehouse whose legs another sutura node runs, over one Arrow Flight `DoExchange` per leg.
+  "crates/sutura-exec-node",
+  "crates/sutura-adbc",
+  # The PostgreSQL ADBC connector, held off `sutura-sql` so a catalog reader can share it.
+  "crates/sutura-adbc-postgres",
+  # The one place any outbound TLS adapter reads a declared bundle or the host store: no
+  # `RootCertStore`, no crypto provider, no network client - just the bytes a caller's own verifier
+  # folds in. `sutura-adbc-postgres` reads the PostgreSQL channel through it; the `BigQuery` wire's own reader
+  # (`github.com/telekom/sutura#125`'s second PR) is the second; `sutura-exec-clickhouse` is the
+  # third - none may depend on any other (`xtask/src/boundaries/adapters.rs`'s "data systems"
+  # class), so the read that all three need moved here rather than into any one of them.
+  "crates/sutura-tls",
+  # The bounded, TLS-rotating `ureq` client `sutura-catalog-datahub` and `sutura-catalog-openmetadata`
+  # share for their HTTP readers - `Endpoint` parsing, `ReadBounds`/`Budget`, the TLS anchor fold and
+  # (behind `test`, enabled only by `sutura-cli`'s own dev-dependencies) the loopback fakes.
+  # Extracted under `github.com/telekom/sutura#970`'s review once a second reader made the two crates' own copies
+  # byte-for-byte identical (`cargo xtask check-jscpd`); same shape as `sutura-tls` one layer up, and joins
+  # neither the "data systems" nor the "metadata providers" class in `xtask/src/boundaries/adapters.rs`.
+  "crates/sutura-http-client",
+  # The bounded single-open document read and sorted directory walk that `sutura-catalog-local`,
+  # `sutura-catalog-okf` (`#1022` hardened it there) and `sutura-catalog-datacontract` (`#1043`)
+  # share - extracted once a third copy of the identical mechanism made the duplication concrete
+  # (`github.com/telekom/sutura#1045`). Same shape as `sutura-tls`: a small read two or more
+  # same-class adapters both need, with no crypto provider, no network client and no `sutura-config`,
+  # carrying no adapter prefix so it joins no forbidden class in `xtask/src/boundaries/adapters.rs`.
+  "crates/sutura-bounded-read",
+  "crates/sutura-cli",
+  # Configuration has no framework, runtime owns process globals, and HTTP owns transport.
+  # sutura-cli is the composition root; check-boundaries excludes these from domain and app.
+  "crates/sutura-config",
+  "crates/sutura-runtime",
+  "crates/sutura-http",
+  # The Arrow Flight `DoExchange` framing for a typed remote leg. It is a transport adapter over
+  # the domain wire shape; `sutura-exec-node` sends through its outbound half.
+  "crates/sutura-flight",
+  # The agent-facing surface, and a SECOND transport rather than a layer on the first: it depends on
+  # `sutura-app`'s driving port and on nothing in `sutura-http`, because an adapter that reached into
+  # another adapter is the one direction this layout forbids. The cost of that rule is a second wire
+  # type, and the cost is paid deliberately - `crates/sutura-mcp/src/wire.rs` says so at length.
+  "crates/sutura-mcp",
+  "crates/sutura-operator",
+  "xtask",
+  "dev",
+]
+# Vendored crates are EXCLUDED FROM MEMBERSHIP, a correctness fix: a path dependency inside the
+# workspace directory joins it, and `--workspace` builds every member whoever depends on it, so
+# Windows and macOS built the Linux-only vendored allocator on its own account. Excluding the whole
+# directory by path prefix also keeps `--workspace` clippy and tests off third-party code.
+exclude = [
+  "vendor/adbc_clickhouse",
+  "vendor/arrow-ipc",
+  "vendor/datafusion-physical-plan",
+  "vendor/datafusion-proto",
+  "vendor/datafusion-proto-common",
+  "vendor/datafusion-sql",
+  "vendor/mimalloc_rust",
+  "vendor/rust-oracledb",
+]
+
+[workspace.package]
+version = "0.13.1"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+repository = "https://github.com/telekom/sutura"
+
+[workspace.dependencies]
+sutura-domain = { path = "crates/sutura-domain" }
+sutura-catalog-local = { path = "crates/sutura-catalog-local" }
+sutura-catalog-datahub = { path = "crates/sutura-catalog-datahub" }
+sutura-catalog-rdbms = { path = "crates/sutura-catalog-rdbms" }
+sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
+sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
+sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
+sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
+sutura-catalog-openapi = { path = "crates/sutura-catalog-openapi" }
+sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
+sutura-semantic = { path = "crates/sutura-semantic" }
+sutura-sql = { path = "crates/sutura-sql" }
+sutura-app = { path = "crates/sutura-app" }
+sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
+# It came back with the code that needs it, which is exactly what its absence predicted: `sutura-cli`
+# links it behind that crate's own default-off `wire` feature, through a default-off `bigquery` feature
+# of its own. So the entry is inherited where a member wants the edge - behind a feature for a shipped
+# build, unconditionally where the edge is dev-only and does not propagate - and the four cross builds
+# - which pass `--package sutura-cli` and share an unscoped dependency derivation with the checks - are
+# unchanged. `cargo xtask unused-deps` is what keeps a line here honest in either direction: the entry
+# left this table when nothing linked the crate, and it is back because something does.
+sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
+sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
+sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
+# `sutura-exec-oracle` IS in this table because `sutura-app` inherits it
+# (`crates/sutura-app/Cargo.toml`), and `sutura-cli` does too behind its default-off `oracle`
+# feature - either edge is what `cargo::unused_workspace_dependencies` asks for.
+sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
+# In this table since `sutura-cli` gained its default-off `clickhouse` feature: the composition root
+# inherits it as an OPTIONAL dependency, which is an inheriting edge and is what
+# `cargo::unused_workspace_dependencies` asks for. The comment this replaces recorded the previous
+# state - no composition root reached the crate, so an entry here would have failed that lint - and
+# `cargo xtask unused-deps` is what keeps the line honest in either direction. Still no golden or
+# differential suite: the crate's own `lib.rs` header carries what remains unreached.
+sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
+# `sutura-app` inherits it as a development dependency, for the golden matrix.
+sutura-exec-cube = { path = "crates/sutura-exec-cube" }
+sutura-exec-node = { path = "crates/sutura-exec-node" }
+# The leg framing `sutura-exec-node` sends through, and the server behind `flight` features.
+sutura-flight = { path = "crates/sutura-flight" }
+sutura-adbc = { path = "crates/sutura-adbc" }
+sutura-adbc-postgres = { path = "crates/sutura-adbc-postgres" }
+sutura-oracle-connect = { path = "crates/sutura-oracle-connect" }
+sutura-tls = { path = "crates/sutura-tls" }
+sutura-http-client = { path = "crates/sutura-http-client" }
+sutura-bounded-read = { path = "crates/sutura-bounded-read" }
+sutura-config = { path = "crates/sutura-config" }
+sutura-runtime = { path = "crates/sutura-runtime" }
+sutura-http = { path = "crates/sutura-http" }
+# The agent surface, now that a composition root links it: `sutura mcp` on `sutura-cli` is what the
+# earlier absence of this entry deferred, and the absent-crate comment below it records the previous
+# state rather than deleting it. `cargo xtask unused-deps` keeps this line honest in either direction.
+sutura-mcp = { path = "crates/sutura-mcp" }
+# Not shipped and not under `crates/`: the developer workflow. A LIBRARY as well as a binary,
+# because a test harness has to be able to learn where a provisioned service is listening and
+# `xtask` has to name the same compose project the harness sees.
+sutura-dev = { path = "dev" }
+# The conformance packs. Inherited under `[dev-dependencies]` only, by each adapter crate that binds
+# them - the same shape `sutura-dev` has, and for the same reason: a harness in a shipped closure is
+# a harness somebody can call from a serving path.
+sutura-conformance = { path = "crates/sutura-conformance" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# The two catalog adapters open each catalog document ONCE, through a descriptor that does
+# not follow a symlink (O_NOFOLLOW) and does not block on a FIFO (O_NONBLOCK) - a swap of a
+# listed document between the walk and the read is refused at the open, not followed or
+# waited on (`telekom/sutura#1008`).
+rustix = { version = "1.1.6", features = ["fs"] }
+# The exchanged-credential cache's own lock, `docs/adr/0031` - `clippy.toml` denies both
+# `std::sync::Mutex` and `std::sync::RwLock` outright (the async-executor deadlock the ban is for
+# does not apply to a synchronous broker's `mint`, called from inside one `block_on` and never held
+# across an `.await`, but the type is banned regardless of caller).
+# The lockfile intentionally contains both versions: transitive users remain on 0.12 while this
+# crate uses 0.13 directly for its own lock.
+parking_lot = "0.13"
+# Parsed only to validate configured resource and issuer URLs. The original spelling remains the
+# stored value because OAuth resource indicators are compared byte for byte.
+url = { version = "2.5", default-features = false }
+
+# The `StreamExt` `sutura-exec-datafusion` drains an engine stream with; already in the graph
+# through `datafusion`, so naming it adds no supply-chain surface.
+futures-util = "0.3"
+# Writing the compressed fixtures the engine's `compression` feature reads back, in DEV-dependencies
+# and nowhere else - nothing this workspace ships compresses anything. Both were already in
+# `Cargo.lock` before they were named here (`flate2` through `libduckdb-sys`'s build script, `bzip2`
+# through the engine's own `async-compression`), so neither adds a lockfile entry or a licence. One
+# writer per codec that has an end-to-end cell: `docs/adr/0039` says which two those are and why the
+# other two are parse-only.
+flate2 = "1"
+bzip2 = "0.6"
+# Arrow at the hexagon's interior - `docs/adr/0039`; `crates/sutura-domain/Cargo.toml` carries the
+# argument and the cost. `-ord`/`-select` order a federated `top` on typed values. The major is the
+# ENGINE's: `datafusion` resolves all four at it (`adbc_core` two), so no lock entry is new.
+# `devco/arrow-majors-allow` names the one major; `cargo xtask check-arrow` fails on a stale row.
+arrow-array = "59"
+arrow-schema = "59"
+arrow-ord = "59"
+arrow-select = "59"
+arrow-flight = { version = "59", default-features = false }
+# `sutura-flight`'s server and `sutura-exec-node`'s client, no TLS feature (the client brings its
+# own rustls). `arrow-flight` already builds it with these features: the graph keeps one `tonic`.
+tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
+# `sutura-flight` DEV-dependencies, already in the graph under `arrow-flight`: its peer-IPC cells build
+# a malformed message with `arrow-ipc`'s FlatBuffers builders, and name `lz4`/`zstd` for the codecs.
+arrow-ipc = { version = "59", default-features = false, features = ["lz4", "zstd"] }
+flatbuffers = { version = "25", default-features = false }
+# `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
+# `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
+# `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own
+# dependency, so this is a new edge and not a new crate.
+arrow-buffer = "59"
+# rustls itself, for the loopback TLS fixtures (`sutura-http-client`'s `tls-test` and
+# `sutura-cli`'s served cells). No shipped adapter builds a `ClientConfig` with it since the `rdbms`
+# catalog reader moved to the ADBC connector (`telekom/sutura#913`); `tls12` matches
+# `tokio-rustls`'s own pin below.
+rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"] }
+# `CertificateDer`/`PrivateKeyDer`/the `PemObject` reader, with no crypto provider and no TLS
+# implementation attached - `rustls` itself re-exports this crate verbatim as `rustls::pki_types`.
+# Already resolved at this version via `rustls-native-certs`, so `sutura-tls` depending on it adds no
+# new `Cargo.lock` entry. `std` (which implies `alloc`) is what the `pem` module needs.
+rustls-pki-types = { version = "1", default-features = false, features = ["std"] }
+# `sutura-http`'s PEM key set: the DER walk to a certificate's subject public key info, and that key's
+# algorithm and bits. Already resolved at this version via `pkcs8`, so no new `Cargo.lock` entry.
+spki = { version = "0.8", default-features = false }
+# The explicit `transport_anchors: system` choice for an outbound source. This is not a default:
+# configuration has to name the host store before the adapter reads it. On Linux it probes the
+# conventional certificate bundle paths without OpenSSL; macOS and Windows use their platform
+# certificate APIs. The dependency is therefore target-specific at its edge and keeps the Linux
+# musl builds free of a native TLS library.
+rustls-native-certs = "0.8.4"
+
+# The Oracle driver (`github.com/telekom/sutura#127`). Pure Rust and `#![forbid(unsafe_code)]` -
+# measured by compiling against it, not by reading its manifest: no `build.rs`, no `links` key, no
+# `cc`/`bindgen` build-dependency, so there is nothing here that could `dlopen` an Instant Client the
+# way an ODPI-C wrapper would. Oracle's own organisation publishes it as a "thin mode" driver that
+# speaks the wire protocol itself. Synchronous - `Connection::execute` is a plain blocking `fn` over a
+# `std::net::TcpStream` - so `sutura-exec-oracle` needs no `tokio` runtime of its own. It pulls
+# `rustls` with ITS OWN default features (`aws_lc_rs`), which this workspace cannot narrow from the
+# downstream side - Cargo feature unification is additive across the whole resolve graph - so
+# depending on this crate at all is what brings `aws-lc-rs`/`aws-lc-sys` into any build that also
+# links this adapter; both are already in `Cargo.lock` via other paths, so this adds no new package,
+# only a new feature activation on the one already there.
+#
+# VENDORED from an upstream release with local compatibility and security patches.
+# `VENDOR.md` records the residual changes and the condition for returning to the registry.
+oracledb = { path = "vendor/rust-oracledb" }
+
+# YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
+# was archived by its author: the original still resolves and still parses, and it is exactly
+# the kind of dependency `cargo-deny`'s advisory database flags for being unmaintained. Same
+# API, so the choice is invisible above the parse call.
+serde_norway = "0.9"
+
+# The dialect layer. It renders a statement AST into one target dialect: identifier quoting,
+# keyword casing and date truncation all differ per data system, and this is what knows how.
+#
+# `default-features = false` is not tuning. The default set pulls `all-dialects`, which is 33
+# dialects across roughly 270 000 lines of generated match arms; we compile the five we
+# render for. Three things about the feature set are load-bearing and were found by building
+# rather than by reading:
+#
+#   * `builder` is REQUIRED, and not incidentally: the fluent builder is how every statement here
+#     is assembled. `Expression::Select` has upwards of thirty fields and no `Default`, so a struct
+#     literal for it is a list nobody can review - which is the first thing
+#     `crates/sutura-sql/src/generate.rs` says, and every call in that file goes through
+#     `polyglot_sql::builder`. Dropping this feature does not build. Do not read the absence of a
+#     `builder::` call in the manifest's neighbourhood as evidence it is unused.
+#   * `stacker` is default-on upstream for stack-growth protection, and turning defaults off
+#     removes it. We only generate and never parse, so no recursion here is input-driven, but
+#     an abort is an availability bug and the guard costs nothing.
+#   * `transpile` is deliberately ABSENT, and this list is where that is enforced - there is no
+#     lint for it, deliberately, because an unresolvable path in `disallowed-methods` is ignored
+#     silently and would read as enforcement while doing nothing. Translating between dialects is a
+#     parse followed by a re-emit, it does not reliably repair the differences that matter, and
+#     not compiling it is a stronger statement than not calling it. **Oracle's `DATE_TRUNC` gap is not
+#     an exception to that**: upstream's own `transform_expr` for Oracle only renames the function to
+#     `TRUNC` and leaves the arguments untouched, so turning `transpile` on would not fix the argument
+#     order or the bare-keyword-to-quoted-format problem either - it would still be wrong, just
+#     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
+#     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
+#     correct call directly, with no dialect-layer rewrite in between.
+polyglot-sql = { version = "0.14.0", default-features = false, features = [
+  "generate",
+  "builder",
+  "stacker",
+  "dialect-duckdb",
+  "dialect-postgresql",
+  "dialect-clickhouse",
+  "dialect-bigquery",
+  "dialect-oracle",
+] }
+
+# The in-process engine, for the adapter that executes a plan without rendering it. It has no
+# dialect: a plan becomes a logical plan over Arrow, which is the whole reason the `Warehouse` port
+# takes a plan rather than a statement.
+#
+# `default-features = false` is a supply-chain decision rather than tuning, and two of the omissions
+# were measured with `cargo deny` rather than reasoned about:
+#
+#   * `avro` is OFF. `compression` used to be off beside it and is now ON, which is a decision
+#     rather than a drift: `docs/adr/0039` records it. Both pull `bzip2`, whose licence was not on
+#     `deny.toml`'s allowlist - and that allowlist is `unused-allowed-license = "deny"`, so the
+#     entry could not be added ahead of a feature that needed it. A compressed CSV or NDJSON source
+#     is now a stated capability (`crates/sutura-exec-datafusion/src/attach.rs`), so the licence
+#     entry is there for something this runtime reads rather than for feature unification. `avro`
+#     stays off because nothing reads one; enabling it would need the same argument made again.
+#     Compressed PARQUET was never on this line - Parquet carries its codecs inside the file and the
+#     `parquet` feature's own codecs read them - so `compression` buys the plain-text half only.
+#   * `sql` is OFF here on purpose: a default build never parses SQL, so no parser is compiled in -
+#     a property, not a convention. `sutura-cli`'s default-off `sql` adds it for `run_sql`
+#     federation, and `just check-default-features` holds the default build to having none.
+#
+# What is ON: `parquet`, for the Parquet attach affordance; `datetime_expressions`, for the date
+# truncation every plan needs for its time bucket; and `compression`, for a compressed CSV or NDJSON
+# source. CSV and NDJSON themselves need no feature - they are unconditional.
+datafusion = { version = "55.0.0", default-features = false, features = [
+  "parquet",
+  "datetime_expressions",
+  "compression",
+] }
+# The plan cutter and table provider `docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md`
+# decides on. WITHOUT its `sql` feature, which is `datafusion/sql` and would undo the property the
+# entry above states. Its `datafusion` requirement is `^55` with default features off, so it adds
+# no second engine.
+datafusion-federation = { version = "0.5.9", default-features = false }
+
+# The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
+# async from the first table lookup to the last batch collected, and `futures::executor::block_on`
+# is not a way out of that: it panics at collect time with "no reactor running". One current-thread
+# runtime is built per adapter and kept beside the session context, so there is no `enable_all`, no
+# timer and no I/O driver - none of which a plan over a local file uses.
+#
+# AMENDMENT, since the service runtime landed. This entry is still the BASE feature set, and the
+# engine still asks for nothing beyond `rt`. The runtime crates inherit this entry and ADD what a
+# server needs - `net`, `signal`, `time`, `sync`, `macros`, `rt-multi-thread` - at their own
+# manifests. Feature inheritance is additive, so within one build graph cargo compiles one tokio
+# with the union of those sets. That does not change the shipped binary: `sutura-cli` depends on
+# none of them, and the release derivations resolve `--package sutura-cli` on its own graph. It does
+# mean that wiring the server into the CLI would put a multi-threaded runtime and an I/O driver into
+# all four cross-built artifacts, which is a decision rather than a side effect.
+tokio = { version = "1", features = ["rt"] }
+
+# A certificate authority in twenty lines, for the TLS tests. TEST-ONLY, and a dev-dependency of
+# `sutura-http` alone.
+#
+# The alternative was a committed key pair, and it is worse in the way that matters: a fixed pair
+# proves a handshake completes and proves nothing about the two failure modes the reload path has to
+# get right - a certificate whose key does not match it, and a rotation that actually changes what a
+# client is presented. Both need a SECOND pair generated on the spot. A committed private key in a
+# public repository is also a thing a reader has to stop and check.
+#
+# `default-features = false` with `pem` and `ring`: the default set is `aws_lc_rs`, which needs cmake
+# in the build sandbox, and `ring` is already in the graph because `tokio-rustls` asks for it. Three
+# new crates in the DEV graph - `rcgen`, `pem`, `yasna` - and no new licence: all three are
+# `MIT OR Apache-2.0`, which `deny.toml` already allows.
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
+
+# Snapshot testing, for the golden suite. Test-only.
+#
+# The goldens it holds are the generated SQL, the plan and the pinned bundle - artifacts that
+# are regenerated and reviewed as a diff, never typed by hand, because a hand-written
+# expectation asserts what we wish the generator did.
+insta = { version = "1", features = ["yaml", "glob"] }
+# The benchmark harness - `github.com/telekom/sutura#915`. Dev-only, and chosen over `criterion`
+# for the size of the tree it adds: measured 2026-09-19 by diffing `Cargo.lock` before and after
+# `cargo check -p sutura-exec-postgres -p sutura-app --benches --all-features`, this adds NINE
+# packages (`clap` and the five it pulls in, plus `divan`, `divan-macros`, `regex-lite`) against a
+# scratch-project measurement of criterion's own tree at ~35 (`rayon`, `plotters` and its SVG
+# backend, `ciborium`, `walkdir` among them) - most of criterion's weight going to statistical
+# reporting and HTML output this harness has no gate to feed. `iai-callgrind` was checked and
+# disqualified before either: it needs valgrind, which has no package on this workspace's Apple
+# Silicon macOS dev machines (`valgrind not found`, checked 2026-09-19), and a harness only usable
+# in CI cannot settle a question during design. Every new package resolves to `MIT OR Apache-2.0`
+# or a licence already in `deny.toml`'s allowlist (`Unicode-3.0`, `Apache-2.0 WITH LLVM-exception`
+# via `rustix`, already present) - no new entry there. `harness = false` on every `[[bench]]`:
+# divan runs its own `main`, not libtest's.
+divan = "0.1"
+# For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
+# `indexing_slicing` ban, to reimplement something audited.
+#
+# `default-features = false` on purpose. 0.11 dropped the `std` feature and made `oid` a
+# default, which pulls `const-oid` in for a use this repo does not have - and 0.10 held the
+# tree back anyway, because `crypto-common` 0.1 pinned `generic-array = "=0.14.7"` exactly, so
+# no patch release of it was reachable. 0.11 replaces that chain with `hybrid-array` and the
+# exact pin goes away. Only the `Digest` trait is used here, which needs no feature at all.
+sha2 = { version = "0.11", default-features = false }
+
+# Constant-time byte comparison, for the access-token check in `sutura-config`.
+#
+# Not hand-rolled, for the reason `sha2` is not hand-rolled: the whole value of the primitive is
+# that it compiles to something branch-free, and twenty lines of local bit-twiddling under an
+# `indexing_slicing` ban would be a reimplementation of something audited whose correctness cannot
+# be observed by a test. `sutura-domain`'s `Secret` implements no `PartialEq` on purpose, so this is
+# what the one comparison that has to exist anywhere is built from.
+#
+# `default-features = false` drops `std` and `i128`; only the `ConstantTimeEq` trait is used, and it
+# lives in `core`.
+subtle = { version = "2.6", default-features = false }
+
+# What `sutura_domain::identity::Secret` is built on, and the one dependency in the hexagon's
+# interior that buys a COMPILE ERROR rather than a runtime behaviour.
+#
+# `SecretBox<str>` has no `Display` and no `PartialEq`, so `format!("{token}")`, a `%token` tracing
+# field and `a == b` do not compile against a type built on it - where a hand-written `Display` that
+# printed `REDACTED` left every one of those *representable*, and this workspace's own rule is to
+# prefer unrepresentable to checked. It also zeroizes on drop, which nothing here had.
+#
+# **`serde` is deliberately ABSENT, and it is the load-bearing omission in this entry.** The feature
+# is what gives `SecretBox` a `Deserialize`, and `docs/adr/0020` plus the "a caller cannot state its
+# own identity" invariant both rest on no identity type having one. Turning it on would quietly
+# satisfy a `compile_fail` doctest.
+#
+# **What it costs, counted rather than waved at: two crates.** `secrecy` itself is
+# `forbid(unsafe_code)`; `zeroize` is the only thing it pulls, arrives with `default-features = false,
+# features = ["alloc"]` so it brings nothing further, and its volatile writes are the whole reason to
+# take it rather than write them here under a workspace `unsafe_code = "forbid"`. Both are
+# `Apache-2.0 OR MIT`, which `deny.toml` already allows, so the licence list needs no entry - checked
+# rather than assumed. `xtask/src/boundaries.rs` names both in `ALLOWED_IN_DOMAIN`, which is where the
+# architecture decision is visible in a diff.
+secrecy = { version = "0.10", default-features = false }
+
+# The configuration layering: embedded defaults, then files, then environment variables.
+#
+# `default-features = false` with `yaml` alone is not tuning. The default set compiles JSON, JSON5,
+# RON, INI and TOML parsers plus `async-trait` and `convert_case` - five file formats and an async
+# abstraction, for a service that reads one format, synchronously, once, at startup. Each of them
+# would also be a licence entry in `deny.toml` for a feature nobody asked for.
+config = { version = "0.15", default-features = false, features = ["yaml"] }
+
+# ------------------------------------------------- the service runtime ----
+# The web framework. `default-features = false` and then back only what is used: `http1` and `json`
+# for the surface itself, `tokio` for the listener, `matched-path` and `original-uri` so a
+# rate-limit bucket can be keyed by the route a request matched rather than by its raw path. No
+# multipart, no websockets, no forms - this surface accepts one JSON document and returns another.
+axum = { version = "0.8", default-features = false, features = [
+  "http1",
+  "json",
+  "tokio",
+  "matched-path",
+  "original-uri",
+] }
+# `axum`'s own request/response types, named here rather than left transitive: `sutura-mcp` reads
+# `http::request::Parts` directly - not through `axum` - because that is the type the pinned `rmcp`
+# HTTP server transport injects into a tool call's `rmcp::service::RequestContext::extensions`
+# (`docs/adr/0023`). No new package: 1.5.0 already resolves through `axum` and `tower-http` in
+# `sutura-http`/`sutura-cli`, and `Cargo.lock` holds exactly one version of it.
+http = "1.5"
+hyper-util = { version = "0.1", default-features = false, features = ["tokio", "server", "http1", "service"] }
+hyper = { version = "1.11", default-features = false }
+# The middleware abstraction every layer below is written against.
+tower = "0.5"
+# `trace` for the per-request span, `timeout` for the request bound, `limit` for the body bound.
+# CORS is deliberately ABSENT: a browser is not a client of this surface, and an allow-list nobody
+# needs is an allow-list somebody widens.
+tower-http = { version = "0.7", default-features = false, features = ["trace", "timeout", "limit"] }
+# The rate limiter, and its axum adapter.
+#
+# `default-features = false` on `tower_governor` is a supply-chain decision, and it was measured
+# rather than reasoned about: the default set pulls `tonic`, which is a whole gRPC framework - and
+# with it `h2`, `hyper-timeout`, `tokio-stream` and their closure - into a service that speaks
+# HTTP/1 and nothing else. `cargo tree -p sutura-cli -i tonic` found it; turning the defaults off
+# removes it and takes the compiled closure from 303 packages to 297. Six packages is not the point;
+# a gRPC stack nobody calls is.
+governor = "0.10"
+tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
+
+# In-process TLS termination, behind the default-off `tls` feature on `sutura-http` and
+# `sutura-cli`. OPTIONAL there, so with the feature off none of this is in the build.
+#
+# rustls and NOT OpenSSL, and the reason is the shipped artifacts rather than a preference. Two of
+# the four are musl and nixpkgs has no musl OpenSSL, so an `openssl-sys` edge would either fail the
+# cross build or need a vendored C OpenSSL compiled per target. rustls needs no system library.
+#
+# `tokio-rustls` is the ONLY new crate in the graph. `rustls`, `rustls-pki-types`, `rustls-webpki`,
+# `ring` and `untrusted` are already resolved - they arrive under `ureq`'s TLS stack, which
+# is why `deny.toml` already allows ISC and BSD-3-Clause "via the TLS stack described above". So the
+# licence allowlist needs no new entry, which was checked rather than assumed.
+#
+# `default-features = false` and then back only what is used, as everywhere else here:
+#
+#   * `ring` is the crypto provider, and it is chosen OVER the default `aws-lc-rs`. Both compile C,
+#     but `aws-lc-rs` needs cmake and a generated-bindings path in the build sandbox, while `ring`
+#     ships the assembly it needs and cross-compiles with the musl cc the Nix build already exports
+#     as `CC_<triple>`. One provider feature is also what lets `ServerConfig::builder()` exist.
+#   * `tls12` stays on. TLS 1.3 alone would be the stronger posture and this listener is reached by
+#     whatever a deployment puts in front of it, which is not this repo's decision to make.
+#   * `logging` routes rustls's own diagnostics through `log`, which `tracing-log` already bridges
+#     into the same stream as everything else. A handshake that fails silently is the failure mode
+#     this whole feature is supposed to make loud.
+#
+# No `webpki-roots` and no `rustls-native-certs`: this is a SERVER config. It presents a chain and
+# verifies no peer, so a trust store would be a root set nothing consults. Client TLS, when a
+# networked adapter lands and needs it, is where that changes - see `docs/serving.md`.
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+
+# JWT and JWKS verification, for leg 1 of the identity path - `docs/adr/0014`. The first inbound
+# dependency in this workspace that must VERIFY a signature rather than present one.
+#
+# **Hand-rolled here is not on the table**, and the asymmetry is the point of the record that decides
+# it: `docs/adr/0014` argues for hand-writing a metrics exposition format and against hand-writing
+# signature verification in the same breath. One is a text format; the other is cryptography, and
+# behind a `Direct` deployment a bug in it is the whole authentication story rather than a second line
+# of defence.
+#
+# **AWS-LC and not `rust_crypto`.** `rust_crypto` pulls the `rsa` crate carrying
+# RUSTSEC-2023-0071, unpatched, which `cargo deny check advisories` fails on. AWS-LC uses the C
+# cross-toolchain the release derivations already export. Measured 2026-08-30 by building both
+# statically linked musl releases, not inferred from the native build.
+#
+# **What it costs, counted rather than waved at:** nine new packages in `Cargo.lock`. `base64`,
+# `serde` and `serde_json` are already resolved; `default-features = false` drops `use_pem`, and
+# with it `pem` and `simple_asn1`, because keys arrive here as JWK and never as PEM.
+#
+# Upstream calls itself passively maintained. That is a real cost and it is the smallest one
+# available: every alternative is either bigger (an HTTP client, an async runtime and an axum layer),
+# built on OpenSSL, or unmaintained outright.
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
+
+# base64, and it is no longer test-only. `sutura-http` decodes a PEM key set's armoured block, and its
+# leg 1 tests write a JWK, whose `x` and `y` are base64url of a public point; `sutura-exec-bigquery`'s wire encodes a JWT's two segments and its
+# signature, and decodes a `PKCS#8` PEM body. **The sentence that used to be here - nothing in a
+# shipped path encodes base64 first-party - stopped being true when that wire learned to sign an
+# assertion**, and it is corrected rather than deleted, because it was the reason this entry was a
+# dev-dependency. 0.23 is already resolved, so promoting it adds no package.
+#
+# Written rather than hand-rolled for the reason `sha2` and `subtle` are: ten lines of local
+# bit-twiddling under an `indexing_slicing` ban, to reimplement something audited.
+base64 = { version = "0.23", default-features = false, features = ["std"] }
+
+# The OUTBOUND HTTP client, for `sutura-exec-bigquery`'s wire, behind that crate's default-off
+# `wire` feature. `docs/adr/0018` is the decision and prices the alternatives; what follows is the
+# manifest half of it.
+#
+# **Blocking, and that is the port's shape rather than a preference.** `JobTransport::run` is a
+# synchronous method, because `Warehouse` is - the service reaches it through
+# `sutura_runtime::spawn_carrying_span`, on a pool thread. `reqwest::blocking` would satisfy the
+# signature by starting a runtime of its own inside a call that is already on a blocking thread;
+# `ureq` is natively blocking and needs none.
+#
+# **What it costs the lock** is measured in `docs/adr/0018`'s nineteenth amendment: `ureq`,
+# `ureq-proto` and `utf8-zero` are the three packages only `ureq` brings, and its TLS stack
+# (`rustls`, `ring`, `webpki-roots` and the others) is reached through other first-party paths too.
+# A build compiles it for the TARGET when a feature it turns on brings in a crate that dials out
+# over it: this `wire` is one, and the catalogs' `http` another.
+#
+# `default-features = false` and then back only what is used:
+#
+#   * `rustls` is the TLS stack, and NOT `native-tls`. Same reason `tokio-rustls` is above: two of
+#     the four release triples are musl, nixpkgs has no musl OpenSSL, and rustls needs no system
+#     library. It also selects `ring` as the provider, which is the one `tokio-rustls` picked here.
+#   * `rustls-webpki-roots` is the trust store, and a CLIENT needs one - which is the sentence
+#     `tokio-rustls`'s note above says would change "when a networked adapter lands". A compiled-in
+#     root set is also what makes this work in a `scratch` image with no system certificates.
+#   * NO `platform-verifier`: it would read the host trust store, so the same binary would trust
+#     different roots on different machines, and it pulls a per-platform closure the musl builds do
+#     not have.
+#   * NO `json`: the request and response documents are built and read with `serde_json`, which is
+#     already a dependency, so the feature would add a code path and change nothing else.
+#   * NO `gzip`, `brotli`, `charset`, `cookies` or `socks-proxy`. A cookie jar on a client that
+#     presents a bearer token is a second credential store nobody asked for.
+ureq = { version = "3", default-features = false, features = ["rustls", "rustls-webpki-roots"] }
+
+# The RSA signing a service-account assertion needs, and **zero new packages**: `ring` is already
+# resolved at a single version as `ureq`'s and `tokio-rustls`'s crypto provider, and it carries
+# `RsaKeyPair::from_pkcs8` plus `RSA_PKCS1_SHA256` - exactly the primitive and exactly the key encoding
+# a service-account key uses, so no ASN.1 conversion is needed anywhere.
+#
+# **The alternative was priced and refused.** `jsonwebtoken` is already here for the INBOUND side and
+# could sign too, but only with its `use_pem` feature: its DER path wants `PKCS#1` while a
+# service-account key is `PKCS#8`, and converting between them IS ASN.1. Turning `use_pem` on was
+# measured at **one** new package - `simple_asn1` 0.6.4, ISC, already allowed - and it would also have
+# switched the feature on for `sutura-http`, undoing half of a decision the `jsonwebtoken` entry below
+# states. `ring` costs neither, so `docs/adr/0018`'s 446-to-446 measurement survives.
+# Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
+# `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the
+# environment-driven format split. `tracing-bunyan-formatter` is the machine-readable half.
+# `tracing-log` bridges the `log` crate, which several dependencies still emit through - without it
+# their diagnostics are dropped silently rather than appearing in the same stream.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "registry",
+  "env-filter",
+  "fmt",
+  "ansi",
+  "std",
+] }
+tracing-bunyan-formatter = "0.3"
+tracing-log = "0.2"
+
+# The generated interface description, and the browser UI over it. Generated from the handlers by
+# `utoipa-axum` and never hand-written, so the document cannot describe a surface that does not
+# exist - a missing `#[utoipa::path]` fails to compile rather than producing a page with a gap.
+#
+# `preserve_order` on `utoipa` is a determinism decision rather than a cosmetic one; the hazard it
+# only half solves is recorded in full in `crates/sutura-http/src/openapi.rs`.
+#
+# `utoipa-swagger-ui` carries `vendored` and NOT the default `url` and `reqwest` features, and that
+# is load-bearing rather than tidy: without it the build script DOWNLOADS the Swagger UI
+# distribution, which cannot work in a build sandbox with no network and would put an unpinned asset
+# in the artifact. `vendored` takes the archive from a crate that embeds it instead.
+utoipa = { version = "6", features = ["preserve_order"] }
+utoipa-axum = "0.3"
+utoipa-swagger-ui = { version = "10.0.2", default-features = false, features = ["axum", "vendored"] }
+
+# The agent-facing transport, and the schema derive the tool surface is generated from.
+#
+# `rmcp` is the Model Context Protocol SDK, and it is a dependency rather than a hand-rolled
+# JSON-RPC server for one reason: a framing we wrote ourselves could be tested only against our own
+# parser, which `AGENTS.md` already rules out as evidence. `crates/sutura-mcp/src/lib.rs` carries
+# the whole argument, including what the dependency costs.
+#
+# THREE features, and every one of them is off by default:
+#   * `server` is the handler trait, and it is what pulls `schemars` in - the SDK models a tool's
+#     input schema as JSON Schema and offers no other shape for it.
+#   * `transport-io` is stdio, which is the transport an agent client launches a server over.
+#   * `client` is a DEV feature, declared on `sutura-mcp`'s dev-dependency rather than here, so a
+#     shipped build has no client in it.
+# A FOURTH feature exists one level down rather than here: `sutura-mcp`'s own default-off `http`
+# feature (`crates/sutura-mcp/Cargo.toml`) requests `rmcp/transport-streamable-http-server` -
+# `telekom/sutura#378` PR3, `docs/adr/0023`. Naming it at this crate's own level rather than
+# widening the base set above is the point: a workspace build with no `--features` flag never
+# resolves that feature's one new package (`sse-stream`) at all.
+# `macros` is deliberately absent: the `#[tool]` attribute writes code into the crate that uses it,
+# and this workspace gates on the whole clippy `restriction` category with `-D warnings`.
+# `base64` is absent for the same reason it is not needed - nothing here returns image or audio
+# content.
+rmcp = { version = "3.1", default-features = false, features = ["server", "transport-io"] }
+# The DERIVE, and it lives on a wire type in `sutura-mcp` rather than on a domain type. That is not
+# a preference: `sutura-domain`'s whole transitive tree is walked by `cargo xtask
+# check-boundaries` against `ALLOWED_IN_DOMAIN`, so putting a macro crate on a domain type is an
+# architecture decision. The plan for the agent surface decided the wire type instead, and
+# `crates/sutura-mcp/src/wire.rs` records the cost that choice carries.
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"] }
+
+# The global allocator, Linux only. `sutura-cli` inherits this under a
+# `[target.'cfg(target_os = "linux")'.dependencies]` table, so a developer on macOS or
+# Windows never compiles the C.
+#
+# VENDORED, not taken from the registry: the published `libmimalloc-sys` bundles an older
+# mimalloc than the one we ship. `VENDOR.md` records the upstream, the tag, the hash and the
+# six local changes to the build script and both manifests.
+#
+# `secure` is the deliberate half of this, and the reason it is on is argued where the
+# allocator is wired up, in `crates/sutura-cli/src/main.rs`.
+# The Alpine/Tweag mimalloc C patch does not apply to this build; see issue #5.
+mimalloc = { path = "vendor/mimalloc_rust", features = ["secure"] }
+
+# ---------------------------------------------------------------- lints ----
+# A misspelled or removed lint name in the tables below is a silent no-op: it warns on
+# every build and the suppression it was meant to express never applied. Fail instead.
+[workspace.lints.rust]
+unknown_lints = "deny"
+unused_imports = "deny"
+# `deny`, not the default `warn`: a plain `cargo build` should fail on these too, not only
+# the `-D warnings` gate. Dead code is either wanted (then it is used or `pub`) or it is
+# not (then it goes), and an ignored `Result` is the bug class this project cares about.
+dead_code = "deny"
+unused_must_use = "deny"
+# Visibility has to be honest. A `pub` item inside a private module is reachable from
+# nowhere outside the crate, and in a LIBRARY crate that same `pub` also suppresses
+# `dead_code` - which is precisely how an unused function survives review. `pub(crate)`
+# says what is true, and then the dead-code check can see it.
+unreachable_pub = "deny"
+# `deny` HERE and `#![forbid(unsafe_code)]` AT EVERY CRATE ROOT BUT ONE, which is one
+# architecture decision and not a relaxation - `telekom/sutura#929`'s sixth finding, and the
+# diff it deserved. `forbid` used to be set here and inherited by every member; cargo refuses a
+# member that both inherits `[workspace.lints]` and overrides one entry (measured:
+# *"cannot override `workspace.lints` in `lints`"*), and an `#[expect]` under an inherited
+# `forbid` is `E0453`, so there was no way to except one crate without moving the level.
+#
+# What replaces the lost strictness is the re-assertion: every crate root carries
+# `#![forbid(unsafe_code)]`, and `cargo xtask check-unsafe` holds both halves - the attribute at
+# every root, and the ONE crate excepted from it: `sutura-adbc`, whose `src/linked.rs` declares
+# the ADBC driver's C entrypoint a STATIC musl artefact needs, having no dynamic loader.
+#
+# The limit next to that: `forbid` at a root covers that crate's targets that HAVE that root -
+# a library, a binary, each integration test and each bench, which is why the gate reads them
+# all. It does not cover a `#[cfg]`-disabled region no compiler reaches, and the gate's text
+# scan is what reads those.
+unsafe_code = "deny"
+
+# Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
+# `just lint`.
+#
+# THE VENUE IS `cargo doc`, run by `just api` and by `checks.api-docs`, which the docs workflow builds to publish - AND NOTHING ELSE. The
+# doctest lane is NOT one, measured rather than assumed after this comment claimed it was:
+# `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test` mode never runs the
+# link-resolution pass, so one crate with one unresolvable link and one real doctest is exit 0 with
+# no diagnostic while `cargo doc` over that same crate is exit 101. And it reaches no binary-only
+# member at all - `cargo test --doc -p xtask` answers `no library targets found`.
+#
+# IT REACHES EVERY WORKSPACE MEMBER AND EVERY PRIVATE ITEM IN ONE, and both halves are recent. The
+# binary-only members are documented for their links, without a page - `#418`. Private items are
+# reached because both venues pass `--document-private-items`, and without it rustdoc runs no
+# link-resolution pass over one at all: one unresolvable link inside a private module is exit 0
+# without the flag and exit 101 with it, same tree, same level. That hole held 33 errors across ten
+# of nineteen packages behind a green gate - `github.com/telekom/sutura#327`, which also carries
+# why the flag cannot be a check-only argument: the writer renders the pages the gate judged, so
+# `xtask/src/api_docs/writer.rs` holds the two invocations to one flag list.
+#
+# `cargo xtask check-api-docs` asserts this entry exists and that every workspace member inherits
+# it, because a lint nothing arms is a lint that reports nothing.
+[workspace.lints.rustdoc]
+# `forbid` and not `deny`, and the difference is measured rather than stylistic: a crate root
+# carrying `#![allow(rustdoc::broken_intra_doc_links)]` beats `deny` - exit 0, no diagnostic at all
+# - and is refused under `forbid` with `E0453`, "overruled by previous forbid". No such attribute
+# exists in this tree, so that is a hole rather than an instance, and closing it before it has one
+# is the cheap direction. Either level makes an unresolvable `[`Foo`]` an error where the pages are
+# produced rather than one of 87 warnings behind exit 0 - `github.com/telekom/sutura#360`, which
+# counted 15 of them.
+#
+# IT REACHES ONE CLASS MORE THAN ITS NAME SUGGESTS, measured rather than assumed: the two
+# `X is both a function and a module` warnings are this lint too, and denying it turned both into
+# errors. The fix is a disambiguator, and it has to be the `crate::`-qualified INLINE form -
+# `[`x`](fn@crate::x)` - because the generator drops a destination carrying `::` and keeps the code
+# span, while a bare `fn@x` has no `::`, survives into the page as a relative link and aborts
+# `mkdocs build --strict`. Both halves measured against the tool, not reasoned about.
+#
+# WHAT IT DOES NOT HOLD:
+#
+#   * whether a RESOLVED link reaches a reader. rustdoc was clean under both spellings of the
+#     destination that aborted the site build on `#352`; `cargo xtask check-api-docs`' link scan
+#     and `mkdocs build --strict` own that class, and neither can see an unresolved one.
+#   * `private_intra_doc_links`, 74 of them here and several deliberate - a public item pointing at
+#     the private thing that implements it. Denying this one without answering that one is fine;
+#     conflating them is not. They are WARNINGS the two venues print, because a private target is
+#     documented there; the generator renders such a link as a code span, so no published page
+#     carries the destination rustdoc would leave dangling.
+#   * `redundant_explicit_links`, 24 of them on the single pinned nightly - the count is
+#     CHANNEL-DEPENDENT, which is itself the reason it is not gated on. A separate lint and a
+#     separate judgement.
+broken_intra_doc_links = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -3 }
+nursery = { level = "deny", priority = -3 }
+cargo = { level = "deny", priority = -3 }
+# One exception to `cargo`, and it is not about our code. `negative_feature_names` fires on
+# `no_thp`, a feature of the VENDORED `libmimalloc-sys` - upstream's name, which we will not
+# rename because a local edit there is a divergence to maintain and `build.rs` reads it. The
+# lint inspects the whole dependency graph rather than the crate being compiled, so it is
+# reported against every one of our crates and cannot be scoped to the vendored package.
+# Nothing of ours has a negative feature name; if that changes, this line is what hides it.
+negative_feature_names = "allow"
+pedantic = { level = "warn", priority = -2 }
+# `restriction` is not a category of bugs - it is a menu of bans, most of which are wrong
+# for most codebases. It is enabled anyway, at the lowest priority, because the handful
+# that matter here (`str_to_string`, `exit`, `dbg_macro`, `todo`, `unimplemented`,
+# `map_err_ignore`, `unwrap_in_result`, `mem_forget`, `format_push_string`) are the ones
+# nobody notices in review. The cost is the override list below; it is paid once and every
+# entry carries the reason it exists, so a future reader can disagree with a specific line
+# rather than with the whole idea.
+restriction = { level = "warn", priority = -1 }
+
+# Panics reachable from caller input are availability bugs, not robustness niceties.
+# `clippy.toml` exempts test code so asserts stay readable. Listed explicitly at default
+# priority so they stay `deny` regardless of what the categories above do.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+# Silently dropping a Result is the bug class this project cares about most.
+let_underscore_must_use = "deny"
+
+# --- cargo category overrides ----------------------------------------------
+cargo_common_metadata = "allow" # internal binaries; nothing is published to a registry
+multiple_crate_versions = "allow" # transitive, outside our control
+
+# --- pedantic overrides ----------------------------------------------------
+module_name_repetitions = "allow" # `domain::DomainError` reads better than the alternative
+missing_errors_doc = "allow" # the error type IS the documentation (typed, exhaustive)
+missing_panics_doc = "allow" # panics are denied above, so the section is vacuous
+must_use_candidate = "allow" # noisy on newtype accessors
+
+# --- restriction: the meta-lint that fires for enabling the category -------
+blanket_clippy_restriction_lints = "allow"
+
+# --- restriction: contradictory pairs, so style stays a choice -------------
+# Each pair bans the opposite of the other. Allowing both sides is the only coherent
+# position; picking one would be a style edict enforced by a lint nobody agreed to.
+mod_module_files = "allow"
+self_named_module_files = "allow"
+separated_literal_suffix = "allow"
+unseparated_literal_suffix = "allow"
+semicolon_inside_block = "allow"
+semicolon_outside_block = "allow"
+pub_with_shorthand = "allow"
+pub_without_shorthand = "allow"
+# `redundant_pub_crate` and `unreachable_pub` are the same contradiction: inside a private
+# module both `pub` and `pub(crate)` have identical effective visibility, so one lint asks
+# for `pub` and the other asks for `pub(crate)`. `unreachable_pub` is DENIED above, because
+# it is what stops an unused item from being kept alive by a `pub` that reaches nowhere.
+# This is the side that loses.
+redundant_pub_crate = "allow"
+# `rest_pattern_accessible_field` is a NEW restriction lint on the pinned nightly, and it fires on
+# `..` in a struct pattern whenever the remaining fields are accessible, demanding each be written
+# as `field: _`. The always-on default lint `unneeded_field_pattern` (kept at its workspace deny)
+# demands the exact opposite - collapse an all-wildcard tail back to `..`. The two cannot both be
+# satisfied by any source form, so this is the same contradictory-pair carve-out as the rows above,
+# and `..` is the side this repo keeps (it is what `unneeded_field_pattern` wants and what every
+# match arm here already writes).
+rest_pattern_accessible_field = "allow"
+
+# --- restriction: fights idiomatic Rust ------------------------------------
+implicit_return = "allow" # tail expressions are the language, not an omission
+question_mark_used = "allow" # `?` is the error-handling story this repo uses
+min_ident_chars = "allow" # `f` for a Formatter is clearer than a paraphrase
+single_char_lifetime_names = "allow"
+shadow_reuse = "allow" # `let raw = raw.into();` is a narrowing, not a bug
+shadow_same = "allow"
+shadow_unrelated = "allow"
+single_call_fn = "allow" # a named helper is documentation; inlining it is not
+else_if_without_else = "allow"
+pattern_type_mismatch = "allow"
+ref_patterns = "allow"
+wildcard_enum_match_arm = "allow"
+impl_trait_in_params = "allow" # `impl Into<String>` at a constructor is the API
+pub_use = "allow"
+inline_modules = "allow" # `mod tests` belongs next to what it tests
+absolute_paths = "allow" # `std::fs::read_to_string` beats a `use` for one call
+arbitrary_source_item_ordering = "allow" # alphabetical order destroys meaningful grouping
+
+# --- restriction: documentation and API shape not useful in a binary -------
+missing_docs_in_private_items = "allow"
+missing_inline_in_public_items = "allow"
+missing_trait_methods = "allow"
+partial_pub_fields = "allow"
+field_scoped_visibility_modifiers = "allow"
+error_impl_error = "allow"
+# Nothing here is a published library, so `#[non_exhaustive]` buys no compatibility
+# guarantee and costs a match arm at every use site.
+exhaustive_structs = "allow"
+exhaustive_enums = "allow"
+
+# --- restriction: numeric strictness that is ~all noise -------------------
+arithmetic_side_effects = "allow" # `panic = "abort"` plus debug overflow checks cover this
+default_numeric_fallback = "allow"
+as_conversions = "allow"
+
+# --- restriction: only meaningful for no_std crates -----------------------
+std_instead_of_core = "allow"
+std_instead_of_alloc = "allow"
+alloc_instead_of_core = "allow"
+
+# --- restriction: this repo ships a CLI ------------------------------------
+print_stdout = "allow" # the binary's output and every gate's verdict go to stdout
+print_stderr = "allow" # a failing gate explains itself on stderr
+use_debug = "allow" # `{:?}` of a redacted type is the assertion, not a slip
+
+# --- restriction: misc ----------------------------------------------------
+# `assert_eq!` prints both values on failure, so a message would restate the expression.
+# `assert!(cond)` without one is the case worth arguing about; it has not come up yet.
+missing_assert_message = "allow"
+#
+# DELIBERATELY NOT ALLOWED, though a blanket config would have been easy:
+#   non_ascii_literal   - output is ASCII. An em dash in a message is invisible in a diff,
+#                         breaks on a terminal without UTF-8, and is not worth either.
+#   string_add          - `push_str` says what it does; `+ &s` hides an allocation.
+#   string_add_assign
+#   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
+#                         know when the error half of every `Result` grows.
+
+# Every entry below is a vendored crate reached by its registry name; `VENDOR.md` carries each one's reason.
+[patch.crates-io]
+datafusion-proto = { path = "vendor/datafusion-proto" }
+datafusion-proto-common = { path = "vendor/datafusion-proto-common" }
+datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
+datafusion-sql = { path = "vendor/datafusion-sql" }
+arrow-ipc = { path = "vendor/arrow-ipc" }
+# ------------------------------------------------------------- profiles ----
+# Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
+# they are compiled once and executed many times, so paying for them is free.
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+lto = "off"
+codegen-units = 256
+# Cranelift: DEVELOPMENT ONLY, never CI and never a shipped artifact.
+#
+# It cuts debug codegen time substantially, and it CHANGES codegen - so a bug that reproduces
+# under one backend and not the other is a real possibility. CI validating a cranelift build
+# would be validating something we do not ship.
+#
+# OPT-IN, not the shell default. The shell's bare `cargo` is the nightly toolchain with the
+# LLVM backend - the same toolchain the gates and CI run, and what makes `cargo-llvm-cov`'s
+# `-C instrument-coverage` work for the CRAP gate. Cranelift is enabled where the nightly
+# toolchain lives and only on demand: a developer sets CARGO_UNSTABLE_CODEGEN_BACKEND and
+# CARGO_PROFILE_DEV_CODEGEN_BACKEND in the shell (or devenv.local.nix), and
+# devco/rust-toolchain-nightly.toml pins the compiler plus the
+# `rustc-codegen-cranelift-preview` component.
+#
+# One consequence, deliberate: a single nightly toolchain and a single target directory - the
+# stable/nightly split, and the per-`/stable` target dir it needed, are gone.
+
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
+
+# CI: the profile for "does this still compile and link", and nothing else. Used by the
+# `cross` job for the four shipped triples on a pull request; no artifact from it is ever
+# published or executed - the job runs `file` on the binary and stops.
+#
+# Every knob here is set for COMPILE SPEED, because runtime speed is irrelevant to a build
+# nothing runs. That inverts `dev`'s bargain, which is the point: `dev` optimises
+# dependencies and keeps full debuginfo on the argument that they are "compiled once and
+# executed many times, so paying for them is free". True in an incremental shell, false in
+# a Nix sandbox - every derivation starts cold, and CI executes the result zero times. So
+# CI was paying for optimisation and debuginfo it could not use, and the debuginfo was
+# landing in the build cache besides.
+#
+# `inherits = "dev"` for `lto = "off"` and `codegen-units = 256` - maximum parallelism, no
+# link-time work. THE TWO SUB-TABLES BELOW ARE NOT OPTIONAL: `inherits` carries
+# `[profile.dev.package."*"]` and `[profile.dev.build-override]` with it, so without them
+# this profile would still build every dependency and every build script at `opt-level = 3`
+# and save nothing. Measured with `cargo build -Z unstable-options --unit-graph` on a
+# throwaway crate: under a profile inheriting `dev`, the local crate came out at
+# `opt_level 0` and the dependency at `opt_level 3`.
+[profile.ci]
+inherits = "dev"
+opt-level = 0
+# No debuginfo, and this is the size half of the change: `dev` carries `debug = true` for
+# the whole dependency closure across four targets, which is most of the bulk of the cache
+# entries the cross builds write. A link check needs none of it.
+debug = false
+strip = true
+# Both off for codegen volume, not for principle: an overflow check is a branch and a panic
+# path emitted at every arithmetic site. The tests that would exercise them run under `dev`
+# in the `nextest` check, on the host, where they are on.
+debug-assertions = false
+overflow-checks = false
+# Pointless in a sandbox: each derivation starts with an empty target directory, so the
+# incremental artifacts are computed, written and then discarded with the sandbox.
+incremental = false
+# Matches the shipped profiles, and cheaper here: no landing pads and no unwind tables to emit. A
+# link check that linked a panic strategy we do not ship would be checking the wrong binary.
+panic = "abort"
+
+# opt-level 0 for DEPENDENCIES and BUILD SCRIPTS, overriding what `dev` sets. This is where
+# the compile-time saving actually is - the workspace's own crates are three small ones,
+# and everything else is the closure.
+[profile.ci.package."*"]
+opt-level = 0
+[profile.ci.build-override]
+opt-level = 0
+
+# Release: the DEFAULT shipped profile, deliberately cheap to build. Optimising every CI
+# build at opt-level 3 with full LTO buys latency nobody measured.
+[profile.release]
+opt-level = 1
+debug = false
+strip = true
+lto = "thin"
+codegen-units = 16
+panic = "abort"
+
+# Release, optimised: only when throughput has actually been measured.
+[profile.release-performance]
+inherits = "release"
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# `packages.sutura-dev`, never a release; the last two keys undo `dev`'s opt-level 3 (see `[profile.ci]`).
+[profile.fast-install]
+inherits = "dev"
+opt-level = 0
+debug = false
+strip = true
+panic = "abort"
+package."*".opt-level = 0
+build-override.opt-level = 0

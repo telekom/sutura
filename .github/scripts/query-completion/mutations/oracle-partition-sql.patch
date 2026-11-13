@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-oracle/src/split.rs
++++ b/crates/sutura-exec-oracle/src/split.rs
+@@ -272,7 +272,7 @@
+             rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+                 warehouse.routing.source.clone(),
+                 sutura_domain::warehouse::schema::TypeDialect::Oracle,
+-                query.sql().to_owned(),
++                format!("{} /* receipt-control */", query.sql()),
+                 query.params(),
+             ))
+         })

@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-datafusion/src/lib.rs
++++ b/crates/sutura-exec-datafusion/src/lib.rs
+@@ -645,7 +645,7 @@
+             rows.with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+                 source: Some(self.source.clone()),
+                 stage: sutura_domain::warehouse::execution::PlanStage::Files,
+-                logical_plan,
++                logical_plan: format!("{logical_plan}\nreceipt-control"),
+             }),
+         )
+     }

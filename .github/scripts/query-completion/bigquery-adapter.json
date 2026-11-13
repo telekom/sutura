@@ -1,8 +1,8 @@
 {
-  "source": null,
-  "tree": null,
+  "source": "9c2146ea5740ff08665730492b158d760b663864",
+  "tree": "2192f2b1180c7d2ee4dfd80b2b76198024dad9ee",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "UNBOUND PRIVATE PROPOSAL; accepted generated source/tree, function spans, mutations and overlays require independent review before execution",
+  "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
   "cases": [
     {
@@ -11,17 +11,27 @@
         "name": "a_split_pool_leg_read_with_the_forwarded_token_answers_what_the_whole_read_answers",
         "package": "sutura-exec-bigquery",
         "path": "crates/sutura-exec-bigquery/tests/declared_principal/split.rs",
-        "first": null,
-        "last": null,
-        "function_sha256": null
+        "first": 126,
+        "last": 162,
+        "function_sha256": "a33eec154ff9321915ddfbd949012c792587a7280c91aa4a9bfb6f9d8c02a66f"
       },
       "patch": "mutations/bigquery-adapter-receipt.patch",
-      "patch_sha256": null,
-      "marker": null
+      "patch_sha256": "7208eab41a3b5d9877526745eeaffb8ca06f0fb14b13f09c646ff53b71935afc",
+      "marker": null,
+      "panic_lines": [
+        148,
+        154
+      ],
+      "assertion_source_lines": [
+        148,
+        154
+      ],
+      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
+      "assertion_sha256": "63fddf0b9803a7b728ec6c765336772c859c639a773130366de78384aa12da7b"
     }
   ],
   "venue_limit": "native descriptor adapter only; no CLI, worker, HTTP or human venue credit",
-  "integration_hold": "UNBOUND; no import, publication, dispatch or runtime credit",
+  "integration_hold": "No publication, dispatch or runtime credit until concrete acceptance",
   "historical_routing": {
     "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
     "tree": "b3841f325d2cf6e1b9049741174d363299901779"

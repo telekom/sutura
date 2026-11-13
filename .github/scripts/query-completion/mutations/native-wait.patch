@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/receipts/capture.rs b/crates/sutura-exec-datafusion/src/combine/across/receipts/capture.rs
+index 2ba3bb159..83236ee81 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across/receipts/capture.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/receipts/capture.rs
+@@ -93,7 +93,7 @@ impl SubmissionCapture {
+                 if !state.sealed || state.failed || self.0.budget.state.lock().failed {
+                     return Err(DataFusionError::Execution(String::from("incomplete source capture")));
+                 }
+-                if state.active == 0 {
++                if true {
+                     return Ok(core::mem::take(&mut state.records));
+                 }
+             }
