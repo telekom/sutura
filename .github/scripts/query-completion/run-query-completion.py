@@ -476,6 +476,20 @@ def run_cases(config, out):
             "census",
             task(root, "proof-census", "offline" if GROUP == "claims" else GROUP),
         )
+        if GROUP == "vendor" and config.get("abi_diagnostic"):
+            assert config["cases"] == []
+            if code == 0:
+                record(out / "census.json", json.loads(raw))
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(PAYLOAD / "diagnostic/vendor-abi.py"),
+                    str(out),
+                    str(code),
+                ],
+                check=True,
+            )
+            return
         assert code == 0, "containing-binary census did not compile"
         census = json.loads(raw)
         record(out / "census.json", census)
