@@ -699,6 +699,7 @@ mod acceptance {
     /// `NULL` in every row are declared fixed, so the split describes `Int64` and `Utf8`, and every
     /// bucket answers exactly that schema. Typed by its cells, the all-`NULL` text column would read
     /// as `Int64`, so a partition read that ignored the declaration answers another schema here.
+    /// The database's cursor counters distinguish a describe from executing or fetching the SELECT.
     /// The same split is refused a describe at a source that was not probed.
     #[test]
     #[ignore = "requires just oracle-acceptance"]
@@ -730,10 +731,33 @@ mod acceptance {
             .expect("the probe passes");
         let leg = lookup(TABLE);
         let split = split(&warehouse, &leg);
+        let query = sutura_sql::generate_leg_as_of(&leg, split.scn(), Some(split.partitions()[0].bucket()))
+            .expect("the first partition renders");
+        let administrator = tier.session("SYSTEM", &tier.password);
+        let observed = || {
+            let row = administrator
+                .query_row(
+                    "SELECT COUNT(*), NVL(SUM(EXECUTIONS), 0), NVL(SUM(FETCHES), 0) FROM SYS.V_$SQL \
+                     WHERE SQL_TEXT = :1 AND PARSING_SCHEMA_NAME = :2",
+                    &[&query.sql(), &tier.schema()],
+                )
+                .expect("the database reports the exact partition SELECT's cursor counters");
+            (
+                row.get::<i64>(0).expect("the cursor count"),
+                row.get::<i64>(1).expect("the execution count"),
+                row.get::<i64>(2).expect("the fetch count"),
+            )
+        };
+        assert_eq!(observed(), (0, 0, 0), "the fresh snapshot SELECT has not been parsed");
         let described = warehouse
             .describe_split(&leg, &split, deadline(60))
             .expect("the first partition is described")
             .expect("an integer key and a text column are fixed");
+        let parsed = observed();
+        assert!(
+            parsed.0 > 0 && parsed.1 == 0 && parsed.2 == 0,
+            "describing the partition must parse its SELECT without executing or fetching it: {parsed:?}"
+        );
         let kinds: Vec<arrow_schema::DataType> = described.fields().iter().map(|field| field.data_type().clone()).collect();
         assert_eq!(
             kinds,
@@ -746,6 +770,11 @@ mod acceptance {
                 .expect("a fresh partition reads");
             assert_eq!(read.schema(), &described, "bucket {partition:?} answered another schema");
         }
+        let read = observed();
+        assert!(
+            read.1 > 0 && read.2 > 0,
+            "reading the same partition must advance its execution and fetch counters: {read:?}"
+        );
         let unprobed = tier
             .adapter(&tier.user, &tier.password)
             .describe_split(&leg, &split, deadline(60));
