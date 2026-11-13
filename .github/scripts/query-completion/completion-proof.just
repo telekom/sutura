@@ -23,6 +23,7 @@ proof-bigquery-adapter binary:
     cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --test declared_principal --all-features --run-ignored only --no-fail-fast -E 'binary_id(={{binary}})'
 
 proof-postgres:
+    nix build .#checks.x86_64-linux.multi-node-postgres --no-link --print-out-paths -L
     nix build --rebuild .#checks.x86_64-linux.multi-node-postgres --no-link --print-out-paths -L
 
 proof-postgres-log:

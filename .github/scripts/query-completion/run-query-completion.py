@@ -347,7 +347,7 @@ def run_postgres(config, out):
             root, out, label + "-venue-log", task(root, "proof-postgres-log")
         )
         assert log_code == 0, "could not retain this exact VM derivation's log"
-        # The derivation log may predate this rebuild; verdicts use the direct rebuild output.
+        # The derivation log may predate this rebuild; verdicts use the direct recipe output.
         return code, build_log
 
     code, log = run("postgres-pristine")
