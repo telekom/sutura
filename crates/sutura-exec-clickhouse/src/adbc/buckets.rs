@@ -53,8 +53,9 @@ pub enum Planned<'adapter> {
     Refused(SplitRefusal),
 }
 
-/// A leg cut into hash buckets, each read as [`BucketSplit::reads`]. Its fields are private so a
-/// value can only be built through [`BucketSplit::new`], which a caller must not call with a split
+/// A leg cut into hash buckets, each read as [`BucketSplit::reads`].
+///
+/// Its fields are private so a value can only be built through [`BucketSplit::new`], which a caller must not call with a split
 /// its source did not declare.
 pub struct BucketSplit<'adapter> {
     adapter: &'adapter AdbcClickHouseWarehouse,

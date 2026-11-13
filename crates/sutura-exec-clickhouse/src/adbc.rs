@@ -492,7 +492,7 @@ impl AdbcClickHouseWarehouse {
         let execution = sutura_domain::warehouse::execution::Execution::sql(
             self.source.clone(),
             TypeDialect::ClickHouse,
-            sql.to_owned(),
+            sql.clone(),
             params,
         );
         statement
