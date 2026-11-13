@@ -57,7 +57,7 @@ proof-oracle-served-default-census binary:
     cargo nextest list --cargo-profile ci -p sutura-cli --test served --all-features --message-format json -E 'binary_id(={{binary}})'
 
 proof-oracle-served-live-census binary name:
-    cargo nextest list --cargo-profile ci -p sutura-cli --test served --all-features --message-format json -E 'binary_id(={{binary}}) & test(={{name}})'
+    cargo nextest list --cargo-profile ci -p sutura-cli --test served --all-features --run-ignored only --message-format json -E 'binary_id(={{binary}}) & test(={{name}})'
 
 proof-oracle-served-default binary:
     #!/usr/bin/env bash
