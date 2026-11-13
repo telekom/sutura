@@ -15,4 +15,4 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 cp -R vendor/adbc_clickhouse/. "$scratch"
 cp nix/clickhouse-adbc.Cargo.lock "$scratch/Cargo.lock"
-cargo deny --manifest-path "$scratch/Cargo.toml" check --config "$PWD/deny.toml" -A license-not-encountered "$@"
+cargo deny --manifest-path "$scratch/Cargo.toml" --config "$PWD/deny.toml" check -A license-not-encountered "$@"
