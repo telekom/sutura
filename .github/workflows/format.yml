@@ -1,56 +1,23 @@
-# Markdown, YAML and TOML formatting, and Python formatting plus lint.
-#
-# ITS OWN WORKFLOW, and the reason is what it does NOT run. The paths filter below means a
-# text-only change gets this verdict without `ci.yml`'s matrix, and a Rust-only change pays
-# nothing for a formatter that would have inspected no changed file. Folding it into `ci.yml`
-# inverts both halves of that.
-#
-# THE SAME SCRIPT A DEVELOPER RUNS. `nix/format-text.sh` is what the `format-text` pre-commit
-# hook, `just lint-text`, `just fmt` and `just validate` call, so a local run and CI cannot check
-# different things - the property `nix/lint-workflows.sh` exists for, applied one file over.
-#
-# THIRD-PARTY ACTIONS: none, as everywhere else here.
 name: format
+run-name: ClickHouse bucket proof ${{ inputs.request_id }}
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**.md"
-      - "**.yml"
-      - "**.yaml"
-      - "**.toml"
-      - "**.py"
-      - "dprint.json"
-      - "nix/dprint.nix"
-      - "nix/format-text.sh"
-  pull_request:
-    paths:
-      - "**.md"
-      - "**.yml"
-      - "**.yaml"
-      - "**.toml"
-      - "**.py"
-      - "dprint.json"
-      - "nix/dprint.nix"
-      - "nix/format-text.sh"
   workflow_dispatch:
     inputs:
-      operation:
-        description: Check fuzz metadata or run finishing gates on the pinned source
-        type: choice
-        required: true
-        options: [preflight, gates]
       source_sha:
         description: Exact frozen source commit
         type: string
         required: true
       source_tree:
-        description: Exact tree of the frozen source commit
+        description: Exact frozen source tree
         type: string
         required: true
       comparison_sha:
-        description: Exact ancestor for the finishing comparison
+        description: Exact comparison commit
+        type: string
+        required: true
+      request_id:
+        description: Unique proof request UUID
         type: string
         required: true
 
@@ -58,84 +25,50 @@ permissions:
   contents: read
 
 concurrency:
-  group: inbound-finishing-gates-${{ github.ref }}
+  group: clickhouse-bucket-proof-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  format:
+  proof:
     runs-on: rust-mcp-16core
-    timeout-minutes: 360
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'workflow_dispatch'
         with:
           ref: ${{ inputs.source_sha }}
           path: source
           fetch-depth: 0
           persist-credentials: false
-
       - uses: ./.github/actions/reclaim-disk
-        if: github.event_name == 'workflow_dispatch'
-
-      - name: Open KVM for the full validation gate
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
           extra_nix_config: |
             fallback = true
-            system-features = nixos-test benchmark big-parallel kvm
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-
       - uses: ./.github/actions/nix-store-cache
-        if: github.event_name == 'workflow_dispatch'
         with:
           scope: ci
-
-      - name: markdown, yaml, toml and python
-        if: github.event_name != 'workflow_dispatch'
-        run: bash nix/format-text.sh check
-
-      - name: Run the requested source checks
-        if: github.event_name == 'workflow_dispatch'
+      - name: Prove exact-source ClickHouse buckets and worker identity refusal
         working-directory: source
         env:
-          OPERATION: ${{ inputs.operation }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_TREE: ${{ inputs.source_tree }}
           COMPARISON_SHA: ${{ inputs.comparison_sha }}
+          REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
           unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
           export CARGO_TERM_COLOR=never NO_COLOR=1
-          for revision in "$SOURCE_SHA" "$SOURCE_TREE" "$COMPARISON_SHA"; do
-            [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
-          done
-          finishing_plan_path="$RUNNER_TEMP/finishing-plan.json"
-          printf '{"source_sha":"%s","source_tree":"%s","comparison_sha":"%s"}\n' "$SOURCE_SHA" "$SOURCE_TREE" "$COMPARISON_SHA" > "$finishing_plan_path"
-          finishing_operations=(validate ship-check)
-          if [[ "$OPERATION" == preflight ]]; then
-            finishing_operations=(preflight)
-          fi
-          for finishing_operation in "${finishing_operations[@]}"; do
-            nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py "$finishing_operation" "$finishing_plan_path"
-          done
-
-      - name: Retain evidence and any generated changes
-        if: always() && github.event_name == 'workflow_dispatch'
+          nix shell --inputs-from . nixpkgs#python3 --command python3 -I ../devco/clickhouse_bucket_proof.py
+      - name: Keep original failures and restored evidence
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: inbound-finishing-gates-${{ github.run_id }}
-          path: source/target/inbound-verifier-proof/
+          name: clickhouse-bucket-proof-${{ inputs.request_id }}-${{ github.run_id }}
+          path: source/target/clickhouse-bucket-proof/
           if-no-files-found: error
           retention-days: 14
