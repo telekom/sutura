@@ -1,8 +1,8 @@
 {
-  "source": "d10b8f96cb9a740dd09c549b87f361c81e0c271a",
-  "tree": "3e89c4b8b46fe3c55c023bf6ad00aeb3ffa30926",
+  "source": "44fb5aa4d5f430da3d0f16487fd7876b8f651749",
+  "tree": "6b3df857576d764cab255420a8338b7b3101360d",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
+  "binding": "Exact final-source static binding; runtime not yet observed",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
   "cases": [
     {
@@ -11,23 +11,26 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 451,
-        "last": 620,
+        "first": 449,
+        "last": 618,
         "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
       },
       "patch": "mutations/native-cli-forwarded.patch",
       "patch_sha256": "0d70724ff13914a76f31e47fb6d3eaca88818d9ceb13ac924dac89befcc248c5",
       "marker": "forwarded native CLI receipt barrier: successful source read supplied no submission facts",
       "panic_lines": [
-        494,
-        494
+        492,
+        492
       ],
       "assertion_source_lines": [
-        494,
-        494
+        492,
+        492
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
-      "assertion_sha256": "94718f49d8a91c3009e4ada84c1ad6b1640ea5c78d4baa7e518182c9a2776fc0"
+      "assertion_sha256": "94718f49d8a91c3009e4ada84c1ad6b1640ea5c78d4baa7e518182c9a2776fc0",
+      "candidate_mutation_tree": "e8aeb2765aa5d52550bef482c64aa4d41c46d8da",
+      "test_function_unchanged": true,
+      "patch_bytes_reused_exact": true
     },
     {
       "id": "bigquery-grant-creation",
@@ -35,8 +38,8 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 451,
-        "last": 620,
+        "first": 449,
+        "last": 618,
         "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
       },
       "patch": "mutations/bigquery-grant-creation.patch",
@@ -44,15 +47,18 @@
       "marker": null,
       "limit": "actual Granted branch and successful native result required",
       "panic_lines": [
-        504,
-        508
+        502,
+        506
       ],
       "assertion_source_lines": [
-        504,
-        508
+        502,
+        506
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
-      "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f"
+      "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f",
+      "candidate_mutation_tree": "08d1caa06929682f1b64bb3a9daabed692a959f9",
+      "test_function_unchanged": true,
+      "patch_bytes_reused_exact": true
     },
     {
       "id": "bigquery-domain-creation",
@@ -60,8 +66,8 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 451,
-        "last": 620,
+        "first": 449,
+        "last": 618,
         "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
       },
       "patch": "mutations/bigquery-domain-creation.patch",
@@ -69,15 +75,18 @@
       "marker": null,
       "limit": "distinct propagation edge; no full SQL equality credit",
       "panic_lines": [
-        504,
-        508
+        502,
+        506
       ],
       "assertion_source_lines": [
-        504,
-        508
+        502,
+        506
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
-      "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f"
+      "assertion_sha256": "7159d7551f2d75554d44badb2094905079441efcb7ba8dc9448d0b12069fc01f",
+      "candidate_mutation_tree": "4b3949f49cd7999de08c01bc7119e85b536c0054",
+      "test_function_unchanged": true,
+      "patch_bytes_reused_exact": true
     },
     {
       "id": "bigquery-creation-sql",
@@ -85,8 +94,8 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 451,
-        "last": 620,
+        "first": 449,
+        "last": 618,
         "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
       },
       "patch": "mutations/bigquery-creation-sql.patch",
@@ -94,15 +103,18 @@
       "marker": null,
       "limit": "count/source/dialect must pass first",
       "panic_lines": [
-        520,
-        524
+        518,
+        522
       ],
       "assertion_source_lines": [
-        520,
-        524
+        518,
+        522
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
-      "assertion_sha256": "d646d64ca6114c69fbf4ca37090452ea38c2a1e4ad7f6da89dc470a4f30957ad"
+      "assertion_sha256": "d646d64ca6114c69fbf4ca37090452ea38c2a1e4ad7f6da89dc470a4f30957ad",
+      "candidate_mutation_tree": "29efe18b75d72f68d1aee8c6b8fb4f4a283a52a3",
+      "test_function_unchanged": true,
+      "patch_bytes_reused_exact": true
     },
     {
       "id": "bigquery-local-creation",
@@ -110,8 +122,8 @@
         "name": "forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
         "package": "sutura-cli",
         "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
-        "first": 451,
-        "last": 620,
+        "first": 449,
+        "last": 618,
         "function_sha256": "4d517ebdc45b07fec819fbb1113309aba43e69aeabebfb2db585d36008b4baeb"
       },
       "patch": "mutations/bigquery-local-creation.patch",
@@ -119,19 +131,22 @@
       "marker": null,
       "limit": "main Granted subcase and actual Partitioned::Split must pass; no local descriptor completeness",
       "panic_lines": [
-        586,
-        590
+        584,
+        588
       ],
       "assertion_source_lines": [
-        586,
-        590
+        584,
+        588
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
-      "assertion_sha256": "500da1eff6a292ff4f6145eb4cfe5703ffa48e2f948f535a9306e33bf59e1078"
+      "assertion_sha256": "500da1eff6a292ff4f6145eb4cfe5703ffa48e2f948f535a9306e33bf59e1078",
+      "candidate_mutation_tree": "bdbfe9ea132acda3c4e88165503d1251c7347335",
+      "test_function_unchanged": true,
+      "patch_bytes_reused_exact": true
     }
   ],
   "venue_limit": "In-process native split creation and forwarded partition reader: actual multiple-stream Granted and <=1-stream Split branches, descriptor capture barrier, creation propagation/count, full creation SQL equality, and local creation attachment. Each earns only its reached bound assertion; no served-human, inbound-issuer, real-delegation-hop, forced duplicate native read or native-cancellation credit.",
-  "integration_hold": "No publication, dispatch or runtime credit until concrete acceptance",
+  "integration_hold": "Private final-source proposal; application/publication/dispatch held for concrete acceptance",
   "historical_routing": {
     "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
     "tree": "b3841f325d2cf6e1b9049741174d363299901779"

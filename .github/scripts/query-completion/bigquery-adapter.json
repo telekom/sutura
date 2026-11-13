@@ -1,10 +1,17 @@
 {
-  "source": "d10b8f96cb9a740dd09c549b87f361c81e0c271a",
-  "tree": "3e89c4b8b46fe3c55c023bf6ad00aeb3ffa30926",
+  "source": "44fb5aa4d5f430da3d0f16487fd7876b8f651749",
+  "tree": "6b3df857576d764cab255420a8338b7b3101360d",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
+  "binding": "Exact final-source matching-ci containing-binary census only",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
-  "cases": [
+  "venue_limit": "Fresh matching-ci census only; old adapter cycle may transfer solely under reviewed byte equivalence and original own-assertion limits.",
+  "integration_hold": "Private final-source proposal; application/publication/dispatch held for concrete acceptance",
+  "historical_routing": {
+    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
+    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
+  },
+  "cases": [],
+  "historical_cases_not_executed": [
     {
       "id": "bigquery-adapter-receipt",
       "cell": {
@@ -29,11 +36,5 @@
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "63fddf0b9803a7b728ec6c765336772c859c639a773130366de78384aa12da7b"
     }
-  ],
-  "venue_limit": "native descriptor adapter only; no CLI, worker, HTTP or human venue credit",
-  "integration_hold": "No publication, dispatch or runtime credit until concrete acceptance",
-  "historical_routing": {
-    "source": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-    "tree": "b3841f325d2cf6e1b9049741174d363299901779"
-  }
+  ]
 }
