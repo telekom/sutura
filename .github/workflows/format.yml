@@ -1,67 +1,52 @@
-# Markdown, YAML and TOML formatting, and Python formatting plus lint.
-#
-# ITS OWN WORKFLOW, and the reason is what it does NOT run. The paths filter below means a
-# text-only change gets this verdict without `ci.yml`'s matrix, and a Rust-only change pays
-# nothing for a formatter that would have inspected no changed file. Folding it into `ci.yml`
-# inverts both halves of that.
-#
-# THE SAME SCRIPT A DEVELOPER RUNS. `nix/format-text.sh` is what the `format-text` pre-commit
-# hook, `just lint-text`, `just fmt` and `just validate` call, so a local run and CI cannot check
-# different things - the property `nix/lint-workflows.sh` exists for, applied one file over.
-#
-# THIRD-PARTY ACTIONS: none, as everywhere else here.
-name: format
+name: Cache root evaluation observation
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**.md"
-      - "**.yml"
-      - "**.yaml"
-      - "**.toml"
-      - "**.py"
-      - "dprint.json"
-      - "nix/dprint.nix"
-      - "nix/format-text.sh"
-  pull_request:
-    paths:
-      - "**.md"
-      - "**.yml"
-      - "**.yaml"
-      - "**.toml"
-      - "**.py"
-      - "dprint.json"
-      - "nix/dprint.nix"
-      - "nix/format-text.sh"
   workflow_dispatch:
+    inputs:
+      request_id:
+        description: Exact observation request
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: cache-root-observation-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  format:
-    runs-on: ubuntu-latest
+  observe:
+    runs-on: rust-mcp-16core
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: a70aa4fbc16a1a7bd7735675f1a2e7419adb771e
+          path: source
+          persist-credentials: false
+
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
-          # The flag that makes nix honour settings from flake.nix itself is deliberately
-          # absent, for the reason security-audit.yml gives: with it, a pull request could add
-          # a substituter and a trusted key and have CI fetch attacker-built store paths whose
-          # signature verifies.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # The candidate set is `git ls-files`, so the checkout above IS the input. `fetch-depth` is
-      # left at its default: the script reads the working tree, not a diff against a base.
-      - name: markdown, yaml, toml and python
-        run: bash nix/format-text.sh check
+      - name: Observe the exact source projections
+        working-directory: source
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: bash ../nix/measure-cache-roots.sh
+
+      - name: Keep the observation
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v6.0.0
+        with:
+          name: cache-root-observation
+          path: source/target/cache-root-observation/
+          if-no-files-found: error
