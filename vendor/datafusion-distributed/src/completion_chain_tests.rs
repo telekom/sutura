@@ -13,18 +13,19 @@ use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion::physical_plan::{ExecutionPlan, SendableRecordBatchStream};
 use datafusion::prelude::{SessionConfig, SessionContext};
-use futures::StreamExt;
 use futures::stream::BoxStream;
+use futures::{Stream, StreamExt, TryStreamExt};
 use http::HeaderMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use tokio::sync::Notify;
 use tokio::time::Instant;
 use url::Url;
 
 struct Channel {
     inner: Box<dyn WorkerChannel>,
-    cut: bool,
+    cut_after_row: Option<Arc<Notify>>,
     worker_timeout: Option<Duration>,
     cuts: Arc<AtomicUsize>,
 }
@@ -46,12 +47,21 @@ impl WorkerChannel for Channel {
             .inner
             .coordinator_channel(headers, request, input, metrics, context)
             .await?;
-        if !self.cut {
+        let Some(row_observed) = self.cut_after_row.as_ref().map(Arc::clone) else {
             return Ok(output);
-        }
+        };
         let cuts = Arc::clone(&self.cuts);
-        // Close the real worker's response channel at its terminal receipt, after rows ran.
+        // Cut only after the outer query has observed a real row.
         Ok(output
+            .then(move |message| {
+                let row_observed = Arc::clone(&row_observed);
+                async move {
+                    if matches!(message, Ok(WorkerToCoordinatorMsg::TaskCompletion(_))) {
+                        row_observed.notified().await;
+                    }
+                    message
+                }
+            })
             .take_while(move |message| {
                 let cut = matches!(message, Ok(WorkerToCoordinatorMsg::TaskCompletion(_)));
                 if cut {
@@ -79,7 +89,7 @@ impl WorkerChannel for Channel {
 
 struct Resolver {
     worker: Worker,
-    cut: bool,
+    cut_after_row: Option<Arc<Notify>>,
     worker_timeout: Option<Duration>,
     cuts: Arc<AtomicUsize>,
 }
@@ -93,7 +103,7 @@ impl ChannelResolver for Resolver {
                 self_url: Url::parse("http://worker").unwrap(),
             }
             .to_worker_channel(),
-            cut: self.cut,
+            cut_after_row: self.cut_after_row.as_ref().map(Arc::clone),
             worker_timeout: self.worker_timeout,
             cuts: Arc::clone(&self.cuts),
         }))
@@ -115,7 +125,7 @@ fn worker(producer: Option<Arc<TaskCompletionProducer>>) -> Worker {
 
 fn execution(
     producer: Option<Arc<TaskCompletionProducer>>,
-    cut: bool,
+    cut_after_row: Option<Arc<Notify>>,
     worker_timeout: Option<Duration>,
 ) -> (SendableRecordBatchStream, Arc<QueryCompletion>, Arc<AtomicUsize>) {
     let worker = worker(producer);
@@ -134,7 +144,7 @@ fn execution(
         })
         .with_distributed_channel_resolver(Resolver {
             worker,
-            cut,
+            cut_after_row,
             worker_timeout,
             cuts: Arc::clone(&cuts),
         })
@@ -148,7 +158,9 @@ fn execution(
     (stream, completion, cuts)
 }
 
-async fn drain(mut stream: SendableRecordBatchStream) -> Result<(usize, Option<DataFusionError>), tokio::time::error::Elapsed> {
+async fn drain(
+    mut stream: impl Stream<Item = Result<RecordBatch>> + Unpin,
+) -> Result<(usize, Option<DataFusionError>), tokio::time::error::Elapsed> {
     tokio::time::timeout(Duration::from_secs(10), async move {
         let mut rows = 0;
         while let Some(batch) = stream.next().await {
@@ -181,7 +193,7 @@ fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
 #[tokio::test]
 async fn completion_chain_publishes_receipts_only_after_real_worker_rows() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), false, None);
+    let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), None, None);
     assert!(completion.take().is_err());
     let (rows, failure) = drain(stream)
         .await
@@ -198,7 +210,13 @@ async fn completion_chain_publishes_receipts_only_after_real_worker_rows() {
 #[tokio::test]
 async fn completion_chain_refuses_worker_channel_eof_after_rows_without_a_receipt() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), true, None);
+    let row_observed = Arc::new(Notify::new());
+    let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), Some(Arc::clone(&row_observed)), None);
+    let stream = stream.inspect_ok(move |batch| {
+        if batch.num_rows() > 0 {
+            row_observed.notify_one();
+        }
+    });
     let (rows, failure) = drain(stream)
         .await
         .expect("the production deadline must terminate the query before the harness");
@@ -215,7 +233,7 @@ async fn completion_chain_refuses_worker_channel_eof_after_rows_without_a_receip
 
 #[tokio::test]
 async fn completion_chain_refuses_a_missing_producer_before_worker_rows() {
-    let (stream, completion, _) = execution(None, false, None);
+    let (stream, completion, _) = execution(None, None, None);
     let (rows, failure) = drain(stream)
         .await
         .expect("the production deadline must terminate the query before the harness");
@@ -240,7 +258,7 @@ async fn completion_chain_bounds_a_pending_producer_after_worker_rows() {
         })
     }));
     // Keep the worker timer beyond the harness so only the query timer can satisfy this cell.
-    let (stream, completion, _) = execution(Some(producer), false, Some(Duration::from_secs(20)));
+    let (stream, completion, _) = execution(Some(producer), None, Some(Duration::from_secs(20)));
     let (rows, failure) = drain(stream)
         .await
         .expect("the production deadline must terminate the query before the harness");
