@@ -174,7 +174,7 @@ def clear_closure(label):
 PROBE = r"""
 import json, os, shutil, subprocess, sys
 from pathlib import Path
-names = ("SUTURA_POSTGRES_ADBC_DRIVER", "SUTURA_CLICKHOUSE_ADBC_DRIVER", "SUTURA_DUCKDB_ADBC_DRIVER", "RUST_SRC_PATH", "NIX_CC", "NIX_CFLAGS_COMPILE", "NIX_LDFLAGS", "LIBCLANG_PATH", "DUCKDB_LIB_DIR", "DUCKDB_INCLUDE_DIR", "PKG_CONFIG_PATH")
+names = ("DEVENV_DOTFILE", "SUTURA_POSTGRES_ADBC_DRIVER", "SUTURA_CLICKHOUSE_ADBC_DRIVER", "SUTURA_DUCKDB_ADBC_DRIVER", "RUST_SRC_PATH", "NIX_CC", "NIX_CFLAGS_COMPILE", "NIX_LDFLAGS", "LIBCLANG_PATH", "DUCKDB_LIB_DIR", "DUCKDB_INCLUDE_DIR", "PKG_CONFIG_PATH")
 facts = {"env": {name: os.environ.get(name) for name in names}, "tools": {name: shutil.which(name) for name in ("cargo", "rustc", "rustfmt", "cargo-clippy", "cc", "c++", "pkg-config")}}
 for name in ("SUTURA_POSTGRES_ADBC_DRIVER", "SUTURA_CLICKHOUSE_ADBC_DRIVER"):
     assert facts["env"][name] in (None, ""), (name, facts["env"][name])
@@ -230,7 +230,7 @@ try:
         finally:
             Path("devenv.nix").write_bytes(ORIGINAL)
         clear_closure("restored-" + name)
-        assert state() == BASELINE and INDEX.read_bytes() == SAVED_INDEX
+        assert state() == BASELINE and git("ls-files", "--stage", "-z") == ENTRIES
 
     config = Path(".pre-commit-config.yaml").read_text()
     expected = {
@@ -267,7 +267,11 @@ try:
             env=stale,
         )
         run(name + "-literal-hook", argv, env=stale)
-        active = Path(".devenv/gc/shell").resolve(strict=True)
+        facts = json.loads((OUT / (name + "-environment.json")).read_text())
+        assert facts["env"]["DEVENV_DOTFILE"] == environment["DEVENV_DOTFILE"]
+        active = (Path(facts["env"]["DEVENV_DOTFILE"]) / "gc" / "shell").resolve(
+            strict=True
+        )
         assert str(active).startswith("/nix/store/")
         active_closure = set(
             run(
@@ -280,7 +284,7 @@ try:
         paths = drivers(name + "-active-drivers")
         assert not any(value["out"] in active_closure for value in paths.values())
         write(name + "-active-shell.json", {"gc_root": str(active), "drivers": paths})
-        assert state() == BASELINE and INDEX.read_bytes() == SAVED_INDEX
+        assert state() == BASELINE and git("ls-files", "--stage", "-z") == ENTRIES
     write(
         "verdict.json",
         {
@@ -304,8 +308,8 @@ finally:
             "index_unchanged": final_index == SAVED_INDEX,
             "entries_unchanged": final_entries == ENTRIES,
             "tracked_unchanged": final == BASELINE,
-            "limit": "Tracked lstat modes and hashes of file bytes/link targets; no other filesystem inventory.",
+            "limit": "Tracked lstat modes, file/link-target byte hashes and full staged entries define source identity. Raw index bytes are diagnostic; no other filesystem inventory.",
         },
     )
-    assert not status and final == BASELINE and final_index == SAVED_INDEX
+    assert not status and final == BASELINE
     assert final_entries == ENTRIES
