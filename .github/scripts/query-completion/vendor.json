@@ -1,6 +1,6 @@
 {
-  "source": "1e21ef0e596e7f1c86d2a439a2cc77a643a908c2",
-  "tree": "b97c822e976500ec306112772dacd90d35ee3e46",
+  "source": "93794e8a04167204c33206a831e86bf347f5c284",
+  "tree": "eb7445b257c5c46f464fcc4b7d5a3de3d42f6a48",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
   "binding": "Exact final-source static binding; runtime not yet observed",
   "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
@@ -11,20 +11,20 @@
         "name": "completion_chain_publishes_receipts_only_after_real_worker_rows",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 194,
-        "last": 208,
-        "function_sha256": "a352769fc52d932eb377c04f8c3f48f5ac38638c855ca585a204e5b2744773da"
+        "first": 205,
+        "last": 219,
+        "function_sha256": "683eec6756c87dba8b20135b73f665fe69e92838c835cf97f3d2f7f2f896ec95"
       },
       "patch": "mutations/query-barrier-finish.patch",
       "patch_sha256": "7063adb211482b610ca089953bd7090bd05581c21d73a6752aa54037d7d600e2",
       "marker": null,
       "panic_lines": [
-        205,
-        205
+        216,
+        216
       ],
       "assertion_source_lines": [
-        205,
-        205
+        216,
+        216
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "6fcf6e4beb017a26dfb19228cdc807790dcffa3983428763226d8e7eccf1a5bc",
@@ -38,20 +38,20 @@
         "name": "completion_chain_refuses_worker_channel_eof_after_rows_without_a_receipt",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 211,
-        "last": 232,
-        "function_sha256": "03593928fae95dc8e331e0a20d108e9046e421352432f7fbc8d6a8523340919d"
+        "first": 222,
+        "last": 243,
+        "function_sha256": "1b042b1a543fa64504227ab6753af2d00a7bd41b1d46c740d2f55e4e452aae75"
       },
       "patch": "mutations/channel-eof.patch",
       "patch_sha256": "78327c52f4f0b0be5df9a10bbe27fbcde3b1995a25da2ec39aba3c1ce35bef91",
       "marker": null,
       "panic_lines": [
-        226,
-        230
+        237,
+        241
       ],
       "assertion_source_lines": [
-        226,
-        230
+        237,
+        241
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "29063f32500cb5bf772c766c1e354566e4239ed92c22c224fbcc372b6b3c917d",
@@ -65,23 +65,23 @@
         "name": "completion_chain_refuses_a_missing_producer_before_worker_rows",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 235,
-        "last": 247,
-        "function_sha256": "0c699d0c2dd7a17d9f4f9177ff3d439c0c0b77781fb1abfa55f9c94e25ba9e42"
+        "first": 246,
+        "last": 259,
+        "function_sha256": "c03afd9d2770a0f6d67c13acc6b3087508192c3995f159dfbc79448f63b8807f"
       },
       "patch": "mutations/missing-producer-preparation.patch",
       "patch_sha256": "2ca4e541365bac62e5fb38c63750ee06f2f26baac2828709e4497871f0fb0b99",
       "marker": null,
       "panic_lines": [
-        240,
-        240
+        251,
+        251
       ],
       "assertion_source_lines": [
-        240,
-        240
+        251,
+        251
       ],
-      "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
-      "assertion_sha256": "297151e3d943cc5b9e90b5f0b31c513d46aede184e3ba3644d0280ef3c54f51b",
+      "assertion_binding": "Successful preparation count must be zero before the existing row/error/completion checks; own panic bound to this deterministic first assertion.",
+      "assertion_sha256": "8cfb367ac1fcaa3d3afea19a57afe9013919ce5cb86ef2b4d30eb63440ff9089",
       "candidate_mutation_tree": "9901856b2a403715eb38f4e6e90fb860b43d2f74",
       "test_function_unchanged": true,
       "patch_bytes_reused_exact": true
@@ -92,20 +92,20 @@
         "name": "completion_chain_bounds_a_pending_producer_after_worker_rows",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 250,
-        "last": 270,
-        "function_sha256": "63b9353f7aa53502864f0b43c4ccf39f082b5c9827570ddd0454d225dacee6ce"
+        "first": 262,
+        "last": 282,
+        "function_sha256": "77c7640657bdfe2c176d19084545a5da9eb3184b17031c9dceefabe39beeffdd"
       },
       "patch": "mutations/query-producer-timer.patch",
       "patch_sha256": "a2b5161a505eaa9a0faef69e9498ba9a2bd0b89624f14fc401ddc72327834f7f",
       "marker": null,
       "panic_lines": [
-        264,
-        264
+        276,
+        276
       ],
       "assertion_source_lines": [
-        264,
-        264
+        276,
+        276
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "66eb5e851e01fa8ce0b283bfe43a99f4516ed440e719675c27f29b6a977cad81",
@@ -119,20 +119,20 @@
         "name": "completion_worker_bounds_its_pending_producer_without_a_query_timer",
         "package": "datafusion-distributed",
         "path": "vendor/datafusion-distributed/src/completion_chain_tests.rs",
-        "first": 273,
-        "last": 317,
+        "first": 285,
+        "last": 329,
         "function_sha256": "0af2622662f0988961bc8cf8fcd16ac0804933e160237d56818843360a6393fb"
       },
       "patch": "mutations/worker-producer-timer.patch",
       "patch_sha256": "4d99cf944fbcd935a9f236152cd1d793ca5eb0582c2857a78e29889c472908fb",
       "marker": null,
       "panic_lines": [
-        314,
-        314
+        326,
+        326
       ],
       "assertion_source_lines": [
-        314,
-        314
+        326,
+        326
       ],
       "assertion_binding": "Predicted first relevant site only; panic_lines are absolute in this mutated source, including any preceding-line displacement",
       "assertion_sha256": "6168b5b7badff3158668c9a0263797bd35219011bcacf5ad699cc4516262774d",

@@ -397,6 +397,7 @@ def run_cases(config, out):
     )
     baseline = snapshot(root)
     record(out / "worktree-initial.json", baseline)
+    failed = []
     try:
         if GROUP == "vendor":
             for name in ["Cargo.toml", "Cargo.lock"]:
@@ -666,6 +667,7 @@ def run_cases(config, out):
                 assert len(declared) == len(set(declared)) == 7
                 assert all(found == binary for found, _ in declared)
                 selected = sorted(n for _, n in declared)
+                assert len(suite["testcases"]) == 305
                 assert set(selected) <= set(ordinary)
                 assert all(re.fullmatch(r"[A-Za-z0-9_:]+", n) for n in selected)
                 scope = {
@@ -770,15 +772,24 @@ def run_cases(config, out):
                     if mutated["files"][p] != expected["files"][p]
                 } == set(paths)
                 code, log, _ = run("mutant")
-                killed = code != 0 and own_kill(
-                    log,
-                    root,
-                    cell,
-                    body,
-                    binary,
-                    name,
-                    case.get("marker"),
-                    case.get("panic_lines"),
+                observed = GROUP != "vendor" or all(
+                    sum(outcome(log, status, binary, n) for status in ["PASS", "FAIL"])
+                    == 1
+                    for n in scope["selected"]
+                )
+                killed = (
+                    code != 0
+                    and observed
+                    and own_kill(
+                        log,
+                        root,
+                        cell,
+                        body,
+                        binary,
+                        name,
+                        case.get("marker"),
+                        case.get("panic_lines"),
+                    )
                 )
             finally:
                 restore(root, out, label, paths, expected)
@@ -794,7 +805,10 @@ def run_cases(config, out):
                     "exact_source_stage_restoration": True,
                 },
             )
-            assert killed and restored, label + ": no runtime kill/restored pass"
+            assert restored, label + ": restored selected rows did not all pass"
+            assert killed or GROUP == "vendor", label + ": no runtime kill"
+            if not killed:
+                failed.append(label)
     finally:
         if GROUP == "vendor":
             restore(root, out, "vendor-overlay", ["Cargo.toml", "Cargo.lock"], baseline)
@@ -802,6 +816,9 @@ def run_cases(config, out):
         assert same_source(snapshot(root), baseline), (
             "source/staged entries differ after restoring the approved overlays"
         )
+    assert not failed, (
+        "vendor mutants without a valid own-assertion kill: " + ", ".join(failed)
+    )
 
 
 def main():
