@@ -455,7 +455,7 @@ def run_cli_diagnostic(config, out, root, baseline):
                 "runtime_credit": False,
                 "mutations_run": 0,
                 "markers": (out / "diagnostic.log").read_text().splitlines(),
-                "limit": "fixture-only error categories; remote external types may already be erased; absent marker is not_observed",
+                "limit": "native split outer and endpoint variants only; no values or source fields; absent marker is not_observed; no mutation or proof credit",
             },
         )
     finally:

@@ -1,40 +1,45 @@
 --- a/crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs
 +++ b/crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs
-@@ -483,6 +483,37 @@
-     let mut answer = combiner
-         .execute(combiner.plan(&plan), &actual, 1 << 30)
-         .unwrap_or_else(|cause| {
-+            use sutura_domain::plan::ExecuteError;
-+            use sutura_exec_datafusion::CombineError;
-+            match &cause {
-+                ExecuteError::Leg(_) => eprintln!("observed, completion_diagnostic execute=leg"),
-+                ExecuteError::Miswired(_) => eprintln!("observed, completion_diagnostic execute=miswired"),
-+                ExecuteError::Combine(combine) => {
-+                    let category = match combine {
-+                        CombineError::Execute { .. } => "execute",
-+                        CombineError::LegNotCertified => "leg_not_certified",
-+                        CombineError::PartitionDidNotFit => "partition_did_not_fit",
-+                        CombineError::RowsOverCeiling => "rows_over_ceiling",
-+                        CombineError::NoReadingNode { .. } => "no_reading_node",
-+                        CombineError::NodeLost { .. } => "node_lost",
-+                        CombineError::Exhausted { .. } => "exhausted",
-+                        CombineError::WorkersNotReady { .. } => "workers_not_ready",
-+                        _ => "other",
-+                    };
-+                    eprintln!(
-+                        "observed, completion_diagnostic execute=combine combine={category} discriminant={:?}",
-+                        core::mem::discriminant(combine)
-+                    );
-+                    if let CombineError::Execute { cause } | CombineError::NodeLost { cause } = combine {
-+                        for nested in cause.iter().take(8) {
-+                            eprintln!(
-+                                "observed, completion_diagnostic datafusion={:?}",
-+                                core::mem::discriminant(nested)
-+                            );
-+                        }
-+                    }
-+                }
-+            }
-             assert!(
-                 matches!(
-                     cause,
+@@ -434,7 +434,41 @@
+             Some(Grantee::new(lookup, credentials, until).unwrap()),
+             labels,
+         )
+-        .unwrap_or_else(|_| panic!("the native BigQuery split dispatch did not run"))
++        .unwrap_or_else(|cause| {
++            use crate::serve::kind::AnyWarehouseError;
++            use sutura_exec_bigquery::{BigQueryError, adbc::AdbcError};
++
++            let (outer, endpoint) = match &cause {
++                AnyWarehouseError::BigQuery(cause) => match cause {
++                    BigQueryError::Endpoint { cause } => (
++                        "endpoint",
++                        match cause {
++                            AdbcError::Load(_) => "load",
++                            AdbcError::Adbc(_) => "adbc_call",
++                            AdbcError::Batch(_) => "batch",
++                            AdbcError::Unannounced(_) => "unannounced",
++                            AdbcError::Uncovered(_) => "uncovered",
++                            AdbcError::NoDryRun => "no_dry_run",
++                            AdbcError::DeadlineSpent => "deadline_spent",
++                            AdbcError::DeadlineElapsed => "deadline_elapsed",
++                            AdbcError::Parameters { .. } => "parameters",
++                            AdbcError::PoolExchange { .. } => "pool_exchange",
++                        },
++                    ),
++                    BigQueryError::Render { .. } => ("render", "not_endpoint"),
++                    BigQueryError::TableNamesNoProject { .. } => ("table_names_no_project", "not_endpoint"),
++                    BigQueryError::NoPayer { .. } => ("no_payer", "not_endpoint"),
++                    BigQueryError::NoPrincipalSwitch { .. } => ("no_principal_switch", "not_endpoint"),
++                    BigQueryError::PresentedDisagreesWithPosture { .. } => ("posture_disagrees", "not_endpoint"),
++                    BigQueryError::Unreadable { .. } => ("unreadable", "not_endpoint"),
++                    BigQueryError::NoIdentityInTheAnswer { .. } => ("no_identity", "not_endpoint"),
++                },
++                AnyWarehouseError::NotTheCallersToken(_) => ("not_the_callers_token", "not_endpoint"),
++                _ => ("other_warehouse", "not_endpoint"),
++            };
++            eprintln!("observed, completion_diagnostic split_outer={outer} split_adbc={endpoint}");
++            panic!("the native BigQuery split dispatch did not run")
++        })
+ }
+ 
+ fn sql_receipts(records: &[Execution]) -> Vec<&Execution> {

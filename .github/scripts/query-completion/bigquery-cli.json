@@ -1,8 +1,8 @@
 {
-  "source": "d10b8f96cb9a740dd09c549b87f361c81e0c271a",
-  "tree": "3e89c4b8b46fe3c55c023bf6ad00aeb3ffa30926",
+  "source": "44fb5aa4d5f430da3d0f16487fd7876b8f651749",
+  "tree": "6b3df857576d764cab255420a8338b7b3101360d",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "DIAGNOSTIC ONLY; no pristine, mutation, restored-pass or readiness credit",
+  "binding": "NATIVE SPLIT TYPED CATEGORY DIAGNOSTIC ONLY; no mutation or proof credit",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
   "cases": [],
   "venue_limit": "In-process native split creation and forwarded partition reader: actual multiple-stream Granted and <=1-stream Split branches, descriptor capture barrier, creation propagation/count, full creation SQL equality, and local creation attachment. Each earns only its reached bound assertion; no served-human, inbound-issuer, real-delegation-hop, forced duplicate native read or native-cancellation credit.",
@@ -14,11 +14,11 @@
   "diagnostic": {
     "path": "crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs",
     "overlay": "diagnostic/fixture-overlay.patch",
-    "overlay_sha256": "aeb774d42fad35e69ddf68f9e235171c42d9d327db3b795345f2f610cbfe5072",
-    "before_sha256": "270fa3bbff872088332341a62a9c315da2fc3a53580f7f20bdd13eaec23d6fe5",
-    "after_sha256": "d75eb4ddb1a3df3ce566dd6d3bda0e16863a2b6f243cd2537e16f69af22cdf7b",
+    "overlay_sha256": "c7edd906d437ab172edecb0ab77a9eaa2f4e63583b3492a4d1dea1c1e3e2dc1c",
+    "before_sha256": "6de7298336dd38cfd41455b9dbd67cb1fb2a604f27842a847d93489343376e37",
+    "after_sha256": "5a1bdc250ccd29603b559a185d7506e764a89a656889104addea9344ff39c7b3",
     "binary": "sutura-cli::bin/sutura",
     "test": "serve::worker::partition::tests::native_bigquery::forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
-    "marker_pattern": "observed, completion_diagnostic (?:execute=(?:leg|miswired)|execute=combine combine=(?:execute|leg_not_certified|partition_did_not_fit|rows_over_ceiling|no_reading_node|node_lost|exhausted|workers_not_ready|other) discriminant=Discriminant\\([0-9]+\\)|datafusion=Discriminant\\([0-9]+\\))"
+    "marker_pattern": "observed, completion_diagnostic split_outer=(?:endpoint|render|table_names_no_project|no_payer|no_principal_switch|posture_disagrees|unreadable|no_identity|not_the_callers_token|other_warehouse) split_adbc=(?:load|adbc_call|batch|unannounced|uncovered|no_dry_run|deadline_spent|deadline_elapsed|parameters|pool_exchange|not_endpoint)"
   }
 }
