@@ -118,7 +118,7 @@ jobs:
           finishing_plan_path="$RUNNER_TEMP/finishing-plan.json"
           printf '{"source_sha":"%s","source_tree":"%s","comparison_sha":"%s"}\n' "$SOURCE_SHA" "$SOURCE_TREE" "$COMPARISON_SHA" > "$finishing_plan_path"
           for finishing_operation in validate ship-check; do
-            nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv --command python3 -I ../devco/inbound_verifier_proof.py "$finishing_operation" "$finishing_plan_path"
+            nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py "$finishing_operation" "$finishing_plan_path"
           done
 
       - name: Retain evidence and any generated changes
