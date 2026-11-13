@@ -1,0 +1,311 @@
+--- a/vendor/datafusion-distributed/src/protocol/grpc/worker_client.rs
++++ b/vendor/datafusion-distributed/src/protocol/grpc/worker_client.rs
+@@ -6,12 +6,10 @@
+ use crate::grpc::generated::worker::FlightAppMetadata;
+ use crate::grpc::on_drop_stream::on_drop_stream;
+ use crate::{
+-    BytesMetricExt, CoordinatorToWorkerMsg, DISTRIBUTED_DATAFUSION_TASK_ID_LABEL,
+-    DistributedConfig, ExecuteTaskRequest, FirstLatencyMetric, GetWorkerInfoRequest,
+-    GetWorkerInfoResponse, LatencyMetricExt, LoadInfo, MaxLatencyMetric, MaybeEncoded,
+-    MinLatencyMetric, P50LatencyMetric, P95LatencyMetric, ProducerHead, SetPlanRequest, TaskKey,
+-    TaskMetrics, WorkUnitBatch, WorkUnitFeedDeclaration, WorkUnitMsg, WorkerChannel,
+-    WorkerToCoordinatorMsg,
++    BytesMetricExt, CoordinatorToWorkerMsg, DISTRIBUTED_DATAFUSION_TASK_ID_LABEL, DistributedConfig, ExecuteTaskRequest,
++    FirstLatencyMetric, GetWorkerInfoRequest, GetWorkerInfoResponse, LatencyMetricExt, LoadInfo, MaxLatencyMetric, MaybeEncoded,
++    MinLatencyMetric, P50LatencyMetric, P95LatencyMetric, ProducerHead, SetPlanRequest, TaskKey, TaskMetrics, WorkUnitBatch,
++    WorkUnitFeedDeclaration, WorkUnitMsg, WorkerChannel, WorkerToCoordinatorMsg,
+ };
+ use arrow_flight::FlightData;
+ use arrow_flight::decode::FlightRecordBatchStream;
+@@ -57,9 +55,7 @@
+         let plan_bytes_sent = set_plan_request.plan_proto.len();
+         let input_stream = futures::stream::once(async move {
+             pb::CoordinatorToWorkerMsg {
+-                inner: Some(pb::coordinator_to_worker_msg::Inner::SetPlanRequest(
+-                    set_plan_request,
+-                )),
++                inner: Some(pb::coordinator_to_worker_msg::Inner::SetPlanRequest(set_plan_request)),
+             }
+         })
+         .chain(c2w_stream.map(encode_coordinator_to_worker_msg));
+@@ -98,8 +94,7 @@
+ 
+         // We are retaining record batches in memory until they are consumed, so we need to account
+         // for them in the memory pool.
+-        let memory_reservation =
+-            Arc::new(MemoryConsumer::new("WorkerConnection").register(ctx.memory_pool()));
++        let memory_reservation = Arc::new(MemoryConsumer::new("WorkerConnection").register(ctx.memory_pool()));
+         let memory_reservation_clone = Arc::clone(&memory_reservation);
+ 
+         // Track the maximum memory used to buffer recieved messages.
+@@ -181,7 +176,11 @@
+             );
+             let mut interleaved_stream = match self_clone.execute_task(request).await {
+                 Ok(v) => v.into_inner(),
+-                Err(err) => return fanout(&per_partition_tx, err),
++                Err(err) => {
++                    let code = i32::from(err.code());
++                    eprintln!("observed, completion_diagnostic boundary=flight_fanout origin=execute_rpc tonic_code={code}");
++                    return fanout(&per_partition_tx, err);
++                }
+             };
+ 
+             loop {
+@@ -206,7 +205,11 @@
+                     msg = interleaved_stream.next() => {
+                         match msg {
+                             Some(Ok(v)) => v,
+-                            Some(Err(err)) => return fanout(&per_partition_tx, err),
++                            Some(Err(err)) => {
++                                let code = i32::from(err.code());
++                                eprintln!("observed, completion_diagnostic boundary=flight_fanout origin=stream_receive tonic_code={code}");
++                                return fanout(&per_partition_tx, err);
++                            }
+                             None => return, // Stream exhausted
+                         }
+                     }
+@@ -218,6 +221,7 @@
+                 let flight_metadata = match FlightAppMetadata::decode(flight_data.app_metadata.as_ref()) {
+                     Ok(v) => v,
+                     Err(err) => {
++                        eprintln!("observed, completion_diagnostic boundary=flight_fanout origin=metadata_decode tonic_code=13");
+                         return fanout(&per_partition_tx, Status::internal(err.to_string()));
+                     }
+                 };
+@@ -237,6 +241,7 @@
+                     let msg = format!(
+                         "Received partition {partition} in Flight metadata, but available partitions are {target_partition_range:?}"
+                     );
++                    eprintln!("observed, completion_diagnostic boundary=flight_fanout origin=partition_underflow tonic_code=13");
+                     return fanout(&per_partition_tx, Status::internal(msg));
+                 };
+ 
+@@ -244,6 +249,7 @@
+                     let msg = format!(
+                         "Received partition {partition} in Flight metadata, but available partitions are {target_partition_range:?}"
+                     );
++                    eprintln!("observed, completion_diagnostic boundary=flight_fanout origin=partition_lookup tonic_code=13");
+                     return fanout(&per_partition_tx, Status::internal(msg));
+                 };
+ 
+@@ -319,10 +325,7 @@
+         Ok(result)
+     }
+ 
+-    async fn get_worker_info(
+-        &mut self,
+-        _request: GetWorkerInfoRequest,
+-    ) -> Result<GetWorkerInfoResponse> {
++    async fn get_worker_info(&mut self, _request: GetWorkerInfoRequest) -> Result<GetWorkerInfoResponse> {
+         let response = self
+             .get_worker_info(pb::GetWorkerInfoRequest {})
+             .await
+@@ -402,10 +405,7 @@
+     }
+ }
+ 
+-pub(super) fn encode_producer_head(
+-    head: ProducerHead,
+-    ctx: &Arc<TaskContext>,
+-) -> Result<pb::execute_task_request::ProducerHead> {
++pub(super) fn encode_producer_head(head: ProducerHead, ctx: &Arc<TaskContext>) -> Result<pb::execute_task_request::ProducerHead> {
+     Ok(match head {
+         ProducerHead::None => pb::execute_task_request::ProducerHead::None(pb::NoneHead {}),
+         ProducerHead::BroadcastExec { output_partitions } => {
+@@ -427,17 +427,12 @@
+             CoordinatorToWorkerMsg::WorkUnitBatch(batch) => {
+                 pb::coordinator_to_worker_msg::Inner::WorkUnitBatch(encode_work_unit_batch(batch))
+             }
+-            CoordinatorToWorkerMsg::WorkUnitEos => {
+-                pb::coordinator_to_worker_msg::Inner::WorkUnitEos(true)
+-            }
++            CoordinatorToWorkerMsg::WorkUnitEos => pb::coordinator_to_worker_msg::Inner::WorkUnitEos(true),
+         }),
+     }
+ }
+ 
+-fn encode_set_plan_request(
+-    request: SetPlanRequest,
+-    ctx: &Arc<TaskContext>,
+-) -> Result<pb::SetPlanRequest> {
++fn encode_set_plan_request(request: SetPlanRequest, ctx: &Arc<TaskContext>) -> Result<pb::SetPlanRequest> {
+     let plan_proto = request.plan.encode(ctx)?;
+     Ok(pb::SetPlanRequest {
+         task_key: Some(encode_task_key(request.task_key)),
+@@ -450,11 +445,20 @@
+             .collect(),
+         target_worker_url: request.target_worker_url.to_string(),
+         query_start_time_ns: request.query_start_time_ns as u64,
+-        completion: request.completion.map(|v| Ok::<_, DataFusionError>(pb::CompletionRequest {
+-            max_records: u64::try_from(v.max_records).map_err(|cause| datafusion::common::exec_datafusion_err!("record budget: {cause}"))?,
+-            max_bytes: u64::try_from(v.max_bytes).map_err(|cause| datafusion::common::exec_datafusion_err!("byte budget: {cause}"))?,
+-            timeout_ms: u64::try_from(v.timeout.as_millis()).map_err(|cause| datafusion::common::exec_datafusion_err!("completion timeout: {cause}"))?.max(1),
+-        })).transpose()?,
++        completion: request
++            .completion
++            .map(|v| {
++                Ok::<_, DataFusionError>(pb::CompletionRequest {
++                    max_records: u64::try_from(v.max_records)
++                        .map_err(|cause| datafusion::common::exec_datafusion_err!("record budget: {cause}"))?,
++                    max_bytes: u64::try_from(v.max_bytes)
++                        .map_err(|cause| datafusion::common::exec_datafusion_err!("byte budget: {cause}"))?,
++                    timeout_ms: u64::try_from(v.timeout.as_millis())
++                        .map_err(|cause| datafusion::common::exec_datafusion_err!("completion timeout: {cause}"))?
++                        .max(1),
++                })
++            })
++            .transpose()?,
+     })
+ }
+ 
+@@ -479,9 +483,7 @@
+     }
+ }
+ 
+-fn encode_work_unit_feed_declaration(
+-    declaration: WorkUnitFeedDeclaration,
+-) -> pb::set_plan_request::WorkUnitFeedDeclaration {
++fn encode_work_unit_feed_declaration(declaration: WorkUnitFeedDeclaration) -> pb::set_plan_request::WorkUnitFeedDeclaration {
+     pb::set_plan_request::WorkUnitFeedDeclaration {
+         id: serialize_uuid(&declaration.id),
+         partitions: declaration.partitions as u64,
+@@ -496,36 +498,29 @@
+     }
+ }
+ 
+-fn decode_worker_to_coordinator_msg(
+-    msg: pb::WorkerToCoordinatorMsg,
+-) -> Result<WorkerToCoordinatorMsg> {
+-    Ok(
+-        match msg
+-            .inner
+-            .ok_or_else(|| missing("WorkerToCoordinatorMsg.inner"))?
+-        {
+-            pb::worker_to_coordinator_msg::Inner::TaskCompletion(payload) => {
+-                let key = payload.task_key.ok_or_else(|| missing("completion.task_key"))?;
+-                WorkerToCoordinatorMsg::TaskCompletion(crate::TaskCompletion {
+-                    task_key: TaskKey {
+-                        query_id: crate::common::deserialize_uuid(&key.query_id)?,
+-                        stage_id: usize::try_from(key.stage_id).map_err(|cause| datafusion::common::exec_datafusion_err!("completion stage: {cause}"))?,
+-                        task_number: usize::try_from(key.task_number).map_err(|cause| datafusion::common::exec_datafusion_err!("completion task: {cause}"))?,
+-                    },
+-                    records: payload.records,
+-                })
+-            }
+-            pb::worker_to_coordinator_msg::Inner::TaskMetrics(task_metrics) => {
+-                WorkerToCoordinatorMsg::TaskMetrics(decode_task_metrics(task_metrics)?)
+-            }
+-            pb::worker_to_coordinator_msg::Inner::LoadInfo(load_info) => {
+-                WorkerToCoordinatorMsg::LoadInfo(decode_load_info(load_info))
+-            }
+-            pb::worker_to_coordinator_msg::Inner::LoadInfoEos(_) => {
+-                WorkerToCoordinatorMsg::LoadInfoEos
+-            }
+-        },
+-    )
++fn decode_worker_to_coordinator_msg(msg: pb::WorkerToCoordinatorMsg) -> Result<WorkerToCoordinatorMsg> {
++    Ok(match msg.inner.ok_or_else(|| missing("WorkerToCoordinatorMsg.inner"))? {
++        pb::worker_to_coordinator_msg::Inner::TaskCompletion(payload) => {
++            let key = payload.task_key.ok_or_else(|| missing("completion.task_key"))?;
++            WorkerToCoordinatorMsg::TaskCompletion(crate::TaskCompletion {
++                task_key: TaskKey {
++                    query_id: crate::common::deserialize_uuid(&key.query_id)?,
++                    stage_id: usize::try_from(key.stage_id)
++                        .map_err(|cause| datafusion::common::exec_datafusion_err!("completion stage: {cause}"))?,
++                    task_number: usize::try_from(key.task_number)
++                        .map_err(|cause| datafusion::common::exec_datafusion_err!("completion task: {cause}"))?,
++                },
++                records: payload.records,
++            })
++        }
++        pb::worker_to_coordinator_msg::Inner::TaskMetrics(task_metrics) => {
++            WorkerToCoordinatorMsg::TaskMetrics(decode_task_metrics(task_metrics)?)
++        }
++        pb::worker_to_coordinator_msg::Inner::LoadInfo(load_info) => {
++            WorkerToCoordinatorMsg::LoadInfo(decode_load_info(load_info))
++        }
++        pb::worker_to_coordinator_msg::Inner::LoadInfoEos(_) => WorkerToCoordinatorMsg::LoadInfoEos,
++    })
+ }
+ 
+ fn decode_task_metrics(task_metrics: pb::TaskMetrics) -> Result<TaskMetrics> {
+@@ -535,11 +530,7 @@
+             .into_iter()
+             .map(|metrics_set| metrics_set_proto_to_df(&metrics_set))
+             .collect::<Result<_>>()?,
+-        task_metrics: metrics_set_proto_to_df(
+-            &task_metrics
+-                .task_metrics
+-                .ok_or_else(|| missing("task_metrics"))?,
+-        )?,
++        task_metrics: metrics_set_proto_to_df(&task_metrics.task_metrics.ok_or_else(|| missing("task_metrics"))?)?,
+     })
+ }
+ 
+@@ -664,9 +655,7 @@
+     fn drop(self: Pin<&mut Self>) {
+         if self.curr > Duration::default() {
+             let self_projected = self.project();
+-            self_projected
+-                .elapsed_compute
+-                .add_duration(*self_projected.curr);
++            self_projected.elapsed_compute.add_duration(*self_projected.curr);
+         }
+     }
+ }
+@@ -680,9 +669,7 @@
+         let result = self_projected.inner.poll_next(cx);
+         *self_projected.curr += start.elapsed();
+         if result.is_ready() {
+-            self_projected
+-                .elapsed_compute
+-                .add_duration(*self_projected.curr);
++            self_projected.elapsed_compute.add_duration(*self_projected.curr);
+             *self_projected.curr = Duration::default();
+         }
+         result
+@@ -704,9 +691,7 @@
+     fn drop(self: Pin<&mut Self>) {
+         if self.curr > Duration::default() {
+             let self_projected = self.project();
+-            self_projected
+-                .elapsed_compute
+-                .add_duration(*self_projected.curr);
++            self_projected.elapsed_compute.add_duration(*self_projected.curr);
+         }
+     }
+ }
+@@ -720,9 +705,7 @@
+         let result = self_projected.inner.poll(cx);
+         *self_projected.curr += start.elapsed();
+         if result.is_ready() {
+-            self_projected
+-                .elapsed_compute
+-                .add_duration(*self_projected.curr);
++            self_projected.elapsed_compute.add_duration(*self_projected.curr);
+             *self_projected.curr = Duration::default();
+         }
+         result
+@@ -754,9 +737,7 @@
+         println!("cheap future: {}", cheap_time.value());
+ 
+         let expensive_time = Time::new();
+-        expensive()
+-            .with_elapsed_compute(expensive_time.clone())
+-            .await;
++        expensive().with_elapsed_compute(expensive_time.clone()).await;
+         println!("expensive future: {}", expensive_time.value());
+ 
+         assert!(expensive_time.value() > cheap_time.value());
+@@ -792,10 +773,7 @@
+         }
+ 
+         let cheap_time = Time::new();
+-        cheap()
+-            .with_elapsed_compute(cheap_time.clone())
+-            .collect::<Vec<_>>()
+-            .await;
++        cheap().with_elapsed_compute(cheap_time.clone()).collect::<Vec<_>>().await;
+         println!("cheap future: {}", cheap_time.value());
+ 
+         let expensive_time = Time::new();

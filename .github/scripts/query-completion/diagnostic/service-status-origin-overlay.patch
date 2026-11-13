@@ -1,0 +1,294 @@
+--- a/vendor/datafusion-distributed/src/protocol/grpc/worker_service.rs
++++ b/vendor/datafusion-distributed/src/protocol/grpc/worker_service.rs
+@@ -4,13 +4,10 @@
+ use super::spawn_select_all::spawn_select_all;
+ 
+ use crate::common::{deserialize_uuid, now_ns};
+-use crate::protocol::grpc::{
+-    ObservabilityServiceImpl, ObservabilityServiceServer, WorkerCall, WorkerCallAuthorizer,
+-};
++use crate::protocol::grpc::{ObservabilityServiceImpl, ObservabilityServiceServer, WorkerCall, WorkerCallAuthorizer};
+ use crate::{
+-    CoordinatorToWorkerMsg, DistributedConfig, ExecuteTaskRequest, LoadInfo, MaybeEncoded,
+-    ProducerHead, SetPlanRequest, TaskKey, TaskMetrics, WorkUnitBatch, WorkUnitFeedDeclaration,
+-    WorkUnitMsg, Worker, WorkerResolver, WorkerToCoordinatorMsg,
++    CoordinatorToWorkerMsg, DistributedConfig, ExecuteTaskRequest, LoadInfo, MaybeEncoded, ProducerHead, SetPlanRequest, TaskKey,
++    TaskMetrics, WorkUnitBatch, WorkUnitFeedDeclaration, WorkUnitMsg, Worker, WorkerResolver, WorkerToCoordinatorMsg,
+ };
+ 
+ use arrow_flight::FlightData;
+@@ -89,10 +86,7 @@
+         &self,
+         worker_resolver: Arc<dyn WorkerResolver + Send + Sync>,
+     ) -> ObservabilityServiceServer<ObservabilityServiceImpl> {
+-        ObservabilityServiceServer::new(ObservabilityServiceImpl::new(
+-            self.task_data_entries.clone(),
+-            worker_resolver,
+-        ))
++        ObservabilityServiceServer::new(ObservabilityServiceImpl::new(self.task_data_entries.clone(), worker_resolver))
+     }
+ }
+ 
+@@ -132,9 +126,7 @@
+ 
+         let input_stream = body
+             .map_err(map_status_to_datafusion_error)
+-            .map(move |msg| {
+-                decode_coordinator_to_worker_msg(msg?).map_err(map_status_to_datafusion_error)
+-            })
++            .map(move |msg| decode_coordinator_to_worker_msg(msg?).map_err(map_status_to_datafusion_error))
+             .boxed();
+ 
+         let output_stream = self
+@@ -152,10 +144,7 @@
+ 
+     type ExecuteTaskStream = BoxStream<'static, Result<FlightData, Status>>;
+ 
+-    async fn execute_task(
+-        &self,
+-        request: Request<pb::ExecuteTaskRequest>,
+-    ) -> Result<Response<Self::ExecuteTaskStream>, Status> {
++    async fn execute_task(&self, request: Request<pb::ExecuteTaskRequest>) -> Result<Response<Self::ExecuteTaskStream>, Status> {
+         let (metadata, _ext, body) = request.into_parts();
+         let request = decode_execute_task_request(body).await?;
+         self.authorize(WorkerCall::ExecuteTask {
+@@ -165,10 +154,7 @@
+         .await?;
+         let partition_range = request.target_partition_start..request.target_partition_end;
+ 
+-        let (arrow_streams, task_ctx) = self
+-            .execute_task(request)
+-            .await
+-            .map_err(datafusion_error_to_tonic_status)?;
++        let (arrow_streams, task_ctx) = self.execute_task(request).await.map_err(datafusion_error_to_tonic_status)?;
+ 
+         let d_cfg = DistributedConfig::from_config_options(task_ctx.session_config().options())
+             .map_err(datafusion_error_to_tonic_status)?;
+@@ -177,24 +163,21 @@
+             "lz4" => Some(CompressionType::LZ4_FRAME),
+             "zstd" => Some(CompressionType::ZSTD),
+             "none" => None,
+-            v => Err(Status::invalid_argument(format!(
+-                "Unknown compression type {v}"
+-            )))?,
++            v => Err(Status::invalid_argument(format!("Unknown compression type {v}")))?,
+         };
+         let mut flight_streams = Vec::with_capacity(arrow_streams.len());
+         for (partition, arrow_stream) in partition_range.zip(arrow_streams) {
+-            let flight_stream =
+-                build_flight_data_stream(arrow_stream, compression)?.map(move |msg| {
+-                    // For each FlightData produced by this stream, mark it with the appropriate
+-                    // partition. This stream will be merged with several others from other partitions,
+-                    // so marking it with the original partition allows it to be deconstructed into
+-                    // the original per-partition streams in later steps.
+-                    let flight_data = pb::FlightAppMetadata {
+-                        partition: partition as u64,
+-                        created_timestamp_unix_nanos: now_ns::<u64>(),
+-                    };
+-                    msg.map(|v| v.with_app_metadata(flight_data.encode_to_vec()))
+-                });
++            let flight_stream = build_flight_data_stream(arrow_stream, compression)?.map(move |msg| {
++                // For each FlightData produced by this stream, mark it with the appropriate
++                // partition. This stream will be merged with several others from other partitions,
++                // so marking it with the original partition allows it to be deconstructed into
++                // the original per-partition streams in later steps.
++                let flight_data = pb::FlightAppMetadata {
++                    partition: partition as u64,
++                    created_timestamp_unix_nanos: now_ns::<u64>(),
++                };
++                msg.map(|v| v.with_app_metadata(flight_data.encode_to_vec()))
++            });
+ 
+             flight_streams.push(flight_stream);
+         }
+@@ -204,9 +187,20 @@
+         let memory_pool = Arc::clone(&task_ctx.runtime_env().memory_pool);
+         let stream = spawn_select_all(flight_streams, memory_pool, RECORD_BATCH_BUFFER_SIZE);
+ 
+-        Ok(Response::new(Box::pin(stream.map_err(|err| match err {
+-            FlightError::Tonic(status) => *status,
+-            _ => Status::internal(format!("Error during flight stream: {err}")),
++        Ok(Response::new(Box::pin(stream.map_err(|err| {
++            let (kind, code) = match &err {
++                FlightError::Arrow(_) => ("arrow", 13),
++                FlightError::NotYetImplemented(_) => ("not_yet_implemented", 13),
++                FlightError::Tonic(status) => ("tonic", i32::from(status.code())),
++                FlightError::ProtocolError(_) => ("protocol", 13),
++                FlightError::DecodeError(_) => ("decode", 13),
++                FlightError::ExternalError(_) => ("external", 13),
++            };
++            eprintln!("observed, completion_diagnostic boundary=flight_serve error_type={kind} tonic_code={code}");
++            match err {
++                FlightError::Tonic(status) => *status,
++                _ => Status::internal(format!("Error during flight stream: {err}")),
++            }
+         }))))
+     }
+ 
+@@ -220,27 +214,18 @@
+     }
+ }
+ 
+-fn decode_coordinator_to_worker_msg(
+-    msg: pb::CoordinatorToWorkerMsg,
+-) -> Result<CoordinatorToWorkerMsg, Status> {
+-    Ok(
+-        match msg
+-            .inner
+-            .ok_or_else(missing("CoordinatorToWorkerMsg.inner"))?
+-        {
+-            pb::coordinator_to_worker_msg::Inner::SetPlanRequest(_) => {
+-                return Err(Status::invalid_argument(
+-                    "SetPlanRequest must be the first coordinator message",
+-                ));
+-            }
+-            pb::coordinator_to_worker_msg::Inner::WorkUnitBatch(batch) => {
+-                CoordinatorToWorkerMsg::WorkUnitBatch(decode_work_unit_batch(batch)?)
+-            }
+-            pb::coordinator_to_worker_msg::Inner::WorkUnitEos(_) => {
+-                CoordinatorToWorkerMsg::WorkUnitEos
+-            }
+-        },
+-    )
++fn decode_coordinator_to_worker_msg(msg: pb::CoordinatorToWorkerMsg) -> Result<CoordinatorToWorkerMsg, Status> {
++    Ok(match msg.inner.ok_or_else(missing("CoordinatorToWorkerMsg.inner"))? {
++        pb::coordinator_to_worker_msg::Inner::SetPlanRequest(_) => {
++            return Err(Status::invalid_argument(
++                "SetPlanRequest must be the first coordinator message",
++            ));
++        }
++        pb::coordinator_to_worker_msg::Inner::WorkUnitBatch(batch) => {
++            CoordinatorToWorkerMsg::WorkUnitBatch(decode_work_unit_batch(batch)?)
++        }
++        pb::coordinator_to_worker_msg::Inner::WorkUnitEos(_) => CoordinatorToWorkerMsg::WorkUnitEos,
++    })
+ }
+ 
+ fn decode_set_plan_request(request: pb::SetPlanRequest) -> Result<SetPlanRequest, Status> {
+@@ -255,21 +240,22 @@
+             .collect::<Result<_, _>>()?,
+         target_worker_url: parse_url(&request.target_worker_url, "target_worker_url")?,
+         query_start_time_ns: request.query_start_time_ns as usize,
+-        completion: request.completion.map(|v| crate::CompletionRequest::parse(v.max_records, v.max_bytes, v.timeout_ms)
+-            .map_err(datafusion_error_to_tonic_status)).transpose()?,
+-    })
+-}
+-
+-async fn decode_execute_task_request(
+-    request: pb::ExecuteTaskRequest,
+-) -> Result<ExecuteTaskRequest, Status> {
++        completion: request
++            .completion
++            .map(|v| {
++                crate::CompletionRequest::parse(v.max_records, v.max_bytes, v.timeout_ms)
++                    .map_err(datafusion_error_to_tonic_status)
++            })
++            .transpose()?,
++    })
++}
++
++async fn decode_execute_task_request(request: pb::ExecuteTaskRequest) -> Result<ExecuteTaskRequest, Status> {
+     Ok(ExecuteTaskRequest {
+         task_key: decode_task_key(request.task_key.ok_or_else(missing("task_key"))?)?,
+         target_partition_start: request.target_partition_start as usize,
+         target_partition_end: request.target_partition_end as usize,
+-        producer_head: decode_producer_head(
+-            request.producer_head.ok_or_else(missing("producer_head"))?,
+-        ),
++        producer_head: decode_producer_head(request.producer_head.ok_or_else(missing("producer_head"))?),
+     })
+ }
+ 
+@@ -285,9 +271,7 @@
+     }
+ }
+ 
+-fn encode_worker_to_coordinator_msg(
+-    msg: WorkerToCoordinatorMsg,
+-) -> Result<pb::WorkerToCoordinatorMsg, Status> {
++fn encode_worker_to_coordinator_msg(msg: WorkerToCoordinatorMsg) -> Result<pb::WorkerToCoordinatorMsg, Status> {
+     Ok(pb::WorkerToCoordinatorMsg {
+         inner: Some(match msg {
+             WorkerToCoordinatorMsg::TaskCompletion(payload) => {
+@@ -301,16 +285,12 @@
+                 })
+             }
+             WorkerToCoordinatorMsg::TaskMetrics(task_metrics) => {
+-                pb::worker_to_coordinator_msg::Inner::TaskMetrics(encode_task_metrics(
+-                    task_metrics,
+-                )?)
++                pb::worker_to_coordinator_msg::Inner::TaskMetrics(encode_task_metrics(task_metrics)?)
+             }
+             WorkerToCoordinatorMsg::LoadInfo(load_info) => {
+                 pb::worker_to_coordinator_msg::Inner::LoadInfo(encode_load_info(load_info))
+             }
+-            WorkerToCoordinatorMsg::LoadInfoEos => {
+-                pb::worker_to_coordinator_msg::Inner::LoadInfoEos(true)
+-            }
++            WorkerToCoordinatorMsg::LoadInfoEos => pb::worker_to_coordinator_msg::Inner::LoadInfoEos(true),
+         }),
+     })
+ }
+@@ -320,14 +300,9 @@
+         pre_order_plan_metrics: task_metrics
+             .pre_order_plan_metrics
+             .into_iter()
+-            .map(|metrics_set| {
+-                df_metrics_set_to_proto(&metrics_set).map_err(datafusion_error_to_tonic_status)
+-            })
++            .map(|metrics_set| df_metrics_set_to_proto(&metrics_set).map_err(datafusion_error_to_tonic_status))
+             .collect::<Result<_, _>>()?,
+-        task_metrics: Some(
+-            df_metrics_set_to_proto(&task_metrics.task_metrics)
+-                .map_err(datafusion_error_to_tonic_status)?,
+-        ),
++        task_metrics: Some(df_metrics_set_to_proto(&task_metrics.task_metrics).map_err(datafusion_error_to_tonic_status)?),
+     })
+ }
+ 
+@@ -349,11 +324,7 @@
+ 
+ fn decode_work_unit_batch(batch: pb::WorkUnitBatch) -> Result<WorkUnitBatch, Status> {
+     Ok(WorkUnitBatch {
+-        batch: batch
+-            .batch
+-            .into_iter()
+-            .map(decode_work_unit)
+-            .collect::<Result<_, _>>()?,
++        batch: batch.batch.into_iter().map(decode_work_unit).collect::<Result<_, _>>()?,
+     })
+ }
+ 
+@@ -387,8 +358,7 @@
+ }
+ 
+ fn parse_url(value: &str, field: &'static str) -> Result<Url, Status> {
+-    Url::parse(value)
+-        .map_err(|err| Status::invalid_argument(format!("Invalid field '{field}': {err}")))
++    Url::parse(value).map_err(|err| Status::invalid_argument(format!("Invalid field '{field}': {err}")))
+ }
+ 
+ fn empty(stream_name: &'static str) -> impl FnOnce() -> Status {
+@@ -407,6 +377,11 @@
+         .with_options(
+             IpcWriteOptions::default()
+                 .try_with_compression(compression_type)
++                .inspect_err(|_cause| {
++                    eprintln!(
++                        "observed, completion_diagnostic boundary=flight_setup phase=ipc_options result=failed tonic_code=13"
++                    );
++                })
+                 .map_err(|err| Status::internal(err.to_string()))?,
+         )
+         .with_schema(stream.schema())
+@@ -444,9 +419,7 @@
+ ///
+ /// Unused values can arise from operations such as filtering, where
+ /// some keys may no longer be referenced in the filtered result.
+-fn garbage_collect_arrays(
+-    batch: RecordBatch,
+-) -> datafusion::common::Result<RecordBatch, DataFusionError> {
++fn garbage_collect_arrays(batch: RecordBatch) -> datafusion::common::Result<RecordBatch, DataFusionError> {
+     let (schema, arrays, row_count) = batch.into_parts();
+ 
+     let arrays = arrays

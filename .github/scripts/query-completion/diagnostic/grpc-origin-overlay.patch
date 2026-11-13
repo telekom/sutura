@@ -26,7 +26,7 @@
      let status = status.borrow();
      if status.code() != tonic::Code::Internal {
          return None;
-@@ -46,22 +52,31 @@
+@@ -46,22 +52,32 @@
  
      match DataFusionErrorProto::decode(status.details()) {
          Ok(err_proto) => Some(err_proto.to_datafusion_err()),
@@ -44,7 +44,8 @@
 -        .unwrap_or_else(|| DataFusionError::External(Box::new(err)))
 +    let decoded = tonic_status_to_datafusion_error(&err);
 +    let branch = if decoded.is_some() { "recognized" } else { "fallback" };
-+    eprintln!("observed, completion_diagnostic boundary=grpc_status branch={branch}");
++    let code = i32::from(err.code());
++    eprintln!("observed, completion_diagnostic boundary=grpc_status branch={branch} tonic_code={code}");
 +    decoded.unwrap_or_else(|| DataFusionError::External(Box::new(err)))
  }
  

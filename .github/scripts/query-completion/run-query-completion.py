@@ -420,6 +420,8 @@ def run_cli_diagnostic(config, out, root, baseline):
         "crates/sutura-exec-datafusion/src/combine/across.rs",
         "vendor/datafusion-distributed/src/protocol/grpc/errors/mod.rs",
         "crates/sutura-exec-datafusion/src/combine/across/receipts.rs",
+        "vendor/datafusion-distributed/src/protocol/grpc/worker_client.rs",
+        "vendor/datafusion-distributed/src/protocol/grpc/worker_service.rs",
     ]
     for item in overlays:
         overlay = PAYLOAD / item["overlay"]

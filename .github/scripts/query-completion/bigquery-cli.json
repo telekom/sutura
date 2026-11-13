@@ -2,7 +2,7 @@
   "source": "d10b8f96cb9a740dd09c549b87f361c81e0c271a",
   "tree": "3e89c4b8b46fe3c55c023bf6ad00aeb3ffa30926",
   "draft_basis": "97b08c214f8fae7874ecf8778fb09308dde0641f",
-  "binding": "ORIGIN DIAGNOSTIC ONLY; no mutation or proof credit",
+  "binding": "STATUS CODE AND ORIGIN DIAGNOSTIC ONLY; no mutation or proof credit",
   "app_final_command": "exec cargo nextest run --cargo-profile ci -p sutura-exec-bigquery --all-features               --run-ignored only -E 'test(/declared_principal::/)' \"$@\"",
   "cases": [],
   "venue_limit": "In-process native split creation and forwarded partition reader: actual multiple-stream Granted and <=1-stream Split branches, descriptor capture barrier, creation propagation/count, full creation SQL equality, and local creation attachment. Each earns only its reached bound assertion; no served-human, inbound-issuer, real-delegation-hop, forced duplicate native read or native-cancellation credit.",
@@ -14,7 +14,7 @@
   "diagnostic": {
     "binary": "sutura-cli::bin/sutura",
     "test": "serve::worker::partition::tests::native_bigquery::forwarded_bigquery_native_read_keeps_its_descriptor_receipt",
-    "marker_pattern": "observed, completion_diagnostic (?:late_phase=batch_stream late_reason=engine_error|late_phase=batch_accept late_reason=(?:over_bound|over_budget|width|mislabelled)|late_phase=capture_check late_reason=unrecorded|late_phase=partition_complete late_reason=ok|boundary=combine_error error_depth=[0-7] error_type=(?:invalid_capture|over_bound|over_budget|width|mislabelled|df_external|df_shared|df_context|df_arrow|df_collection|df_execution|df_internal|df_plan|df_resources_exhausted|df_execution_join|df_other|arrow|tonic_status|unknown_type)|boundary=combine_error error_depth=[0-7] tonic_code=(?:[0-9]|1[0-6])|boundary=combine_error chain_end=(?:source_none|chain_limit)|boundary=grpc_encode error_type=(?:external|execution|shared|context|other)|boundary=grpc_status branch=(?:recognized|fallback)|boundary=flight_map error_type=(?:arrow|not_yet_implemented|tonic|protocol|decode|external)|boundary=receipt_producer phase=capture_finish result=(?:ok|failed)|boundary=receipt_producer phase=wire_encode result=invalid_capture|boundary=receipt_producer phase=producer result=ok)",
+    "marker_pattern": "observed, completion_diagnostic (?:late_phase=batch_stream late_reason=engine_error|late_phase=batch_accept late_reason=(?:over_bound|over_budget|width|mislabelled)|late_phase=capture_check late_reason=unrecorded|late_phase=partition_complete late_reason=ok|boundary=combine_error error_depth=[0-7] error_type=(?:invalid_capture|over_bound|over_budget|width|mislabelled|df_external|df_shared|df_context|df_arrow|df_collection|df_execution|df_internal|df_plan|df_resources_exhausted|df_execution_join|df_other|arrow|tonic_status|unknown_type)|boundary=combine_error error_depth=[0-7] tonic_code=(?:[0-9]|1[0-6])|boundary=combine_error chain_end=(?:source_none|chain_limit)|boundary=grpc_encode error_type=(?:external|execution|shared|context|other)|boundary=grpc_status branch=(?:recognized|fallback)|boundary=flight_map error_type=(?:arrow|not_yet_implemented|tonic|protocol|decode|external)|boundary=receipt_producer phase=capture_finish result=(?:ok|failed)|boundary=receipt_producer phase=wire_encode result=invalid_capture|boundary=receipt_producer phase=producer result=ok|boundary=grpc_status branch=(?:recognized|fallback) tonic_code=(?:[0-9]|1[0-6])|boundary=flight_fanout origin=(?:execute_rpc|stream_receive) tonic_code=(?:[0-9]|1[0-6])|boundary=flight_fanout origin=(?:metadata_decode|partition_underflow|partition_lookup) tonic_code=13|boundary=flight_serve error_type=tonic tonic_code=(?:[0-9]|1[0-6])|boundary=flight_serve error_type=(?:arrow|not_yet_implemented|protocol|decode|external) tonic_code=13|boundary=flight_setup phase=ipc_options result=failed tonic_code=13)",
     "overlays": [
       {
         "path": "crates/sutura-exec-datafusion/src/combine/across/partition.rs",
@@ -33,9 +33,9 @@
       {
         "path": "vendor/datafusion-distributed/src/protocol/grpc/errors/mod.rs",
         "overlay": "diagnostic/grpc-origin-overlay.patch",
-        "overlay_sha256": "bbcf3bee34e41b76f06a3e26310cce7462d42c2d5fb70bff335ec92b46ccbde3",
+        "overlay_sha256": "ba0df9f0ab94179a923a9bd7aa63d142878913bd8bc1fc1a9984c02e86e45c07",
         "before_sha256": "c432015b5d9683b14d43348237b27b988a9f9a55a91bd5d4728712dc0c137317",
-        "after_sha256": "3a9865b923afef7865a23fde2e8b4276a8196d0b8a7f25250ace4cbd81360134"
+        "after_sha256": "f31d6d245f54cf80f7254b4742571e01e539c6a5f4a4310c0ac54ad5a2a17e0c"
       },
       {
         "path": "crates/sutura-exec-datafusion/src/combine/across/receipts.rs",
@@ -43,6 +43,20 @@
         "overlay_sha256": "b2781df2c5292ba45a649a9f4dc9a8baff86b82b23ee766a8a53647396b2786f",
         "before_sha256": "ed3141200e4cea952f43050e36e4ff7e92885257d2951c7fb4c46206401d6010",
         "after_sha256": "37856df1bc6c381f734d461bf771e02f6d6999749f6692f7114e3400f86348e7"
+      },
+      {
+        "path": "vendor/datafusion-distributed/src/protocol/grpc/worker_client.rs",
+        "overlay": "diagnostic/client-status-origin-overlay.patch",
+        "overlay_sha256": "035dd0b41e35b71221dcc9f9c930a3b4107a331afa9428dc0b26b4e2206f96ed",
+        "before_sha256": "86c6e7ce5212b755908cc5ad949b1d81004bd5a0ea376e8e224d079df65a4b31",
+        "after_sha256": "47b16196fcc582af6de6df8855f1d54669e9e15eb4fde1af7200d12452b73add"
+      },
+      {
+        "path": "vendor/datafusion-distributed/src/protocol/grpc/worker_service.rs",
+        "overlay": "diagnostic/service-status-origin-overlay.patch",
+        "overlay_sha256": "1d29becaec696cd6e2b5e67839897ff70caa41e37c61a320f7b18382cd5a9e55",
+        "before_sha256": "c2769777aeaa358feab740d577d07b1bd9919a2bafb5f83c3623bda1a120964c",
+        "after_sha256": "e2e47eafee0296b2eddb5f9c9e94229f53017530629e4f987f8af828c067706b"
       }
     ]
   }
