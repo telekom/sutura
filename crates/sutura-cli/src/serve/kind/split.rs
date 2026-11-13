@@ -164,7 +164,7 @@ pub(crate) fn worker_read(
     }
 }
 
-/// Reads only a ClickHouse partition as the principal the admitted task grant named. Other kinds
+/// Reads only a `ClickHouse` partition as the principal the admitted task grant named. Other kinds
 /// refuse the identity rather than dropping it and reading as their service user.
 pub(crate) fn worker_read_switched(
     pinned: &PinnedDefinitions,

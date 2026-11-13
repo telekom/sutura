@@ -1,7 +1,7 @@
 //! A reading worker's [`PartitionReader`]: the leg a task carries is re-certified against this node's
 //! own pinned catalog through [`sutura_app::read_recertified`], and only then is the granted
 //! partition read, for a kind `split` dispatches - `PostgreSQL` as this node's service user, and
-//! `BigQuery` with the caller's token the task's grant named, and ClickHouse as the service user
+//! `BigQuery` with the caller's token the task's grant named, and `ClickHouse` as the service user
 //! or the caller's switched principal.
 //!
 //! **Limits.** Any other kind whose leg this node certifies is refused as a failed read, and a leg
