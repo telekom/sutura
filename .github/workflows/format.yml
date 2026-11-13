@@ -58,7 +58,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: inbound-finishing-gates-${{ github.ref }}
+  group: hook-profile-finishing-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
