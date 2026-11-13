@@ -139,7 +139,7 @@ pkgs.testers.runNixOSTest {
     environment.systemPackages = [ pkgs.curl pkgs.netcat-openbsd ];
   };
   nodes.db = { nodes, ... }: {
-    virtualisation = { memorySize = 6144; cores = 2; diskSize = 32768; };
+    virtualisation = { memorySize = 6144; cores = 2; diskSize = 65536; };
     virtualisation.docker.enable = true;
     environment.systemPackages = [ sql ];
     networking.firewall.extraCommands = builtins.concatStringsSep "\n" (map (node:
@@ -153,6 +153,8 @@ pkgs.testers.runNixOSTest {
       script = ''
         docker load -i ${oracleImage}
         docker load -i ${walletImage}
+        df -h /var/lib/docker
+        df -i /var/lib/docker
         docker tag gvenzl/oracle-free:23.26.3-faststart sutura-oracle-server:fixture
         docker tag container-registry.oracle.com/database/free:23.26.3.0 sutura-oracle-wallet:fixture
         install -d -m 0700 /run/oracle-tls /run/oracle-tls/wallet
