@@ -305,7 +305,7 @@ def run_base(config, out):
         binary, name = binary_for(json.loads(raw), base["cell"])
         body = own_text(root, base["cell"])
         code, log = invoke(
-            root, out, "base-catalog", [JUST, "test-only", f"binary_id(={binary})"]
+            root, out, "base-catalog", task(root, "proof-offline", binary)
         )
         killed = code != 0 and own_kill(
             log, root, base["cell"], body, binary, name, base["marker"]
@@ -403,6 +403,16 @@ def run_cases(config, out):
                 data = (PAYLOAD / "vendor" / name).read_bytes()
                 assert sha(data) == config["vendor_overlays"][name]
                 (root / name).write_bytes(data)
+            vendor_home = root / "target/completion-cargo-home"
+            vendor_home.mkdir(parents=True)
+            os.environ["CARGO_HOME"] = str(vendor_home)
+            code, _ = invoke(
+                root, out, "vendor-registry", task(root, "proof-vendor-registry")
+            )
+            assert code == 0, "proof-worktree vendor registry failed"
+            (out / "vendor-cargo-config.toml").write_bytes(
+                (vendor_home / "config.toml").read_bytes()
+            )
         assert snapshot(root)["stages_sha256"] == baseline["stages_sha256"]
         expected = snapshot(root)
         record(out / "approved-overlays.json", expected)
@@ -545,7 +555,7 @@ def run_cases(config, out):
                     "census": "census.json",
                 }
                 argv = (
-                    [JUST, "test-only", f"binary_id(={binary})"]
+                    task(root, "proof-offline", binary)
                     if GROUP in ["offline", "claims"]
                     else task(root, "proof-" + GROUP, binary)
                 )
@@ -733,20 +743,23 @@ def main():
                 assert path.endswith(".drv") or value == {"path": True}
                 subprocess.run(["nix-store", "--realise", path], check=True)
             oracle_original = oracle_app.read_text()
+            (out / "oracle-environment-original.sh").write_text(oracle_original)
             path_lines = re.findall(
                 r'^export PATH="([^"\n]+):\$PATH"$', oracle_original, re.MULTILINE
             )
-            assert len(path_lines) == 1, "Oracle app PATH shape changed"
-            openssl_bins = [
-                part
-                for part in path_lines[0].split(":")
-                if (Path(part) / "openssl").is_file()
-            ]
+            assert path_lines, "Oracle app PATH shape changed"
+            openssl_bins = sorted(
+                {
+                    part
+                    for paths in path_lines
+                    for part in paths.split(":")
+                    if (Path(part) / "openssl").is_file()
+                }
+            )
             assert len(openssl_bins) == 1 and re.fullmatch(
                 r"/nix/store/[A-Za-z0-9+._-]+/bin", openssl_bins[0]
             )
             replacement = 'export PATH="' + openssl_bins[0] + ':$PATH"\n' + replacement
-            (out / "oracle-environment-original.sh").write_text(oracle_original)
             oracle_environment = {
                 "app": str(oracle_app),
                 "context": oracle_context,

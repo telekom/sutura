@@ -1,6 +1,6 @@
 {
-  "source": "9c2146ea5740ff08665730492b158d760b663864",
-  "tree": "2192f2b1180c7d2ee4dfd80b2b76198024dad9ee",
+  "source": "d10b8f96cb9a740dd09c549b87f361c81e0c271a",
+  "tree": "3e89c4b8b46fe3c55c023bf6ad00aeb3ffa30926",
   "binding": "BOUND STATIC PROPOSAL; independent review required before runtime execution",
   "app_final_command": "exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"",
   "cases": [
