@@ -599,7 +599,7 @@ fn a_granted_lookup_with_two_null_linked_rows_answers_what_the_whole_leg_answers
 }
 
 mod fan_in;
-use fan_in::{GrantingGeoAndCrm, Partitions, answered_filling, asked_filling, filled, filling_peer};
+use fan_in::{GrantingGeoAndCrm, Partitions, answered_filling, asked_filling, filled};
 
 /// `crm`, granted and joined INNER onto `geo`, has no row its join can match: each partition holds
 /// a null link, or no row at all. An INNER join of it would end the plan before `geo`'s count ran;

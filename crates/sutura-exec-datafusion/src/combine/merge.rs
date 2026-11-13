@@ -276,6 +276,7 @@ mod tests {
         PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
     };
     use sutura_domain::warehouse::arrow::of_row_set;
+    use sutura_domain::warehouse::execution::Execution;
     use sutura_domain::warehouse::{Accumulating, Real, ResultBatches, ResultBudget, RowSet, Value};
 
     use crate::combine::{CombineError, DataFusionCombiner};
