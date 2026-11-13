@@ -169,6 +169,10 @@ fn refuse_rdbms_keys(settings: &CatalogSettings, raw: &RawCatalog) -> Result<(),
         ("max_dictionary_bytes", raw.max_dictionary_bytes.is_some()),
         ("dictionary_schema", raw.dictionary_schema.is_some()),
         ("dictionary_source", raw.dictionary_source.is_some()),
+        ("include", raw.include.is_some()),
+        ("exclude_tables", raw.exclude_tables.is_some()),
+        ("exclude_columns", raw.exclude_columns.is_some()),
+        ("exclude_types", raw.exclude_types.is_some()),
         ("connection", raw.connection.is_some()),
     ];
     match written.into_iter().find(|&(_, written)| written) {

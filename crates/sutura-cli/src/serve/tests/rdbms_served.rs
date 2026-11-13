@@ -186,12 +186,10 @@ fn a_rdbms_catalog_declaring_the_system_trust_store_is_refused_naming_it() {
     );
 }
 
-/// `dialect: oracle` opens the Oracle documentation-schema reader - without dialling, as the
-/// Postgres one does not either - while `native_dictionary`, which no reader in this build reads, is
-/// refused naming the catalog and the key rather than opened as the documentation-schema reader.
+/// Both native dictionary readers open from the same settings path as documentation views.
 #[test]
 #[cfg(feature = "oracle")]
-fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
+fn oracle_and_postgres_catalogs_open_native_dictionary_readers() {
     let scratch = ScratchDir::prepared();
     let oracle = oracle_connection(
         &readable_password_file(&scratch).display().to_string(),
@@ -203,15 +201,22 @@ fn an_oracle_catalog_opens_its_reader_and_a_native_dictionary_is_refused() {
         "one rdbms catalog opened"
     );
 
-    let postgres = "      host: \"127.0.0.1\"\n      port: 5432\n      database: \"dictionary\"\n      \
-         user: \"reader\"\n      password_file: \"/run/secrets/dictionary\"\n      transport_mode: \"plaintext\"\n";
-    for connection in [postgres, oracle.as_str()] {
-        let native = format!("{connection}    dictionary_source: \"native_dictionary\"\n");
-        let err = crate::catalog::open_catalog(&catalogs(&native), None).expect_err("no reader opens this declaration");
+    let postgres = format!(
+        "      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      \
+         user: reader\n      password_file: {}\n      transport_mode: plaintext\n",
+        readable_password_file(&scratch).display()
+    );
+    for connection in [postgres.as_str(), oracle.as_str()] {
+        let native = overlay(connection).replace(
+            "    environment: \"prod\"\n",
+            "    dictionary_source: native_dictionary\n    include: [{schema: PUBLIC, table: '*'}]\n",
+        );
+        let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(native))
+            .expect("native settings need no documentation view environment");
+        let opened = crate::catalog::open_catalog(settings.catalogs(), None).expect("the native reader opens without dialing");
         assert!(
-            err.contains("`catalogs.dictionary` declares `dictionary_source: native_dictionary`")
-                && err.contains("not supported by this build"),
-            "the refusal names the catalog and the key, under either dialect: {err}"
+            matches!(opened, crate::catalog::OpenedCatalogs::Rdbms(ref catalogs) if catalogs.len() == 1),
+            "one native dictionary opens"
         );
     }
 }

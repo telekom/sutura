@@ -78,7 +78,7 @@ use arrow_array::{Array as _, RecordBatch, StringArray};
 use sutura_adbc_postgres::{AdbcError, Conninfo, PostgresDriver};
 use sutura_domain::warehouse::ParamValue;
 
-use crate::documentation::{Assembly, DOCUMENTATION_VIEW, Row as DocumentationRow, checked_bounds};
+use crate::documentation::{Assembly, ReadQuery, Row as DocumentationRow, checked_bounds, default_bounds};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
 /// The documented default documentation schema, used when no `dictionary_schema` is configured.
@@ -89,9 +89,6 @@ pub const DEFAULT_MAX_DICTIONARY_ROWS: u64 = 10_000;
 
 /// The documented default byte cap on one dictionary read.
 pub const DEFAULT_MAX_DICTIONARY_BYTES: u64 = 8 * 1024 * 1024;
-
-/// The soft-delete filter: only live rows are ever read.
-const SOFT_DELETE_SQL: &str = "is_deleted = false";
 
 /// The first statement of every read's transaction - a fixed literal, sent through the simple
 /// protocol (`clippy.toml`'s `execute_update` row).
@@ -151,9 +148,7 @@ struct UnexpectedColumn {
 pub struct PostgresReader {
     driver: PostgresDriver,
     conninfo: Conninfo,
-    documentation_schema: String,
-    environment: String,
-    predicate: RowPredicate,
+    query: ReadQuery,
     bounds: DictionaryBounds,
 }
 
@@ -175,10 +170,28 @@ impl PostgresReader {
         Ok(Self {
             driver,
             conninfo,
-            documentation_schema,
-            environment,
-            predicate,
+            query: ReadQuery::View {
+                schema: documentation_schema,
+                environment,
+                predicate,
+            },
             bounds,
+        })
+    }
+
+    /// Opens only visible native metadata under the catalog's own login.
+    pub fn native(
+        driver: PostgresDriver,
+        conninfo: Conninfo,
+        selection: &sutura_domain::catalog::DictionarySelection,
+        row_cap: Option<NonZeroU64>,
+        byte_cap: Option<NonZeroU64>,
+    ) -> Result<Self, InvalidReaderConfig> {
+        Ok(Self {
+            driver,
+            conninfo,
+            query: ReadQuery::native(selection),
+            bounds: default_bounds(row_cap, byte_cap)?,
         })
     }
 
@@ -194,39 +207,20 @@ impl PostgresReader {
     where
         C: Connection,
     {
-        let mut params = vec![ParamValue::Text(self.environment.clone())];
-        let predicate_sql = match &self.predicate {
-            RowPredicate::None => String::new(),
-            RowPredicate::IsNull(column) => format!(" AND \"{column}\" IS NULL"),
-            RowPredicate::IsNotNull(column) => format!(" AND \"{column}\" IS NOT NULL"),
-            RowPredicate::Equals { column, value } => {
-                params.push(ParamValue::Text(value.clone()));
-                format!(" AND \"{column}\" = $2")
-            }
-        };
-
-        let statement = format!(
-            "SELECT environment, catalog_name, schema_name, table_name, model_name, table_description, \
-                    column_name, column_type, column_description, is_primary_key \
-             FROM \"{}\".\"{}\" \
-             WHERE {SOFT_DELETE_SQL} AND environment = $1{predicate_sql} \
-             ORDER BY catalog_name, schema_name, table_name, column_ordinal \
-             LIMIT {}",
-            self.documentation_schema,
-            DOCUMENTATION_VIEW,
-            self.bounds.max_rows().get().saturating_add(1),
-        );
+        let params: Vec<_> = self.query.binds().into_iter().map(ParamValue::Text).collect();
+        let statement = self.query.postgres_statement(self.bounds);
 
         let mut select = connection.new_statement().map_err(adbc)?;
         select.set_sql_query(statement).map_err(adbc)?;
         if let Some(bound) = sutura_adbc::parameter_batch(&params).map_err(|cause| read_err(AdbcError::Parameters(cause)))? {
             select.bind(bound).map_err(adbc)?;
         }
-        let mut assembly = Assembly::new(&self.environment, self.bounds);
+        let mut assembly = Assembly::new(self.query.environment(), self.bounds);
         for batch in select.execute().map_err(adbc)? {
             admit(&mut assembly, &batch.map_err(|cause| read_err(AdbcError::Batch(cause)))?)?;
         }
-        Ok(assembly.finish())
+        self.query
+            .finish(assembly.finish(), sutura_domain::warehouse::schema::TypeDialect::Postgres)
     }
 }
 

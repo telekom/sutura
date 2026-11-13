@@ -10,25 +10,14 @@
 //! can drift from what the other serves. `sutura mcp` used to open only a directory argument and
 //! ignore `catalogs:`.
 //!
-//! **Since issue #202's HTTP reader, a deployment may declare `catalog.kind: datahub` instead of
-//! `markdown` - never both in one deployment, and the reason is a type-system one rather than a
-//! preference.** `sutura_app::Surface::start_composed` takes `&[C]` for one `C: SemanticCatalog`,
-//! and `SemanticCatalog::KIND` and `capabilities()` are per-TYPE associated items with no `&self` -
-//! so unlike `OpenedSources` (a closed enum over data-system adapters, each reached through the
-//! SAME `Warehouse` trait's instance methods), there is no single Rust type that is faithfully "a
-//! markdown catalog OR a datahub catalog": an enum wrapping both could not answer its own `KIND` or
-//! `capabilities()` without an instance to match on, which the trait's shape does not allow. What
-//! this module does instead is decide, from the declared catalogs' SHARED kind, which of several
-//! monomorphic vectors to open - [`crate::catalog::OpenedCatalogs`] carries that choice and refuses a mix by name
-//! rather than picking one silently.
-//!
-//! **State the limit next to the claim: a heterogeneous catalog set - one deployment serving BOTH a
-//! markdown and a datahub catalog at once - is an architecture decision not taken here.** Wave one
-//! is one catalog kind per deployment; `.agents/skills/sutura/crate-map/SKILL.md` and
-//! `docs/adr/0016` both carry this same sentence, so it is read from one place rather than pieced
-//! together from a mixed-kind refusal's wording.
+//! Native RDBMS dictionaries may compose beside Markdown declarations. Other mixed kinds are
+//! refused. Each adapter retains its own type-level KIND and capability declaration; the explicit
+//! mixed path links declarations in the application before warehouse validation and publication.
 
 use std::path::PathBuf;
+
+#[cfg(feature = "rdbms")]
+mod native;
 
 use sutura_app::assemble;
 use sutura_catalog_local::LocalCatalog;
@@ -76,7 +65,12 @@ pub(crate) enum OpenedCatalogs {
     /// a Postgres documentation schema, or an Oracle one behind `oracle`, by
     /// [`sutura_catalog_rdbms::AnyDictionaryReader`].
     #[cfg(feature = "rdbms")]
-    Rdbms(Vec<sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::AnyDictionaryReader>>),
+    Rdbms(Vec<native::Rdbms>),
+    #[cfg(feature = "rdbms")]
+    RdbmsWithMarkdown {
+        rdbms: Vec<native::Rdbms>,
+        markdown: Vec<LocalCatalog>,
+    },
 }
 
 /// Opens every catalog the settings declare.
@@ -101,6 +95,15 @@ pub(crate) fn open_catalog(
         .next()
         .ok_or_else(|| String::from("this catalog declares no entries, which Catalogs::parse should already have refused"))?;
     if let Some(mixed) = kinds.find(|kind| *kind != first) {
+        #[cfg(feature = "rdbms")]
+        if catalogs.each().all(|settings| {
+            matches!(
+                settings.kind(),
+                sutura_config::CatalogKind::Rdbms | sutura_config::CatalogKind::Markdown
+            )
+        }) {
+            return native::open(catalogs);
+        }
         return Err(format!(
             "this deployment declares catalogs of more than one kind ({} and {}) - one build serves \
              catalogs of one kind today",
@@ -174,7 +177,9 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         OpenedCatalogs::OpenApi(catalogs) => load_each(catalogs),
         OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
         #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => load_each(catalogs),
+        OpenedCatalogs::Rdbms(catalogs) => native::load(catalogs, &[]),
+        #[cfg(feature = "rdbms")]
+        OpenedCatalogs::RdbmsWithMarkdown { rdbms, markdown } => native::load(rdbms, markdown),
     }
 }
 
@@ -264,7 +269,14 @@ where
         OpenedCatalogs::OpenApi(catalogs) => start!(catalogs),
         OpenedCatalogs::DataContract(catalogs) => start!(catalogs),
         #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => start!(catalogs),
+        OpenedCatalogs::Rdbms(_) | OpenedCatalogs::RdbmsWithMarkdown { .. } => LocalService::start_pinned(
+            load(catalogs)?,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
+        ),
     }
     .map(|service| {
         let mut service = service.with_spend_ledger(spend_ledger).with_ceilings(settings.ceilings());
@@ -469,20 +481,14 @@ fn open_one_rdbms_catalog(
             settings.name()
         )
     })?;
-    if rdbms.dictionary_source() == sutura_config::DictionarySource::NativeDictionary {
-        return Err(format!(
-            "`catalogs.{}` declares `dictionary_source: native_dictionary`, but the native dictionary reader is not yet wired - \
-             not supported by this build",
-            settings.name()
-        ));
-    }
-
     // The documentation schema, defaulting to the reader's own documented default.
     let documentation_schema = rdbms.dictionary_schema().map_or_else(
         || String::from(sutura_catalog_rdbms::postgres_reader::DEFAULT_DOCUMENTATION_SCHEMA),
         |schema| String::from(schema.as_str()),
     );
-    let environment = String::from(rdbms.environment().as_str());
+    let environment = rdbms
+        .environment()
+        .map_or_else(String::new, |environment| environment.as_str().to_owned());
 
     let predicate = match rdbms.live_row_predicate() {
         None => RowPredicate::None,
@@ -513,21 +519,30 @@ fn open_one_rdbms_catalog(
                 connection.password_file(),
             )?;
             let login = crate::oracle::dictionary_login(settings.name(), connection, password)?;
-            sutura_catalog_rdbms::oracle_reader::OracleReader::new(
-                login,
-                &documentation_schema,
-                environment,
-                predicate,
-                rdbms.max_dictionary_rows(),
-                rdbms.max_dictionary_bytes(),
-            )
-            .map(|reader| AnyDictionaryReader::Oracle(Box::new(reader)))
-            .map_err(|cause| {
-                format!(
-                    "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
-                    settings.name()
-                )
-            })
+            let reader = match rdbms.native_selection() {
+                Some(selection) => sutura_catalog_rdbms::oracle_reader::OracleReader::native(
+                    login,
+                    selection,
+                    rdbms.max_dictionary_rows(),
+                    rdbms.max_dictionary_bytes(),
+                ),
+                None => sutura_catalog_rdbms::oracle_reader::OracleReader::new(
+                    login,
+                    &documentation_schema,
+                    environment,
+                    predicate,
+                    rdbms.max_dictionary_rows(),
+                    rdbms.max_dictionary_bytes(),
+                ),
+            };
+            reader
+                .map(|reader| AnyDictionaryReader::Oracle(Box::new(reader)))
+                .map_err(|cause| {
+                    format!(
+                        "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
+                        settings.name()
+                    )
+                })
         }
         #[cfg(not(feature = "oracle"))]
         sutura_config::CatalogConnection::Oracle(_) => Err(oracle_dictionary_not_linked(settings.name())),
@@ -615,16 +630,25 @@ fn postgres_dictionary_reader(
     let driver = PostgresDriver::from_host()
         .map_err(|none| format!("`catalogs.{name}` has no driver to open: {}", crate::commands::render(&none)))?;
 
-    PostgresReader::new(
-        driver,
-        conninfo,
-        documentation_schema,
-        environment,
-        predicate,
-        rdbms.max_dictionary_rows(),
-        rdbms.max_dictionary_bytes(),
-    )
-    .map_err(|cause| {
+    let reader = match rdbms.native_selection() {
+        Some(selection) => PostgresReader::native(
+            driver,
+            conninfo,
+            selection,
+            rdbms.max_dictionary_rows(),
+            rdbms.max_dictionary_bytes(),
+        ),
+        None => PostgresReader::new(
+            driver,
+            conninfo,
+            documentation_schema,
+            environment,
+            predicate,
+            rdbms.max_dictionary_rows(),
+            rdbms.max_dictionary_bytes(),
+        ),
+    };
+    reader.map_err(|cause| {
         format!(
             "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
             settings.name()

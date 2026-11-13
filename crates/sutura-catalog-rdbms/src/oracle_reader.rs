@@ -52,7 +52,7 @@ use std::num::NonZeroU64;
 use sutura_domain::identity::Secret;
 use sutura_oracle_connect::{Channel, Dial, PrepareError, PreparedDial};
 
-use crate::documentation::{Assembly, DOCUMENTATION_VIEW, Row as DocumentationRow, checked_bounds};
+use crate::documentation::{Assembly, DOCUMENTATION_VIEW, ReadQuery, Row as DocumentationRow, checked_bounds, default_bounds};
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
@@ -129,9 +129,7 @@ impl EncryptedOracleLogin {
 pub struct OracleReader {
     login: OracleLogin,
     dial: PreparedDial,
-    statement: String,
-    environment: String,
-    predicate: RowPredicate,
+    query: ReadQuery,
     bounds: DictionaryBounds,
 }
 
@@ -152,6 +150,28 @@ impl OracleReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
+        Self::open(
+            login,
+            ReadQuery::View {
+                schema: documentation_schema.to_owned(),
+                environment,
+                predicate,
+            },
+            bounds,
+        )
+    }
+
+    /// Opens visible native metadata, preserving the existing transport and dial refusals.
+    pub fn native(
+        login: EncryptedOracleLogin,
+        selection: &sutura_domain::catalog::DictionarySelection,
+        row_cap: Option<NonZeroU64>,
+        byte_cap: Option<NonZeroU64>,
+    ) -> Result<Self, InvalidReaderConfig> {
+        Self::open(login, ReadQuery::native(selection), default_bounds(row_cap, byte_cap)?)
+    }
+
+    fn open(login: EncryptedOracleLogin, query: ReadQuery, bounds: DictionaryBounds) -> Result<Self, InvalidReaderConfig> {
         let EncryptedOracleLogin {
             login,
             anchors_pem,
@@ -173,9 +193,7 @@ impl OracleReader {
         Ok(Self {
             login,
             dial,
-            statement: statement(documentation_schema, &predicate),
-            environment,
-            predicate,
+            query,
             bounds,
         })
     }
@@ -185,13 +203,8 @@ impl OracleReader {
         self.bounds
     }
 
-    /// The values bound to the statement's `:1` and `:2`, in order.
-    fn binds(&self) -> Vec<&str> {
-        let mut binds = vec![self.environment.as_str()];
-        if let RowPredicate::Equals { value, .. } = &self.predicate {
-            binds.push(value);
-        }
-        binds
+    fn binds(&self) -> Vec<String> {
+        self.query.binds()
     }
 
     /// The driver's configuration for the read's dial, with no credential, refused while the
@@ -225,14 +238,17 @@ impl DictionaryReader for OracleReader {
         connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(read_err)?;
         let binds = self.binds();
         let params: Vec<&dyn oracledb::ToDbValue> = binds.iter().map(|value| value as &dyn oracledb::ToDbValue).collect();
-        let rows = connection.query(&self.statement, &params).map_err(read_err)?;
+        let rows = connection
+            .query(&self.query.oracle_statement(self.bounds), &params)
+            .map_err(read_err)?;
         let dictionary = assemble(
-            &self.environment,
+            self.query.environment(),
             self.bounds,
             rows.map(|row| decode_row(&row.map_err(read_err)?)),
         )?;
         connection.rollback().map_err(read_err)?;
-        Ok(dictionary)
+        self.query
+            .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Oracle)
     }
 }
 
@@ -256,7 +272,7 @@ fn quoted(identifier: &str) -> String {
     format!("\"{}\"", identifier.to_ascii_uppercase())
 }
 
-fn statement(documentation_schema: &str, predicate: &RowPredicate) -> String {
+pub(crate) fn statement(documentation_schema: &str, predicate: &RowPredicate) -> String {
     let predicate_sql = match predicate {
         RowPredicate::None => String::new(),
         RowPredicate::IsNull(column) => format!(" AND {} IS NULL", quoted(column)),

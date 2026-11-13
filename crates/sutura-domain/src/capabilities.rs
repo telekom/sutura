@@ -26,8 +26,8 @@
 
 use std::collections::BTreeSet;
 
-use crate::catalog::Definitions;
-use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities};
+use crate::catalog::{Definitions, Metric, Model, Relationship};
+use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 
 /// One kind of thing a catalog's *definitions* can carry.
 ///
@@ -488,6 +488,22 @@ impl MetadataCapabilities {
         )
     }
 
+    /// Observes declarations before cross-contributor references are linked.
+    pub fn produced_input(
+        models: &[Model],
+        relationships: &[Relationship],
+        metrics: &[Metric],
+        knowledge: &KnowledgeInput,
+    ) -> Self {
+        Self::of(
+            DefinitionCapabilities::of(
+                DefinitionKind::every()
+                    .filter(|kind| carried_by(models.iter(), !relationships.is_empty(), metrics.iter(), *kind)),
+            ),
+            KnowledgeCapabilities::of(Capability::every().filter(|kind| knowledge.supplied(*kind) != 0)),
+        )
+    }
+
     /// Declaration fidelity: is this declaration exactly what `produced` was produced?
     ///
     /// The assertion a **declaring** adapter gets in place of the golden adapters' oracle, and it is
@@ -546,47 +562,43 @@ impl MetadataCapabilities {
 /// nothing observes - which would make [`MetadataCapabilities::checked_against`] silently blind to
 /// it in both directions.
 fn carried(definitions: &Definitions, kind: DefinitionKind) -> bool {
+    carried_by(
+        definitions.models().values(),
+        !definitions.relationships().is_empty(),
+        definitions.metrics().values(),
+        kind,
+    )
+}
+
+fn carried_by<'a>(
+    mut models: impl Iterator<Item = &'a Model>,
+    relationships: bool,
+    mut metrics: impl Iterator<Item = &'a Metric> + Clone,
+    kind: DefinitionKind,
+) -> bool {
     match kind {
-        DefinitionKind::Structure => !definitions.models().is_empty(),
-        DefinitionKind::Descriptions => describes_anything(definitions),
-        DefinitionKind::Relationships => !definitions.relationships().is_empty(),
-        DefinitionKind::Cardinality => dimensions(definitions).any(|dimension| dimension.via().is_some()),
-        DefinitionKind::Metrics => !definitions.metrics().is_empty(),
-        DefinitionKind::RequiredFilters => definitions
-            .metrics()
-            .values()
-            .any(|metric| !metric.required_filters().is_empty()),
-        // Written as a read of the field rather than as `!metrics().is_empty()`, even though
-        // `assemble`'s `NoGrains` refusal makes the two equal today: if that refusal is ever relaxed,
-        // this arm is already right, and the equality is a fact about another function rather than
-        // about this one.
-        DefinitionKind::Grains => definitions.metrics().values().any(|metric| !metric.grains().is_empty()),
-        DefinitionKind::AllowedValues => dimensions(definitions).any(|dimension| dimension.allowed_values().is_some()),
-        DefinitionKind::Anchors => definitions.metrics().values().any(|metric| metric.anchor().is_some()),
-        DefinitionKind::ColumnTypes => model_columns(definitions).any(|column| column.data_type().is_some()),
-        DefinitionKind::ColumnDescriptions => model_columns(definitions).any(|column| !column.description().is_empty()),
+        DefinitionKind::Structure => models.next().is_some(),
+        DefinitionKind::Descriptions => {
+            models.any(|model| !model.description().is_empty())
+                || metrics.clone().any(|metric| !metric.description().is_empty())
+                || metrics
+                    .flat_map(|metric| metric.dimensions().values())
+                    .any(|dimension| !dimension.description().is_empty())
+        }
+        DefinitionKind::Relationships => relationships,
+        DefinitionKind::Cardinality => metrics
+            .flat_map(|metric| metric.dimensions().values())
+            .any(|dimension| dimension.via().is_some()),
+        DefinitionKind::Metrics => metrics.next().is_some(),
+        DefinitionKind::RequiredFilters => metrics.any(|metric| !metric.required_filters().is_empty()),
+        DefinitionKind::Grains => metrics.any(|metric| !metric.grains().is_empty()),
+        DefinitionKind::AllowedValues => metrics
+            .flat_map(|metric| metric.dimensions().values())
+            .any(|dimension| dimension.allowed_values().is_some()),
+        DefinitionKind::Anchors => metrics.any(|metric| metric.anchor().is_some()),
+        DefinitionKind::ColumnTypes => models.flat_map(Model::columns).any(|column| column.data_type().is_some()),
+        DefinitionKind::ColumnDescriptions => models.flat_map(Model::columns).any(|column| !column.description().is_empty()),
     }
-}
-
-/// Every dimension of every metric.
-fn dimensions(definitions: &Definitions) -> impl Iterator<Item = &crate::catalog::Dimension> {
-    definitions.metrics().values().flat_map(|metric| metric.dimensions().values())
-}
-
-/// Every column of every model.
-fn model_columns(definitions: &Definitions) -> impl Iterator<Item = &crate::catalog::Column> {
-    definitions.models().values().flat_map(crate::catalog::Model::columns)
-}
-
-/// Is there prose anywhere in these definitions?
-///
-/// Models, metrics and dimensions, because a source can carry prose about one and not another and
-/// this kind is one declaration covering all three. Splitting it into three kinds would be three
-/// declarations nobody can act on differently.
-fn describes_anything(definitions: &Definitions) -> bool {
-    let models = definitions.models().values().any(|model| !model.description().is_empty());
-    let metrics = definitions.metrics().values().any(|metric| !metric.description().is_empty());
-    models || metrics || dimensions(definitions).any(|dimension| !dimension.description().is_empty())
 }
 
 /// Does `knowledge` record anything of that capability?

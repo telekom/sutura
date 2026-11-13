@@ -77,36 +77,39 @@ where
     /// Blocking: the re-read does I/O and a changed bundle re-runs its anchors against the data
     /// systems. [`spawn`] runs it on the blocking pool.
     pub(crate) fn poll_once(&self) -> Outcome {
-        let next = match load_each(&self.catalogs) {
-            Ok(next) => next,
-            Err(cause) => {
-                tracing::error!(
-                    error = %cause,
-                    "a declared catalog's refresh failed to load; keeping the bundle already served"
-                );
-                return Outcome::Rejected;
-            }
-        };
-        match self.surface.adopt(next) {
-            Ok(Adopted::Unchanged) => Outcome::Unchanged,
-            Ok(Adopted::Rotated { previous, digest }) => {
-                self.coverage
-                    .set(self.surface.definitions().definitions().metrics().len() as u64);
-                tracing::info!(
-                    previous_digest = previous.as_str(),
-                    digest = digest.as_str(),
-                    "a declared catalog refresh re-pinned the served bundle"
-                );
-                Outcome::Rotated
-            }
-            Err(cause) => {
-                tracing::error!(
-                    error = %cause,
-                    causes = ?sutura_app::surface::cause_chain(&cause),
-                    "a refreshed bundle was refused; keeping the bundle already served"
-                );
-                Outcome::Rejected
-            }
+        adopt(load_each(&self.catalogs), self.surface.as_ref(), &self.coverage)
+    }
+}
+
+fn adopt(next: Result<sutura_domain::pinned::PinnedDefinitions, String>, surface: &dyn Surface, coverage: &Gauge) -> Outcome {
+    let next = match next {
+        Ok(next) => next,
+        Err(cause) => {
+            tracing::error!(
+                error = %cause,
+                "a declared catalog's refresh failed to load; keeping the bundle already served"
+            );
+            return Outcome::Rejected;
+        }
+    };
+    match surface.adopt(next) {
+        Ok(Adopted::Unchanged) => Outcome::Unchanged,
+        Ok(Adopted::Rotated { previous, digest }) => {
+            coverage.set(surface.definitions().definitions().metrics().len() as u64);
+            tracing::info!(
+                previous_digest = previous.as_str(),
+                digest = digest.as_str(),
+                "a declared catalog refresh re-pinned the served bundle"
+            );
+            Outcome::Rotated
+        }
+        Err(cause) => {
+            tracing::error!(
+                error = %cause,
+                causes = ?sutura_app::surface::cause_chain(&cause),
+                "a refreshed bundle was refused; keeping the bundle already served"
+            );
+            Outcome::Rejected
         }
     }
 }
@@ -161,7 +164,12 @@ pub(crate) fn drive(catalogs: OpenedCatalogs, surface: Arc<dyn Surface>, coverag
         OpenedCatalogs::OpenApi(catalogs) => spawn(catalogs, surface, coverage, interval),
         OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs, surface, coverage, interval),
+        catalogs @ (OpenedCatalogs::Rdbms(_) | OpenedCatalogs::RdbmsWithMarkdown { .. }) => {
+            spawn_poll(
+                move || adopt(crate::catalog::load(&catalogs), surface.as_ref(), &coverage),
+                interval,
+            );
+        }
     }
 }
 
@@ -175,17 +183,24 @@ where
     K: SemanticCatalog + Send + Sync + 'static,
     K::Error: Send + Sync,
 {
-    let mut refresher = Refresher::new(catalogs, surface, coverage);
+    let refresher = Refresher::new(catalogs, surface, coverage);
+    spawn_poll(move || refresher.poll_once(), interval);
+}
+
+fn spawn_poll<F>(mut poll: F, interval: Duration)
+where
+    F: FnMut() -> Outcome + Send + 'static,
+{
     drop(tokio::spawn(async move {
         loop {
             tokio::time::sleep(interval).await;
             match sutura_runtime::spawn_carrying_span(move || {
-                let outcome = refresher.poll_once();
-                (refresher, outcome)
+                let outcome = poll();
+                (poll, outcome)
             })
             .await
             {
-                Ok((polled, _outcome)) => refresher = polled,
+                Ok((polled, _outcome)) => poll = polled,
                 Err(cause) => {
                     tracing::error!(error = %cause, "the catalog refresh panicked; it will not be polled again");
                     return;

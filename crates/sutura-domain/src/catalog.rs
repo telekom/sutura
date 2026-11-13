@@ -25,6 +25,8 @@ mod authored;
 mod calendar;
 mod consistency;
 mod metric;
+mod pattern;
+mod unlinked;
 
 pub use audience::{Audience, AudienceGrant, GrantedAudiences, InvalidAudienceGrant};
 pub use authored::{
@@ -33,6 +35,10 @@ pub use authored::{
 };
 pub use calendar::{InvalidSharedCalendars, SharedCalendars};
 pub use consistency::{Definitions, InconsistentDefinitions};
+pub use pattern::{
+    DictionaryInclude, DictionaryPattern, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection,
+};
+pub use unlinked::UnlinkedContribution;
 
 use crate::calendar::TimeRange;
 use crate::expression::Computation;
