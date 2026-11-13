@@ -369,6 +369,9 @@ pkgs.testers.runNixOSTest {
     OPERATOR = "app.kubernetes.io/name=sutura-operator,app.kubernetes.io/instance=sutura"
     q = shlex.quote
     evidence = {}
+    denied_observations = []
+    startup_refusals = {}
+    resource_refusals = {}
 
 
     def get(resource, namespace="default"):
@@ -560,7 +563,8 @@ pkgs.testers.runNixOSTest {
         eventually(lambda: not tcp(pod, address, port), 30)
         for _ in range(3):
             assert not tcp(pod, address, port), (identity(pod), address, port)
-        evidence.setdefault("denied", []).append([identity(pod), address, port, policy])
+        denied_observations.append([identity(pod), address, port, policy])
+        evidence["denied"] = denied_observations
 
 
     def failed_process(label, deployment, removed, added, config, sentence):
@@ -587,7 +591,8 @@ pkgs.testers.runNixOSTest {
         log = machine.succeed("kubectl logs " + q(label))
         assert ended["exitCode"] != 0 and ended["reason"] != "OOMKilled", ended
         assert sentence in log, log
-        evidence.setdefault("startup-refusals", {})[label] = {"termination": ended, "log": log}
+        startup_refusals[label] = {"termination": ended, "log": log}
+        evidence["startup-refusals"] = startup_refusals
         machine.succeed("kubectl delete pod " + q(label) + " --wait=true")
 
 
@@ -915,7 +920,8 @@ pkgs.testers.runNixOSTest {
                     assert {name: get("deployment/" + name)["spec"]["replicas"] for name in sizes} == sizes
                     if label == "inverted":
                         assert status["replicas"] == sizes["sutura-workers"], status
-                    evidence.setdefault("resource-refusals", {})[label] = {"resource": invalid, "status": status, "sizes": sizes}
+                    resource_refusals[label] = {"resource": invalid, "status": status, "sizes": sizes}
+                    evidence["resource-refusals"] = resource_refusals
                 finally:
                     machine.succeed("kubectl delete suturaworkerpool " + q(label))
             pool(min=0, max=2, warm=2)
