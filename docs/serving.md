@@ -283,6 +283,9 @@ HTTP and MCP answers carry an ordered `executions` list:
 | `node`          | Source, outbound native leg and its typed parameters, followed by the remote peer's flat execution records.                                 |
 | `bigquery_read` | Source, `operation: "adbc_read_partition"` and the SHA-256 of the actual opaque stream descriptor. The descriptor itself is never returned. |
 
+SQL is captured at the adapter-to-driver boundary. The PostgreSQL driver's internal
+`COPY (...) TO STDOUT (FORMAT binary)` transport wrapper is excluded.
+
 Each SQL/Node parameter has `binding: {"kind":"position","value":0}` for a zero-based
 position, or `binding: {"kind":"named","value":"p0"}` for ClickHouse. Its `value` has
 `type` and `value`: `utf8` text or `date32` days since the Unix epoch for Arrow bindings;

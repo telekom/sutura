@@ -306,14 +306,18 @@ pkgs.testers.runNixOSTest {
                     if record["kind"] == "sql" and record["source"] == "geo"]
         assert receipts, receipts
         assert all(record["dialect"] == "postgres" and record["parameters"] == [] for record in receipts), receipts
+        assert all(not record["sql"].endswith(";") for record in receipts), receipts
         # A Counter preserves repeated native reads; a set would hide a lost receipt.
+        # The pinned ADBC driver wraps these parameterless SELECTs for transport.
+        expected_native = Counter("COPY (" + record["sql"] + ") TO STDOUT (FORMAT binary)"
+                                  for record in receipts)
         for _ in range(100):
             native = range_sql(lines, "reader1") + range_sql(lines, "reader2")
-            if Counter(record["sql"] for record in receipts) == Counter(native):
+            if expected_native == Counter(native):
                 break
             time.sleep(0.1)
             lines = statements()[before:]
-        assert native and Counter(record["sql"] for record in receipts) == Counter(native), (receipts, native)
+        assert native and expected_native == Counter(native), (receipts, native)
 
     with subtest("each reader read a ctid range of the lookup root, and the serving node read none"):
         lines = statements()[before:]
