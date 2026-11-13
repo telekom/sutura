@@ -679,4 +679,6 @@ mod adbc_execute_as_legs {
         );
         assert_eq!(sql, &observed[0], "receipt SQL differs from the native request query field");
     }
+
+    mod buckets;
 }

@@ -23,8 +23,8 @@ const HASH_BUCKETS_KEY: &str = "sources.<alias>.hash_buckets_acknowledged_becaus
 /// Records the `hash_buckets_acknowledged_because` written on the entry `written`, after the entry
 /// itself parsed - the body of [`SourceRegistry::acknowledge_hash_buckets`].
 ///
-/// **Recorded, and read by nothing that splits yet** - a lookup leg of this source is still read
-/// whole. Refused beside a `delegation`, and at boot by
+/// The composition root hands this witness to the ClickHouse adapter. Refused beside a
+/// `delegation`, and at boot by
 /// [`crate::NotFitToServe::HashBucketsOnTheOnlySource`] and
 /// [`crate::NotFitToServe::HashBucketsReadByNoNode`].
 pub(super) fn acknowledge_hash_buckets(

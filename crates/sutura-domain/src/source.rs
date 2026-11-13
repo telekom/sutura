@@ -344,8 +344,8 @@ impl SharedIdentityDeclared {
 /// The witness that an operator let a lookup leg of one source be read in hash buckets, one read
 /// per bucket, on the nodes that read that source.
 ///
-/// It carries the reason and nothing else. **Nothing reads it yet**: the adapter that splits a leg
-/// will take it, and until then no type holds that a split read needs it. **What the operator accepts is per-key consistency only** - each
+/// The ClickHouse adapter takes this witness before it splits or reads a bucket.
+/// **What the operator accepts is per-key consistency only** - each
 /// bucket is its own read, so the buckets share no snapshot, and a key that changes while they run
 /// can be read in one bucket, in two, or in none.
 #[derive(Debug, Clone, PartialEq, Eq)]

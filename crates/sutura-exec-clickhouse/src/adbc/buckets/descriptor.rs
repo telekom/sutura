@@ -64,6 +64,12 @@ impl BucketDescriptor {
     }
 }
 
+impl From<Bucket> for BucketDescriptor {
+    fn from(bucket: Bucket) -> Self {
+        Self { bucket }
+    }
+}
+
 impl TryFrom<&[u8]> for BucketDescriptor {
     type Error = InvalidBucketDescriptor;
 

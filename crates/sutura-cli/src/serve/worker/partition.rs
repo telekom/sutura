@@ -1,7 +1,8 @@
 //! A reading worker's [`PartitionReader`]: the leg a task carries is re-certified against this node's
 //! own pinned catalog through [`sutura_app::read_recertified`], and only then is the granted
 //! partition read, for a kind `split` dispatches - `PostgreSQL` as this node's service user, and
-//! `BigQuery` with the caller's token the task's grant named.
+//! `BigQuery` with the caller's token the task's grant named, and ClickHouse as the service user
+//! or the caller's switched principal.
 //!
 //! **Limits.** Any other kind whose leg this node certifies is refused as a failed read, and a leg
 //! it does not certify is refused as uncertified first, except in a deployment that holds no kind
@@ -9,7 +10,8 @@
 //! is read only at a source of its name this node federates at the token's pool, else refused as
 //! uncertified, and only while its grant lasts. Each read is bounded by this node's own
 //! `server.request_timeout`, opened when the read starts, and a token's read by its grant's end
-//! too: the planning node's deadline does not reach the worker, and dropping the stream does not
+//! too. A switched principal's grant expiry is checked at admission only; its read opens the full
+//! local budget. The planning node's deadline does not reach the worker, and dropping the stream does not
 //! stop a read already running - the deadline does. A `PostgreSQL` read runs as this node's own
 //! declared service user for the source, `AdbcPostgres::read_partition`'s own limit; nothing
 //! checks it against the planning node's. The concrete reader checks its own source's verifier
@@ -26,7 +28,7 @@ use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_exec_datafusion::{
-    Forwarded, PartitionReader, SchemaRef, SendableRecordBatchStream, SubmissionCapture, Unread, read_later,
+    Forwarded, PartitionReader, SchemaRef, SendableRecordBatchStream, SubmissionCapture, SwitchedPrincipal, Unread, read_later,
 };
 
 use super::super::OpenedSources;
@@ -74,6 +76,45 @@ impl PartitionReader for Reader {
             sutura_runtime::spawn_carrying_span(move || {
                 let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
                 let mut answered = opened.read(&wire, &source, &partition, &granted)?;
+                if let Some(recording) = recording {
+                    recording.complete(&mut answered)?;
+                }
+                Ok(answered)
+            })
+            .await
+            .map_err(Unread::failed)?
+        }))
+    }
+
+    fn read_switched(
+        &self,
+        verifier: &VerifierId,
+        wire: &[u8],
+        source: &SourceName,
+        partition: &[u8],
+        schema: &SchemaRef,
+        switched: SwitchedPrincipal,
+        capture: Option<SubmissionCapture>,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        if !self.0.admissions.admits_verifier(source, verifier) {
+            return Err(Unread::LegNotCertified);
+        }
+        let opened = Arc::clone(&self.0);
+        let (wire, source, partition, granted) = (wire.to_vec(), source.clone(), partition.to_vec(), Arc::clone(schema));
+        Ok(read_later(Arc::clone(schema), async move {
+            sutura_runtime::spawn_carrying_span(move || {
+                let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
+                let deadline = Deadline::opened_at(Instant::now(), opened.budget);
+                let mut answered = split::worker_read_switched(
+                    &opened.pinned,
+                    &opened.sources,
+                    &source,
+                    &wire,
+                    &partition,
+                    &granted,
+                    switched.name().clone(),
+                    deadline,
+                )?;
                 if let Some(recording) = recording {
                     recording.complete(&mut answered)?;
                 }

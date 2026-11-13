@@ -123,6 +123,9 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(all(feature = "bigquery", feature = "postgres", feature = "distributed"))]
     #[error(transparent)]
     NotTheCallersToken(sutura_domain::plan::NotTheCallersToken),
+    #[cfg(all(feature = "clickhouse", feature = "distributed"))]
+    #[error(transparent)]
+    NotTheCallersPrincipal(sutura_domain::plan::NotTheCallersPrincipal),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -621,8 +624,11 @@ fn accumulate(
 }
 
 /// A split lookup leg granted to the nodes that read its source, or read here. Built only beside
-/// the arms that grant through it, `PostgreSQL`'s and Oracle's.
-#[cfg(all(feature = "distributed", any(feature = "postgres", feature = "oracle")))]
+/// the arms that grant through it.
+#[cfg(all(
+    feature = "distributed",
+    any(feature = "postgres", feature = "oracle", feature = "clickhouse")
+))]
 mod grant;
 /// Each kind's group opener, split out for the line cap.
 mod groups;

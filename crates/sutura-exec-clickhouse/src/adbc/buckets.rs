@@ -1,28 +1,23 @@
-//! The `ClickHouse` bucket split's public API, parent to the behaviour PR: a leg whose source
-//! opts in to `hash_buckets` is estimated, described and cut into hash buckets, each read as the
-//! identity a whole read of the leg already runs as - the deployment's service user for a
-//! `shared-service-user` source, or the caller's switched user for an `impersonation-at-source`
-//! one without a `delegation`.
+//! Opted-in hash buckets of a lookup leg, read under its whole-read identity.
 //!
-//! **This PR carries the API and no behaviour.** [`AdbcClickHouseWarehouse::split_by_estimate`]
-//! always answers [`Planned::Whole`] and [`AdbcClickHouseWarehouse::read_partition`] refuses
-//! [`AdbcError::BucketsUnbuilt`]; the signature and types here are what the behaviour PR fills in.
-//!
-//! **Limits, measured for the behaviour PR**: a partition is consistent per key only, there is no
-//! snapshot across buckets, and the estimate reads the root table's parts alone.
+//! Each bucket is consistent per integer key. There is no snapshot across buckets, and the
+//! estimate reads the root table's active parts alone; joined tables and row policies can make
+//! that estimate conservative. Every partition retains the adapter's row and byte bounds.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 
 use arrow_schema::SchemaRef;
 use sutura_domain::identity::{Presented, PrincipalName};
-use sutura_domain::plan::{LegPlan, SplitRefusal};
-use sutura_domain::warehouse::ResultBatches;
+use sutura_domain::plan::{EstimatedRows, LegPlan, SplitDecision, SplitRefusal, decide};
+use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::{ResultBatches, Value};
+use sutura_sql::Dialect;
 use sutura_sql::GeneratedQuery;
-use sutura_sql::generate::Bucket;
+use sutura_sql::generate::{Bucket, BucketsRefused, generate_leg, generate_leg_buckets};
 
-use super::{AdbcClickHouseWarehouse, AdbcError};
+use super::{AdbcClickHouseWarehouse, AdbcError, MOST_RESULT_ROWS, RunsAs};
 
 mod descriptor;
 
@@ -120,36 +115,167 @@ impl<'adapter> BucketSplit<'adapter> {
     }
 }
 
-/// [`AdbcClickHouseWarehouse::split_by_estimate`]: stubbed to the whole read.
-///
-/// # Errors
-///
-/// Nothing in the parent: this always answers [`Planned::Whole`].
-#[expect(clippy::unnecessary_wraps, reason = "the parent never errors; the behaviour PR does")]
-pub(super) const fn split_by_estimate<'adapter>(
-    _adapter: &'adapter AdbcClickHouseWarehouse,
-    _leg: &LegPlan,
-    _presented: &Presented,
-    _deadline: Deadline,
-    _above_bytes: NonZeroU64,
-    _per_stream_bound: NonZeroUsize,
-    _ready_workers: NonZeroUsize,
+/// [`AdbcClickHouseWarehouse::split_by_estimate`].
+pub(super) fn split_by_estimate<'adapter>(
+    adapter: &'adapter AdbcClickHouseWarehouse,
+    leg: &LegPlan,
+    presented: &Presented,
+    deadline: Deadline,
+    above_bytes: NonZeroU64,
+    per_stream_bound: NonZeroUsize,
+    ready_workers: NonZeroUsize,
 ) -> Result<Planned<'adapter>, AdbcError> {
-    Ok(Planned::Whole)
+    let runs_as = adapter.deliverable(presented)?;
+    if !adapter.hash_buckets || !matches!(leg, LegPlan::Lookup { .. }) || matches!(runs_as, RunsAs::SignedIn { .. }) {
+        return Ok(Planned::Whole);
+    }
+    // The generator rejects a project-qualified table before the metadata query can read a
+    // different database. Names below are parsed ASCII identifiers, never SQL fragments.
+    let query = generate_leg(leg, Dialect::ClickHouse).map_err(AdbcError::Render)?;
+    let database = leg.table().qualifier().map_or_else(
+        || String::from("currentDatabase()"),
+        |qualifier| format!("'{}'", qualifier.dataset().as_str()),
+    );
+    let estimate = format!(
+        "SELECT sum(rows) AS rows, sum(bytes_on_disk) AS bytes FROM system.parts \
+         WHERE active AND database = {database} AND table = '{}'",
+        leg.table().name().as_str(),
+    );
+    let estimated = adapter.run_sql(&estimate, &[], deadline, 1, &runs_as)?;
+    let rows = estimated.to_rows().map_err(AdbcError::Decode)?;
+    let [counts] = rows.rows() else {
+        return Err(AdbcError::EstimateNotCounts);
+    };
+    let [Value::Integer(rows), Value::Integer(bytes)] = counts.as_slice() else {
+        return Err(AdbcError::EstimateNotCounts);
+    };
+    let rows = EstimatedRows::parse(u64::try_from(*rows).map_err(|_negative| AdbcError::EstimateNotCounts)?);
+    let bytes = EstimatedBytes::parse(u64::try_from(*bytes).map_err(|_negative| AdbcError::EstimateNotCounts)?);
+    if bytes.bytes() <= above_bytes.get() {
+        return Ok(Planned::Whole);
+    }
+    let described = describe(adapter, &query, deadline, &runs_as)?;
+    let first = Bucket::new(0, 2).map_err(|cause| AdbcError::BucketDescriptor(InvalidBucketDescriptor::Bucket(cause)))?;
+    match generate_leg_buckets(leg, &described, first, Dialect::ClickHouse) {
+        Ok(_) => {}
+        Err(BucketsRefused::NoIntegerKey) => return Ok(Planned::Whole),
+        Err(cause) => return Err(AdbcError::BucketRender(cause)),
+    }
+    let partitions = match decide(bytes, rows, above_bytes, per_stream_bound, ready_workers) {
+        SplitDecision::Whole => return Ok(Planned::Whole),
+        SplitDecision::Refused(refusal) => return Ok(Planned::Refused(refusal)),
+        SplitDecision::Split(partitions) if partitions.get() < 2 => return Ok(Planned::Whole),
+        SplitDecision::Split(partitions) => u32::try_from(partitions.get()).unwrap_or(u32::MAX),
+    };
+    let mut queries = Vec::with_capacity(usize::try_from(partitions).unwrap_or(usize::MAX));
+    for index in 0..partitions {
+        let bucket = Bucket::new(index, partitions)
+            .map_err(|cause| AdbcError::BucketDescriptor(InvalidBucketDescriptor::Bucket(cause)))?;
+        match generate_leg_buckets(leg, &described, bucket, Dialect::ClickHouse) {
+            Ok(query) => queries.push((bucket, query)),
+            Err(BucketsRefused::NoIntegerKey) => return Ok(Planned::Whole),
+            Err(cause) => return Err(AdbcError::BucketRender(cause)),
+        }
+    }
+    let reads = match presented {
+        Presented::SubjectPrincipal { name } => PartitionIdentity::Switched(name.clone()),
+        Presented::SharedServiceUser { .. } => PartitionIdentity::ServiceUser,
+        Presented::SubjectToken { .. } | Presented::SubjectSignIn { .. } => return Ok(Planned::Whole),
+    };
+    Ok(Planned::Split(BucketSplit::new(adapter, described, queries, bytes, reads)))
 }
 
-/// [`AdbcClickHouseWarehouse::read_partition`]: stubbed to a refusal.
-///
-/// # Errors
-///
-/// [`AdbcError::BucketsUnbuilt`] always, in the parent.
+/// Describes the leg's projection without fetching its rows. A lookup's key types are fixed by
+/// the source; no sum tuple needs the value-dependent normalization used by a fact leg.
+fn describe(
+    adapter: &AdbcClickHouseWarehouse,
+    query: &GeneratedQuery,
+    deadline: Deadline,
+    runs_as: &RunsAs<'_>,
+) -> Result<SchemaRef, AdbcError> {
+    let sql = format!("SELECT * FROM ({}) LIMIT 0", query.sql());
+    adapter
+        .run_sql(&sql, query.params(), deadline, 0, runs_as)
+        .map(|rows| std::sync::Arc::clone(rows.schema()))
+}
+
+/// [`AdbcClickHouseWarehouse::read_partition`]. The source's own schema must still agree with the
+/// grant before it supplies the types used to hash keys. The result is held until its complete
+/// row/byte and schema checks pass; these checks do not bound a driver's prefetched allocation.
 pub(super) fn read_partition(
-    _adapter: &AdbcClickHouseWarehouse,
-    _leg: &LegPlan,
-    _descriptor: &[u8],
-    _granted: &SchemaRef,
-    _identity: PartitionIdentity,
-    _deadline: Deadline,
+    adapter: &AdbcClickHouseWarehouse,
+    leg: &LegPlan,
+    descriptor: &[u8],
+    granted: &SchemaRef,
+    identity: PartitionIdentity,
+    deadline: Deadline,
 ) -> Result<ResultBatches, AdbcError> {
-    Err(AdbcError::BucketsUnbuilt)
+    if !adapter.hash_buckets {
+        return Err(AdbcError::HashBucketsNotDeclared);
+    }
+    let runs_as = match (&adapter.posture, identity) {
+        (SourcePosture::SharedServiceUser { .. }, PartitionIdentity::ServiceUser) => RunsAs::Deployment,
+        (SourcePosture::ImpersonationAtSource, PartitionIdentity::Switched(name)) if name.as_str() != adapter.username => {
+            RunsAs::Switched(crate::execute_as::ClickHouseUser::parse(name.as_str()).map_err(AdbcError::NotAClickHouseUser)?)
+        }
+        _ => return Err(AdbcError::PartitionIdentityDisagrees),
+    };
+    let descriptor = BucketDescriptor::try_from(descriptor).map_err(AdbcError::BucketDescriptor)?;
+    let query = generate_leg(leg, Dialect::ClickHouse).map_err(AdbcError::Render)?;
+    let described = describe(adapter, &query, deadline, &runs_as)?;
+    if described != *granted {
+        return Err(AdbcError::PartitionSchemaChanged);
+    }
+    let query =
+        generate_leg_buckets(leg, &described, descriptor.bucket(), Dialect::ClickHouse).map_err(AdbcError::BucketRender)?;
+    let rows = adapter.run(&query, deadline, MOST_RESULT_ROWS, &runs_as)?;
+    if rows.schema() != granted {
+        return Err(AdbcError::PartitionSchemaChanged);
+    }
+    Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use sutura_adbc::DriverLocation;
+    use sutura_conformance::corpus;
+    use sutura_domain::identity::Secret;
+    use sutura_domain::source::{AcknowledgementReason, HashBucketsDeclared};
+    use sutura_domain::warehouse::ResultBudget;
+
+    use super::*;
+
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "this cell reaches the partition guard directly and must fail if driver loading is reached"
+    )]
+    fn a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver() {
+        let warehouse = AdbcClickHouseWarehouse::new(
+            corpus::source(),
+            SourcePosture::ImpersonationAtSource,
+            DriverLocation::parse("/nonexistent/libadbc_driver_clickhouse.so").expect("an absolute driver path"),
+            String::from("http://127.0.0.1:1"),
+            String::from("sutura_worker_service"),
+            Secret::new(String::from("unused")),
+            None,
+            ResultBudget::of_bytes(NonZeroUsize::MIN),
+        )
+        .with_hash_buckets(&HashBucketsDeclared::of(
+            AcknowledgementReason::written_under("hash_buckets", "the fixture is immutable").expect("a reason"),
+        ));
+        let leg = corpus::leg_case();
+        let descriptor = BucketDescriptor::from(Bucket::new(0, 2).expect("one of two buckets")).to_bytes();
+        let granted = std::sync::Arc::new(arrow_schema::Schema::empty());
+        let error = warehouse
+            .read_partition(
+                leg.leg(),
+                &descriptor,
+                &granted,
+                PartitionIdentity::Switched(PrincipalName::parse("sutura_worker_service").expect("the worker's own user")),
+                corpus::deadline(),
+            )
+            .expect_err("a worker must refuse its own service user before any connection");
+        assert!(matches!(error, AdbcError::PartitionIdentityDisagrees), "{error}");
+    }
 }
