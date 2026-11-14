@@ -3,11 +3,11 @@
   "main": "b8bce349b79fc16891f8bfd466ba7187cafdf019",
   "base": "e06901b1b463052fb827490a2d98832aab36bd74",
   "parent_tree": "99648e98f1c6e06e646a30397a4617bbe8125de7",
-  "source_tree": "2354af8244cc1d003a1c5142af0b11c32bbaab30",
+  "source_tree": "90afed56ae4fb97e11f844279ed19f85c99ca186",
   "parent_patch_sha256": "e0ef0da8a21ce0abb48c356dcca08155b18b983d465a785e26650c8993769a42",
-  "behavior_patch_sha256": "c00837538e1ce60b03c9107b7e0c1d562f9f9d5a8ba5ce35f099af0b0720bd92",
-  "helper_ref": "ci/sql-planned-native-integer-20261114",
-  "request_id": "14cb0600-635a-4983-a881-76503f27bcee",
+  "behavior_patch_sha256": "0ca3402193d3b3ee2acb43f0707a319e5c1a00df1bc54bd9e11d1cb34f9876bd",
+  "helper_ref": "ci/sql-planned-native-settling-20261114",
+  "request_id": "f964772f-be09-476b-b490-91f9f2301f25",
   "api_branch": "fix/sql-planned-api",
   "behavior_branch": "fix/sql-planned-native"
 }
