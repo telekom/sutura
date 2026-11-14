@@ -27,7 +27,7 @@
 //! | an explicit Oracle NUMBER-to-Utf8 mapping keeps value-dependent operators local | source NUMBER operations are numeric; scans may retain a safe fetch and projection. This can transfer more rows and exhaust the existing working set or deadline sooner |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
-//! | unquoted identifiers are lowercased | the engine's own normalization, before the source sees the text |
+//! | unquoted identifiers fold per source | Oracle names fold up, other sources down; quoted metadata and SQL aliases remain exact |
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
 
 use std::collections::BTreeSet;
@@ -39,7 +39,7 @@ use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{plan_datafusion_err, plan_err};
+use datafusion::common::{DataFusionError, SchemaError, plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
@@ -50,8 +50,10 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
+use datafusion::sql::parser::Statement as EngineStatement;
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
+use datafusion::sql::sqlparser::parser::Parser;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{
@@ -64,7 +66,7 @@ use datafusion_federation::{
 };
 use sutura_domain::model::{ProjectName, QualifiedTable, SourceName};
 use sutura_domain::plan::{StatementLegs, StatementQuestion, StatementStopped, StatementTable};
-use sutura_domain::raw::RawStatement;
+use sutura_domain::raw::{RawStatement, SqlConstruct};
 use sutura_domain::warehouse::RawRows;
 use sutura_domain::warehouse::arrow::of_rows;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -75,6 +77,7 @@ use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
 
 mod oracle;
+mod resolve;
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
@@ -84,11 +87,24 @@ where
     let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause))?;
     let working_set = working_set_of(question.working_set_bytes());
     let fetched = Arc::new(Fetched::default());
-    let context = session(question.tables(), &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
-    let plan = within(runtime, question.deadline(), planned(&context, question.statement()))
+    let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
+    let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
+    let plan = within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
         .ok_or(StatementStopped::DeadlineExceeded)?
-        .map_err(|cause| unplanned("the statement did not plan", &cause))?;
-    let parts = parts(&plan, question.tables()).map_err(|cause| unplanned("the plan did not cut", &cause))?;
+        .map_err(|cause| match cause {
+            PlanningStopped::Refused(resolve::Refused::UnknownTable) => StatementStopped::UnknownTable,
+            PlanningStopped::Refused(resolve::Refused::UnknownColumn) => StatementStopped::UnknownColumn,
+            PlanningStopped::Refused(resolve::Refused::Unsupported(construct)) => StatementStopped::UnsupportedSyntax(construct),
+            PlanningStopped::Engine(cause) => {
+                let fallback = unplanned("the statement did not plan", &cause);
+                if field_not_found(&cause) {
+                    StatementStopped::UnknownColumn
+                } else {
+                    fallback
+                }
+            }
+        })?;
+    let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause))?;
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
     if sources.len() > 1 && !question.federation_allowed() {
         return Err(StatementStopped::SpansMoreThanOneSource);
@@ -97,7 +113,7 @@ where
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
-        .map(|part| Ok((part.statement(whole)?, part.scan_tables(question.tables())?)))
+        .map(|part| Ok((part.statement(whole)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources).map_err(StatementStopped::Leg)?;
@@ -381,9 +397,34 @@ fn source_of(part: &LogicalPlan) -> Planned<String> {
     }
 }
 
-/// The call's session: `tables` registered at their paths, the cut installed, the working set as
-/// its pool. No information schema, so a caller lists nothing, no table function, so a caller
-/// generates no rows, and only the scalar functions `ADMITTED` names.
+/// One caller-scoped registration view, shared by the session, resolver and source-part lookup.
+fn registered_tables(tables: &[StatementTable]) -> Planned<Vec<StatementTable>> {
+    let mut registered = BTreeSet::new();
+    let mut admitted = Vec::new();
+    for table in tables {
+        if !registered.insert(table.table())
+            || tables
+                .iter()
+                .any(|other| other.table() == table.table() && other.source() != table.source())
+        {
+            continue;
+        }
+        let visible = || tables.iter().filter(|other| other.table() == table.table());
+        if visible().any(|other| other.dialect() != table.dialect()) {
+            return plan_err!("models of one physical table disagree on its dialect");
+        }
+        let columns = Schema::try_merge(visible().map(|other| other.schema().as_ref().clone()))?;
+        admitted.push(StatementTable::new(
+            table.source().clone(),
+            table.table().clone(),
+            table.dialect(),
+            Arc::new(columns),
+        ));
+    }
+    Ok(admitted)
+}
+
+/// The call's session over its normalized tables, with no information schema or table function.
 fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: WorkingSet) -> Planned<SessionContext> {
     let state = SessionStateBuilder::new()
         .with_config(SessionConfig::new().with_default_catalog_and_schema("", ""))
@@ -401,20 +442,7 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         .build();
     let context = SessionContext::new_with_state(state);
     let cut = Arc::new(Optimizer::with_rules(vec![Arc::new(Cutter(Arc::clone(fetched)))]));
-    let mut registered = BTreeSet::new();
     for table in tables {
-        if !registered.insert(table.table())
-            || tables
-                .iter()
-                .any(|other| other.table() == table.table() && other.source() != table.source())
-        {
-            continue;
-        }
-        let visible = || tables.iter().filter(|other| other.table() == table.table());
-        if visible().any(|other| other.dialect() != table.dialect()) {
-            return plan_err!("models of one physical table disagree on its dialect");
-        }
-        let columns = Schema::try_merge(visible().map(|other| other.schema().as_ref().clone()))?;
         let (catalog, schema) = table.table().qualifier().map_or(("", ""), |qualifier| {
             (
                 qualifier.project().map_or("", ProjectName::as_str),
@@ -439,7 +467,7 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         });
         let provider = FederatedTableProviderAdaptor::new(Arc::new(Table {
             source,
-            schema: Arc::new(columns),
+            schema: Arc::clone(table.schema()),
         }));
         schema.register_table(table.table().name().as_str().to_owned(), Arc::new(provider))?;
     }
@@ -484,10 +512,17 @@ fn admitted() -> Vec<Arc<ScalarUDF>> {
 const MOST_OPERATORS: usize = 1024;
 
 /// `statement`'s optimized plan, refused unless it is one query of at most [`MOST_OPERATORS`].
-async fn planned(context: &SessionContext, statement: &RawStatement) -> Planned<LogicalPlan> {
+async fn planned(
+    context: &SessionContext,
+    statement: &RawStatement,
+    tables: &[StatementTable],
+) -> Result<LogicalPlan, PlanningStopped> {
     let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
         .tokenize()
-        .map_err(|cause| plan_datafusion_err!("{cause}"))?;
+        .map_err(|cause| {
+            tracing::debug!(%cause, "run_sql: the statement did not tokenize");
+            PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query))
+        })?;
     let operators = tokens
         .iter()
         .filter(|token| {
@@ -506,20 +541,53 @@ async fn planned(context: &SessionContext, statement: &RawStatement) -> Planned<
         })
         .count();
     if operators > MOST_OPERATORS {
-        return plan_err!("the statement has {operators} operators, more than {MOST_OPERATORS}");
+        return Err(PlanningStopped::Engine(plan_datafusion_err!(
+            "the statement has {operators} operators, more than {MOST_OPERATORS}"
+        )));
     }
+    let mut statements = Parser::new(&GenericDialect {})
+        .with_tokens(tokens)
+        .parse_statements()
+        .map_err(|cause| {
+            tracing::debug!(%cause, "run_sql: the statement did not parse");
+            PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query))
+        })?;
+    let [statement] = statements.as_mut_slice() else {
+        return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
+    };
+    resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?;
+    let Some(statement) = statements.pop() else {
+        return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
+    };
     let options = SQLOptions::new()
         .with_allow_ddl(false)
         .with_allow_dml(false)
         .with_allow_statements(false);
-    let frame = context.sql_with_options(statement.as_str(), options).await?;
-    if matches!(
-        frame.logical_plan(),
-        LogicalPlan::Explain(_) | LogicalPlan::Analyze(_) | LogicalPlan::DescribeTable(_)
-    ) {
-        return plan_err!("the statement is not a query");
+    let plan = context
+        .state()
+        .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
+        .await?;
+    options.verify_plan(&plan)?;
+    let frame = context.execute_logical_plan(plan).await?;
+    Ok(frame.into_optimized_plan()?)
+}
+
+#[derive(Debug, thiserror::Error)]
+enum PlanningStopped {
+    #[error("the admitted statement did not plan")]
+    Engine(#[from] DataFusionError),
+    #[error("the statement was refused before planning: {0:?}")]
+    Refused(resolve::Refused),
+}
+
+fn field_not_found(cause: &DataFusionError) -> bool {
+    match cause {
+        DataFusionError::SchemaError(schema, _) => matches!(schema.as_ref(), SchemaError::FieldNotFound { .. }),
+        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => field_not_found(cause),
+        DataFusionError::Shared(cause) => field_not_found(cause),
+        DataFusionError::Collection(causes) => !causes.is_empty() && causes.iter().all(field_not_found),
+        _ => false,
     }
-    frame.into_optimized_plan()
 }
 
 /// `part` with its projection's columns renamed `c0..cn`. The federation rule roots every part it
