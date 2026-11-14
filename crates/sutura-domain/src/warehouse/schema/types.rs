@@ -11,6 +11,8 @@ use crate::catalog::ColumnType;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TypeDialect {
     DuckDb,
+    DataFusion,
+    Cube,
     Postgres,
     ClickHouse,
     BigQuery,
@@ -44,6 +46,7 @@ impl TypeDialect {
                 Self::BigQuery => bigquery(name, parameters),
                 Self::Oracle => oracle(name, parameters),
                 Self::DuckDb | Self::Postgres => postgres(name, parameters),
+                Self::DataFusion | Self::Cube => None,
             },
         }
     }
