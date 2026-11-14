@@ -90,6 +90,7 @@ jobs:
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
       WORKFLOW_SHA: ${{ github.workflow_sha }}
       NO_COLOR: "1"
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
     steps: &generation-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
