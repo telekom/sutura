@@ -48,17 +48,26 @@ fn an_estimate_at_or_under_the_threshold_reads_whole() {
 }
 
 #[test]
-fn an_estimate_over_the_threshold_splits_into_the_fewest_partitions_under_the_bound() {
-    // 1_000 rows at a 300-row bound need 4 partitions (ceil(1000/300) == 4); 3 would leave one
-    // partition at 334 rows, over the bound.
-    let decision = decide(
-        EstimatedBytes::parse(2_000),
-        EstimatedRows::parse(1_000),
-        nz_u64(1_000),
-        nz_usize(300),
-        nz_usize(16),
-    );
-    assert_eq!(decision, SplitDecision::Split(nz_usize(4)));
+fn an_over_threshold_estimate_gets_one_spare_partition_within_the_worker_cap() {
+    let widest = u64::try_from(usize::MAX).expect("the supported pointer width fits u64");
+    for (case, rows, bound, workers, expected) in [
+        ("one spare, not all workers", 1_000, 300, 16, 5),
+        ("part", 2_000_000, 1_000_000, 3, 3),
+        ("customer", 1_500_000, 1_000_000, 3, 3),
+        ("supplier", 100_000, 1_000_000, 3, 2),
+        ("zero rows above the byte threshold", 0, 1, 3, 2),
+        ("one worker", 1, 1, 1, 1),
+        ("saturated addition", widest, 1, usize::MAX, usize::MAX),
+    ] {
+        let decision = decide(
+            EstimatedBytes::parse(2_000),
+            EstimatedRows::parse(rows),
+            nz_u64(1_000),
+            nz_usize(bound),
+            nz_usize(workers),
+        );
+        assert_eq!(decision, SplitDecision::Split(nz_usize(expected)), "{case}");
+    }
 }
 
 #[test]

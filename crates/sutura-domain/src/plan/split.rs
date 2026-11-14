@@ -130,10 +130,11 @@ pub enum SplitDecision {
 /// Decides [`SplitDecision`] for one leg's root.
 ///
 /// `bytes` against `above_bytes` decides whether to split at all - at or under it,
-/// [`SplitDecision::Whole`]. Over it, the fewest partitions in `1..=ready_workers` whose own share
-/// of `rows` sits at or under `per_stream_bound` (by the ceiling-division identity: `n` partitions
-/// of `rows` have none over `bound` exactly when `n >= rows.div_ceil(bound)`); none of them do,
-/// [`SplitDecision::Refused`] names the shortfall rather than splitting past `ready_workers`.
+/// [`SplitDecision::Whole`]. Over it, ceiling division gives the required count under
+/// `per_stream_bound`; if it exceeds `ready_workers`, [`SplitDecision::Refused`] names the
+/// shortfall. Otherwise, add one partition of headroom, capped at `ready_workers`.
+/// This leaves room beyond the estimated equal share, not a guarantee against page or byte skew:
+/// each actual stream still has to fit its own bound.
 ///
 /// Checked throughout: every width change is `try_from` clamped to the target's maximum, so `rows`,
 /// `per_stream_bound` or `ready_workers` at their type's maximum decide rather than panic.
@@ -158,7 +159,7 @@ pub fn decide(
             ready_workers,
         });
     }
-    let partitions = usize::try_from(required).unwrap_or(usize::MAX);
+    let partitions = usize::try_from(required.saturating_add(1).min(workers)).unwrap_or(usize::MAX);
     SplitDecision::Split(NonZeroUsize::new(partitions).unwrap_or(NonZeroUsize::MIN))
 }
 

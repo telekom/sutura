@@ -438,6 +438,12 @@ rows. When no declared reader resolves, the question is refused with `503 source
 here. A question that reads one source has no lookup leg: it is sent to that source whole, as one statement, and is
 never split.
 
+For PostgreSQL and eligible Oracle lookup legs above the byte threshold, the planner uses the estimated row count
+divided up to the per-stream row bound, then adds one partition when a declared reader is spare. It refuses when the
+required count already exceeds the declared reader count. The extra partition is capped at that count; declared
+readers are not a live-readiness measure. Page or byte skew can still cross a stream's unchanged bound and refuse the
+question. BigQuery uses the driver's result streams instead.
+
 The chart renders a `worker` peer for its worker pool and a `reading-worker` peer for each group in its `readingWorkers.groups`, with the source aliases the group reads.
 
 A host in `others` is resolved when each question is planned, and each address it resolves to is one node. A pool of
