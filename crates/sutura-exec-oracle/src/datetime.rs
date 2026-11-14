@@ -52,6 +52,11 @@ pub(crate) fn date_text(micros: i64) -> Result<String, OracleError> {
     Ok(format!("{day}T{hour:02}:{minute:02}:{second:02}{fraction}"))
 }
 
+/// The text representation of a zoned result.
+pub(crate) fn utc_text(micros: i64) -> Result<String, OracleError> {
+    date_text(micros)
+}
+
 /// A `TIMESTAMP WITH LOCAL TIME ZONE` column, refused by name: the driver hands it in the session
 /// zone with no offset.
 pub(crate) fn local_zone_refused(column: &str) -> OracleError {

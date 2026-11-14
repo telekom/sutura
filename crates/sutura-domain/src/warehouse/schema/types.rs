@@ -19,6 +19,12 @@ pub enum TypeDialect {
     Oracle,
 }
 
+/// An explicitly selected exact representation for an unbounded Oracle NUMBER.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnboundedNumber {
+    Utf8,
+}
+
 impl TypeDialect {
     /// The Arrow type a declared type names here, or `None` for a spelling this list does not carry.
     ///
@@ -29,6 +35,12 @@ impl TypeDialect {
     #[must_use]
     pub fn arrow(self, declared: &ColumnType) -> Option<DataType> {
         self.read(&declared.as_str().to_ascii_lowercase())
+    }
+
+    /// Reads through the existing declared-type mapping.
+    #[must_use]
+    pub fn arrow_with_unbounded_number(self, declared: &ColumnType, _policy: Option<UnboundedNumber>) -> Option<DataType> {
+        self.arrow(declared)
     }
 
     fn read(self, text: &str) -> Option<DataType> {
