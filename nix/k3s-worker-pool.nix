@@ -141,7 +141,8 @@ let
         document(fact, dict(kind="model", name=fact, source="local", table=fact,
                             columns=["day", "link", "amount"]))
         document(lookup, dict(kind="model", name=lookup, source="geo", table=lookup,
-                              columns=["link", "region"]))
+                              columns=[dict(name="link", type="text"),
+                                       dict(name="region", type="text")]))
         document(link, dict(kind="relationship", name=link,
                             origin=dict(model=fact, column="link"),
                             target=dict(model=lookup, column="link"), join_type="many_to_one"))
