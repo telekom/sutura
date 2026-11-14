@@ -103,8 +103,11 @@ def results(text):
     return {(binary, name): status for status, binary, name in RESULT.findall(text)}
 
 
-def whole(label, binary, cells, green):
-    status, text = execute(label, ["just", "test-only", f"binary_id(={binary})"])
+def whole(label, binary, cells, green, profile=""):
+    command = ["just", "test-only", f"binary_id(={binary})"]
+    if profile:
+        command.append(profile)
+    status, text = execute(label, command)
     rows = results(text)
     assert rows and {key[0] for key in rows} == {binary}, (
         "missing or competing test binaries"
@@ -174,9 +177,14 @@ def mutations():
         if explicit
         else " | ".join(f"package(={package})" for package in packages)
     )
+    profile = PLAN.get("cargo_profile", "")
+    assert not profile or re.fullmatch(r"[A-Za-z0-9_-]+", profile)
+    discover_command = ["just", "test-only", discovery]
+    if profile:
+        discover_command.append(profile)
     status, text = execute(
         "discover",
-        ["just", "test-only", discovery],
+        discover_command,
     )
     assert status == 0
     rows = results(text)
@@ -221,7 +229,7 @@ def mutations():
         full_names = [locations[cell][1] for cell in names]
         exact(BASELINE)
         assert not git("status", "--porcelain")
-        whole(label + "-head", binary, full_names, True)
+        whole(label + "-head", binary, full_names, True, profile)
         exact(BASELINE)
         changed = {}
         evidence = None
@@ -263,14 +271,14 @@ def mutations():
             )
             exact(expected)
             write(label + "-mutant-state.json", expected)
-            text = whole(label + "-mutant", binary, full_names, False)
+            text = whole(label + "-mutant", binary, full_names, False, profile)
             exact(expected)
             evidence = [own_sites(text, cell, locations[cell][1]) for cell in names]
         finally:
             for path, content in changed.items():
                 Path(path).write_bytes(content)
             exact(BASELINE)
-            whole(label + "-restored", binary, full_names, True)
+            whole(label + "-restored", binary, full_names, True, profile)
             exact(BASELINE)
             assert not git("status", "--porcelain")
         write(
@@ -468,7 +476,13 @@ if __name__ == "__main__":
             else "sql1912-finishing-mutations.json"
         )
         mutation_plan = json.loads(Path(__file__).with_name(mutation_file).read_bytes())
-        for key in ("mutants", "test_files", "test_identities", "test_functions"):
+        for key in (
+            "mutants",
+            "test_files",
+            "test_identities",
+            "test_functions",
+            "cargo_profile",
+        ):
             if key in mutation_plan:
                 PLAN[key] = mutation_plan[key]
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]

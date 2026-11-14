@@ -986,5 +986,6 @@
       "name": "planned_files_read_registered_rows_but_never_enable_raw_writes",
       "indent": "    "
     }
-  }
+  },
+  "cargo_profile": "ci"
 }
