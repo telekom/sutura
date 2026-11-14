@@ -160,7 +160,12 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // `RefusalReason::DeadlineExceeded` gets (`sutura_http::wire::refusal`): a statement this
         // deployment stopped, not a data system that failed to answer, so a caller must narrow the
         // statement rather than retry it as is.
-        RawRefusalReason::StatementFailed | RawRefusalReason::DeadlineExceeded { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+        RawRefusalReason::StatementFailed
+        | RawRefusalReason::UnknownTable
+        | RawRefusalReason::UnknownColumn
+        | RawRefusalReason::UnsupportedSyntax { .. }
+        | RawRefusalReason::SourceFailed
+        | RawRefusalReason::DeadlineExceeded { .. } => StatusCode::UNPROCESSABLE_ENTITY,
         // 403: the data system refused it at the identity/authorization level - the same status a
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
@@ -200,18 +205,24 @@ mod tests {
         assert!(!rendered.contains("definition_digest"), "{rendered}");
     }
 
-    /// Five of the six; `TooManyRows`'s own status is pinned through the real router in
-    /// `crate::harness::run_sql`, so this file tests five variants of `RawRefusalReason` but not all
-    /// six. A file naming EVERY variant of an enum is a census and supplies no evidence for that enum,
-    /// so a file naming fewer than all supplies evidence for those named.
+    /// `TooManyRows`'s status is pinned through the real router in `crate::harness::run_sql`.
     #[test]
-    fn five_of_the_six_refusal_reasons_have_a_status() {
+    fn statement_refusals_and_source_refusals_have_their_statuses() {
         for (reason, status) in [
             (RawRefusalReason::ResultTooLarge, axum::http::StatusCode::PAYLOAD_TOO_LARGE),
             (
                 RawRefusalReason::StatementFailed,
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             ),
+            (RawRefusalReason::UnknownTable, axum::http::StatusCode::UNPROCESSABLE_ENTITY),
+            (RawRefusalReason::UnknownColumn, axum::http::StatusCode::UNPROCESSABLE_ENTITY),
+            (
+                RawRefusalReason::UnsupportedSyntax {
+                    construct: sutura_domain::raw::SqlConstruct::FetchFirst,
+                },
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (RawRefusalReason::SourceFailed, axum::http::StatusCode::UNPROCESSABLE_ENTITY),
             (RawRefusalReason::SourceRefused, axum::http::StatusCode::FORBIDDEN),
             (
                 RawRefusalReason::DeadlineExceeded { budget_seconds: 29 },

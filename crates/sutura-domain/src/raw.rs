@@ -142,10 +142,17 @@ pub enum InvalidRunSqlSources {
 ///
 /// **Closed, and deliberately narrower than [`crate::query::RefusalReason`].** That vocabulary is
 /// keyed to a compiled plan - a metric, a grain, a federation shape - and a raw statement has none of
-/// those. What can still refuse it is a bound this deployment applies, or the data system's own
-/// answer about the statement once it ran.
+/// those. It names deployment bounds, caller-scoped planning categories and safe source outcomes.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum RawRefusalReason {
+    /// No caller-visible table resolves the statement's path. Hidden and absent are identical.
+    UnknownTable,
+    /// No admitted column resolves the statement's name. Excluded and absent are identical.
+    UnknownColumn,
+    /// A closed construct the planner does not admit; never parser or driver text.
+    UnsupportedSyntax { construct: SqlConstruct },
+    /// A planned source part failed without a safe, more specific source refusal.
+    SourceFailed,
     /// The result had more rows than this deployment's row cap.
     ///
     /// Refused rather than truncated, the same argument `RefusalReason::ResultTooLarge` makes: a
@@ -215,6 +222,10 @@ impl RawRefusalReason {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::TooManyRows { .. } => "too_many_rows",
+            Self::UnknownTable => "unknown_table",
+            Self::UnknownColumn => "unknown_column",
+            Self::UnsupportedSyntax { .. } => "unsupported_syntax",
+            Self::SourceFailed => "source_failed",
             Self::ResultTooLarge => "result_too_large",
             Self::StatementFailed => "statement_failed",
             Self::SourceRefused => "source_refused",
@@ -230,6 +241,10 @@ impl fmt::Display for RawRefusalReason {
     /// statement's author wrote.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnknownTable => write!(f, "unknown_table: no admitted table resolves this name; {SQL_DISCOVERY}"),
+            Self::UnknownColumn => write!(f, "unknown_column: no admitted column resolves this name; {SQL_DISCOVERY}"),
+            Self::UnsupportedSyntax { construct } => write!(f, "unsupported_syntax: {construct}; {SQL_DISCOVERY}"),
+            Self::SourceFailed => write!(f, "source_failed: a source part did not complete; {SQL_DISCOVERY}"),
             Self::TooManyRows { limit } => write!(f, "the result had more than {limit} rows; ask a narrower question"),
             Self::ResultTooLarge => write!(
                 f,
@@ -246,6 +261,36 @@ impl fmt::Display for RawRefusalReason {
                 "the statement reads from more than one data system, and this deployment runs a statement against one"
             ),
         }
+    }
+}
+
+const SQL_DISCOVERY: &str =
+    "use describe_catalog; the operator can enable prompt.list_physical_schema to list admitted table and column names";
+
+/// The planner's caller-safe construct names. No SQL or metadata is carried here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum SqlConstruct {
+    /// The input does not parse as one admitted query.
+    Query,
+    /// The input asks for a definition, write, explanation or session operation.
+    NonQuery,
+    /// No physical table of the caller's sources is read.
+    SelectWithoutTable,
+    /// The planner's input dialect uses LIMIT instead.
+    FetchFirst,
+    /// The session registers no table function.
+    TableFunction,
+}
+
+impl fmt::Display for SqlConstruct {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Query => "query syntax is not supported",
+            Self::NonQuery => "only a SELECT query is supported",
+            Self::SelectWithoutTable => "SELECT without a table is not supported",
+            Self::FetchFirst => "FETCH FIRST is not supported; use LIMIT",
+            Self::TableFunction => "table functions are not supported",
+        })
     }
 }
 
@@ -335,7 +380,7 @@ mod compile_fail_has_no_provenance {}
 
 #[cfg(test)]
 mod tests {
-    use super::{InvalidRawStatement, RawOutcome, RawRefusalReason, RawStatement};
+    use super::{InvalidRawStatement, RawOutcome, RawRefusalReason, RawStatement, SqlConstruct};
 
     #[test]
     fn a_statement_is_trimmed_and_bounded() {
@@ -398,6 +443,12 @@ mod tests {
     #[test]
     fn every_refusal_reason_has_a_stable_code_and_a_sentence_with_no_caller_text() {
         for reason in [
+            RawRefusalReason::UnknownTable,
+            RawRefusalReason::UnknownColumn,
+            RawRefusalReason::UnsupportedSyntax {
+                construct: SqlConstruct::Query,
+            },
+            RawRefusalReason::SourceFailed,
             RawRefusalReason::TooManyRows { limit: 10_000 },
             RawRefusalReason::ResultTooLarge,
             RawRefusalReason::StatementFailed,
@@ -411,6 +462,16 @@ mod tests {
         assert_eq!(RawRefusalReason::TooManyRows { limit: 1 }.code(), "too_many_rows");
         assert_eq!(RawRefusalReason::ResultTooLarge.code(), "result_too_large");
         assert_eq!(RawRefusalReason::StatementFailed.code(), "statement_failed");
+        assert_eq!(RawRefusalReason::UnknownTable.code(), "unknown_table");
+        assert_eq!(RawRefusalReason::UnknownColumn.code(), "unknown_column");
+        assert_eq!(
+            RawRefusalReason::UnsupportedSyntax {
+                construct: SqlConstruct::FetchFirst
+            }
+            .code(),
+            "unsupported_syntax"
+        );
+        assert_eq!(RawRefusalReason::SourceFailed.code(), "source_failed");
         assert_eq!(RawRefusalReason::SourceRefused.code(), "source_refused");
         assert_eq!(
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 }.code(),
