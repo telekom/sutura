@@ -1,0 +1,4 @@
+fix(sql): execute planned statements across native dialects
+
+Weakens-Test: the_raw_tool_in_multi_user_mode_over_only_an_impersonating_source_is_not_fit_to_serve - SQL planning now permits a declared subject source; the replacement pins both build modes.
+Weakens-Test: the_raw_tool_in_multi_user_mode_over_a_listed_impersonating_source_is_not_fit_to_serve - every listed subject source now requires SQL planning; the replacement retains the non-SQL refusal.

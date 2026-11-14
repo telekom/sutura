@@ -342,8 +342,10 @@ security-audit.yml:audit
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
 
-# Dispatch-only bundle export. The inventory reads every job in a pull-request
-# workflow without evaluating job conditions, so this job still needs a classification.
+# Dispatch-only native generation and bundle export. The inventory reads every job in a
+# pull-request workflow without evaluating job conditions, so these jobs still need classification.
+format.yml:generate
+format.yml:bigquery
 format.yml:source-bundle
 
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in

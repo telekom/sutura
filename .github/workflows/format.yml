@@ -40,7 +40,7 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [sql-registration]
+        options: [sql-planned-native]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -77,176 +77,248 @@ jobs:
       - name: markdown, yaml, toml and python
         run: bash nix/format-text.sh check
 
-  source-bundle:
+  generate:
     if: github.event_name == 'workflow_dispatch'
     runs-on: rust-mcp-16core
     timeout-minutes: 360
-    env:
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [core, cube, oracle-verified, oracle-native]
+    env: &helper-env
       CONSUMER: ${{ inputs.consumer }}
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
       WORKFLOW_SHA: ${{ github.workflow_sha }}
       NO_COLOR: "1"
+    steps: &generation-steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the reviewed helper before creating the source checkout
+        id: binding
+        run: python3 .github/sql-planned.py guard
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.binding.outputs.base }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with: &nix-config
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+      - name: Reconstruct the exact reviewed candidate
+        env:
+          SOURCE_BASE: ${{ steps.binding.outputs.base }}
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_BASE"
+          python3 .github/sql-planned.py prepare api
+          python3 .github/sql-planned.py prepare behavior
+      - name: Place credential outside the checkout
+        if: matrix.lane == 'bigquery'
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "bq-test has no CI credential" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+      - name: Mask resource names before exporting them
+        if: matrix.lane == 'bigquery'
+        env:
+          K: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: |
+          set -eu
+          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
+            || { echo "the CI credential names no project_id" >&2; exit 1; }
+          test -n "$project"
+          printf '::add-mask::%s\n' "$project"
+          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
+            echo "bq-test has no SUTURA_BQ_DATASET" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
+          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
+      - name: Update then repeat the identical venue without updates
+        env:
+          LANE: ${{ matrix.lane }}
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
+        run: |
+          set -euo pipefail
+          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
+          helper="$GITHUB_WORKSPACE/.github/sql-planned.py"
+          out="$RUNNER_TEMP/sql-planned-$LANE"
+          export helper out
+          cd source
+          case "$LANE" in
+            core|cube)
+              nix develop .#checks.x86_64-linux.nextest --command \
+                python3 "$helper" lane "$LANE" "$out"
+              ;;
+            oracle-verified|oracle-native|bigquery)
+              python3 "$helper" lane "$LANE" "$out"
+              ;;
+            *) exit 1 ;;
+          esac
+      - name: Remove credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bq-key.json"
+      - name: Keep complete lane evidence
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sql-planned-${{ matrix.lane }}
+          path: ${{ runner.temp }}/sql-planned-${{ matrix.lane }}
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sql-planned-failure-${{ matrix.lane }}
+          path: |
+            ${{ runner.temp }}/sql-planned-${{ matrix.lane }}/**/*.log
+            ${{ runner.temp }}/sql-planned-${{ matrix.lane }}/**/cube-meta.raw.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  bigquery:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
+    environment: bq-test
+    concurrency:
+      group: bigquery-conformance-${{ vars.SUTURA_BQ_DATASET }}
+      queue: max
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [bigquery]
+    env: *helper-env
+    steps: *generation-steps
+
+  source-bundle:
+    needs: [generate, bigquery]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
+    env: *helper-env
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Check the reviewed helper
-        shell: bash
-        run: |
-          set -euo pipefail
-          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
-          test "$GITHUB_REPOSITORY" = telekom/sutura
-          test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/sql-registration-source-20261114
-          test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
-          test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
-          test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
-          test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          case "$CONSUMER" in sql-registration) ;; *) exit 1 ;; esac
-
+      - name: Check the reviewed helper before creating the source checkout
+        id: binding
+        run: python3 .github/sql-planned.py guard
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: b8bce349b79fc16891f8bfd466ba7187cafdf019
+          ref: ${{ steps.binding.outputs.base }}
           path: source
           fetch-depth: 0
           persist-credentials: false
-
       - uses: $/.github/actions/reclaim-disk
-
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
           extra_nix_config: |
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-
       - uses: $/.github/actions/nix-store-cache
         with:
           scope: ci
-
-      - name: Commit the reviewed source and export a Git bundle
-        shell: bash
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sql-planned-*
+          path: ${{ runner.temp }}/sql-planned-incoming
+      - name: Collect generated files and commit two review units through normal hooks
+        env:
+          SOURCE_BASE: ${{ steps.binding.outputs.base }}
         run: |
           set -euo pipefail
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
-          export evidence="$RUNNER_TEMP/source-commit-evidence"
-          mkdir "$evidence"
+          export helper="$GITHUB_WORKSPACE/.github/sql-planned.py"
+          export evidence="$RUNNER_TEMP/sql-planned-bundle"
+          # Collector creates evidence only after all five artifacts have been checked.
           nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
-          just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
-          parent=b8bce349b79fc16891f8bfd466ba7187cafdf019
-          main=b8bce349b79fc16891f8bfd466ba7187cafdf019
-          case "$CONSUMER" in
-                sql-registration)
-                    expected_tree=780dbecf1e63953e4727d71b7b785b352145a33c
-                    patch_sha=c8230f11b66af47808e549c791413b9cafd3ae416506e5ccddb5e369cadcec46
-                    branch='fix/sql-registration-audience'
-                    subject='fix(sql): register catalog models and declare dictionary audiences'
-                    paths=(
-                        'crates/sutura-catalog-rdbms/src/lib.rs'
-                        'crates/sutura-cli/src/catalog.rs'
-                        'crates/sutura-cli/tests/served/rdbms.rs'
-                        'crates/sutura-config/src/audience.rs'
-                        'crates/sutura-config/src/catalog/rdbms.rs'
-                        'crates/sutura-config/src/raw.rs'
-                        'crates/sutura-config/src/settings/catalogs.rs'
-                        'crates/sutura-config/src/settings/tests/rdbms_catalog.rs'
-                        'crates/sutura-exec-datafusion/src/combine/statement.rs'
-                        'crates/sutura-exec-datafusion/src/combine/statement/tests.rs'
-                        'crates/sutura-exec-datafusion/src/combine/statement/tests/registration.rs'
-                        'docs/integrations/catalogs/rdbms.md'
-                    )
-                    hooks=(
-                        'cargo fmt'
-                        'cargo clippy (-D warnings, all features)'
-                        'structural gates'
-                        'cargo check (changed packages only)'
-                        'copy/paste detection (jscpd)'
-                        'markdown/yaml/toml (dprint), python (ruff)'
-                        'detect hardcoded secrets (CI is authoritative)'
-                        'conventional commit subject'
-                    )
-                    ;;
-              *) exit 1 ;;
-          esac
-          patch="$RUNNER_TEMP/$CONSUMER-source.patch"
-          base64 --decode ".github/payloads/$CONSUMER-source.patch.b64" > "$patch"
-          test "$(sha256sum "$patch" | cut -d ' ' -f 1)" = "$patch_sha"
+          just lint-ci
+          python3 "$helper" self-check
           cd source
-          test "$(git rev-parse HEAD)" = "$parent"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          remote_main="$(git ls-remote --refs origin refs/heads/main)"
-          test "$remote_main" = "$main"$'\trefs/heads/main'
-          remote_source="$(git ls-remote --refs origin refs/heads/fix/sql-registration-audience)"
-          test -z "$remote_source"
-          git apply --index --check "$patch"
-          git apply --index "$patch"
-          test "$(git write-tree)" = "$expected_tree"
-          printf '%s\0' "${paths[@]}" | sort -z > "$RUNNER_TEMP/expected-source-paths"
-          git diff --cached --name-only -z | sort -z > "$RUNNER_TEMP/actual-source-paths"
-          cmp "$RUNNER_TEMP/expected-source-paths" "$RUNNER_TEMP/actual-source-paths"
+          base="$SOURCE_BASE"
+          main="$(python3 -c 'import json;print(json.load(open("../.github/payloads/sql-planned.json"))["main"])')"
+          test "$(git rev-parse HEAD)" = "$base"
+          test "$(git ls-remote --refs origin refs/heads/main)" = "$main"$'\trefs/heads/main'
+          api_branch="$(python3 -c 'import json;print(json.load(open("../.github/payloads/sql-planned.json"))["api_branch"])')"
+          behavior_branch="$(python3 -c 'import json;print(json.load(open("../.github/payloads/sql-planned.json"))["behavior_branch"])')"
+          test -z "$(git ls-remote --refs origin "refs/heads/$api_branch" "refs/heads/$behavior_branch")"
           test -z "$(git config --get core.hooksPath || true)"
           git config --local user.name ci
           git config --local user.email user@example.com
-          git switch -c "$branch"
-          export expected_tree subject
-          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
-          devenv --profile hooks shell bash -euo pipefail <<'COMMIT'
-          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
+          python3 "$helper" prepare api
+          git switch -c "$api_branch"
+          # Evidence is created by the collector below; keep parent hook output beside it meanwhile.
+          export parent_log="$RUNNER_TEMP/sql-planned-api-commit.log"
+          devenv --profile hooks shell bash -euo pipefail <<'PARENT'
+          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}${PREK_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
           pixi run --frozen hooks-install
           hook_dir="$(git rev-parse --git-path hooks)"
-          for stage in pre-commit commit-msg pre-push; do
-              test -x "$hook_dir/$stage"
+          for stage in pre-commit commit-msg pre-push; do test -x "$hook_dir/$stage"; done
+          test "$(cargo deny --version)" = 'cargo-deny 0.20.2'
+          git -c color.ui=false commit -m 'refactor(sql): declare planned execution ports and dialects' 2>&1 | tee "$parent_log"
+          PARENT
+          python3 "$helper" prepare behavior
+          python3 "$helper" collect "$RUNNER_TEMP/sql-planned-incoming" "$evidence"
+          cp "$parent_log" "$evidence/api-commit.log"
+          git switch -c "$behavior_branch"
+          devenv --profile hooks shell bash -euo pipefail <<'CHILD'
+          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}${PREK_ALLOW_NO_CONFIG:-}"
+          test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
+          pixi run --frozen hooks-install
+          hook_dir="$(git rev-parse --git-path hooks)"
+          for stage in pre-commit commit-msg pre-push; do test -x "$hook_dir/$stage"; done
+          test "$(cargo deny --version)" = 'cargo-deny 0.20.2'
+          { rustc --version; cargo --version; cargo deny --version; pixi --version; devenv --version; } > "$evidence/versions.log" 2>&1
+          git -c color.ui=false commit -F "$GITHUB_WORKSPACE/.github/payloads/sql-planned-behavior-message.txt" 2>&1 | tee "$evidence/behavior-commit.log"
+          CHILD
+          test "$(git log -1 --format=%B)" = "$(cat "$GITHUB_WORKSPACE/.github/payloads/sql-planned-behavior-message.txt")"
+          for log in "$evidence/api-commit.log" "$evidence/behavior-commit.log"; do
+            for hook in 'cargo fmt' 'cargo clippy (-D warnings, all features)' 'structural gates' 'cargo check (changed packages only)' 'copy/paste detection (jscpd)' 'detect hardcoded secrets (CI is authoritative)' 'conventional commit subject'; do
+              grep -F "$hook" "$log" | grep -Eq '\.+Passed$'
+            done
+            if grep -Eq '^run-gate: SKIPPED|^format-text: SKIPPED|not on PATH - skipped|skipped - no nix' "$log"; then exit 1; fi
           done
-          deny_version="$(cargo deny --version)"
-          test "$deny_version" = 'cargo-deny 0.20.2'
-          {
-              rustc --version
-              cargo --version
-              printf '%s\n' "$deny_version"
-              pixi --version
-              devenv --version
-          } > "$evidence/versions.log" 2>&1
-          test "$(git write-tree)" = "$expected_tree"
-          git -c color.ui=false commit -m "$subject" 2>&1 | tee "$evidence/commit.log"
-          COMMIT
-          for hook in "${hooks[@]}"; do
-              grep -F "$hook" "$evidence/commit.log" | grep -Eq '\.+Passed$'
-          done
-          if grep -Eq '^run-gate: SKIPPED|^format-text: SKIPPED|not on PATH - skipped|skipped - no nix' "$evidence/commit.log"; then
-              exit 1
-          fi
-          commit="$(git rev-parse HEAD)"
-          test "$(git rev-list --parents -n 1 HEAD)" = "$commit $parent"
-          test "$(git rev-parse HEAD^{tree})" = "$expected_tree"
-          test "$(git log -1 --format=%s)" = "$subject"
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          ref="refs/heads/$branch"
-          git bundle create "$evidence/source.bundle" "$ref" "^$parent"
+          git bundle create "$evidence/source.bundle" "refs/heads/$api_branch" "refs/heads/$behavior_branch" "^$base"
           git bundle verify "$evidence/source.bundle"
-          test "$(git bundle list-heads "$evidence/source.bundle")" = "$commit $ref"
-          bundle_sha="$(sha256sum "$evidence/source.bundle" | cut -d ' ' -f 1)"
-          printf '{"consumer":"%s","helper":"%s","commit":"%s","parent":"%s","tree":"%s","ref":"%s","patch_sha256":"%s","bundle_sha256":"%s","run_id":"%s","attempt":"%s"}\n' \
-              "$CONSUMER" "$EXPECTED_HELPER_SHA" "$commit" "$parent" "$expected_tree" "$ref" \
-              "$patch_sha" "$bundle_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$evidence/receipt.json"
+          python3 "$helper" receipt "$evidence"
           BUILD
-
-      - name: Keep the reviewed source commit
+      - name: Keep draft source bundle and collection receipt
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: source-commit-${{ inputs.consumer }}
-          path: ${{ runner.temp }}/source-commit-evidence
+          name: sql-planned-source-bundle
+          path: ${{ runner.temp }}/sql-planned-bundle
           if-no-files-found: error
           retention-days: 7
-
       - name: Keep failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: source-commit-failure-${{ inputs.consumer }}
-          path: ${{ runner.temp }}/source-commit-evidence/*.log
+          name: sql-planned-bundle-failure
+          path: |
+            ${{ runner.temp }}/sql-planned-api-commit.log
+            ${{ runner.temp }}/sql-planned-bundle/*.log
           if-no-files-found: ignore
           retention-days: 7
