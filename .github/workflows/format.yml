@@ -1,5 +1,5 @@
 name: format
-run-name: ClickHouse later controls v2 ${{ inputs.request_id }}
+run-name: ClickHouse CLI and own-user controls ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: clickhouse-later-controls-proof-${{ github.ref }}
+  group: clickhouse-cli-own-site-proof-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -52,7 +52,7 @@ jobs:
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
-      - name: Prove seven isolated exact-source native bucket controls
+      - name: Prove six exact-source CLI and own-user rows
         working-directory: source
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -61,14 +61,14 @@ jobs:
           REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
-          unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
+          unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_PROFILE_TEST_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND DUCKDB_LIB_DIR DUCKDB_INCLUDE_DIR
           export CARGO_TERM_COLOR=never NO_COLOR=1
-          nix shell --inputs-from . nixpkgs#python3 --command python3 -I ../devco/clickhouse_bucket_proof.py
+          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just --command python3 -I ../devco/clickhouse_bucket_proof.py
       - name: Keep original failures and restored evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: clickhouse-later-controls-proof-${{ inputs.request_id }}-${{ github.run_id }}
-          path: source/target/clickhouse-later-controls-proof/
+          name: clickhouse-cli-own-site-proof-${{ inputs.request_id }}-${{ github.run_id }}
+          path: source/target/clickhouse-cli-own-site-proof/
           if-no-files-found: error
           retention-days: 14
