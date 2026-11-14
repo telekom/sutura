@@ -1,0 +1,88 @@
+# Advisory whole Distributed and explicit shard-local split acceptance in seven NixOS VMs.
+# No automatic cross-endpoint split routing or capacity claim. A failed dependency can leave
+# no copyable results; always retain its build log and any available kept VM output.
+# This workflow has no edge to merge/queue checks or release publishing.
+name: clickhouse-cluster
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*", "!v*-performance"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "40"
+
+      - name: Record exact event source
+        env:
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p results
+          test "$(git rev-parse HEAD)" = "$EVENT_SHA"
+          {
+            git rev-parse HEAD
+            git rev-parse 'HEAD^{tree}'
+            sha256sum flake.lock
+          } > results/source.txt
+
+      - name: Open KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Cluster acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix run .#clickhouse-cluster -L --keep-failed -- --out results 2>&1 | tee clickhouse-cluster.log
+
+      - name: Collect available observations
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p results
+          if [ -f clickhouse-cluster.log ]; then
+            cp clickhouse-cluster.log results/
+          fi
+          # Kept build directories may contain VM journals and observations after a failure.
+          # Their absence is not a passing result, and no results.json is fabricated here.
+          for directory in /tmp/nix-build-*clickhouse-cluster*.drv-*; do
+            if [ -d "$directory" ]; then
+              sudo cp -a "$directory" "results/$(basename "$directory")"
+            fi
+          done
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: clickhouse-cluster
+          path: results/
+          if-no-files-found: warn

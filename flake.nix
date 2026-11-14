@@ -1656,6 +1656,43 @@
         # `.github/workflows/tpch-across-nodes.yml`; it gates nothing.
         apps.tpch-across-nodes = tpchAcrossNodes 10;
 
+        # Advisory seven-VM fixture, outside normal checks. Explicit shard phases do not route
+        # one split leg across different endpoints; the venue records that limit with its results.
+        apps.clickhouse-cluster = {
+          type = "app";
+          program = builtins.toString (
+            if system == "x86_64-linux" then
+              let
+                test = import ./nix/clickhouse-cluster.nix {
+                  inherit pkgs;
+                  clickhouseVersion = clickhouseTier.version;
+                  sutura = shipped.nativeFor {
+                    binary = builtins.head shipped.binaries;
+                    profile = "ci";
+                    features = [ "clickhouse" "tls" "distributed" ];
+                  };
+                  clickhouse = clickhouseTier.package;
+                  clickhouseDriver = clickhouseAdbcHostDriver;
+                  example = ./examples/single-player;
+                };
+              in
+              pkgs.writeShellScript "sutura-clickhouse-cluster" ''
+                set -euo pipefail
+                if [ "$#" -ne 2 ] || [ "$1" != --out ]; then
+                  echo 'usage: nix run .#clickhouse-cluster -- --out DIR' >&2
+                  exit 2
+                fi
+                mkdir -p "$2"
+                cp -LR ${test}/. "$2"/
+              ''
+            else
+              pkgs.writeShellScript "sutura-clickhouse-cluster-not-on-${system}" ''
+                echo 'only x86_64-linux runs the VM test' >&2
+                exit 1
+              ''
+          );
+        };
+
         apps.default-features = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-default-features" ''
