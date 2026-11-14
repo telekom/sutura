@@ -11,6 +11,7 @@
 #
 # THIRD-PARTY ACTIONS: none, as everywhere else here.
 name: format
+run-name: Oracle reader admission ${{ inputs.request_id }}
 
 on:
   push:
@@ -35,16 +36,36 @@ on:
       - "nix/dprint.nix"
       - "nix/format-text.sh"
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact frozen source commit
+        type: string
+        required: true
+      source_tree:
+        description: Exact frozen source tree
+        type: string
+        required: true
+      request_id:
+        description: Unique reviewed proof request UUID
+        type: string
+        required: true
+      prerequisite_json:
+        description: Independently reviewed exact-tree full native pass receipt
+        type: string
+        required: true
+      prerequisite_sha256:
+        description: SHA256 of the exact prerequisite receipt input
+        type: string
+        required: true
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   format:
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -65,3 +86,59 @@ jobs:
       # left at its default: the script reads the working tree, not a diff against a base.
       - name: markdown, yaml, toml and python
         run: bash nix/format-text.sh check
+
+  proof:
+    if: github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: oracle-reader-admission-proof-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: rust-mcp-32core
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - name: Open KVM for the native fleet
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+      - name: Prove the admission kill and full native restoration
+        working-directory: source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          PREREQUISITE_JSON: ${{ inputs.prerequisite_json }}
+          PREREQUISITE_SHA256: ${{ inputs.prerequisite_sha256 }}
+        run: |
+          set -euo pipefail
+          unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
+          export CARGO_TERM_COLOR=never NO_COLOR=1
+          nix shell --inputs-from . nixpkgs#python3 nixpkgs#coreutils --command python3 -I ../devco/oracle_reader_admission_proof.py
+      - name: Retain original failures and restored native evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oracle-reader-admission-proof-${{ inputs.request_id }}-${{ github.run_id }}
+          path: source/target/oracle-reader-admission-proof/
+          if-no-files-found: error
+          retention-days: 14
