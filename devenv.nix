@@ -180,6 +180,11 @@ in
   # The ClickHouse ADBC driver the mounted-driver cells open, from the same flake build.
   env.SUTURA_CLICKHOUSE_ADBC_DRIVER = "${inputs.repo.packages.${pkgs.stdenv.hostPlatform.system}.adbc-driver-clickhouse-host}/lib/libadbc_driver_clickhouse${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
+  profiles.hooks.module.env = {
+    SUTURA_POSTGRES_ADBC_DRIVER = lib.mkForce "";
+    SUTURA_CLICKHOUSE_ADBC_DRIVER = lib.mkForce "";
+  };
+
   # devenv puts its stdenv compiler first on PATH, ahead of packages.
   stdenv = toolPkgs.llvmPackages_latest.stdenv;
 
