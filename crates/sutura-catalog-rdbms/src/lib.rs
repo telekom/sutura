@@ -45,17 +45,9 @@
 //!    relationship. The variant records what the reader found; this converter does not re-derive
 //!    it from the constraint itself.
 //!
-//! **Update, 2026-09-24 (#966).** The measurement above counted TABLE comments; a real dictionary's
-//! `information_schema.columns` / `pg_catalog` COULD also supply a `data_type` per column, a
-//! per-COLUMN comment through `col_description`, and its own primary/unique key - a real reader
-//! could read all three the same way it reads the rest of the dictionary, and none of it existed
-//! at this port before this issue. [`Table`] now CAN carry a type and a comment per column, as
-//! [`ColumnMetadata`] attached with [`Table::with_column_metadata`], and a key as
-//! [`Table::with_primary_key`] - both additive rather than [`Table::new`] parameters, so every
-//! existing reader and every test fixture here keeps compiling. Neither licenses anything a
-//! cardinality or a measure would: a type is descriptive text
-//! ([`sutura_domain::catalog::ColumnType`]) and a primary key is evidence
-//! ([`sutura_domain::catalog::Model::with_primary_key`]).
+//! Dictionaries may also carry per-column types/comments and primary keys. Those declarations
+//! are descriptive evidence, not metric cardinality or measures. [`Table::with_column_metadata`]
+//! and [`Table::with_primary_key`] attach them without changing a reader's required structure.
 //!
 //! The fixture carries a type, a comment and a key for two columns, so the converter's mapping and
 //! byte accounting are exercised without a socket. The feature-gated live reader also reads these
@@ -748,10 +740,6 @@ impl ColumnMetadata {
 }
 
 /// One semantic model, the physical table it selects, and the prose written against it.
-///
-/// `column_metadata` and `primary_key` are both additive - see [`Self::with_column_metadata`] and
-/// [`Self::with_primary_key`] - rather than [`Self::new`] parameters, so a reader that has neither
-/// (or a test fixture built before either existed) keeps compiling unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Table {
     model: String,
@@ -865,7 +853,17 @@ impl Dictionary {
         selection: &sutura_domain::catalog::DictionarySelection,
         dialect: sutura_domain::warehouse::schema::TypeDialect,
     ) -> Result<Self, RdbmsError> {
-        let mut selected = crate::native::select(self, selection, dialect)?;
+        self.native_with_unbounded_number(selection, dialect, None)
+    }
+
+    /// Applies native selection with the existing declared-type mapping.
+    pub fn native_with_unbounded_number(
+        self,
+        selection: &sutura_domain::catalog::DictionarySelection,
+        dialect: sutura_domain::warehouse::schema::TypeDialect,
+        unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
+    ) -> Result<Self, RdbmsError> {
+        let mut selected = crate::native::select(self, selection, dialect, unbounded_number)?;
         selected.native = true;
         Ok(selected)
     }
