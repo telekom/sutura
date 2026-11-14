@@ -64,12 +64,12 @@
         "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough"
       ],
       "preimage_sha256": "832a56aaf75c8e77efae770c968bab0613e7b0ce718dc26dbe4169115f47dcf6",
-      "mutated_sha256": "6c44012c77d7828e9d9981155d658a84840bcd1ee7fed44b34c9555183f475eb",
+      "mutated_sha256": "36de740d16a95d25b8820c7167fb3b9aff7230b7ba0125c95365d69ed58751b9",
       "edits": [
         {
           "path": "crates/sutura-exec-bigquery/src/statement.rs",
           "before": "{\n    warehouse.deliverable(presented)?;\n    let identity = warehouse.job_identity(presented)?;\n    let payer = warehouse.unstated_payer(&billing::projects(tables)?)?;\n    let rows = warehouse\n        .transport\n        .run(&JobRequest::new(\n",
-          "after": "{\n    warehouse.deliverable(presented)?;\n    let identity = warehouse.job_identity(presented)?;\n    let payer = warehouse.unstated_payer(&billing::projects(&tables.iter().take(1).cloned().collect())?)?;\n    let rows = warehouse\n        .transport\n        .run(&JobRequest::new(\n",
+          "after": "{\n    warehouse.deliverable(presented)?;\n    let identity = warehouse.job_identity(presented)?;\n    let payer = warehouse.unstated_payer(&billing::projects(tables.iter().take(1))?)?;\n    let rows = warehouse\n        .transport\n        .run(&JobRequest::new(\n",
           "count": 1
         }
       ],
