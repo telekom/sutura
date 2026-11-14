@@ -344,8 +344,6 @@ format.yml:format
 
 # Dispatch-only native generation and bundle export. The inventory reads every job in a
 # pull-request workflow without evaluating job conditions, so these jobs still need classification.
-format.yml:generate
-format.yml:bigquery
 format.yml:source-bundle
 
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in

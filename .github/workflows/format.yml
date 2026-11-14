@@ -77,146 +77,19 @@ jobs:
       - name: markdown, yaml, toml and python
         run: bash nix/format-text.sh check
 
-  generate:
+  source-bundle:
+    permissions:
+      contents: read
+      actions: read
     if: github.event_name == 'workflow_dispatch'
     runs-on: rust-mcp-16core
     timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [core, cube, oracle-verified, oracle-native]
-    env: &helper-env
+    env:
       CONSUMER: ${{ inputs.consumer }}
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
       WORKFLOW_SHA: ${{ github.workflow_sha }}
       NO_COLOR: "1"
       SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
-    steps: &generation-steps
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Check the reviewed helper before creating the source checkout
-        id: binding
-        run: python3 .github/sql-planned.py guard
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ steps.binding.outputs.base }}
-          path: source
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
-        with: &nix-config
-          extra_nix_config: |
-            fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-      - uses: $/.github/actions/nix-store-cache
-        with:
-          scope: ci
-      - name: Reconstruct the exact reviewed candidate
-        env:
-          SOURCE_BASE: ${{ steps.binding.outputs.base }}
-        run: |
-          set -euo pipefail
-          test "$(git -C source rev-parse HEAD)" = "$SOURCE_BASE"
-          python3 .github/sql-planned.py prepare api
-          python3 .github/sql-planned.py prepare behavior
-      - name: Place credential outside the checkout
-        if: matrix.lane == 'bigquery'
-        env:
-          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
-        run: |
-          set -eu
-          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
-            echo "bq-test has no CI credential" >&2
-            exit 1
-          fi
-          umask 077
-          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
-      - name: Mask resource names before exporting them
-        if: matrix.lane == 'bigquery'
-        env:
-          K: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: |
-          set -eu
-          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
-            || { echo "the CI credential names no project_id" >&2; exit 1; }
-          test -n "$project"
-          printf '::add-mask::%s\n' "$project"
-          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
-            echo "bq-test has no SUTURA_BQ_DATASET" >&2
-            exit 1
-          fi
-          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
-          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-      - name: Update then repeat the identical venue without updates
-        env:
-          LANE: ${{ matrix.lane }}
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-          SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
-        run: |
-          set -euo pipefail
-          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
-          helper="$GITHUB_WORKSPACE/.github/sql-planned.py"
-          out="$RUNNER_TEMP/sql-planned-$LANE"
-          export helper out
-          cd source
-          case "$LANE" in
-            core|cube)
-              nix develop .#checks.x86_64-linux.nextest --command \
-                python3 "$helper" lane "$LANE" "$out"
-              ;;
-            oracle-verified|oracle-native|bigquery)
-              python3 "$helper" lane "$LANE" "$out"
-              ;;
-            *) exit 1 ;;
-          esac
-      - name: Remove credential
-        if: always()
-        run: rm -f "$RUNNER_TEMP/bq-key.json"
-      - name: Keep complete lane evidence
-        if: success()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: sql-planned-${{ matrix.lane }}
-          path: ${{ runner.temp }}/sql-planned-${{ matrix.lane }}
-          if-no-files-found: error
-          retention-days: 7
-      - name: Keep failure diagnostics
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: sql-planned-failure-${{ matrix.lane }}
-          path: |
-            ${{ runner.temp }}/sql-planned-${{ matrix.lane }}/**/*.log
-            ${{ runner.temp }}/sql-planned-${{ matrix.lane }}/**/cube-meta.raw.json
-          if-no-files-found: ignore
-          retention-days: 7
-
-  bigquery:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: rust-mcp-16core
-    timeout-minutes: 360
-    environment: bq-test
-    concurrency:
-      group: bigquery-conformance-${{ vars.SUTURA_BQ_DATASET }}
-      queue: max
-      cancel-in-progress: false
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [bigquery]
-    env: *helper-env
-    steps: *generation-steps
-
-  source-bundle:
-    needs: [generate, bigquery]
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: rust-mcp-16core
-    timeout-minutes: 360
-    env: *helper-env
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -240,10 +113,10 @@ jobs:
       - uses: $/.github/actions/nix-store-cache
         with:
           scope: ci
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: sql-planned-*
-          path: ${{ runner.temp }}/sql-planned-incoming
+      - name: Fetch the five immutable original lane artifacts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/sql-planned.py fetch-original "$RUNNER_TEMP/sql-planned-incoming" "$RUNNER_TEMP/sql-planned-artifacts.json"
       - name: Collect generated files and commit two review units through normal hooks
         env:
           SOURCE_BASE: ${{ steps.binding.outputs.base }}
@@ -284,6 +157,7 @@ jobs:
           python3 "$helper" prepare behavior
           python3 "$helper" collect "$RUNNER_TEMP/sql-planned-incoming" "$evidence"
           cp "$parent_log" "$evidence/api-commit.log"
+          cp "$RUNNER_TEMP/sql-planned-artifacts.json" "$evidence/original-artifacts.json"
           git switch -c "$behavior_branch"
           devenv --profile hooks shell bash -euo pipefail <<'CHILD'
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}${PREK_ALLOW_NO_CONFIG:-}"

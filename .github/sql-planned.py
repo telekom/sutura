@@ -4,6 +4,7 @@ import base64
 import gzip
 import hashlib
 import hmac
+import io
 import ipaddress
 import json
 import os
@@ -15,11 +16,13 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "source"
 BINDING = ROOT / ".github/payloads/sql-planned.json"
+ORIGINAL = ROOT / ".github/payloads/sql-planned-original-evidence.json"
 ENGINES = (
     "datafusion",
     "duckdb",
@@ -274,14 +277,121 @@ def files(directory):
     return result
 
 
+def original_evidence():
+    original = json.loads(ORIGINAL.read_bytes())
+    value = binding()
+    for key in (
+        "main",
+        "base",
+        "parent_tree",
+        "source_tree",
+        "parent_patch_sha256",
+        "behavior_patch_sha256",
+    ):
+        require(
+            value[key] == original["source_binding"][key],
+            "Original evidence source mismatch",
+        )
+    return original
+
+
+def fetch_original(incoming, receipt):
+    original = original_evidence()
+    require(os.environ.get("GITHUB_TOKEN"), "Original evidence token absent")
+
+    def get(path):
+        request = urllib.request.Request(
+            "https://api.github.com/repos/telekom/sutura/actions/" + path,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        request.add_unredirected_header(
+            "Authorization", "Bearer " + os.environ["GITHUB_TOKEN"]
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read()
+
+    run = json.loads(get(f"runs/{original['run']['id']}"))
+    require(
+        {key: run.get(key) for key in original["run"]} == original["run"],
+        "Original run/helper mismatch",
+    )
+    require(set(original["artifacts"]) == set(LANES), "Original lane set mismatch")
+    incoming.mkdir(parents=True, exist_ok=False)
+    for lane in LANES:
+        pinned = original["artifacts"][lane]
+        job = json.loads(get(f"jobs/{pinned['job']['id']}"))
+        require(
+            {key: job.get(key) for key in pinned["job"]} == pinned["job"],
+            "Original lane job mismatch",
+        )
+        require(
+            job["status"] == "completed" and job["conclusion"] == "success",
+            "Original lane failed",
+        )
+        metadata = json.loads(get(f"artifacts/{pinned['id']}"))
+        require(
+            all(
+                metadata.get(key) == pinned[key]
+                for key in ("id", "name", "digest", "size_in_bytes")
+            )
+            and not metadata["expired"]
+            and {
+                key: metadata["workflow_run"].get(key) for key in pinned["workflow_run"]
+            }
+            == pinned["workflow_run"],
+            "Original artifact identity mismatch",
+        )
+        data = get(f"artifacts/{pinned['id']}/zip")
+        require(
+            len(data) == pinned["size_in_bytes"]
+            and "sha256:" + sha(data) == pinned["digest"],
+            "Original archive digest mismatch",
+        )
+        directory = incoming / ("sql-planned-" + lane)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            paths = [Path(member.filename) for member in members]
+            require(
+                len(paths) == len(set(paths))
+                and all(
+                    path.parts
+                    and not path.is_absolute()
+                    and ".." not in path.parts
+                    and "\\" not in member.filename
+                    and member.external_attr >> 16 == 0o100644
+                    for path, member in zip(paths, members, strict=True)
+                ),
+                "Unsafe/duplicate original ZIP member",
+            )
+            archive.extractall(directory)
+        read_artifact(directory)
+    dump(
+        receipt,
+        {
+            "context": context(),
+            "original_evidence": original,
+            "original_evidence_sha256": sha(ORIGINAL.read_bytes()),
+        },
+    )
+
+
 def read_artifact(directory):
     manifest = json.loads((directory / "manifest.json").read_bytes())
     require(
-        manifest["context"] == context(), "Artifact source/helper/request/run mismatch"
+        manifest["context"] == original_evidence()["context"],
+        "Artifact original source/helper/request/run mismatch",
     )
     require(manifest["files"] == files(directory), "Artifact file/hash mismatch")
     name = manifest["lane"]
     require(name in LANES, "Unknown artifact lane")
+    require(
+        sha((directory / "manifest.json").read_bytes())
+        == original_evidence()["artifacts"][name]["manifest_sha256"],
+        "Original artifact manifest mismatch",
+    )
     expected = {phase + "/venue.log" for phase in ("update", "no-update")}
     expected |= {
         phase + "/generated/" + path
@@ -613,6 +723,8 @@ def collect(incoming, out):
         out / "generated.json",
         {
             "context": context(),
+            "original_evidence": original_evidence(),
+            "original_evidence_sha256": sha(ORIGINAL.read_bytes()),
             "tree": git("write-tree"),
             "generated_patch_sha256": sha(patch),
             "generated": {path: sha(data) for path, data in merged.items()},
@@ -728,6 +840,8 @@ if __name__ == "__main__":
         apply_source(args[0])
     elif task == "lane":
         lane(args[0], Path(args[1]).resolve())
+    elif task == "fetch-original":
+        fetch_original(Path(args[0]).resolve(), Path(args[1]).resolve())
     elif task == "collect":
         collect(Path(args[0]).resolve(), Path(args[1]).resolve())
     elif task == "receipt":

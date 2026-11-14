@@ -1,0 +1,137 @@
+{
+  "context": {
+    "binding_sha256": "2fbeab20f27494dce58cc6996f9dbedb84fdd35ac76d0d8b67f82a15d4820a7e",
+    "helper_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+    "source_tree": "90afed56ae4fb97e11f844279ed19f85c99ca186",
+    "parent_tree": "99648e98f1c6e06e646a30397a4617bbe8125de7",
+    "request_id": "f964772f-be09-476b-b490-91f9f2301f25",
+    "run_id": "43589375103",
+    "attempt": "1"
+  },
+  "source_binding": {
+    "main": "b8bce349b79fc16891f8bfd466ba7187cafdf019",
+    "base": "e06901b1b463052fb827490a2d98832aab36bd74",
+    "parent_tree": "99648e98f1c6e06e646a30397a4617bbe8125de7",
+    "source_tree": "90afed56ae4fb97e11f844279ed19f85c99ca186",
+    "parent_patch_sha256": "e0ef0da8a21ce0abb48c356dcca08155b18b983d465a785e26650c8993769a42",
+    "behavior_patch_sha256": "0ca3402193d3b3ee2acb43f0707a319e5c1a00df1bc54bd9e11d1cb34f9876bd"
+  },
+  "run": {
+    "id": 43589375103,
+    "run_attempt": 1,
+    "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+    "head_branch": "ci/sql-planned-native-settling-20261114",
+    "event": "workflow_dispatch",
+    "status": "completed",
+    "conclusion": "failure",
+    "workflow_id": 356331202,
+    "path": ".github/workflows/format.yml"
+  },
+  "artifacts": {
+    "core": {
+      "id": 14111934097,
+      "name": "sql-planned-core",
+      "digest": "sha256:add25403d871d907b3724767eb6237e794d9bd66c774cc3f066ecd958358908c",
+      "size_in_bytes": 44088,
+      "manifest_sha256": "b1cfc6684c1dda685557dc7de4d3f038d8aa06a93f1512310dedea77d669fde0",
+      "workflow_run": {
+        "id": 43589375103,
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "head_branch": "ci/sql-planned-native-settling-20261114"
+      },
+      "job": {
+        "id": 132430657128,
+        "name": "generate (core)",
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "run_id": 43589375103,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success"
+      }
+    },
+    "cube": {
+      "id": 14112405437,
+      "name": "sql-planned-cube",
+      "digest": "sha256:51ff7ba14fa1c581cc78456be529a437d87574460a841a881fea65d813e379a2",
+      "size_in_bytes": 35953,
+      "manifest_sha256": "f846ef00558ad672a7001afb11a04b273e3c2a779a65aa8986e5a979f0708a46",
+      "workflow_run": {
+        "id": 43589375103,
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "head_branch": "ci/sql-planned-native-settling-20261114"
+      },
+      "job": {
+        "id": 132430656984,
+        "name": "generate (cube)",
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "run_id": 43589375103,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success"
+      }
+    },
+    "oracle-verified": {
+      "id": 14112705096,
+      "name": "sql-planned-oracle-verified",
+      "digest": "sha256:f34d9f212de45d88902a7bec6c369179f06bbc0436e307b51b634124f0a8936d",
+      "size_in_bytes": 24487,
+      "manifest_sha256": "22bc6279542907d685b44005ed896fe6e27afd2e784b14825043ec0c35a47da9",
+      "workflow_run": {
+        "id": 43589375103,
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "head_branch": "ci/sql-planned-native-settling-20261114"
+      },
+      "job": {
+        "id": 132430657188,
+        "name": "generate (oracle-verified)",
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "run_id": 43589375103,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success"
+      }
+    },
+    "oracle-native": {
+      "id": 14111939417,
+      "name": "sql-planned-oracle-native",
+      "digest": "sha256:13fee1160065ca43bdcdbbe510c7ad6a9cd9375b5414a0ca34f917114dbb2367",
+      "size_in_bytes": 29280,
+      "manifest_sha256": "1ccbcebf869e87589a50872b37cb543d8a96993f76b2ea45cc5796483569eb71",
+      "workflow_run": {
+        "id": 43589375103,
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "head_branch": "ci/sql-planned-native-settling-20261114"
+      },
+      "job": {
+        "id": 132430657203,
+        "name": "generate (oracle-native)",
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "run_id": 43589375103,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success"
+      }
+    },
+    "bigquery": {
+      "id": 14112495234,
+      "name": "sql-planned-bigquery",
+      "digest": "sha256:18fe3ffe55ae5fe1d86a782e9079c7882ad64c2740142ea88e28c1166204824c",
+      "size_in_bytes": 22605,
+      "manifest_sha256": "e7b4179bb349d4fe275008d47903e2cb28ea1b3f7366e64baf25a532e8002a88",
+      "workflow_run": {
+        "id": 43589375103,
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "head_branch": "ci/sql-planned-native-settling-20261114"
+      },
+      "job": {
+        "id": 132430657736,
+        "name": "bigquery (bigquery)",
+        "head_sha": "6c5942b3f784daca7b1bc3ce9046196ab20024f7",
+        "run_id": 43589375103,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success"
+      }
+    }
+  }
+}
