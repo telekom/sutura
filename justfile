@@ -93,7 +93,7 @@ lint:
     # The cheap structural gates, seconds not minutes.
     cargo run -q -p xtask -- hygiene
 
-# Run the tests, or with a nextest filterset only the tests it selects.
+# Run tests with an optional nextest filterset and Cargo profile.
 test $filter='' $profile='':
     #!/usr/bin/env bash
     set -euo pipefail
@@ -110,7 +110,7 @@ test $filter='' $profile='':
     cargo nextest run --workspace --all-features ${filter:+-E "$filter"} ${profile:+--cargo-profile "$profile"}
     [ -n "$filter" ] || cargo test --doc --workspace --all-features ${profile:+--profile "$profile"}
 
-# `just test` restricted by one nextest filterset, e.g. `just test-only 'test(/^acceptance::/)'`; an empty one runs everything.
+# `just test` restricted by one nextest filterset and optional Cargo profile; an empty filterset runs everything.
 test-only filter profile='': (test filter profile)
 
 # NOT a gate: not in `just validate`, not in `just gates`, not in `ci` - `github.com/telekom/

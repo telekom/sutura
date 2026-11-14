@@ -161,6 +161,13 @@ profile, a Cargo profile (`--cargo-profile`, so a hosted proof venue can align w
 profile), with no doctest leg: use it for a kill table, one mutation per run, with `NEXTEST_PROFILE=nofailfast`
 for a complete table. An empty filterset runs everything, and a filtered green verifies only what it selects
 (`just validate` is the gate).
+
+Whole-workspace mutation discovery needs `ci`: run 43609822119 recorded the existing deep-bound cell
+`an_expression_chained_past_the_bound_is_not_planned` aborting under the default test profile before
+any mutant ran. The profile correlation is a venue diagnosis, not proof that every deep leg is safe;
+aligning with `checks.nextest` avoids that abort, and an abort is never kill credit. Bare `just test`
+keeps the default profile and can still hit it.
+
 `xtask/src/tasks/test_only.rs` holds that `test-only` carries no command of its own and compares `test`'s every non-comment line (the shebang included).
 
 **Local Rust gates run on the shell's nightly cargo, matching CI.** The formatter, changed-package,
