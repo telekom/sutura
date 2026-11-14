@@ -1,7 +1,7 @@
 //! Client-side TLS configuration for the HTTP transport.
 //!
 //! When the crate is built with a crypto-provider feature (`rustls-tls-aws-lc` or
-//! `rustls-tls-ring`, which enable the internal `tls-mtls` feature), the driver can verify the
+//! `rustls-tls-ring`, which enable the internal `_tls-mtls` feature), the driver can verify the
 //! ClickHouse server against a caller-supplied PEM root bundle (replacing the built-in roots)
 //! and/or present a client identity (PEM certificate chain + private key) for mutual TLS.
 //!
@@ -10,10 +10,10 @@
 //! any `hyper-util` legacy client whose connector is a [`hyper_rustls::HttpsConnector`].
 
 use adbc_core::error::{Error, Status};
-#[cfg(feature = "tls-mtls")]
+#[cfg(feature = "_tls-mtls")]
 use rustls::pki_types::pem::{Error as PemError, PemObject as _};
 
-use crate::options::{MTLS_CERT_CHAIN, MTLS_PRIVATE_KEY, TLS_ROOT_CERTS};
+use crate::options::{TLS_CLIENT_CERT, TLS_CLIENT_KEY, TLS_ROOT_CERTS};
 
 /// The TLS trust and identity options for the HTTP transport.
 ///
@@ -46,7 +46,7 @@ impl std::fmt::Debug for TlsOptions {
 
 /// Whether `key` is one of this module's TLS options.
 pub(crate) fn is_tls_option(key: &str) -> bool {
-    matches!(key, TLS_ROOT_CERTS | MTLS_CERT_CHAIN | MTLS_PRIVATE_KEY)
+    matches!(key, TLS_ROOT_CERTS | TLS_CLIENT_CERT | TLS_CLIENT_KEY)
 }
 
 impl TlsOptions {
@@ -58,8 +58,8 @@ impl TlsOptions {
     fn declared(&self) -> Vec<&'static str> {
         [
             (TLS_ROOT_CERTS, self.root_certs.is_some()),
-            (MTLS_CERT_CHAIN, self.client_cert_chain.is_some()),
-            (MTLS_PRIVATE_KEY, self.client_private_key.is_some()),
+            (TLS_CLIENT_CERT, self.client_cert_chain.is_some()),
+            (TLS_CLIENT_KEY, self.client_private_key.is_some()),
         ]
         .into_iter()
         .filter_map(|(name, set)| set.then_some(name))
@@ -88,18 +88,18 @@ impl TlsOptions {
     /// transport-build time, via [`Self::check_identity`]. Without a crypto-provider feature this
     /// refuses loudly rather than silently ignoring the option.
     pub(crate) fn try_set(&mut self, key: &str, value: String) -> Result<(), Error> {
-        #[cfg(feature = "tls-mtls")]
+        #[cfg(feature = "_tls-mtls")]
         {
             match key {
                 TLS_ROOT_CERTS => {
                     ensure_certificates(&value, key)?;
                     self.root_certs = Some(value);
                 }
-                MTLS_CERT_CHAIN => {
+                TLS_CLIENT_CERT => {
                     ensure_certificates(&value, key)?;
                     self.client_cert_chain = Some(value);
                 }
-                MTLS_PRIVATE_KEY => {
+                TLS_CLIENT_KEY => {
                     parse_private_key(&value, key)?;
                     self.client_private_key = Some(value);
                 }
@@ -108,7 +108,7 @@ impl TlsOptions {
             Ok(())
         }
 
-        #[cfg(not(feature = "tls-mtls"))]
+        #[cfg(not(feature = "_tls-mtls"))]
         {
             let _ = (&key, &value);
             Err(Error::with_message_and_status(
@@ -127,7 +127,7 @@ impl TlsOptions {
         if self.client_cert_chain.is_some() != self.client_private_key.is_some() {
             return Err(Error::with_message_and_status(
                 format!(
-                    "client identity must set both {MTLS_CERT_CHAIN:?} and {MTLS_PRIVATE_KEY:?}; \
+                    "client identity must set both {TLS_CLIENT_CERT:?} and {TLS_CLIENT_KEY:?}; \
                      got certificate chain: {}, private key: {}",
                     self.client_cert_chain.is_some(),
                     self.client_private_key.is_some(),
@@ -144,12 +144,12 @@ impl TlsOptions {
     /// [`Status::NotFound`] (mirroring the driver's handling of other sensitive options).
     pub(crate) fn read_back(&self, key: &str) -> Result<String, Error> {
         match key {
-            MTLS_PRIVATE_KEY => Err(Error::with_message_and_status(
+            TLS_CLIENT_KEY => Err(Error::with_message_and_status(
                 "read-back of the private key has been omitted to avoid leaking a secret",
                 Status::NotFound,
             )),
             TLS_ROOT_CERTS => Ok(self.root_certs.clone().unwrap_or_default()),
-            MTLS_CERT_CHAIN => Ok(self.client_cert_chain.clone().unwrap_or_default()),
+            TLS_CLIENT_CERT => Ok(self.client_cert_chain.clone().unwrap_or_default()),
             other => Err(unknown_option(other)),
         }
     }
@@ -157,7 +157,7 @@ impl TlsOptions {
     /// Build the `hyper-rustls` HTTPS connector carrying this configuration.
     ///
     /// Only called when `!self.is_empty()`, i.e. the caller wants to customize the transport.
-    #[cfg(feature = "tls-mtls")]
+    #[cfg(feature = "_tls-mtls")]
     pub(crate) fn build_https_connector(
         &self,
     ) -> Result<
@@ -206,8 +206,8 @@ impl TlsOptions {
         ) {
             builder
                 .with_client_auth_cert(
-                    parse_certificates(certs, MTLS_CERT_CHAIN)?,
-                    parse_private_key(key, MTLS_PRIVATE_KEY)?,
+                    parse_certificates(certs, TLS_CLIENT_CERT)?,
+                    parse_private_key(key, TLS_CLIENT_KEY)?,
                 )
                 .map_err(|e| {
                     invalid_arguments(format!("error configuring client certificate: {e}"))
@@ -216,7 +216,9 @@ impl TlsOptions {
             builder.with_no_client_auth()
         };
 
-        let http = HttpConnector::new();
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
+        http.set_keepalive(Some(std::time::Duration::from_secs(60)));
         Ok(HttpsConnectorBuilder::new()
             .with_tls_config(config)
             .https_or_http()
@@ -225,7 +227,7 @@ impl TlsOptions {
     }
 }
 
-#[cfg(feature = "tls-mtls")]
+#[cfg(feature = "_tls-mtls")]
 fn parse_certificates(
     pem: &str,
     key: &str,
@@ -235,7 +237,7 @@ fn parse_certificates(
         .map_err(|e| invalid_arguments(format!("malformed PEM in option {key:?}: {e}")))
 }
 
-#[cfg(feature = "tls-mtls")]
+#[cfg(feature = "_tls-mtls")]
 fn ensure_certificates(pem: &str, key: &str) -> Result<(), Error> {
     let certs = parse_certificates(pem, key)?;
     if certs.is_empty() {
@@ -246,13 +248,15 @@ fn ensure_certificates(pem: &str, key: &str) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(feature = "tls-mtls")]
+#[cfg(feature = "_tls-mtls")]
 fn parse_private_key(
     pem: &str,
     key: &str,
 ) -> Result<rustls::pki_types::PrivateKeyDer<'static>, Error> {
     rustls::pki_types::PrivateKeyDer::from_pem_slice(pem.as_bytes()).map_err(|e| match e {
-        PemError::NoItemsFound => invalid_arguments(format!("no private key found in option {key:?}")),
+        PemError::NoItemsFound => {
+            invalid_arguments(format!("no private key found in option {key:?}"))
+        }
         other => invalid_arguments(format!("malformed PEM in option {key:?}: {other}")),
     })
 }
@@ -275,7 +279,7 @@ fn unknown_option(key: &str) -> Error {
     )
 }
 
-#[cfg(all(test, feature = "tls-mtls"))]
+#[cfg(all(test, feature = "_tls-mtls"))]
 mod tests {
     use super::*;
     use adbc_core::error::Status;
@@ -288,9 +292,9 @@ mod tests {
     #[test]
     fn tls_option_names_use_repo_style() {
         assert_eq!(TLS_ROOT_CERTS, "clickhouse.client.tls_root_certs");
-        assert_eq!(MTLS_CERT_CHAIN, "clickhouse.client.mtls_cert_chain");
-        assert_eq!(MTLS_PRIVATE_KEY, "clickhouse.client.mtls_private_key");
-        for key in [TLS_ROOT_CERTS, MTLS_CERT_CHAIN, MTLS_PRIVATE_KEY] {
+        assert_eq!(TLS_CLIENT_CERT, "clickhouse.client.tls_client_cert");
+        assert_eq!(TLS_CLIENT_KEY, "clickhouse.client.tls_client_key");
+        for key in [TLS_ROOT_CERTS, TLS_CLIENT_CERT, TLS_CLIENT_KEY] {
             assert!(is_tls_option(key));
             assert!(key.starts_with("clickhouse.client."));
         }
@@ -307,14 +311,14 @@ mod tests {
 
         let err = opts
             .try_set(
-                MTLS_CERT_CHAIN,
+                TLS_CLIENT_CERT,
                 "-----BEGIN CERTIFICATE-----\n!!!!!!!!\n-----END CERTIFICATE-----".into(),
             )
             .unwrap_err();
         assert_eq!(err.status, Status::InvalidArguments);
 
         let err = opts
-            .try_set(MTLS_PRIVATE_KEY, "not a key".into())
+            .try_set(TLS_CLIENT_KEY, "not a key".into())
             .unwrap_err();
         assert_eq!(err.status, Status::InvalidArguments);
     }
@@ -324,10 +328,8 @@ mod tests {
         let (certificate, private_key) = identity();
         let mut opts = TlsOptions::default();
         opts.try_set(TLS_ROOT_CERTS, certificate.clone()).unwrap();
-        opts.try_set(MTLS_CERT_CHAIN, certificate.clone())
-            .unwrap();
-        opts.try_set(MTLS_PRIVATE_KEY, private_key.clone())
-            .unwrap();
+        opts.try_set(TLS_CLIENT_CERT, certificate.clone()).unwrap();
+        opts.try_set(TLS_CLIENT_KEY, private_key.clone()).unwrap();
         assert!(!opts.is_empty());
         opts.check_identity().unwrap();
     }
@@ -336,7 +338,10 @@ mod tests {
     fn declared_tls_requires_an_https_uri() {
         let (certificate, private_key) = identity();
         let mut opts = TlsOptions::default();
-        assert!(opts.require_https(None).is_ok(), "nothing declared, nothing to refuse");
+        assert!(
+            opts.require_https(None).is_ok(),
+            "nothing declared, nothing to refuse"
+        );
         opts.try_set(TLS_ROOT_CERTS, certificate).unwrap();
         assert!(opts.require_https(Some("https")).is_ok());
         for scheme in [None, Some("http")] {
@@ -345,24 +350,22 @@ mod tests {
             assert!(refused.message.contains(TLS_ROOT_CERTS), "{refused:?}");
         }
         let mut identity_only = TlsOptions::default();
-        identity_only.try_set(MTLS_PRIVATE_KEY, private_key).unwrap();
+        identity_only.try_set(TLS_CLIENT_KEY, private_key).unwrap();
         assert!(identity_only.require_https(Some("http")).is_err());
     }
 
     #[test]
     fn refuses_half_identity() {
-        let (certificate, private_key) = identity();
+        let (certificate, _) = identity();
         let mut opts = TlsOptions::default();
-        opts.try_set(MTLS_CERT_CHAIN, certificate.clone())
-            .unwrap();
+        opts.try_set(TLS_CLIENT_CERT, certificate.clone()).unwrap();
         // Certificate chain without a private key is refused.
         let err = opts.check_identity().unwrap_err();
         assert_eq!(err.status, Status::InvalidArguments);
 
-        let (certificate, private_key) = identity();
+        let (_, private_key) = identity();
         let mut opts = TlsOptions::default();
-        opts.try_set(MTLS_PRIVATE_KEY, private_key.clone())
-            .unwrap();
+        opts.try_set(TLS_CLIENT_KEY, private_key.clone()).unwrap();
         // Private key without a certificate chain is refused.
         let err = opts.check_identity().unwrap_err();
         assert_eq!(err.status, Status::InvalidArguments);
@@ -373,10 +376,8 @@ mod tests {
         let (certificate, private_key) = identity();
         let mut opts = TlsOptions::default();
         opts.try_set(TLS_ROOT_CERTS, certificate.clone()).unwrap();
-        opts.try_set(MTLS_CERT_CHAIN, certificate.clone())
-            .unwrap();
-        opts.try_set(MTLS_PRIVATE_KEY, private_key.clone())
-            .unwrap();
+        opts.try_set(TLS_CLIENT_CERT, certificate.clone()).unwrap();
+        opts.try_set(TLS_CLIENT_KEY, private_key.clone()).unwrap();
         opts.build_https_connector().unwrap();
     }
 }
