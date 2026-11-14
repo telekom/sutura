@@ -40,7 +40,7 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [elastic]
+        options: [sql-registration]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -98,18 +98,18 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/source-commit-bundles-20261114
+          test "$GITHUB_REF" = refs/heads/ci/sql-registration-source-20261114
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          case "$CONSUMER" in elastic) ;; *) exit 1 ;; esac
+          case "$CONSUMER" in sql-registration) ;; *) exit 1 ;; esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 5c7b85d47181f25fb67584c0a6a6e8a45a24f99e
+          ref: b8bce349b79fc16891f8bfd466ba7187cafdf019
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -136,19 +136,35 @@ jobs:
           mkdir "$evidence"
           nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
           just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
-          parent=5c7b85d47181f25fb67584c0a6a6e8a45a24f99e
+          parent=b8bce349b79fc16891f8bfd466ba7187cafdf019
           main=b8bce349b79fc16891f8bfd466ba7187cafdf019
           case "$CONSUMER" in
-                elastic)
-                    expected_tree=12574505824b3d54951f0c44a51df017a5ee22ab
-                    patch_sha=4bbee99ac2578111b0187251fb92dea8933494d3ee7b1784bd3bd0d0303fe1ac
-                    branch='fix/elastic-worker-pool-20261114'
-                    subject='fix: declare worker-pool fixture column types'
+                sql-registration)
+                    expected_tree=780dbecf1e63953e4727d71b7b785b352145a33c
+                    patch_sha=c8230f11b66af47808e549c791413b9cafd3ae416506e5ccddb5e369cadcec46
+                    branch='fix/sql-registration-audience'
+                    subject='fix(sql): register catalog models and declare dictionary audiences'
                     paths=(
-                        'nix/k3s-worker-pool.nix'
+                        'crates/sutura-catalog-rdbms/src/lib.rs'
+                        'crates/sutura-cli/src/catalog.rs'
+                        'crates/sutura-cli/tests/served/rdbms.rs'
+                        'crates/sutura-config/src/audience.rs'
+                        'crates/sutura-config/src/catalog/rdbms.rs'
+                        'crates/sutura-config/src/raw.rs'
+                        'crates/sutura-config/src/settings/catalogs.rs'
+                        'crates/sutura-config/src/settings/tests/rdbms_catalog.rs'
+                        'crates/sutura-exec-datafusion/src/combine/statement.rs'
+                        'crates/sutura-exec-datafusion/src/combine/statement/tests.rs'
+                        'crates/sutura-exec-datafusion/src/combine/statement/tests/registration.rs'
+                        'docs/integrations/catalogs/rdbms.md'
                     )
                     hooks=(
+                        'cargo fmt'
+                        'cargo clippy (-D warnings, all features)'
                         'structural gates'
+                        'cargo check (changed packages only)'
+                        'copy/paste detection (jscpd)'
+                        'markdown/yaml/toml (dprint), python (ruff)'
                         'detect hardcoded secrets (CI is authoritative)'
                         'conventional commit subject'
                     )
@@ -163,8 +179,8 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           remote_main="$(git ls-remote --refs origin refs/heads/main)"
           test "$remote_main" = "$main"$'\trefs/heads/main'
-          remote_source="$(git ls-remote --refs origin refs/heads/fix/elastic-worker-pool-20261114)"
-          test "$remote_source" = "$parent"$'\trefs/heads/fix/elastic-worker-pool-20261114'
+          remote_source="$(git ls-remote --refs origin refs/heads/fix/sql-registration-audience)"
+          test -z "$remote_source"
           git apply --index --check "$patch"
           git apply --index "$patch"
           test "$(git write-tree)" = "$expected_tree"
