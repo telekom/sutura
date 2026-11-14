@@ -23,7 +23,7 @@ repos:
         # subprocess the way Linux does, so a bare `cargo` here could resolve to a non-nightly
         # toolchain whose rustfmt reformats a tree the nightly considers clean (and vice versa) -
         # the finding is then a property of the hook's environment, not of the change.
-        entry: devenv shell cargo run -q -p xtask -- fmt --check
+        entry: devenv --profile hooks shell cargo run -q -p xtask -- fmt --check
         language: system
         files: \.rs$
         pass_filenames: false
@@ -47,7 +47,7 @@ repos:
       # holds the new shape.
       - id: rust-clippy
         name: cargo clippy (-D warnings, all features)
-        entry: devenv shell cargo clippy --workspace --all-targets --all-features -- -D warnings
+        entry: devenv --profile hooks shell cargo clippy --workspace --all-targets --all-features -- -D warnings
         language: system
         files: \.(rs|toml)$
         pass_filenames: false
