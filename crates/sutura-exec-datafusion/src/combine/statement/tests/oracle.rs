@@ -117,7 +117,11 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
             regions().schema(),
         ),
     ];
-    for sql in ["select r.region from dim_region r order by r.region limit 1 offset 1", AREAS] {
+    for sql in [
+        "select r.\"region\" from \"dim_region\" r order by r.\"region\" limit 1 offset 1",
+        "select r.\"sales_area\", count(*) as customers from dim_customer c join \"dim_region\" r on c.region = r.\"region\" \
+         group by r.\"sales_area\" order by r.\"sales_area\"",
+    ] {
         let mut legs = OracleLegs {
             engines: Engines::new(None),
             statements: Vec::new(),
@@ -150,6 +154,23 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
             );
         }
     }
+    let mut legs = Engines::new(None);
+    let statement = RawStatement::parse("select region from \"dim_region\"").expect("a bounded fixture query");
+    let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            true,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(
+        matches!(answer, Some(Err(StatementStopped::UnknownColumn))),
+        "unquoted Oracle columns fold up: {answer:?}"
+    );
+    assert_eq!(legs.opened.len(), 0);
 }
 
 #[test]
@@ -185,21 +206,21 @@ fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_an
         ),
     ];
     let cases: [TextCase<'_>; 8] = [
-        ("select sales_area from dim_region", &["2", "10"]),
-        ("select * from dim_region", &["2", "10"]),
-        ("select sales_area from dim_region order by sales_area", &["10", "2"]),
+        (r#"select "sales_area" from "dim_region""#, &["2", "10"]),
+        (r#"select * from "dim_region""#, &["2", "10"]),
+        (r#"select "sales_area" from "dim_region" order by "sales_area""#, &["10", "2"]),
         (
-            "select distinct r.sales_area from dim_customer c join dim_region r on c.region = r.region order by r.sales_area",
+            r#"select distinct r."sales_area" from dim_customer c join "dim_region" r on c.region = r."region" order by r."sales_area""#,
             &["10", "2"],
         ),
-        ("select min(sales_area) from dim_region", &["10"]),
+        (r#"select min("sales_area") from "dim_region""#, &["10"]),
         (
-            "select min(r.sales_area) from dim_customer c join dim_region r on c.region = r.region",
+            r#"select min(r."sales_area") from dim_customer c join "dim_region" r on c.region = r."region""#,
             &["10"],
         ),
-        ("select sales_area from dim_region where sales_area > '2'", &[]),
+        (r#"select "sales_area" from "dim_region" where "sales_area" > '2'"#, &[]),
         (
-            "select r.sales_area from dim_customer c join dim_region r on c.region = r.region where r.sales_area > '2'",
+            r#"select r."sales_area" from dim_customer c join "dim_region" r on c.region = r."region" where r."sales_area" > '2'"#,
             &[],
         ),
     ];
