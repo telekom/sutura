@@ -217,14 +217,17 @@ where
             rows,
             scope.federation_allowed.then(|| executed_as(warehouses, &legs.ran)).flatten(),
         )),
+        Some(Err(StatementStopped::Leg(LegStop::Refused(RawRefusalReason::StatementFailed)))) => {
+            Ok(refusal(RawRefusalReason::SourceFailed))
+        }
         Some(Err(StatementStopped::Leg(stop))) => settled(Err(stop)),
+        Some(Err(StatementStopped::UnknownTable)) => Ok(refusal(RawRefusalReason::UnknownTable)),
+        Some(Err(StatementStopped::UnknownColumn)) => Ok(refusal(RawRefusalReason::UnknownColumn)),
+        Some(Err(StatementStopped::UnsupportedSyntax(construct))) => {
+            Ok(refusal(RawRefusalReason::UnsupportedSyntax { construct }))
+        }
         Some(Err(StatementStopped::SpansMoreThanOneSource)) => Ok(refusal(RawRefusalReason::PlanSpansMoreThanOneSource)),
-        Some(Err(
-            StatementStopped::NotPlanned
-            | StatementStopped::UnknownTable
-            | StatementStopped::UnknownColumn
-            | StatementStopped::UnsupportedSyntax(_),
-        )) => Ok(refusal(RawRefusalReason::StatementFailed)),
+        Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
         Some(Err(StatementStopped::AnswerTooLarge)) => Ok(refusal(RawRefusalReason::ResultTooLarge)),
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
@@ -650,3 +653,7 @@ mod legs;
 
 #[cfg(test)]
 mod planned;
+
+#[cfg(test)]
+#[cfg(feature = "sql")]
+mod planned_refusals;

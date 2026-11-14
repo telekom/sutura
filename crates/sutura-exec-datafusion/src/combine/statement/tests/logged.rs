@@ -62,7 +62,7 @@ fn the_engines_words_are_logged_at_debug_only() {
     let answer = tracing::subscriber::with_default(Listening(Arc::clone(&named)), || {
         asked(&format!("select {COLUMN} from dim_region"), false, UNBOUNDED, &mut legs)
     });
-    assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
+    assert!(matches!(answer, Some(Err(StatementStopped::UnknownColumn))), "{answer:?}");
     assert!(
         named.anywhere.load(Ordering::SeqCst),
         "the engine's words are written at debug"

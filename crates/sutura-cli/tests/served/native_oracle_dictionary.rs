@@ -210,7 +210,7 @@ fn a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_col
     ] {
         let reply = run(&served, &statement);
         assert_eq!(reply.status, 422, "{statement}: {}", reply.body);
-        assert_eq!(reply.json()["code"], "statement_failed", "{}", reply.body);
+        assert_eq!(reply.json()["code"], "unknown_column", "{}", reply.body);
         assert!(!reply.body.contains("private value") && !reply.body.contains("private text"));
     }
     let before = digest(&served);
