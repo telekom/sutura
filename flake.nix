@@ -980,6 +980,24 @@
             else
               pkgs.runCommand "multi-node-postgres-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
 
+          # A fixed local ClickHouse shard, two granted readers and two fixture callers. The venue
+          # records source-side identity and address evidence; it measures neither clusters nor load.
+          multi-node-clickhouse =
+            if system == "x86_64-linux" then
+              import ./nix/multi-node-clickhouse.nix {
+                inherit pkgs;
+                sutura = shipped.nativeFor {
+                  binary = builtins.head shipped.binaries;
+                  profile = "ci";
+                  features = [ "clickhouse" "tls" "distributed" ];
+                };
+                clickhouse = clickhouseTier.package;
+                clickhouseDriver = clickhouseAdbcHostDriver;
+                example = ./examples/single-player;
+              }
+            else
+              pkgs.runCommand "multi-node-clickhouse-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
+
           # This chart in a k3s cluster inside a NixOS VM, scaled up by its CPU autoscaler under load
           # and back down (`telekom/sutura#828`) - `nix/k3s-autoscaling.nix` says what it observes and
           # what it does not. A stub on any other system, for `multi-node`'s reason.
