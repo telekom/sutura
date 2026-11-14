@@ -18,7 +18,7 @@ BASE = "b8bce349b79fc16891f8bfd466ba7187cafdf019"
 BASE_TREE = "2191984dba94ae674e39f101b48d07a619d72255"
 PREPARED_TREE = "ef25185218ea0ac728ea9903abbdffd091e830a9"
 PATCH_SHA256 = "66e9374f267ead8454c43b081d5388478fda7035b37f80782e0a24dfb88d66c6"
-REQUEST_ID = "a019a000-7847-400d-b819-2ab1e70b72ae"
+REQUEST_ID = "f4d022aa-3eab-4cf5-879a-37d46153a6b0"
 REF = "refs/heads/ci/numeric-prerequisite-release-proof"
 PAYLOAD_HASHES = {
     "source-manifest.json": "f5c8aa0331ce3db86aef63701b37ab4309499f0dd7775cd1893c5214223032fd",
@@ -54,7 +54,9 @@ def write(out: Path, name: str, value: object) -> None:
 
 def git(root: Path, *args: str) -> bytes:
     return subprocess.run(
-        ["git", "-C", str(root), *args], check=True, stdout=subprocess.PIPE
+        ["git", "--no-optional-locks", "-C", str(root), *args],
+        check=True,
+        stdout=subprocess.PIPE,
     ).stdout
 
 
