@@ -36,6 +36,7 @@ mod fakes;
 mod preflight;
 mod refusals;
 mod results;
+mod statement;
 
 use fakes::{
     Broken, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, group_pays, impersonating_posture,

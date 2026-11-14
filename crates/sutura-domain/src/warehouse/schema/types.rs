@@ -45,8 +45,12 @@ impl TypeDialect {
                 Self::ClickHouse => clickhouse(name, parameters),
                 Self::BigQuery => bigquery(name, parameters),
                 Self::Oracle => oracle(name, parameters),
-                Self::DuckDb | Self::Postgres => postgres(name, parameters),
-                Self::DataFusion | Self::Cube => None,
+                Self::DuckDb | Self::Postgres | Self::DataFusion => postgres(name, parameters),
+                Self::Cube => match name {
+                    "number" => Some(DataType::Float64),
+                    "time" => Some(micros(None)),
+                    _ => None,
+                },
             },
         }
     }

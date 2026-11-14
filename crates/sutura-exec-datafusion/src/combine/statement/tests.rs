@@ -26,6 +26,51 @@ mod oracle;
 #[cfg(test)]
 mod registration;
 
+#[test]
+fn cube_unsigned_results_are_refused_before_open_and_signed_results_still_run() {
+    for kind in [
+        DataType::UInt16,
+        DataType::UInt32,
+        DataType::UInt64,
+        DataType::Int16,
+        DataType::Int32,
+        DataType::Int64,
+    ] {
+        let unsigned = matches!(kind, DataType::UInt16 | DataType::UInt32 | DataType::UInt64);
+        let tables = [StatementTable::new(
+            named("crm"),
+            QualifiedTable::parse("dim_customer").expect("a fixture table"),
+            TypeDialect::Cube,
+            Arc::new(Schema::new(vec![Field::new("customer_id", kind, false)])),
+        )];
+        let mut legs = Engines::new(None);
+        let statement =
+            RawStatement::parse("with ids as (select customer_id from dim_customer) select customer_id as projected from ids")
+                .expect("a bounded nested fixture query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                false,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        if unsigned {
+            assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
+            assert!(legs.opened.is_empty(), "unsafe wire output cannot mint credentials");
+            assert!(legs.ran.is_empty(), "unsafe wire output cannot reach a source");
+        } else {
+            let Some(Ok(rows)) = answer else {
+                panic!("the signed output must run: {answer:?}");
+            };
+            assert_eq!(rows.rows().len(), 4);
+            assert_eq!(legs.opened, vec![BTreeSet::from([named("crm")])]);
+        }
+    }
+}
+
 const AREAS: &str = "select r.sales_area, count(*) as customers from dim_customer c join dim_region r on c.region = r.region \
                      group by r.sales_area order by r.sales_area";
 

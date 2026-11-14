@@ -700,3 +700,22 @@ single-user* above, the multi-user consequence, and the 2026-09-13 amendment's m
 **Unchanged:** the tool is off by default, every bound applies, and it runs over exactly one open source.
 **Limit:** `multi-user` and the acknowledgement are declarations, not measurements, and the refusal reads
 only configuration - which adapters take a raw statement is still decided in the composed binary.
+
+## Seventh amendment, 2026-11-14: planned queries have a separate execution port
+
+`Warehouse::execute_planned_statement` accepts the query-only planner's SQL and its actual scan
+tables. The served path reaches it only after resolving every table and column against the caller's
+scoped pinned schemas, with DDL, DML, other statements and table functions unavailable. BigQuery,
+ClickHouse and files accept this port while leaving `execute_raw` unavailable; a planner that
+returns no plan cannot fall through into them. Existing raw adapters retain their own safeguards.
+
+A SQL build may therefore serve a declared `impersonation-at-source` source; composition still
+checks the concrete adapter's planned capability. Without SQL, the shared-source requirement
+remains. Unknown sources and missing postures remain refusals. Each leg retains the delivered
+credential, source posture, deadline and result bounds. BigQuery billing reads only the tables
+actually scanned by its leg.
+
+**Limit:** this is a library trust contract, not a proof carried by `RawStatement`. A library caller
+can violate it; the served route's planner and application call sites are the boundary. Source
+grants still bound functions with external effects. Adapter and planner cells do not establish
+human sign-in, native execution or cancellation until those venues run in CI.

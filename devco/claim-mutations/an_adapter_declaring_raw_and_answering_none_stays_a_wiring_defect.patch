@@ -1,11 +1,10 @@
 diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
-index 8c128526f..0f4c072b9 100644
 --- a/crates/sutura-app/src/raw.rs
 +++ b/crates/sutura-app/src/raw.rs
-@@ -368,7 +368,7 @@ where
-             return Err(LegStop::Refused(RawRefusalReason::DeadlineExceeded { budget_seconds }));
-         }
-         let Some(executed) = warehouse.execute_raw(statement, presented, self.deadline) else {
+@@ -424,7 +424,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
+             None => warehouse.execute_raw(statement, presented, self.deadline),
+         };
+         let Some(executed) = execution else {
 -            return Err(LegStop::Failed(RunSqlError::NoAcceptingSource));
 +            return Err(LegStop::Refused(RawRefusalReason::StatementFailed));
          };

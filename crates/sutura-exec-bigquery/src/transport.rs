@@ -132,9 +132,9 @@ pub struct JobRequest<'job> {
 impl<'job> JobRequest<'job> {
     /// Assembles a request.
     ///
-    /// `pub(crate)` so the only thing that can build one is this adapter, from a plan it rendered
-    /// itself. A public constructor would be the string entry point the module header says does not
-    /// exist: a caller could pass any statement and any parameters.
+    /// `pub(crate)` so only this adapter can assemble a job: from its rendered metric plan, a
+    /// scoped query-only statement plan, or a boot operation. The planned-statement port's caller
+    /// must uphold its library trust contract; this request does not parse SQL.
     ///
     /// **`deadline` names which clock this call answers to - see [`JobDeadline`].** A leg `Warehouse::dry_run`/`execute` builds carries
     /// `JobDeadline::Port`; `verify_anchor`, a fixture load or drop, and the identity read have no

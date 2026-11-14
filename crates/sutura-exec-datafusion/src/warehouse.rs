@@ -69,27 +69,7 @@ impl Warehouse for DataFusionWarehouse {
         presented: &Presented,
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        // What this leg runs as, matched exhaustively before anything is executed. There is exactly
-        // one shape this adapter can honour, and the other two are a wiring defect rather than a
-        // question anybody may retry - see `DataFusionError::NoPlaceForASubject`.
-        match *presented {
-            Presented::SharedServiceUser { .. } => {}
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
-                return Err(DataFusionError::NoPlaceForASubject {
-                    at: String::from(self.source.as_str()),
-                    presented: presented.as_str(),
-                });
-            }
-        }
-        // And the second check, which is a different one: does the leg AGREE with the posture this
-        // adapter was handed? The match above compares what arrived against what this code can carry
-        // and reads `self.posture` not at all - so a shared leg carrying another source's
-        // acknowledgement got past it. The capability check runs first deliberately: it is the one
-        // whose message names what a broker did wrong, and after it the only shape left is the shared
-        // one, so this call reduces to comparing the two witnesses.
-        presented
-            .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })?;
+        self.deliverable(presented)?;
         let budget = deadline.budget().duration();
         let Some(remaining) = deadline.remaining_at(std::time::Instant::now()) else {
             return Err(DataFusionError::DeadlineExceeded { budget });
@@ -107,6 +87,25 @@ impl Warehouse for DataFusionWarehouse {
         self.runtime()?
             .block_on(async move { tokio::time::timeout(remaining, rows).await })
             .map_err(|_elapsed| DataFusionError::DeadlineExceeded { budget })?
+    }
+
+    fn accepts_planned_statements(&self) -> bool {
+        cfg!(feature = "sql")
+    }
+
+    #[cfg(feature = "sql")]
+    fn execute_planned_statement(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        _tables: &std::collections::BTreeSet<sutura_domain::model::QualifiedTable>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        Some(crate::statement::run(self, statement, presented, deadline))
+    }
+
+    fn type_dialect(&self) -> Option<sutura_domain::warehouse::schema::TypeDialect> {
+        Some(sutura_domain::warehouse::schema::TypeDialect::DataFusion)
     }
 
     /// Re-runs an anchor's plan, under this process's own identity.

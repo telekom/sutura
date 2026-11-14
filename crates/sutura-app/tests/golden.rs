@@ -103,3 +103,8 @@ mod service;
 #[cfg(test)]
 #[path = "golden/job_labels.rs"]
 mod job_labels;
+
+#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[path = "golden/statements.rs"]
+mod statements;
