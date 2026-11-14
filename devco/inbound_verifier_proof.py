@@ -203,12 +203,14 @@ def mutations():
                     assert "/tests/" not in path and not path.endswith("/tests.rs")
                     file = Path(path)
                     changed.setdefault(path, file.read_bytes())
+                    assert digest(changed[path]) == mutant["preimage_sha256"]
                     source = file.read_text()
                     assert source.count(edit["before"]) == edit["count"] == 1
                     file.write_text(source.replace(edit["before"], edit["after"], 1))
             expected = dict(BASELINE)
             for path, old in changed.items():
                 new = Path(path).read_bytes()
+                assert digest(new) == mutant["mutated_sha256"]
                 old_tail = re.split(
                     rb"(?m)^#\[cfg\(test\)\]\nmod tests", old, maxsplit=1
                 )[1:]
@@ -419,9 +421,15 @@ if __name__ == "__main__":
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("preflight", "validate", "ship-check")
+    assert mode in ("preflight", "validate", "ship-check", "mutations")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
     PLAN = json.loads(Path(plan_path).read_text())
+    if mode == "mutations":
+        mutation_plan = json.loads(
+            Path(__file__).with_name("sql1912-finishing-mutations.json").read_bytes()
+        )
+        PLAN["mutants"] = mutation_plan["mutants"]
+        PLAN["test_files"] = mutation_plan["test_files"]
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == PLAN["source_tree"]
     assert (
@@ -482,6 +490,9 @@ if __name__ == "__main__":
         )
         if mode == "preflight":
             fuzz_metadata_preflight(inherited_home)
+            status = 0
+        elif mode == "mutations":
+            mutations()
             status = 0
         else:
             status, _ = execute(mode, ["just", mode])

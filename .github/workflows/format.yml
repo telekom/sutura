@@ -40,7 +40,7 @@ on:
         description: Check fuzz metadata or run finishing gates on the pinned source
         type: choice
         required: true
-        options: [preflight, gates]
+        options: [preflight, gates, gates-mutations]
       source_sha:
         description: Exact frozen source commit
         type: string
@@ -58,7 +58,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: inbound-finishing-gates-${{ github.ref }}
+  group: inbound-finishing-gates-${{ github.ref }}-${{ inputs.source_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -78,7 +78,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: ./.github/actions/reclaim-disk
+      - uses: $/.github/actions/reclaim-disk
         if: github.event_name == 'workflow_dispatch'
 
       - name: Open KVM for the full validation gate
@@ -93,12 +93,12 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
+            keep-outputs = true
             system-features = nixos-test benchmark big-parallel kvm
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: ./.github/actions/nix-store-cache
-        if: github.event_name == 'workflow_dispatch'
+      - uses: $/.github/actions/nix-store-cache
         with:
           scope: ci
 
@@ -126,6 +126,8 @@ jobs:
           finishing_operations=(validate ship-check)
           if [[ "$OPERATION" == preflight ]]; then
             finishing_operations=(preflight)
+          elif [[ "$OPERATION" == gates-mutations ]]; then
+            finishing_operations+=(mutations)
           fi
           for finishing_operation in "${finishing_operations[@]}"; do
             nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py "$finishing_operation" "$finishing_plan_path"

@@ -1,0 +1,48 @@
+{
+  "mutants": [
+    {
+      "label": "sql1912-unknown-table-code",
+      "package": "sutura-domain",
+      "tests": [
+        "every_refusal_reason_has_a_stable_code_and_a_sentence_with_no_caller_text"
+      ],
+      "preimage_sha256": "4252073c4a6907c12cc0081ca80dcf015dcefd3dc9e4bc314d882c40eb12da73",
+      "mutated_sha256": "f1bd87235af50e042b237ca6a287805e717d2b44aa9d103b302fb55a4137f791",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/raw.rs",
+          "before": "            Self::UnknownTable => \"unknown_table\",\n",
+          "after": "            Self::UnknownTable => \"unknown_column\",\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "sql1912-unknown-table-http-status",
+      "package": "sutura-http",
+      "tests": [
+        "statement_refusals_and_source_refusals_have_their_statuses"
+      ],
+      "preimage_sha256": "4363ac82cfc766c35f52982d9c3da5f286fab5bfdb135af2454a1c87e1ad1408",
+      "mutated_sha256": "becf86518c5487254ff1250e30c9211d233d1f1066e7e0fa26086ee192b978cd",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/wire/raw.rs",
+          "before": "        RawRefusalReason::TooManyRows { .. } | RawRefusalReason::ResultTooLarge => StatusCode::PAYLOAD_TOO_LARGE,\n",
+          "after": "        RawRefusalReason::TooManyRows { .. } | RawRefusalReason::ResultTooLarge => StatusCode::PAYLOAD_TOO_LARGE,\n        RawRefusalReason::UnknownTable => StatusCode::FORBIDDEN,\n",
+          "count": 1
+        },
+        {
+          "path": "crates/sutura-http/src/wire/raw.rs",
+          "before": "        RawRefusalReason::StatementFailed\n        | RawRefusalReason::UnknownTable\n        | RawRefusalReason::UnknownColumn\n",
+          "after": "        RawRefusalReason::StatementFailed\n        | RawRefusalReason::UnknownColumn\n",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "test_files": {
+    "every_refusal_reason_has_a_stable_code_and_a_sentence_with_no_caller_text": "crates/sutura-domain/src/raw.rs",
+    "statement_refusals_and_source_refusals_have_their_statuses": "crates/sutura-http/src/wire/raw.rs"
+  }
+}
