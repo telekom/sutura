@@ -157,8 +157,17 @@ def own_sites(text, cell, full_name):
         text,
     ):
         found_path, line = match.group(1), int(match.group(2))
-        if found_path == path and start <= line <= end:
-            lines = text[match.start() :].splitlines()
+        lines = text[match.start() :].splitlines()
+        if found_path != path:
+            if not re.search(r"/insta-[^/]+/src/runtime\.rs$", found_path):
+                continue
+            reported = re.fullmatch(
+                r"\s*snapshot assertion for '[^']+' failed in line (\d+)", lines[1]
+            )
+            if not reported:
+                continue
+            line = int(reported.group(1))
+        if start <= line <= end:
             sites.append({"path": path, "line": line, "panic": "\n".join(lines[:8])})
     assert sites, ("no panic site inside the named test function", cell)
     return {"cell": cell, "function_sha256": digest(body.encode()), "sites": sites}
