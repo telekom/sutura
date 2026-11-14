@@ -931,6 +931,31 @@ pub trait Warehouse {
         Self::ACCEPTS_RAW_STATEMENTS
     }
 
+    /// Whether the adapter accepts query-only SQL emitted by the scoped statement planner.
+    /// This does not enable unplanned caller SQL through [`Self::execute_raw`].
+    #[must_use]
+    fn accepts_planned_statements(&self) -> bool {
+        self.accepts_raw_statements()
+    }
+
+    /// Runs a query emitted by the statement planner, over the tables it actually scanned.
+    ///
+    /// The caller must have planned one query over the request's scoped pinned tables and columns;
+    /// `statement` is that plan unparsed for this source, not the caller's original text. This is
+    /// a library trust contract, not a proof carried by `RawStatement`. The served application
+    /// invokes this method only through `StatementLegs::run_planned`, never its passthrough path.
+    /// Source grants still bound function side effects. Identity, deadline and result budgets
+    /// apply as on [`Self::execute`]. Existing raw adapters retain their own read-only safeguards.
+    fn execute_planned_statement(
+        &self,
+        statement: &crate::raw::RawStatement,
+        _tables: &BTreeSet<QualifiedTable>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> RawExecution<Self::Error> {
+        self.execute_raw(statement, presented, deadline)
+    }
+
     /// Runs one literal statement for the raw SQL tool - not what [`execute`](Warehouse::execute) uses; see [`crate::raw`].
     ///
     /// **Carries the same per-request [`Deadline`] as [`execute`](Warehouse::execute)**, opened

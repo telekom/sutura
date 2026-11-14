@@ -937,6 +937,16 @@ macro_rules! registered {
         $cell!(cube, sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::HttpCube>);
     };
 
+    (statement_dialects: $cell:ident) => {
+        $cell!(datafusion, sutura_domain::warehouse::schema::TypeDialect::DataFusion);
+        $cell!(duckdb, sutura_domain::warehouse::schema::TypeDialect::DuckDb);
+        $cell!(postgres, sutura_domain::warehouse::schema::TypeDialect::Postgres);
+        $cell!(clickhouse, sutura_domain::warehouse::schema::TypeDialect::ClickHouse);
+        $cell!(bigquery, sutura_domain::warehouse::schema::TypeDialect::BigQuery);
+        $cell!(oracle, sutura_domain::warehouse::schema::TypeDialect::Oracle);
+        $cell!(cube, sutura_domain::warehouse::schema::TypeDialect::Cube);
+    };
+
     (dialects: $cell:ident) => {
         $cell!(duckdb, sutura_sql::Dialect::DuckDb, polyglot_sql::DialectType::DuckDB);
         $cell!(

@@ -143,6 +143,24 @@ pub trait StatementLegs {
     ///
     /// [`Self::Stop`], which ends the answer.
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop>;
+
+    /// Runs one query-only plan's unparsed statement and its actual scan tables.
+    ///
+    /// The planner must have resolved every table and column against the request's scoped pinned
+    /// schemas, with DDL, DML, other statements and table functions unavailable. This is a library
+    /// trust contract; arbitrary text must use [`Self::run`] instead.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::Stop`], which ends the answer.
+    fn run_planned(
+        &mut self,
+        source: &SourceName,
+        statement: &RawStatement,
+        _tables: &BTreeSet<QualifiedTable>,
+    ) -> Result<RawRows, Self::Stop> {
+        self.run(source, statement)
+    }
 }
 
 /// Why a statement got no answer from the combiner.
