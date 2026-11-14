@@ -35,16 +35,27 @@ on:
       - "nix/dprint.nix"
       - "nix/format-text.sh"
   workflow_dispatch:
+    inputs:
+      consumer:
+        description: Reviewed source to commit and export
+        type: choice
+        required: true
+        options: [vendor, elastic]
+      expected_helper_sha:
+        description: Exact reviewed workflow commit
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.consumer || 'format' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   format:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -65,3 +76,192 @@ jobs:
       # left at its default: the script reads the working tree, not a diff against a base.
       - name: markdown, yaml, toml and python
         run: bash nix/format-text.sh check
+
+  source-bundle:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
+    env:
+      CONSUMER: ${{ inputs.consumer }}
+      EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
+      WORKFLOW_SHA: ${{ github.workflow_sha }}
+      NO_COLOR: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the reviewed helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
+          test "$GITHUB_REPOSITORY" = telekom/sutura
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/ci/source-commit-bundles-20261114
+          test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
+          test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
+          test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
+          case "$CONSUMER" in vendor | elastic) ;; *) exit 1 ;; esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: b8bce349b79fc16891f8bfd466ba7187cafdf019
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Commit the reviewed source and export a Git bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
+          export evidence="$RUNNER_TEMP/source-commit-evidence"
+          mkdir "$evidence"
+          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
+          just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
+          parent=b8bce349b79fc16891f8bfd466ba7187cafdf019
+          case "$CONSUMER" in
+                vendor)
+                    expected_tree=4c187d32ead17b757062978ed87b408e4f0ddab3
+                    patch_sha=b569fc2ee18d0e0d7fa61571b2bbf3fadf45987d6f340f601fb5582e016b9a71
+                    branch='fix/clickhouse-reviewed-refresh-20261114'
+                    subject='fix: refresh ClickHouse adapter sources'
+                    paths=(
+                        'VENDOR.md'
+                        'crates/sutura-adbc/tests/clickhouse.rs'
+                        'crates/sutura-exec-clickhouse/src/adbc.rs'
+                        'vendor/adbc_clickhouse/CHANGELOG.md'
+                        'vendor/adbc_clickhouse/Cargo.toml'
+                        'vendor/adbc_clickhouse/README.md'
+                        'vendor/adbc_clickhouse/src/lib.rs'
+                        'vendor/adbc_clickhouse/src/options.rs'
+                        'vendor/adbc_clickhouse/src/tls.rs'
+                    )
+                    hooks=(
+                        'cargo fmt'
+                        'cargo clippy (-D warnings, all features)'
+                        'structural gates'
+                        'cargo check (changed packages only)'
+                        'copy/paste detection (jscpd)'
+                        'markdown/yaml/toml (dprint), python (ruff)'
+                        'detect hardcoded secrets (CI is authoritative)'
+                        'conventional commit subject'
+                    )
+                    ;;
+                elastic)
+                    expected_tree=9defc86c67dcf0bcbfa431613f610d14e4ab106a
+                    patch_sha=fb946d2c93bd3f31e1f6966010e2846300fbe62ad470e93d0d01cef85773c920
+                    branch='fix/elastic-worker-pool-20261114'
+                    subject='fix: align elastic worker pool policies and coverage'
+                    paths=(
+                        'charts/sutura/templates/networkpolicy.yaml'
+                        'charts/sutura/testdata/golden/pool/reading-workers-network-policy.yaml'
+                        'charts/sutura/testdata/golden/pool/worker-pool-network-policy.yaml'
+                        'flake.nix'
+                        'nix/k3s-worker-pool.nix'
+                    )
+                    hooks=(
+                        'structural gates'
+                        'copy/paste detection (jscpd)'
+                        'markdown/yaml/toml (dprint), python (ruff)'
+                        'Helm chart (lint, render, goldens, kubeconform)'
+                        'detect hardcoded secrets (CI is authoritative)'
+                        'conventional commit subject'
+                    )
+                    ;;
+              *) exit 1 ;;
+          esac
+          patch="$RUNNER_TEMP/$CONSUMER-source.patch"
+          base64 --decode ".github/payloads/$CONSUMER-source.patch.b64" > "$patch"
+          test "$(sha256sum "$patch" | cut -d ' ' -f 1)" = "$patch_sha"
+          cd source
+          test "$(git rev-parse HEAD)" = "$parent"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          remote_main="$(git ls-remote --refs origin refs/heads/main)"
+          test "$remote_main" = "$parent"$'\trefs/heads/main'
+          git apply --index --check "$patch"
+          git apply --index "$patch"
+          test "$(git write-tree)" = "$expected_tree"
+          printf '%s\0' "${paths[@]}" | sort -z > "$RUNNER_TEMP/expected-source-paths"
+          git diff --cached --name-only -z | sort -z > "$RUNNER_TEMP/actual-source-paths"
+          cmp "$RUNNER_TEMP/expected-source-paths" "$RUNNER_TEMP/actual-source-paths"
+          test -z "$(git config --get core.hooksPath || true)"
+          git config --local user.name ci
+          git config --local user.email user@example.com
+          git switch -c "$branch"
+          export expected_tree subject
+          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
+          devenv --profile hooks shell bash -euo pipefail <<'COMMIT'
+          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
+          test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
+          pixi run --frozen hooks-install
+          hook_dir="$(git rev-parse --git-path hooks)"
+          for stage in pre-commit commit-msg pre-push; do
+              test -x "$hook_dir/$stage"
+          done
+          deny_version="$(cargo deny --version)"
+          test "$deny_version" = 'cargo-deny 0.20.2'
+          {
+              rustc --version
+              cargo --version
+              printf '%s\n' "$deny_version"
+              pixi --version
+              devenv --version
+          } > "$evidence/versions.log" 2>&1
+          test "$(git write-tree)" = "$expected_tree"
+          git -c color.ui=false commit -m "$subject" 2>&1 | tee "$evidence/commit.log"
+          COMMIT
+          for hook in "${hooks[@]}"; do
+              grep -F "$hook" "$evidence/commit.log" | grep -Eq '\.+Passed$'
+          done
+          if grep -Eq '^run-gate: SKIPPED|^format-text: SKIPPED|not on PATH - skipped|skipped - no nix' "$evidence/commit.log"; then
+              exit 1
+          fi
+          commit="$(git rev-parse HEAD)"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$commit $parent"
+          test "$(git rev-parse HEAD^{tree})" = "$expected_tree"
+          test "$(git log -1 --format=%s)" = "$subject"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          ref="refs/heads/$branch"
+          git bundle create "$evidence/source.bundle" "$ref" "^$parent"
+          git bundle verify "$evidence/source.bundle"
+          test "$(git bundle list-heads "$evidence/source.bundle")" = "$commit $ref"
+          bundle_sha="$(sha256sum "$evidence/source.bundle" | cut -d ' ' -f 1)"
+          printf '{"consumer":"%s","helper":"%s","commit":"%s","parent":"%s","tree":"%s","ref":"%s","patch_sha256":"%s","bundle_sha256":"%s","run_id":"%s","attempt":"%s"}\n' \
+              "$CONSUMER" "$EXPECTED_HELPER_SHA" "$commit" "$parent" "$expected_tree" "$ref" \
+              "$patch_sha" "$bundle_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$evidence/receipt.json"
+          BUILD
+
+      - name: Keep the reviewed source commit
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-commit-${{ inputs.consumer }}
+          path: ${{ runner.temp }}/source-commit-evidence
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: source-commit-failure-${{ inputs.consumer }}
+          path: ${{ runner.temp }}/source-commit-evidence/*.log
+          if-no-files-found: ignore
+          retention-days: 7
