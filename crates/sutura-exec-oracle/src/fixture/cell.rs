@@ -10,7 +10,7 @@
 //! is otherwise harmless. Nothing here drops a user a live session holds.
 
 use super::{FixtureCredential, FixtureError, SERVICE_NAME};
-use crate::{Channel, Dial, DriverError, TokenSessions, connect_err};
+use crate::{Dial, DriverError, TokenSessions, connect_err};
 
 #[cfg(test)]
 mod tests;
@@ -76,34 +76,28 @@ pub(super) fn provision(
     )]
     let password = tier.password.expose_secret();
     let create = create_user(cell, password)?;
-    let dialled = TokenSessions::new(Dial::new(
-        host,
-        port,
-        SERVICE_NAME,
-        Channel::Verified {
-            anchors_pem: &tier.anchors_pem,
-        },
-    ))
-    .map_err(FixtureError::Admin)?;
+    let dialled = TokenSessions::new(Dial::new(host, port, SERVICE_NAME, tier.channel())).map_err(FixtureError::Admin)?;
     #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
     let admin = oracledb::connect(dialled.0.set_credentials(ADMINISTRATOR, password))
         .map_err(|cause| FixtureError::Admin(connect_err(cause)))?;
-    let refused = |cause: DriverError| FixtureError::Statement {
-        subject: format!("user {cell}"),
+    let refused = |action: &str, cause: DriverError| FixtureError::Statement {
+        subject: format!("{action} user {cell}"),
         cause,
     };
-    if let Err(cause) = admin.execute(&drop_user(cell), &[]) {
-        let cause = DriverError::from(cause);
-        if !cause.has_ora_code(NO_SUCH_USER) {
-            return Err(refused(cause));
-        }
-    }
-    for statement in [create, grant(cell)] {
-        admin.execute(&statement, &[]).map_err(|cause| refused(cause.into()))?;
+    let drop = format!(
+        "BEGIN EXECUTE IMMEDIATE '{}'; \
+         EXCEPTION WHEN OTHERS THEN IF SQLCODE != -{NO_SUCH_USER} THEN RAISE; END IF; END;",
+        drop_user(cell)
+    );
+    admin.execute(&drop, &[]).map_err(|cause| refused("drop", cause.into()))?;
+    for (action, statement) in [("create", create), ("grant", grant(cell))] {
+        admin
+            .execute(&statement, &[])
+            .map_err(|cause| refused(action, cause.into()))?;
     }
     Ok(FixtureCredential {
         user: String::from(cell.as_str()),
         password: tier.password.clone(),
-        anchors_pem: tier.anchors_pem.clone(),
+        channel: tier.channel.clone(),
     })
 }

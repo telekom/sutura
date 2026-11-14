@@ -313,7 +313,11 @@ impl Unparser<'_> {
         select: &mut SelectBuilder,
         fully_absorbed: bool,
     ) -> Result<bool> {
-        let mut exprs = p.expr.clone();
+        let mut exprs = if p.expr.is_empty() {
+            self.empty_projection_fallback()
+        } else {
+            p.expr.clone()
+        };
 
         // If an Unnest node is found within the select, find and unproject the unnest column
         let flatten_alias = select.current_flatten_alias();
@@ -1005,15 +1009,18 @@ impl Unparser<'_> {
                 let found_agg =
                     self.reconstruct_select_statement(plan, p, select, fully_absorbed)?;
 
-                // Whether to bother emitting the absorbed clauses: only
-                // if there's an Aggregate either claimed in this SELECT
-                // or about to live in a derived subquery below us. If
-                // there's nothing aggregate-like to fold over, fall
-                // through and let the normal recursion handle the
-                // Projection's input.
+                // A complete chain over a filtered scan also belongs in this SELECT;
+                // wrapping it would leave the projection's table qualifiers out of scope.
+                // Keep other non-aggregate input scopes on their existing recursion path.
                 let agg_below =
                     !fully_absorbed && find_agg_node_within_select(plan, true).is_some();
-                if !(found_agg || agg_below) {
+                let mut scan = cur;
+                while let LogicalPlan::Filter(filter) = scan {
+                    scan = filter.input.as_ref();
+                }
+                let scan_below = fully_absorbed
+                    && matches!(scan, LogicalPlan::TableScan(scan) if scan.fetch.is_none());
+                if !(found_agg || agg_below || scan_below) {
                     return self.select_to_sql_recursively(
                         p.input.as_ref(),
                         query,

@@ -1,0 +1,48 @@
+---
+source: crates/sutura-app/tests/golden/statements.rs
+expression: corpus
+---
+plain_filter
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002.0)
+
+not_null_and_filter
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."usage_date" IS NOT NULL AND ("fct_usage_daily"."subscription_key" = 1002.0))
+
+count_column_filter
+SELECT count("subscription_key") AS "n" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "derived_projection"
+
+ordered_filter_limit
+SELECT "key" FROM (SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002.0) ORDER BY "fct_usage_daily"."subscription_key" ASC NULLS LAST LIMIT 2) AS "derived_limit"
+
+grouped_count_star
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key", count(1) AS "n" FROM "fct_usage_daily" GROUP BY "fct_usage_daily"."subscription_key"
+
+date_comparison
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."usage_date" >= CAST('2026-06-02 00:00:00' AS TIMESTAMP))
+
+timestamp_comparison
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."usage_date" >= CAST('2026-06-02 00:00:00' AS TIMESTAMP))
+
+date_between
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE (("fct_usage_daily"."usage_date" >= CAST('2026-06-01 00:00:00' AS TIMESTAMP)) AND ("fct_usage_daily"."usage_date" <= CAST('2026-06-02 00:00:00' AS TIMESTAMP)))
+
+date_part_year
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE (("fct_usage_daily"."usage_date" >= CAST('2026-01-01 00:00:00' AS TIMESTAMP)) AND ("fct_usage_daily"."usage_date" < CAST('2027-01-01 00:00:00' AS TIMESTAMP)))
+
+extract_year
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE (("fct_usage_daily"."usage_date" >= CAST('2026-01-01 00:00:00' AS TIMESTAMP)) AND ("fct_usage_daily"."usage_date" < CAST('2027-01-01 00:00:00' AS TIMESTAMP)))
+
+count_star_filter
+SELECT count(1) AS "n" FROM (SELECT FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "derived_projection"
+
+count_one_filter
+SELECT count(1) AS "n" FROM (SELECT FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "derived_projection"
+
+filter_limit
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002.0) LIMIT 2
+
+filter_wide_limit
+SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key", CAST("fct_usage_daily"."voice_min" AS BIGINT) AS "voice" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002.0) LIMIT 2
+
+count_star
+SELECT count(1) AS "n" FROM "fct_usage_daily"

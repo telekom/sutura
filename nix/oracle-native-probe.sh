@@ -55,6 +55,19 @@ if [ "${SUTURA_ORACLE_RUN_ACCEPTANCE:-0}" = 1 ]; then
   if [ "${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
     bash nix/oracle-native-claim-proof.sh
   else
+    if [ "${SUTURA_ORACLE_BASE_PROOF:-0}" != 1 ]; then
+      # Run the same planned corpus as the verified venue while both strong services are required.
+      env -u SUTURA_DEV_REQUIRE_TIER SUTURA_ORACLE_TIER=1 SUTURA_ONLY_SYSTEMS=oracle \
+        SUTURA_ORACLE_FIXTURE_TRANSPORT=native-encryption \
+        SUTURA_DEV_USER=SYSTEM SUTURA_DEV_PASSWORD="$ORACLE_PASSWORD" \
+        cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-app --all-features --test golden \
+        statements::engines::oracle::every_planned_shape_answers_at_the_native_engine -- --exact --nocapture \
+        | tee "$out/planned-golden.log"
+      if ! grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$out/planned-golden.log"; then
+        echo 'Oracle native planned corpus did not run exactly once' >&2
+        exit 1
+      fi
+    fi
     bash nix/oracle-native-cells.sh "$name"
   fi
 fi
