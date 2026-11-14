@@ -19,7 +19,7 @@ use crate::definitions::nibble;
 use crate::model::{ColumnName, ModelName, SourceName};
 use crate::pinned::NotValidated;
 
-pub use types::TypeDialect;
+pub use types::{TypeDialect, UnboundedNumber};
 
 /// The digest of a [`PinnedSchemas`]: lower-case hex SHA-256 over each pinned model's name and,
 /// in order, each column's name, Arrow type and nullability.

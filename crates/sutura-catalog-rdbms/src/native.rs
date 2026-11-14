@@ -77,6 +77,7 @@ pub(crate) fn select(
     dictionary: Dictionary,
     selection: &DictionarySelection,
     dialect: TypeDialect,
+    _unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
 ) -> Result<Dictionary, RdbmsError> {
     let mut matched = vec![false; selection.include().len()];
     let mut tables = Vec::new();
