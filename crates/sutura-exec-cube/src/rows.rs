@@ -188,7 +188,7 @@ where
 const EXACT: u64 = 1 << 53;
 
 /// Whether `text` is an integer whose magnitude is beyond [`EXACT`].
-fn beyond_exact(text: &str) -> bool {
+pub(crate) fn beyond_exact(text: &str) -> bool {
     let digits = text.strip_prefix('-').unwrap_or(text).trim_start_matches('0');
     let integer = digits.bytes().all(|byte| byte.is_ascii_digit());
     integer && digits.parse::<u64>().map_or(!digits.is_empty(), |n| n > EXACT)

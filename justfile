@@ -863,13 +863,15 @@ dev-up-cube:
 cube-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "cube-acceptance: scope sutura-catalog-cube, sutura-cli and sutura-app - the live Cube tier: the metadata API read through"
+    echo "cube-acceptance: scope sutura-exec-cube, sutura-catalog-cube, sutura-cli and sutura-app - the live Cube tier: the metadata API read through"
     echo "cube-acceptance: src/http.rs's HttpMetaReader (hence --features http), and a token the tier did not sign refused."
     echo "cube-acceptance: then examples/cube through a composed \`sutura mcp\` against the same tier."
     echo "cube-acceptance: then examples/metrics-layer served as two callers, through its DataHub fake, Keycloak and Cube."
     echo "cube-acceptance: then sutura-app's golden and differential cells for the cube data system, against the same tier."
+    echo "cube-acceptance: also the executor's planned SQL and HTTP transport cells."
     echo "cube-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with cube
+    cargo test -p sutura-exec-cube --all-features --lib --test http -- --nocapture
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-cli --features cube --test mcp -- cube:: --ignored --nocapture
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-cli --features cube,datahub --test served -- metrics_layer:: --ignored --nocapture

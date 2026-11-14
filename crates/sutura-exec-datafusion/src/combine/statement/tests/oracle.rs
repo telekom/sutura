@@ -8,6 +8,34 @@ use datafusion::sql::sqlparser::parser::Parser;
 
 use super::*;
 
+#[test]
+fn oracle_temporal_constants_use_ansi_literals_without_session_format_casts() {
+    use datafusion::common::ScalarValue;
+    use datafusion::logical_expr::{LogicalPlanBuilder, lit};
+
+    let plan = LogicalPlanBuilder::empty(true)
+        .project(vec![
+            lit(ScalarValue::Date32(Some(20_454))).alias("day"),
+            lit(ScalarValue::Date64(Some(1_767_225_600_000))).alias("millis"),
+            lit(ScalarValue::TimestampMicrosecond(Some(1_767_225_600_123_456), None)).alias("micros"),
+        ])
+        .expect("literal columns project")
+        .build()
+        .expect("a literal plan builds");
+    let sql = super::super::oracle::unparsed(&plan).expect("the Oracle constants unparse");
+    for literal in [
+        "DATE '2026-01-01'",
+        "TIMESTAMP '2026-01-01 00:00:00'",
+        "TIMESTAMP '2026-01-01 00:00:00.123456'",
+    ] {
+        assert!(sql.contains(literal), "{literal} is missing: {sql}");
+    }
+    assert!(
+        !sql.contains("CAST("),
+        "constant temporal values must not depend on NLS: {sql}"
+    );
+}
+
 struct OracleLegs {
     engines: Engines,
     statements: Vec<String>,

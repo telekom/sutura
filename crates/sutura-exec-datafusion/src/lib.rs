@@ -276,6 +276,8 @@ pub mod pool;
 pub use crate::pool::WorkingSet;
 
 /// `DataFusionWarehouse`'s implementation of the `Warehouse` port.
+#[cfg(feature = "sql")]
+mod statement;
 mod warehouse;
 
 use crate::collect::outputs;
@@ -362,6 +364,22 @@ impl Drop for DataFusionWarehouse {
 }
 
 impl DataFusionWarehouse {
+    fn deliverable(&self, presented: &sutura_domain::identity::Presented) -> Result<(), DataFusionError> {
+        use sutura_domain::identity::Presented;
+        match *presented {
+            Presented::SharedServiceUser { .. } => {}
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } => {
+                return Err(DataFusionError::NoPlaceForASubject {
+                    at: String::from(self.source.as_str()),
+                    presented: presented.as_str(),
+                });
+            }
+        }
+        presented
+            .agrees_with(&self.posture, &self.source)
+            .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })
+    }
+
     /// Builds an adapter with nothing registered.
     ///
     /// There is no file to open, which is the difference from the `DuckDB` adapter: the engine is

@@ -99,12 +99,10 @@
 //!
 //! # Two things this adapter deliberately does not offer
 //!
-//! **No arbitrary SQL entry point.** [`BigQueryWarehouse::execute`] takes an [`Executable`] and
-//! renders the statement itself; `transport::JobRequest::new` is `pub(crate)`, so there is no way to
-//! hand a statement to a transport from outside this crate. **The `fixtures` feature does not open
-//! one:** `load_fixture` takes a table name and a path, and `crate::importer` renders the statement
-//! from names that parsed and cells that parsed - refusing, rather than escaping, a cell that could
-//! close a literal.
+//! **No unplanned SQL passthrough.** Metrics take an [`Executable`]; the SQL tool uses
+//! [`Warehouse::execute_planned_statement`] only after query-only planning over scoped pinned
+//! tables and columns. That method's library caller must uphold this trust contract; this adapter
+//! does not parse its SQL. [`Warehouse::execute_raw`] remains unavailable.
 //!
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and this
 //! is the first adapter where there would be row-level security to leak through.
@@ -133,6 +131,7 @@ pub mod adbc;
 mod over_adbc;
 
 mod billing;
+mod statement;
 pub use billing::{JobBilling, TableNamesNoProject};
 
 pub mod transport;
@@ -461,9 +460,7 @@ where
     /// argument. What it buys over a `#[cfg(test)]` helper is that the acceptance leg is an
     /// INTEGRATION target - a separate crate - which cannot reach a test-gated item here.
     ///
-    /// It takes a table name and a path and never a statement, which is what keeps *no arbitrary SQL
-    /// entry point* true of this crate: the statement is rendered from names that parsed and cells
-    /// that parsed.
+    /// It takes a table name and a path; the statement is rendered from parsed names and cells.
     ///
     /// **In THIS impl block rather than in the module that renders the statement**, because
     /// `clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
@@ -494,8 +491,7 @@ where
     /// expiration, because `panic = "abort"` means a cancelled runner never reaches this method and
     /// the expiration is what still cleans up after it.
     ///
-    /// It takes a table name and never a statement, for the same reason `load_fixture` does: the
-    /// statement is rendered from a name that parsed, and *no arbitrary SQL entry point* stays true.
+    /// It takes a table name; the statement is rendered from that parsed name.
     ///
     /// Behind the same `fixtures` feature and in the same impl block, for `load_fixture`'s reasons.
     #[cfg(feature = "fixtures")]
@@ -779,6 +775,20 @@ where
         let payer = self.payer_of(executable, bill_to)?;
         self.execute_as(executable, presented, (&payer, Some(labels)), deadline)
             .map_err(Billed::Source)
+    }
+
+    fn accepts_planned_statements(&self) -> bool {
+        true
+    }
+
+    fn execute_planned_statement(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        tables: &BTreeSet<QualifiedTable>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        Some(statement::run(self, statement, tables, presented, deadline))
     }
 
     fn type_dialect(&self) -> Option<TypeDialect> {

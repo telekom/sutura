@@ -16,6 +16,11 @@
 //! Before a query is sent, every member it names is looked up in Cube's `/cubejs-api/v1/meta`
 //! answer, read with the same credential: a member Cube does not serve refuses the question.
 //!
+//! Planned SQL instead uses `/cubejs-api/v1/cubesql`, whose native planner reads metadata with the
+//! request's same bearer. The served planner supplies the query and scanned tables; the port's
+//! `RawStatement` does not itself prove that origin. Unplanned raw SQL stays disabled. The transport
+//! caps response bytes, and this adapter refuses more than `MAX_ROWS` and any trailing stream error.
+//!
 //! # Identity
 //!
 //! A `shared-service-user` source sends the deployment's declared Cube token on every request. An
@@ -31,15 +36,20 @@ pub mod http;
 mod members;
 pub mod query;
 mod rows;
+mod sql;
+
+use std::collections::BTreeSet;
 
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
-use sutura_domain::model::SourceName;
-use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
+use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::plan::{AnchorPlan, Executable, MAX_ROWS, QueryPlan};
+use sutura_domain::raw::RawStatement;
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::execution::Execution;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, ResultBatches, RowSet, Warehouse};
+use sutura_domain::warehouse::schema::TypeDialect;
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, RawExecution, RawRows, ResultBatches, RowSet, Warehouse};
 
 use crate::query::{CubeQuery, NotExpressible};
 
@@ -68,7 +78,7 @@ impl Loaded {
     }
 }
 
-/// The two round trips this adapter makes, as a seam: [`http::HttpCube`] for a running Cube, and a
+/// The round trips this adapter makes, as a seam: [`http::HttpCube`] for a running Cube, and a
 /// scripted implementor for the unit cells.
 pub trait CubeTransport {
     type Error: core::error::Error + Send + Sync + 'static;
@@ -87,11 +97,21 @@ pub trait CubeTransport {
     /// As [`Self::meta`].
     fn load(&self, query: &serde_json::Value, token: &Secret, deadline: Deadline) -> Result<Loaded, Self::Error>;
 
+    /// One `/cubejs-api/v1/cubesql` query, with the same caller credential as a native load.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::meta`].
+    fn sql(&self, query: &str, token: &Secret, deadline: Deadline) -> Answer<Self::Error>;
+
     /// Whether Cube itself refused the credential.
     fn source_refused(&self, error: &Self::Error) -> bool;
 
     /// Whether the deadline ran out before Cube answered.
     fn deadline_exceeded(&self, error: &Self::Error) -> bool;
+
+    /// Whether the transport stopped reading at its response byte cap.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool;
 }
 
 /// Why Cube did not answer a plan.
@@ -146,6 +166,19 @@ where
     InexactInteger { member: String },
     #[error("the Cube answer was not the {expected} this adapter reads")]
     MalformedAnswer { expected: &'static str },
+    #[error("Cube did not complete the SQL query")]
+    StatementFailed,
+    #[error("a planned Cube query must scan a scoped table")]
+    NoPlannedTables,
+    #[error("the deadline ran out before Cube answered")]
+    DeadlineSpent,
+    #[error("the Cube SQL answer exceeded the {limit}-row cap")]
+    TooManyRows { limit: u32 },
+    #[error("a SQL result cell did not carry the integer its schema declared")]
+    NotAnInteger {
+        #[source]
+        cause: core::num::ParseIntError,
+    },
     #[error("the result set was not rectangular")]
     Shape {
         #[source]
@@ -236,6 +269,27 @@ where
         let rows = rows::read(&bodies, &query)?;
         Ok((rows, executions))
     }
+
+    fn planned(
+        &self,
+        statement: &RawStatement,
+        tables: &BTreeSet<QualifiedTable>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> CubeResult<RawRows, T::Error> {
+        let token = self.deliverable(presented)?;
+        if tables.is_empty() {
+            return Err(CubeError::NoPlannedTables);
+        }
+        check_deadline(deadline)?;
+        let body = self
+            .transport
+            .sql(statement.as_str(), token, deadline)
+            .map_err(|cause| CubeError::Endpoint { cause })?;
+        let rows = sql::read(&body, MAX_ROWS)?;
+        check_deadline(deadline)?;
+        Ok(rows)
+    }
 }
 
 impl<T> Warehouse for CubeWarehouse<T>
@@ -254,6 +308,24 @@ where
 
     fn posture(&self) -> &SourcePosture {
         &self.posture
+    }
+
+    fn type_dialect(&self) -> Option<TypeDialect> {
+        Some(TypeDialect::Cube)
+    }
+
+    fn accepts_planned_statements(&self) -> bool {
+        true
+    }
+
+    fn execute_planned_statement(
+        &self,
+        statement: &RawStatement,
+        tables: &BTreeSet<QualifiedTable>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> RawExecution<Self::Error> {
+        Some(self.planned(statement, tables, presented, deadline))
     }
 
     fn execute(
@@ -292,8 +364,30 @@ where
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
-        matches!(*error, CubeError::Endpoint { ref cause } if self.transport.deadline_exceeded(cause))
+        match *error {
+            CubeError::DeadlineSpent => true,
+            CubeError::Endpoint { ref cause } => self.transport.deadline_exceeded(cause),
+            _ => false,
+        }
     }
+
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        match *error {
+            CubeError::TooManyRows { .. } => true,
+            CubeError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),
+            _ => false,
+        }
+    }
+}
+
+fn check_deadline<E>(deadline: Deadline) -> CubeResult<(), E>
+where
+    E: core::error::Error + 'static,
+{
+    deadline
+        .remaining_at(std::time::Instant::now())
+        .map(|_| ())
+        .ok_or(CubeError::DeadlineSpent)
 }
 
 #[expect(
@@ -306,5 +400,7 @@ fn boot_deadline() -> Deadline {
     Deadline::opened_at(std::time::Instant::now(), budget)
 }
 
+#[cfg(test)]
+mod sql_tests;
 #[cfg(test)]
 mod tests;

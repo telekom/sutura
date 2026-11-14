@@ -21,6 +21,8 @@ use crate::{Answer, CubeTransport, Loaded};
 pub const META_PATH: &str = "/cubejs-api/v1/meta";
 /// The query API's path under a Cube server's root.
 pub const LOAD_PATH: &str = "/cubejs-api/v1/load";
+/// Cube's PostgreSQL-shaped SQL API, authenticated by the REST request's bearer.
+pub const SQL_PATH: &str = "/cubejs-api/v1/cubesql";
 
 /// What Cube answers while a query is still running.
 const CONTINUE_WAIT: &str = "Continue wait";
@@ -164,6 +166,24 @@ impl CubeTransport for HttpCube {
         }
     }
 
+    fn sql(&self, query: &str, token: &Secret, deadline: Deadline) -> Answer<Self::Error> {
+        let url = format!("{}{SQL_PATH}", self.endpoint.as_str());
+        let body =
+            serde_json::to_vec(&serde_json::json!({ "query": query, "timezone": "UTC" })).map_err(HttpCubeError::Unencodable)?;
+        let response = self
+            .agent
+            .current()
+            .post(&url)
+            .config()
+            .timeout_global(Some(Self::remaining(deadline)?))
+            .build()
+            .header("authorization", Self::bearer(token))
+            .header("content-type", "application/json")
+            .send(&body)
+            .map_err(|cause| HttpCubeError::Unreachable(Box::new(cause)))?;
+        self.answer(response)
+    }
+
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(*error, HttpCubeError::Refused { status: 401 | 403 })
     }
@@ -176,5 +196,9 @@ impl CubeTransport for HttpCube {
             }
             HttpCubeError::Refused { .. } | HttpCubeError::TooLarge { .. } | HttpCubeError::Unencodable(_) => false,
         }
+    }
+
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(*error, HttpCubeError::TooLarge { .. })
     }
 }

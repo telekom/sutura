@@ -9,9 +9,13 @@
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use sutura_config::Environment;
+    use sutura_http::constants::base_paths::RUN_SQL;
 
-    use crate::harness::{LOOPBACK, SINGLE_USER, TOKEN, deployment, example_root, refused_to_start, written};
+    use crate::harness::{
+        LOOPBACK, SINGLE_USER, TOKEN, deployment, example_root, refused_to_start, start_configured, v1, written,
+    };
 
     /// The example's `files` deployment with the raw tool on over `listed`.
     fn refused_over(case: &str, listed: &str) -> Vec<String> {
@@ -35,11 +39,36 @@ mod tests {
     }
 
     #[test]
-    fn a_listed_source_whose_adapter_takes_no_raw_statement_stops_the_process() {
-        said(
-            &refused_over("run-sql-files", "local"),
-            "tools.run_sql.sources lists `local`, whose adapter accepts no raw statement",
-        );
+    fn a_listed_file_source_uses_the_execution_capability_of_this_build() {
+        if cfg!(feature = "sql") {
+            let base = deployment(
+                &example_root(),
+                LOOPBACK,
+                &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
+            );
+            let settings = format!("{base}tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n");
+            let served = start_configured("run-sql-files", &settings);
+            let reply = served.post(
+                &v1(RUN_SQL),
+                Some(TOKEN),
+                &json!({ "statement": "select sales_area from dim_region order by sales_area" }).to_string(),
+            );
+            assert_eq!(reply.status, 200, "{}", reply.body);
+            let body = reply.json();
+            assert_eq!(body["outcome"], "raw_rows", "{}", reply.body);
+            assert_eq!(body["columns"], json!(["sales_area"]), "{}", reply.body);
+            assert_eq!(
+                body["rows"],
+                json!([["central"], ["north_east"], ["north_east"], ["south_west"], ["south_west"]]),
+                "{}",
+                reply.body
+            );
+        } else {
+            said(
+                &refused_over("run-sql-files", "local"),
+                "tools.run_sql.sources lists `local`, whose adapter accepts no statement in this build",
+            );
+        }
     }
 
     #[test]
