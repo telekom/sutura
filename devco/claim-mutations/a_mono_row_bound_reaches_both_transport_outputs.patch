@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
+--- a/crates/sutura-app/src/lib.rs
++++ b/crates/sutura-app/src/lib.rs
+@@ -718,7 +718,7 @@
+                     &credentials,
+                     ToolOutcome::Refusal {
+                         reason: RefusalReason::ResultTooLarge {
+-                            bound: ResultBound::Volume,
++                            bound: ResultBound::Rows { limit: 999 },
+                         },
+                     },
+                 ));

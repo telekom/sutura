@@ -8,7 +8,12 @@ repository.workspace = true
 publish = false
 description = "A Warehouse whose legs another sutura node runs, over one Arrow Flight DoExchange per leg."
 
+[features]
+fake = ["dep:parking_lot", "dep:rcgen"]
+
 [dependencies]
+parking_lot = { workspace = true, optional = true }
+rcgen = { workspace = true, optional = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-flight = { workspace = true }

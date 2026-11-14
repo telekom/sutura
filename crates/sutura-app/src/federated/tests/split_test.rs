@@ -57,7 +57,10 @@ struct SplitLegs {
     partitions_read: AtomicUsize,
     offered: AtomicBool,
     granted: OnceLock<GrantedTo>,
+    fail_with: Option<FailureFactory>,
 }
+
+type FailureFactory = fn() -> AdapterFailure;
 
 /// Whom, and until when, a split was granted.
 type GrantedTo = (Subject, SystemTime);
@@ -77,7 +80,13 @@ impl SplitLegs {
             partitions_read: AtomicUsize::new(0),
             offered: AtomicBool::new(false),
             granted: OnceLock::new(),
+            fail_with: None,
         }
+    }
+
+    fn failing_with(mut self, error: FailureFactory) -> Self {
+        self.fail_with = Some(error);
+        self
     }
 
     /// One partition per row granted to `grantee`, recording whom and until when.
@@ -96,95 +105,8 @@ impl SplitLegs {
     }
 }
 
-impl Warehouse for SplitLegs {
-    type Error = AdapterFailure;
-
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-    const EXECUTES_LEGS: bool = true;
-
-    fn source(&self) -> &SourceName {
-        self.legs.source()
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        self.legs.posture()
-    }
-
-    fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
-        self.legs.dry_run(executable, presented, deadline)
-    }
-
-    fn execute(
-        &self,
-        executable: Executable<'_>,
-        presented: &Presented,
-        deadline: Deadline,
-    ) -> Result<ResultBatches, Self::Error> {
-        self.executes.fetch_add(1, Ordering::SeqCst);
-        self.legs.execute(executable, presented, deadline)
-    }
-
-    fn dry_run_billed(
-        &self,
-        executable: Executable<'_>,
-        presented: &Presented,
-        _bill_to: &BillTo,
-        _labels: &JobLabels,
-        deadline: Deadline,
-    ) -> BilledResult<PreFlight, Self::Error> {
-        self.dry_run(executable, presented, deadline).map_err(Billed::Source)
-    }
-
-    fn execute_billed(
-        &self,
-        executable: Executable<'_>,
-        presented: &Presented,
-        _bill_to: &BillTo,
-        _labels: &JobLabels,
-        deadline: Deadline,
-    ) -> BilledResult<ResultBatches, Self::Error> {
-        self.execute(executable, presented, deadline).map_err(Billed::Source)
-    }
-
-    fn split_lookup(
-        &self,
-        _leg: &LegPlan,
-        _presented: &Presented,
-        _deadline: Deadline,
-        _above_bytes: NonZeroU64,
-        _readers: NonZeroUsize,
-        grantee: Option<Grantee>,
-        _labels: &JobLabels,
-    ) -> LookupSplit<'_, Self::Error> {
-        self.splits_asked.fetch_add(1, Ordering::SeqCst);
-        self.offered.store(grantee.is_some(), Ordering::SeqCst);
-        let first_read_takes = match (self.splits, grantee) {
-            (Splits::PerRow, _) | (Splits::Granting { .. } | Splits::GrantingOutlivingTheGrant, None) => Duration::ZERO,
-            (Splits::PerRowOutlivingTheGrant, _) => Duration::from_millis(1200),
-            (Splits::Refused(refusal), _) => return Ok(Partitioned::Refused(refusal)),
-            (Splits::Granting { portable, late }, Some(grantee)) => return Ok(self.granting(grantee, portable, late)),
-            (Splits::GrantingOutlivingTheGrant, Some(grantee)) => {
-                std::thread::sleep(Duration::from_millis(1200));
-                return Ok(self.granting(grantee, true, false));
-            }
-        };
-        Ok(Partitioned::Split(Box::new(self.rows.rows().iter().enumerate().map(
-            move |(index, row)| {
-                if index == 0 {
-                    std::thread::sleep(first_read_takes);
-                }
-                self.partitions_read.fetch_add(1, Ordering::SeqCst);
-                Ok(crate::tests_support::canned(
-                    &RowSet::new(self.rows.columns().to_vec(), vec![row.clone()]).expect("one row of a row set"),
-                ))
-            },
-        ))))
-    }
-
-    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Ok(AnchorRows::of(self.rows.clone()))
-    }
-}
+#[cfg(test)]
+mod warehouse;
 
 fn geo() -> SourceName {
     SourceName::parse("geo").expect("a test source")
@@ -602,4 +524,270 @@ fn a_lookup_leg_whose_link_declares_a_comparison_is_never_offered_for_granting_a
     );
     assert_eq!(granted(&warehouses), None);
     assert_eq!(read_here(&warehouses), 2, "each partition is read here");
+}
+
+fn refused_rows() -> AdapterFailure {
+    AdapterFailure::Unannounced {
+        cause: sutura_domain::warehouse::UnannouncedBatch::OverBound { most: 17 },
+    }
+}
+
+fn refused_bytes() -> AdapterFailure {
+    AdapterFailure::Unannounced {
+        cause: sutura_domain::warehouse::UnannouncedBatch::OverBudget { most_bytes: 31 },
+    }
+}
+
+fn refused_opaquely() -> AdapterFailure {
+    AdapterFailure::TooMuchData
+}
+
+fn serialized_refusal(outcome: &ToolOutcome) -> serde_json::Value {
+    let ToolOutcome::Refusal { reason } = outcome else {
+        panic!("a source bound is a refusal: {outcome:?}");
+    };
+    serde_json::to_value(reason).expect("a refusal serializes")
+}
+
+fn assert_limit_outputs(outcome: &ToolOutcome, known: Option<&str>) {
+    let http = sutura_http::wire::Outcome::from(outcome);
+    assert_eq!(http.status().as_u16(), 413);
+    for body in [
+        serde_json::to_value(http.body()).expect("HTTP body serializes"),
+        serde_json::to_value(sutura_mcp::wire::OutcomeContent::from(outcome)).expect("MCP body serializes"),
+    ] {
+        assert_eq!(body["outcome"], "refusal");
+        assert_eq!(body["reason"]["code"], "result_too_large");
+        assert!(body.get("rows").is_none(), "no partial answer: {body}");
+        let detail = body["reason"]["detail"].as_str().expect("a refusal has detail");
+        if let Some(limit) = known {
+            assert!(detail.contains(limit), "known source threshold lost: {detail}");
+            assert!(detail.contains("deployment operator"), "no operator remedy: {detail}");
+            assert!(detail.contains("NOT truncated"), "no completeness statement: {detail}");
+            assert!(!detail.contains("not told"), "known bound described as unknown: {detail}");
+        } else {
+            assert!(!detail.chars().any(char::is_numeric), "invented unknown limit: {detail}");
+        }
+    }
+}
+
+fn a_limited_lookup(error: FailureFactory, partitioned: bool) -> ToolOutcome {
+    let warehouses = Warehouses::of(SplitLegs::answering("facts", federated_fact_rows(), Splits::PerRow))
+        .and(SplitLegs::answering("geo", federated_lookup_rows(), Splits::PerRow).failing_with(error))
+        .expect("two sources");
+    let warehouses = if partitioned {
+        warehouses.splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN)
+    } else {
+        warehouses
+    };
+    let outcome = answered(&warehouses);
+    let lookup = geo_leg(&warehouses);
+    assert_eq!(whole_reads(&warehouses), usize::from(!partitioned));
+    assert_eq!(lookup.partitions_read.load(Ordering::SeqCst), usize::from(partitioned));
+    assert_eq!(lookup.splits_asked.load(Ordering::SeqCst), usize::from(partitioned));
+    assert_eq!(
+        warehouses
+            .get(&SourceName::parse("facts").expect("a source"))
+            .expect("the fact is registered")
+            .executes
+            .load(Ordering::SeqCst),
+        1
+    );
+    outcome
+}
+
+fn a_limited_mono_answer(error: FailureFactory) -> ToolOutcome {
+    let validating = Warehouses::of(crate::tests_support::FixedWarehouse::answering(
+        crate::tests::source(),
+        shared(),
+        crate::tests::certified(),
+    ));
+    let validated = crate::verify_and_validate(bundle(), &validating).expect("the fixture anchor holds");
+    let warehouses = Warehouses::of(SplitLegs::answering("local", crate::tests::certified(), Splits::PerRow).failing_with(error));
+    let question = sutura_domain::query::Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    crate::answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_domain::plan::RefusingCombiner,
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::Ceilings::DEFAULT,
+    )
+    .expect("a source bound is an outcome")
+    .into_outcome()
+}
+
+fn node_replies(leg: &LegPlan, local: bool, count: usize) -> Vec<sutura_exec_node::test_support::Reply> {
+    use sutura_exec_node::test_support::Reply;
+    std::iter::repeat_with(|| {
+        if local {
+            let labels = Executable::Leg(leg).result_labels();
+            let rows = RowSet::new(labels.clone(), vec![vec![Value::Integer(7); labels.len()]; 8])
+                .expect("eight rectangular integer rows");
+            Reply::Answer(crate::tests_support::canned(&rows).into_batches())
+        } else {
+            Reply::Refuse(tonic::Code::FailedPrecondition, "result_too_large")
+        }
+    })
+    .take(count)
+    .collect()
+}
+
+fn node_client(source: &SourceName, node: &sutura_exec_node::test_support::Node) -> sutura_exec_node::NodeWarehouse {
+    let budget = sutura_domain::warehouse::ResultBudget::of_bytes(
+        NonZeroUsize::new(sutura_exec_node::test_support::receipt().len() + 31).expect("receipt plus a positive row budget"),
+    );
+    sutura_exec_node::NodeWarehouse::open(
+        source.clone(),
+        SourcePosture::ImpersonationAtSource,
+        &sutura_exec_node::NodeEndpoint::parse(&format!("https://localhost:{}", node.port())).expect("a TLS origin"),
+        [node.anchor().clone()],
+        budget,
+    )
+    .expect("a real node client starts")
+}
+
+fn a_node_size_refusal(local: bool) -> ToolOutcome {
+    use sutura_exec_node::test_support::Node;
+    let plan = federated_plan();
+    let lookup = plan
+        .legs()
+        .into_iter()
+        .find(|leg| leg.source() == &geo())
+        .expect("the fixture has one lookup");
+    let fact_calls = if local { 2 } else { 1 };
+    let fact = Node::try_answering(node_replies(plan.fact(), local, fact_calls)).expect("a TLS fact node starts");
+    let geo_node = Node::try_answering(node_replies(lookup, local, 1)).expect("a TLS lookup node starts");
+    let warehouses = Warehouses::of(node_client(plan.fact().source(), &fact))
+        .and(node_client(lookup.source(), &geo_node))
+        .expect("two real node clients");
+    if local {
+        let error = warehouses
+            .get(plan.fact().source())
+            .expect("the fact client is registered")
+            .execute(
+                Executable::Leg(plan.fact()),
+                &Presented::SubjectToken {
+                    material: sutura_domain::identity::Secret::new("an-exchanged-token"),
+                },
+                test_deadline(),
+            )
+            .expect_err("the decoded batches exceed their remaining allowance");
+        assert!(
+            matches!(
+                error,
+                sutura_exec_node::NodeError::Result {
+                    cause: sutura_domain::warehouse::UnannouncedBatch::OverBudget { most_bytes: 31 }
+                }
+            ),
+            "{error:?}"
+        );
+    }
+    let broker = crate::tests_support::AcknowledgingBroker::over(&[
+        (plan.fact().source().clone(), SourcePosture::ImpersonationAtSource),
+        (lookup.source().clone(), SourcePosture::ImpersonationAtSource),
+    ]);
+    let outcome = answer_federated(
+        (&bundle(), PinnedSchemas::default().digest()),
+        &plan,
+        &asked_by_a_person(),
+        &broker,
+        &warehouses,
+        &combiner(),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::Ceilings::DEFAULT,
+    )
+    .expect("a decoded or remote size bound is an outcome")
+    .into_outcome();
+    assert_eq!(fact.received().len(), fact_calls);
+    assert_eq!(geo_node.received().len(), 1);
+    outcome
+}
+
+#[test]
+fn whole_leg_row_bound_reaches_the_outputs() {
+    let outcome = a_limited_lookup(refused_rows, false);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn local_partition_row_bound_reaches_the_outputs() {
+    let outcome = a_limited_lookup(refused_rows, true);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn whole_leg_byte_bound_reaches_the_outputs() {
+    let outcome = a_limited_lookup(refused_bytes, false);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn local_partition_byte_bound_reaches_the_outputs() {
+    let outcome = a_limited_lookup(refused_bytes, true);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn an_opaque_whole_or_partition_bound_stays_numberless() {
+    for partitioned in [false, true] {
+        let outcome = a_limited_lookup(refused_opaquely, partitioned);
+        let domain = serialized_refusal(&outcome);
+        assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+        assert_limit_outputs(&outcome, None);
+    }
+}
+
+#[test]
+fn a_mono_row_bound_reaches_both_transport_outputs() {
+    let outcome = a_limited_mono_answer(refused_rows);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn a_mono_byte_bound_reaches_both_transport_outputs() {
+    let outcome = a_limited_mono_answer(refused_bytes);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn a_mono_opaque_bound_stays_numberless() {
+    let outcome = a_limited_mono_answer(refused_opaquely);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn a_local_node_decode_bound_reaches_the_application() {
+    let outcome = a_node_size_refusal(true);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
+}
+
+#[test]
+fn a_remote_node_size_code_stays_numberless_in_the_application() {
+    let outcome = a_node_size_refusal(false);
+    let domain = serialized_refusal(&outcome);
+    assert_eq!(domain["ResultTooLarge"]["bound"], serde_json::json!("Volume"), "{domain}");
+    assert_limit_outputs(&outcome, None);
 }

@@ -4491,11 +4491,15 @@ dependencies = [
  "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
+ "sutura-exec-node",
  "sutura-exec-oracle",
  "sutura-exec-postgres",
+ "sutura-http",
+ "sutura-mcp",
  "sutura-semantic",
  "sutura-sql",
  "thiserror 2.0.21",
+ "tonic",
  "tracing",
 ]
 

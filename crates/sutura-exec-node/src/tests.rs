@@ -92,7 +92,7 @@ fn client_trusting(node: &Node, anchor: tokio_rustls::rustls::pki_types::Certifi
     NodeWarehouse::open(
         source(),
         SourcePosture::ImpersonationAtSource,
-        &NodeEndpoint::parse(&format!("https://localhost:{}", node.port)).expect("an https origin"),
+        &NodeEndpoint::parse(&format!("https://localhost:{}", node.port())).expect("an https origin"),
         [anchor],
         ResultBudget::of_bytes(NonZeroUsize::new(1 << 20).expect("non-zero")),
     )
@@ -116,16 +116,16 @@ fn run(warehouse: &NodeWarehouse, presented: &Presented) -> Result<sutura_domain
 #[test]
 fn a_leg_crosses_as_one_exchange_carrying_its_bearer_and_its_values() {
     let node = Node::answering([Reply::Answer(vec![answer(&labels())])]);
-    let warehouse = client_trusting(&node, node.anchor.clone());
+    let warehouse = client_trusting(&node, node.anchor().clone());
     let answered = run(&warehouse, &subject()).expect("the node answers");
     assert_eq!(answered.rows(), 1);
     let [received] = <[_; 1]>::try_from(node.received()).ok().expect("one call per leg");
-    assert_eq!(received.bearer.as_deref(), Some(format!("Bearer {TOKEN}").as_str()));
-    assert!(received.timeout, "the deadline travels as grpc-timeout");
-    assert_eq!(received.leg, to_wire(&leg()).expect("the leg sends"));
-    assert_eq!(received.params.num_rows(), 1);
-    assert_eq!(received.params.num_columns(), leg().params().len());
-    let descriptor = serde_json::to_string(&received.leg).expect("a leg serializes");
+    assert_eq!(received.bearer(), Some(format!("Bearer {TOKEN}").as_str()));
+    assert!(received.has_timeout(), "the deadline travels as grpc-timeout");
+    assert_eq!(received.leg(), &to_wire(&leg()).expect("the leg sends"));
+    assert_eq!(received.params().num_rows(), 1);
+    assert_eq!(received.params().num_columns(), leg().params().len());
+    let descriptor = serde_json::to_string(received.leg()).expect("a leg serializes");
     assert!(!descriptor.contains(TOKEN), "the token rides in metadata, never in the leg");
     assert!(warehouse.relays_to_a_node(), "a node source is another node, for decision 9");
     assert_eq!(
@@ -137,7 +137,7 @@ fn a_leg_crosses_as_one_exchange_carrying_its_bearer_and_its_values() {
 #[test]
 fn a_node_source_sends_only_a_subject_token() {
     let node = Node::answering([]);
-    let warehouse = client_trusting(&node, node.anchor.clone());
+    let warehouse = client_trusting(&node, node.anchor().clone());
     let declared = SharedIdentityDeclared::of(AcknowledgementReason::parse("one identity for everybody").expect("a reason"));
     let name = PrincipalName::parse("analyst_a").expect("a principal");
     for presented in [
@@ -165,7 +165,7 @@ fn a_node_refusal_is_read_as_its_closed_code() {
         "budget_exhausted",
     ];
     let node = Node::answering(codes.map(|code| Reply::Refuse(tonic::Code::FailedPrecondition, code)));
-    let warehouse = client_trusting(&node, node.anchor.clone());
+    let warehouse = client_trusting(&node, node.anchor().clone());
     let read: Vec<[bool; 4]> = codes
         .iter()
         .map(|_| {
@@ -193,7 +193,7 @@ fn a_node_refusal_is_read_as_its_closed_code() {
 #[test]
 fn an_answer_under_labels_the_leg_does_not_project_is_refused() {
     let node = Node::answering([Reply::Answer(vec![answer(&[String::from("other")])])]);
-    let refused = run(&client_trusting(&node, node.anchor.clone()), &subject()).expect_err("the labels differ");
+    let refused = run(&client_trusting(&node, node.anchor().clone()), &subject()).expect_err("the labels differ");
     assert!(matches!(refused, NodeError::Labels), "{refused:?}");
 }
 
@@ -213,7 +213,7 @@ fn a_spent_deadline_dials_nothing() {
         Instant::now().checked_sub(Duration::from_secs(10)).expect("ten seconds ago"),
         Budget::parse(Duration::from_secs(1)).expect("a budget"),
     );
-    let refused = client_trusting(&node, node.anchor.clone())
+    let refused = client_trusting(&node, node.anchor().clone())
         .execute(Executable::Leg(&leg()), &subject(), spent)
         .expect_err("no time left");
     assert!(matches!(refused, NodeError::DeadlineExceeded), "{refused:?}");

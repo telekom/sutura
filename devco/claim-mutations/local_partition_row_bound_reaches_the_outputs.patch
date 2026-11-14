@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+--- a/crates/sutura-app/src/federated/leg.rs
++++ b/crates/sutura-app/src/federated/leg.rs
+@@ -168,7 +168,7 @@
+     }
+     if warehouse.result_did_not_fit(&cause) {
+         return LegError::Refusal(RefusalReason::ResultTooLarge {
+-            bound: ResultBound::Volume,
++            bound: ResultBound::Rows { limit: 999 },
+         });
+     }
+     // The deadline, in the mono path's own order: after the two size bounds, before identity.

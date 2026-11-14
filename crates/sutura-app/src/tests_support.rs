@@ -105,6 +105,10 @@ pub(crate) enum AdapterFailure {
     /// The data system would not return the whole result at once.
     #[error("the data system would not return the whole result at once")]
     TooMuchData,
+    #[error(transparent)]
+    Unannounced {
+        cause: sutura_domain::warehouse::UnannouncedBatch,
+    },
     /// The identity the statement ran as is not permitted to ask it.
     #[error("the data system refused the statement at the identity/authorization level")]
     RefusedBySource,

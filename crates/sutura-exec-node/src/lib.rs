@@ -39,6 +39,9 @@ mod endpoint;
 mod error;
 mod params;
 
+#[cfg(any(test, feature = "fake"))]
+pub mod test_support;
+
 pub use endpoint::{InvalidEndpoint, NodeEndpoint};
 pub use error::{NodeError, NotBuilt, RemoteCode};
 

@@ -27,7 +27,7 @@ fn frames(metadata: Vec<u8>, empty: bool) -> Vec<FlightData> {
 fn a_node_receipt_is_flattened_after_its_outbound_leg_even_without_rows() {
     use sutura_domain::warehouse::execution::Execution;
     let node = Node::answering([Reply::Frames(frames(fake::receipt(), true))]);
-    let mut answered = run(&client_trusting(&node, node.anchor.clone()), &subject()).expect("a schema-only answer");
+    let mut answered = run(&client_trusting(&node, node.anchor().clone()), &subject()).expect("a schema-only answer");
     assert_eq!(answered.rows(), 0);
     let records = answered.take_executions();
     assert_eq!(records.len(), 2);
@@ -60,7 +60,7 @@ fn a_node_refuses_missing_malformed_empty_or_excessive_receipts() {
         ("count", excessive_count.into_bytes()),
     ] {
         let node = Node::answering([Reply::Frames(frames(metadata, false))]);
-        let refused = run(&client_trusting(&node, node.anchor.clone()), &subject()).expect_err(case);
+        let refused = run(&client_trusting(&node, node.anchor().clone()), &subject()).expect_err(case);
         assert!(matches!(refused, NodeError::Answer), "{case}: {refused:?}");
     }
 }
@@ -79,8 +79,8 @@ fn a_node_charges_receipt_bytes_before_retaining_its_rows() {
     let warehouse = super::NodeWarehouse::open(
         super::source(),
         sutura_domain::source::SourcePosture::ImpersonationAtSource,
-        &super::NodeEndpoint::parse(&format!("https://localhost:{}", node.port)).expect("a TLS endpoint"),
-        [node.anchor.clone()],
+        &super::NodeEndpoint::parse(&format!("https://localhost:{}", node.port())).expect("a TLS endpoint"),
+        [node.anchor().clone()],
         budget,
     )
     .expect("a node client");
@@ -119,7 +119,7 @@ fn a_node_refuses_receipts_hidden_on_dictionary_frames() {
     assert!(encoded.len() >= 3, "schema, dictionaries and batch");
     encoded[1].app_metadata = fake::receipt().into();
     let node = Node::answering([Reply::Frames(encoded)]);
-    let refused = run(&client_trusting(&node, node.anchor.clone()), &subject())
+    let refused = run(&client_trusting(&node, node.anchor().clone()), &subject())
         .expect_err("dictionary metadata cannot hide a duplicate receipt");
     assert!(matches!(refused, NodeError::Answer), "{refused:?}");
 }
@@ -149,7 +149,7 @@ fn a_node_refuses_late_duplicate_or_repeated_schema_receipts() {
             }
         }
         let node = Node::answering([Reply::Frames(scripted)]);
-        let refused = run(&client_trusting(&node, node.anchor.clone()), &subject()).expect_err("invalid receipt placement");
+        let refused = run(&client_trusting(&node, node.anchor().clone()), &subject()).expect_err("invalid receipt placement");
         assert!(matches!(refused, NodeError::Answer), "{case:?}: {refused:?}");
     }
 }
