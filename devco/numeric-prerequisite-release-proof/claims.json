@@ -1,0 +1,122 @@
+[
+  {
+    "name": "whole_leg_row_bound_reaches_the_outputs",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "61b4c9987496f19d16bb29d715ebefb002761466bb88c132b503f2af2f367931",
+    "mutation_path": "devco/claim-mutations/whole_leg_row_bound_reaches_the_outputs.patch",
+    "mutation_sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 717,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "local_partition_row_bound_reaches_the_outputs",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "6f55a123753d2591ad6e05c6f42e085d1d249b142d0abf0e258e6af292a4d228",
+    "mutation_path": "devco/claim-mutations/local_partition_row_bound_reaches_the_outputs.patch",
+    "mutation_sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 725,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "whole_leg_byte_bound_reaches_the_outputs",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "baa68bbf6689c8482ca69c93c56d50a333012d52a0c105eadc7a1dec18a8e8b2",
+    "mutation_path": "devco/claim-mutations/whole_leg_byte_bound_reaches_the_outputs.patch",
+    "mutation_sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 733,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "local_partition_byte_bound_reaches_the_outputs",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "e75d79b90d68573c9a2669d4ce86ec09415e494731cf486698261d749d2ee25b",
+    "mutation_path": "devco/claim-mutations/local_partition_byte_bound_reaches_the_outputs.patch",
+    "mutation_sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 741,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "an_opaque_whole_or_partition_bound_stays_numberless",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "8b308d18abf17a717224f0bc6e01076bb0deb54ddbd80e7bf490873b864089b9",
+    "mutation_path": "devco/claim-mutations/an_opaque_whole_or_partition_bound_stays_numberless.patch",
+    "mutation_sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 750,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "a_mono_row_bound_reaches_both_transport_outputs",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "cc9abd159f2b063e5b7f7ce55460b80f2f9aeaa305081960d5b8c7c11497a048",
+    "mutation_path": "devco/claim-mutations/a_mono_row_bound_reaches_both_transport_outputs.patch",
+    "mutation_sha256": "fd574ce03cdc96ccd692368e3976d5815bce298ec90a010d7973e8cc40539e9a",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 759,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "a_mono_byte_bound_reaches_both_transport_outputs",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "51e0adf79ac4efd056ed05c673e35ac467b492b08772a6ccff8d3da004105312",
+    "mutation_path": "devco/claim-mutations/a_mono_byte_bound_reaches_both_transport_outputs.patch",
+    "mutation_sha256": "fd574ce03cdc96ccd692368e3976d5815bce298ec90a010d7973e8cc40539e9a",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 767,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "a_mono_opaque_bound_stays_numberless",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "cef3936fb3d8ede9ffb29a9ab8754dcaef9f8a24c79971b47a1f08a0a933214f",
+    "mutation_path": "devco/claim-mutations/a_mono_opaque_bound_stays_numberless.patch",
+    "mutation_sha256": "fd574ce03cdc96ccd692368e3976d5815bce298ec90a010d7973e8cc40539e9a",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 775,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "a_local_node_decode_bound_reaches_the_application",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "a3558e8da26c060980f33303ce1bdc98d4d3873389a95539e05e1a048be53282",
+    "mutation_path": "devco/claim-mutations/a_local_node_decode_bound_reaches_the_application.patch",
+    "mutation_sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 783,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  },
+  {
+    "name": "a_remote_node_size_code_stays_numberless_in_the_application",
+    "test_path": "crates/sutura-app/src/federated/tests/split_test.rs",
+    "test_body_sha256": "9b535692770b89d510be41ea1370b00512aaa7815db7f542a028a37814858964",
+    "mutation_path": "devco/claim-mutations/a_remote_node_size_code_stays_numberless_in_the_application.patch",
+    "mutation_sha256": "e7be62f7d0725816133d41af5724b1bd1d6d4a26de21d90a065f09ad1a82acba",
+    "kill_status": "UNRUN - CI required",
+    "restored_status": "UNRUN - CI required",
+    "claim": "Pre-existing Volume/numberless app and both serializer outputs only; no API-default claim.",
+    "own_assertion_line": 791,
+    "own_assertion_order": "domain-bound comparison first; shared transport assertions afterward"
+  }
+]

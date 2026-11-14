@@ -1,0 +1,234 @@
+{
+  "base": "1a30b5783bbc0e987927fdbbed9503cf51477f13",
+  "base_tree": "2d7e0f6c06ff5b696fccc376f592ef82905d4eda",
+  "prepared_tree": "c8716684c2d89dcfc3b80e9b830f8dc0e0166eb3",
+  "source_packet_manifest_sha256": "5c7addb5b9281cdd4a90e6ab849ff82998e70a1cbb73bb86ba5683541a61fdbb",
+  "locks": {
+    "Cargo.lock": {
+      "blob": "318c425ffe47aabbf31900ace31c700fdbe582c7",
+      "sha256": "ce1b8b44f20456691a73b88fa95e405b9c26fab081a23ab1483f0323424ed0b8"
+    },
+    "fuzz/Cargo.lock": {
+      "blob": "c4dc6650c0382a6fb3855608f17f3daa0958a89d",
+      "sha256": "310110a25d992a2b045e9aac8952f70b8feb0d09be5a17d3aa40bd3fc8f2d3d0"
+    },
+    "flake.lock": {
+      "blob": "847be79dcd9cdc8d761742558375f59e65326adf",
+      "sha256": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f"
+    },
+    "pixi.lock": {
+      "blob": "384904098591615d556910beeb21309a7e7eecd1",
+      "sha256": "5ea24abb02a30090aa846075b52ca5d568566adf289779f8f743fbba0752efb9"
+    },
+    "devenv.lock": {
+      "blob": "55373d29c1f9ba48e3b119243fa79be8d3927eb0",
+      "sha256": "c2e2c27454f343619d83539a70ebbc8a28114e000609154b469453ba55d03324"
+    },
+    "nix/clickhouse-adbc.Cargo.lock": {
+      "blob": "273e9439f7d7946dbca5a8e6cded67c42a02a787",
+      "sha256": "82b5b1335a6c97749025e662535d2f2a68f9f602d70d004c9fb796ac215af264"
+    },
+    "slides/2026-introducing-sutura/package-lock.json": {
+      "blob": "fff14009010f6968dd09d61d73e46450e5b8ad37",
+      "sha256": "7b8e1e47a66f7d0069c6f7104de0c26ee6a2ab14b4f8eead1cea8fab0c8e7bc0"
+    }
+  },
+  "cargo_manifests": {
+    "Cargo.toml": {
+      "blob": "33e1aacf691da371f876fb45e95d1c2453838c9a",
+      "sha256": "965fcbd496cd033a0ba34e9ef05498e97195ab2d21af6cbb2e0d223a2186d198"
+    },
+    "crates/sutura-adbc-postgres/Cargo.toml": {
+      "blob": "bee502809e8fb1565502a8a063f628b2fc979c14",
+      "sha256": "fe4309f73a7b8b70a420f4a9fe744b211a606b7f13196ea436a155ecc8c57cce"
+    },
+    "crates/sutura-adbc/Cargo.toml": {
+      "blob": "0326c26a5e60bb475a37f78578f30e25850b9f90",
+      "sha256": "35fa278449d4a5db09909749a9f27f050c77bab2b082fb3c833df3537a47964d"
+    },
+    "crates/sutura-app/Cargo.toml": {
+      "blob": "ec217bd7e898762670c7c4b9214f76ed44bbdcec",
+      "sha256": "83b4f32bc2e2362dfee3c7f181e98520467fcac892d86775a6f842a41dd0a3ff"
+    },
+    "crates/sutura-bounded-read/Cargo.toml": {
+      "blob": "88641fce9bc06c8ef6b9b927fd333d122c859d69",
+      "sha256": "a3ec87b84b23cfdeed10db894b61b67e5ff2ea1b3133c31f6e51a30c13d2e4e4"
+    },
+    "crates/sutura-catalog-cube/Cargo.toml": {
+      "blob": "97ad7d8e325e81a544c675a4e94cb61aedc60cb5",
+      "sha256": "b1115c8d7039a01fddd4a26017ee6e56bdb1bea67ee0c715a0237a5621d3cdf7"
+    },
+    "crates/sutura-catalog-datacontract/Cargo.toml": {
+      "blob": "3cda93177199691ec36fc8d5e2a7f46a9c009d18",
+      "sha256": "76a13e1b069ba9d3081b4017513d2ef7ae5eb23d1cbe1b0fbd95e1929316676c"
+    },
+    "crates/sutura-catalog-datahub/Cargo.toml": {
+      "blob": "73092c20a3d1c67474e8564f8f91cfed98d67e7d",
+      "sha256": "199a2ad59b5ab6495e016828039ffedf92a837af139b867cfeca2279db97217d"
+    },
+    "crates/sutura-catalog-local/Cargo.toml": {
+      "blob": "055dfa476ccc78d93bc64725d8d95d53f7e3ae00",
+      "sha256": "1563eb7fda921a501c356768218aa9a4bce49f30ac8216c3f89ae315da2377c6"
+    },
+    "crates/sutura-catalog-okf/Cargo.toml": {
+      "blob": "795c515f78a5155850e38fdd22ad4e01efe1c2f6",
+      "sha256": "6e1453f6186c3affd160499fc719a0745d98abb022bf859d924d4469945c14b0"
+    },
+    "crates/sutura-catalog-openapi/Cargo.toml": {
+      "blob": "1ffdfebcdbe1683a69740100eedd40a000912195",
+      "sha256": "eee62344339d1ef36fb65cc13f7ef91a88c3c161b273973d46fb6f37a5aef7bd"
+    },
+    "crates/sutura-catalog-openmetadata/Cargo.toml": {
+      "blob": "f23c5f45587198506281400462d256842806c473",
+      "sha256": "042c8e27a28d9df5e7583c25a185a74ac1eb5649750a36dc6f3fd3858e21f884"
+    },
+    "crates/sutura-catalog-rdbms/Cargo.toml": {
+      "blob": "cee6c3b9c155616da7df664ba7e914c7ebd12f1d",
+      "sha256": "2cce2ee327a59a8ed7fba7ccb34ca5d45458b7be6357fcf91dd093d26926c54c"
+    },
+    "crates/sutura-catalog-wren/Cargo.toml": {
+      "blob": "f6566a8934bbbfa4c4b5b96fb0d09d3924ed7af3",
+      "sha256": "cdf32cfc4b903660995ef835ecdabe3099d695a278ae37224aa0966c81c06024"
+    },
+    "crates/sutura-cli/Cargo.toml": {
+      "blob": "4916d898707d8e7fd36c6b6fc5dc08ea6b53603a",
+      "sha256": "aabb64f5e9c9ca5c456803c38ec4361f125d886fee5b3cb64695a9e88047cded"
+    },
+    "crates/sutura-config/Cargo.toml": {
+      "blob": "b3b1beacd40cfea37c214294af22cd62f1dfdfaf",
+      "sha256": "c1e3c5f4ba8a0830ff3f4ff35726b050f9cb65fb8e69e895a7678c532bc7ffd7"
+    },
+    "crates/sutura-conformance/Cargo.toml": {
+      "blob": "9a9d1041a13c2dfdc3dc60572fd9377d778aa3e1",
+      "sha256": "25124c95d2dfce04e165b1af94e51d40961c5e1866bfa9909a03a0e6aac29594"
+    },
+    "crates/sutura-domain/Cargo.toml": {
+      "blob": "82bdafdbf1f7f561466693223e90c016536dc799",
+      "sha256": "d15bb428298b96317eaad5dcfb74fe46c2adf27a8d7745b692547ca7e39f7b30"
+    },
+    "crates/sutura-exec-bigquery/Cargo.toml": {
+      "blob": "89e59a07778547f8bc21a5586d9082bef7d2ead1",
+      "sha256": "b7b8e090ccba064f1026a450ad21dc4557d1e774f33dacd7c658ba173ae465c5"
+    },
+    "crates/sutura-exec-clickhouse/Cargo.toml": {
+      "blob": "4de86d4951b7eec7beafa905f642483d85157bca",
+      "sha256": "f3ad24d5b132b7150ed4f1fa7aaef9c7baccbda56696932e0178237b2b203d99"
+    },
+    "crates/sutura-exec-cube/Cargo.toml": {
+      "blob": "ae852de3caba6d95589571c2db03dec1093fb1e3",
+      "sha256": "c924385e316f9f1b14b6e93f22940adfe54a32853e3fc719b3dd668d9e87a48e"
+    },
+    "crates/sutura-exec-datafusion/Cargo.toml": {
+      "blob": "9369be72358ee4ce98bd5662c103a7dc63e06af4",
+      "sha256": "c31236e794d1f3492c81334e50ac0097bb7eeef77d586c888da5e8c49a41ea87"
+    },
+    "crates/sutura-exec-duckdb/Cargo.toml": {
+      "blob": "df741ca25eba293fc61eed1c6e8f3c23ed8bdeac",
+      "sha256": "173a0a50d9f847c6a44174412b500689438ea58ee19bc4310b87e024aba2021f"
+    },
+    "crates/sutura-exec-node/Cargo.toml": {
+      "blob": "64bca87686153c283f79733be7d0f10475a3ee7c",
+      "sha256": "63b5489f96a38292e7645fe2639f5aecd5d0fc1873735007cef1bf3dc833b1fe"
+    },
+    "crates/sutura-exec-oracle/Cargo.toml": {
+      "blob": "0ad55205c72ef4317e1f785170f3340ca10e961f",
+      "sha256": "52323a71b8b4a39463bc85d67bf3175252f813c885756ff4d222c9f10ff79482"
+    },
+    "crates/sutura-exec-postgres/Cargo.toml": {
+      "blob": "711191daf129f9cd492aca5323c5a4a3c808393a",
+      "sha256": "6c9d71d0abcb89423c7ca3b2a08b3d2ed106ea00612647ee6b5782d48d235d7e"
+    },
+    "crates/sutura-flight/Cargo.toml": {
+      "blob": "7609dcfd4f37284a91b941c377f3a1444a6b7272",
+      "sha256": "66d01789be52da3534d5858caf6819fc84483ba927b4f5dcf40f3a44fea4b956"
+    },
+    "crates/sutura-http-client/Cargo.toml": {
+      "blob": "ca91b1e36fed5da8b5120f844e671a2f03b7319d",
+      "sha256": "f562d6ef19bb27c800104f4993ac2414ad2596b41ebe3b627a19175425d8a0eb"
+    },
+    "crates/sutura-http/Cargo.toml": {
+      "blob": "ad4bad31e91799a58ef29de2c5e814c01c49da80",
+      "sha256": "4d225d8258c32b18ab5b93c06117e2dc569f089c19379982646d816774a76967"
+    },
+    "crates/sutura-mcp/Cargo.toml": {
+      "blob": "d088ec040e9f4a422778bf16017ad495cbd19880",
+      "sha256": "f06423d5bccbb5d952f069e5d21cdc605d2acf8b5ea727d8ba380c5ead7b2c03"
+    },
+    "crates/sutura-operator/Cargo.toml": {
+      "blob": "aad98abca282eb75a04ecd7d13ae1ada6376acf0",
+      "sha256": "2e9b8145ee50ab15f4974a9a2b999445fe657de24878d03ddb49db57bd13a320"
+    },
+    "crates/sutura-oracle-connect/Cargo.toml": {
+      "blob": "22edbbdf79c575f37615b678b964f39cee6036de",
+      "sha256": "a8771807a9e0b30e20d6ef8b7508f9e417af734b9c590ffe28a153191f81bfb1"
+    },
+    "crates/sutura-runtime/Cargo.toml": {
+      "blob": "20bc4859de1019cc08fe8d492294453f5ae65453",
+      "sha256": "316c9a7837da28f53cb1eae4f29383f09fe3fbaaf04900c7a7025abd740ec324"
+    },
+    "crates/sutura-semantic/Cargo.toml": {
+      "blob": "88906213a2335cc53861d8ffc3d2c6f3d80ee1ee",
+      "sha256": "ee672d9c97bbe04a1ecb17f76172208be05a5ea5359a36744dd3292109437193"
+    },
+    "crates/sutura-sql/Cargo.toml": {
+      "blob": "ebf137f714d48fd66022c0e951ffe4830030da2d",
+      "sha256": "4da32643d5c907ddd71cb40b760db75204644210676ce16ed0283f3ebebba50a"
+    },
+    "crates/sutura-tls/Cargo.toml": {
+      "blob": "9c1f3ed629e388fd80ef0990a9e449113250035b",
+      "sha256": "2f8bcdf16d9877535b26e7159d55d0256d9fe9787a265e4419df71ea5f42e243"
+    },
+    "dev/Cargo.toml": {
+      "blob": "6355bc7e95482761aa870c9bc3ae354f2ea4d33a",
+      "sha256": "cc51c36b017acf9ee41363384ae48da7c4d219bc0fdaeab2c470c6133c60411c"
+    },
+    "fuzz/Cargo.toml": {
+      "blob": "d2d42fbb0bdcf02defda692485d7c900feb7925d",
+      "sha256": "ecf3df1dc3dfbf2fb994f644ef57d6a482025c7dc4ecce7d458c6bcfae16d333"
+    },
+    "vendor/adbc_clickhouse/Cargo.toml": {
+      "blob": "b0181984a5ac0d407ccc466f33167c28307b4af4",
+      "sha256": "863f763011887995ca7f1a6ba362be944e677434bebf976eb80c3f66520f814e"
+    },
+    "vendor/arrow-ipc/Cargo.toml": {
+      "blob": "f1f57fe99eaa450d74a7a4cbf22a1db9bf823994",
+      "sha256": "605c86abb5880436c5045f92b76ef1b6f8d852375e9c4ee9fcb8367707132061"
+    },
+    "vendor/datafusion-distributed/Cargo.toml": {
+      "blob": "5ffad4d1cf40c0568efb38c3b25d01b5cf1c8820",
+      "sha256": "2d40620057d78d596173f5f0c157190d9b9cd77e4eaa7dba1f4b0a466a36b69c"
+    },
+    "vendor/datafusion-physical-plan/Cargo.toml": {
+      "blob": "0f305dec8d5ba8da97dfc4f49904e399ad67008c",
+      "sha256": "ed43c14f1a18ea33e8feb54f1ccadf10dc6eefb4e4e9e74ef06eccec7c9bfd2f"
+    },
+    "vendor/datafusion-proto-common/Cargo.toml": {
+      "blob": "a43689956326cfa4b868f38926349942bcec9842",
+      "sha256": "8b2218f5d6569ca20c64a6376fca6ffb266804f66827e4f69f9e1f5cc3c09a34"
+    },
+    "vendor/datafusion-proto/Cargo.toml": {
+      "blob": "fc7e769d19805c48e0b0c540b1932841bcb8c4d9",
+      "sha256": "ad34350db16a48cfe8496b303a62cbb2885dc9ab9e9e39fb12eff355b0c72451"
+    },
+    "vendor/datafusion-sql/Cargo.toml": {
+      "blob": "592b3d786a0f1302ccb7775a6abd5629b5be866a",
+      "sha256": "b570e5f929c8310c473c914b783aaaec321e52ee275bde4a854300e0378df6e3"
+    },
+    "vendor/mimalloc_rust/Cargo.toml": {
+      "blob": "a7fa3deddabd53752f382de19e3e3d6fccc7c873",
+      "sha256": "7984e4e573eacfb0c4def2a6f53e092f24d5d26a120231be94a383b53024d5c0"
+    },
+    "vendor/mimalloc_rust/libmimalloc-sys/Cargo.toml": {
+      "blob": "69646cb8c5f07dca4e8951b37f2279a191503a98",
+      "sha256": "18220c8610525681ece0a32b1623eaee66fcf9e93b52138042c53a60c9fce06b"
+    },
+    "vendor/rust-oracledb/Cargo.toml": {
+      "blob": "2eeb2c3b7ab08357fcd056c5e1ad5a0f20972e13",
+      "sha256": "73d3c6ab6d9a5c4d38adcbbe6b59c9899b9f4dcfe7cd415ce3e55ec07951c469"
+    },
+    "xtask/Cargo.toml": {
+      "blob": "fdb4d4a36ad40e2590a21f8d3474b97b5ef41d45",
+      "sha256": "3d9b316b3e8fe61ae264425f59c33392ea1d35eac600e71e8ca314ffe55b1751"
+    }
+  }
+}
