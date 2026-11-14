@@ -185,7 +185,11 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
             ("query", "reader2"),
             ("query", "db"),
             ("query", "idp"),
+            ("reader1", "query"),
+            ("reader1", "reader2"),
             ("reader1", "db"),
+            ("reader2", "query"),
+            ("reader2", "reader1"),
             ("reader2", "db"),
         }
         for source, machine in machines.items():

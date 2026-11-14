@@ -128,7 +128,9 @@ let
   });
   reader = own: { nodes, ... }: {
     virtualisation.memorySize = 2048;
-    networking.firewall.extraCommands = "iptables -A nixos-fw -p tcp --dport 8443 -s ${nodes.query.networking.primaryIPAddress} -j nixos-fw-accept";
+    networking.firewall.extraCommands = builtins.concatStringsSep "\n" (map (node:
+      "iptables -A nixos-fw -p tcp --dport 8443 -s ${nodes.${node}.networking.primaryIPAddress} -j nixos-fw-accept"
+    ) (builtins.filter (node: node != own) [ "query" "reader1" "reader2" ]));
     systemd.services.sutura = serve (settings {
       server = pair own // { role = "reading-worker"; };
       security = readerSecurity;
@@ -179,7 +181,9 @@ pkgs.testers.runNixOSTest {
   nodes.reader2 = reader "reader2";
   nodes.query = { nodes, ... }: {
     virtualisation.memorySize = 2048;
-    networking.firewall.extraCommands = "iptables -A nixos-fw -p tcp --dport 8443 -s ${nodes.idp.networking.primaryIPAddress} -j nixos-fw-accept";
+    networking.firewall.extraCommands = builtins.concatStringsSep "\n" (map (node:
+      "iptables -A nixos-fw -p tcp --dport 8443 -s ${nodes.${node}.networking.primaryIPAddress} -j nixos-fw-accept"
+    ) [ "idp" "reader1" "reader2" ]);
     systemd.services.sutura = serving [ "reader1" "reader2" ] true;
     systemd.services.sutura-whole = serving [ ] false;
     systemd.services.sutura-unresolved = serving [ "reader-a.invalid" "reader-b.invalid" ] true;
