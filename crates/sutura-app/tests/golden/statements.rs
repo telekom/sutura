@@ -281,6 +281,30 @@ where
 }
 
 macro_rules! data_system {
+    (oracle, $warehouse:ty) => {
+        mod oracle {
+            #[test]
+            fn every_planned_shape_answers_at_the_oracle_engine() {
+                super::every_planned_shape_answers_at_the_native_engine::<$warehouse>(super::super::oracle::DIALECT);
+            }
+        }
+    };
+    (cube, $warehouse:ty) => {
+        mod cube {
+            #[test]
+            fn every_planned_shape_answers_at_the_cube_engine() {
+                super::every_planned_shape_answers_at_the_native_engine::<$warehouse>(super::super::cube::DIALECT);
+            }
+        }
+    };
+    (bigquery, $warehouse:ty) => {
+        mod bigquery {
+            #[test]
+            fn every_planned_shape_answers_at_the_bigquery_engine() {
+                super::every_planned_shape_answers_at_the_native_engine::<$warehouse>(super::super::bigquery::DIALECT);
+            }
+        }
+    };
     ($name:ident, $warehouse:ty) => {
         mod $name {
             #[test]

@@ -61,7 +61,7 @@ if [ "${SUTURA_ORACLE_RUN_ACCEPTANCE:-0}" = 1 ]; then
         SUTURA_ORACLE_FIXTURE_TRANSPORT=native-encryption \
         SUTURA_DEV_USER=SYSTEM SUTURA_DEV_PASSWORD="$ORACLE_PASSWORD" \
         cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-app --all-features --test golden \
-        statements::engines::oracle::every_planned_shape_answers_at_the_native_engine -- --exact --nocapture \
+        statements::engines::oracle::every_planned_shape_answers_at_the_oracle_engine -- --exact --nocapture \
         | tee "$out/planned-golden.log"
       if ! grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$out/planned-golden.log"; then
         echo 'Oracle native planned corpus did not run exactly once' >&2
