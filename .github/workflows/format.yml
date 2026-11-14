@@ -98,7 +98,7 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/sql-registration-source-20261114
+          test "$GITHUB_REF" = refs/heads/ci/sql-registration-causality-source-20261114
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
@@ -109,7 +109,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: b8bce349b79fc16891f8bfd466ba7187cafdf019
+          ref: 542e999f1d3a9cf7165ae535fecf75094a6a2274
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -136,27 +136,16 @@ jobs:
           mkdir "$evidence"
           nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
           just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
-          parent=b8bce349b79fc16891f8bfd466ba7187cafdf019
+          parent=542e999f1d3a9cf7165ae535fecf75094a6a2274
           main=b8bce349b79fc16891f8bfd466ba7187cafdf019
           case "$CONSUMER" in
                 sql-registration)
-                    expected_tree=780dbecf1e63953e4727d71b7b785b352145a33c
-                    patch_sha=c8230f11b66af47808e549c791413b9cafd3ae416506e5ccddb5e369cadcec46
+                    expected_tree=ca5c00817ce2fa885e8ef2d092188e164614a950
+                    patch_sha=185e96c14654c1431fa9076f1f007dcf84c502054e63bf6246a30e96d265902c
                     branch='fix/sql-registration-audience'
-                    subject='fix(sql): register catalog models and declare dictionary audiences'
+                    subject='test(sql): retain registration cell in causality base'
                     paths=(
-                        'crates/sutura-catalog-rdbms/src/lib.rs'
-                        'crates/sutura-cli/src/catalog.rs'
-                        'crates/sutura-cli/tests/served/rdbms.rs'
-                        'crates/sutura-config/src/audience.rs'
-                        'crates/sutura-config/src/catalog/rdbms.rs'
-                        'crates/sutura-config/src/raw.rs'
-                        'crates/sutura-config/src/settings/catalogs.rs'
-                        'crates/sutura-config/src/settings/tests/rdbms_catalog.rs'
-                        'crates/sutura-exec-datafusion/src/combine/statement.rs'
                         'crates/sutura-exec-datafusion/src/combine/statement/tests.rs'
-                        'crates/sutura-exec-datafusion/src/combine/statement/tests/registration.rs'
-                        'docs/integrations/catalogs/rdbms.md'
                     )
                     hooks=(
                         'cargo fmt'
@@ -164,7 +153,6 @@ jobs:
                         'structural gates'
                         'cargo check (changed packages only)'
                         'copy/paste detection (jscpd)'
-                        'markdown/yaml/toml (dprint), python (ruff)'
                         'detect hardcoded secrets (CI is authoritative)'
                         'conventional commit subject'
                     )
@@ -180,7 +168,7 @@ jobs:
           remote_main="$(git ls-remote --refs origin refs/heads/main)"
           test "$remote_main" = "$main"$'\trefs/heads/main'
           remote_source="$(git ls-remote --refs origin refs/heads/fix/sql-registration-audience)"
-          test -z "$remote_source"
+          test "$remote_source" = "$parent"$'\trefs/heads/fix/sql-registration-audience'
           git apply --index --check "$patch"
           git apply --index "$patch"
           test "$(git write-tree)" = "$expected_tree"
