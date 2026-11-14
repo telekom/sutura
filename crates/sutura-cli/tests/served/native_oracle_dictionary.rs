@@ -5,6 +5,9 @@
 //! Native dictionary metadata and planned SQL over a private Oracle fixture. This is catalog
 //! selection under a shared login; raw pass-through SQL still follows that login's database grants.
 
+#[path = "native_oracle_dictionary/types.rs"]
+mod types;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -316,4 +319,6 @@ fn a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_col
         .status,
         422
     );
+    drop(served);
+    types::number_and_zone_types(&fixture);
 }

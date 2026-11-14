@@ -542,7 +542,7 @@ fn open_one_rdbms_catalog(
                 ),
             };
             reader
-                .map(|reader| AnyDictionaryReader::Oracle(Box::new(reader)))
+                .map(|reader| AnyDictionaryReader::Oracle(Box::new(reader.with_unbounded_number(rdbms.unbounded_number()))))
                 .map_err(|cause| {
                     format!(
                         "`catalogs.{}` has an invalid dictionary reader setting: {cause}",

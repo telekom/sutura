@@ -921,6 +921,11 @@ pub trait Warehouse {
         None
     }
 
+    /// The source's explicitly declared exact representation for unbounded Oracle NUMBER.
+    fn unbounded_number(&self) -> Option<schema::UnboundedNumber> {
+        None
+    }
+
     /// Whether this adapter accepts a raw statement - `false` by default; see [`crate::raw`], `docs/adr/0013`.
     const ACCEPTS_RAW_STATEMENTS: bool = false;
 

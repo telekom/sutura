@@ -8,9 +8,8 @@
 //! [`Value::Text`](sutura_domain::warehouse::Value::Text), the split the Postgres adapter draws
 //! for `NUMERIC`. A `DATE`, `TIMESTAMP` or `TIMESTAMP WITH TIME ZONE` arrives as a timestamp in the
 //! unit its scale implies - a zoned value already folded to its UTC instant - and is read as its
-//! date-time text, a fraction finer than a microsecond dropped; a `TIMESTAMP WITH LOCAL TIME ZONE`
-//! column is refused by name. Every other type is the domain
-//! reader's: a `RAW` or a `BINARY_FLOAT` column is refused.
+//! date-time text. Zoned timestamps use UTC sessions; precision finer than microseconds is refused.
+//! Every other type is the domain reader's: a `RAW` or a `BINARY_FLOAT` column is refused.
 
 use std::sync::Arc;
 
@@ -22,7 +21,7 @@ use arrow_array::{Array as _, ArrayRef, RecordBatch, StringArray};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef, TimeUnit};
 use sutura_domain::warehouse::{Accumulating, ResultBudget, RowSet, UnannouncedBatch, UnreadableCell, Value};
 
-use crate::datetime::{date_text, local_zone_refused, utc_text};
+use crate::datetime::{date_text, utc_text};
 use crate::{OracleError, execute_err_mapped};
 
 /// Runs `sql` on `connection` and reads its answer - see the module header.
@@ -48,12 +47,7 @@ pub(crate) fn describe(connection: &oracledb::Connection, sql: &str) -> Result<O
         .map_err(execute_err_mapped)?;
     statement.ensure_fully_parsed().map_err(execute_err_mapped)?;
     let columns = statement.out_metadata();
-    if let Some(column) = columns
-        .iter()
-        .find(|column| column.db_type() == oracledb::DB_TYPE_TIMESTAMP_LTZ)
-    {
-        return Err(local_zone_refused(column.name()));
-    }
+    number_columns(columns.iter().map(|column| (column.name(), column.db_type(), column.scale())))?;
     Ok(crate::split::columns::declared(columns.iter().map(|column| {
         (column.name(), column.db_type(), column.precision(), column.scale())
     })))
@@ -89,7 +83,12 @@ pub(crate) fn prepared(
     let batches = statement
         .query_arrow_batches(sets.as_slice().into())
         .map_err(execute_err_mapped)?;
-    let numbers = number_columns(batches.columns().iter().map(|column| (column.name(), column.db_type())))?;
+    let numbers = number_columns(
+        batches
+            .columns()
+            .iter()
+            .map(|column| (column.name(), column.db_type(), column.scale())),
+    )?;
     let declared = crate::split::columns::declared(
         batches
             .columns()
@@ -117,13 +116,22 @@ fn driver_error(error: ArrowError) -> oracledb::Error {
     }
 }
 
-/// The indexes of the `NUMBER` columns among `columns`, each a name and its type; a `TIMESTAMP
-/// WITH LOCAL TIME ZONE` column is refused by name.
-fn number_columns<'a>(columns: impl IntoIterator<Item = (&'a str, &'a oracledb::DbType)>) -> Result<Vec<usize>, OracleError> {
+/// NUMBER column indexes, refusing timestamps whose declared precision exceeds our microseconds.
+fn number_columns<'a>(columns: impl IntoIterator<Item = (&'a str, &'a oracledb::DbType, i8)>) -> Result<Vec<usize>, OracleError> {
     let mut numbers = Vec::new();
-    for (index, (name, db_type)) in columns.into_iter().enumerate() {
-        if db_type == oracledb::DB_TYPE_TIMESTAMP_LTZ {
-            return Err(local_zone_refused(name));
+    for (index, (name, db_type, scale)) in columns.into_iter().enumerate() {
+        if [
+            oracledb::DB_TYPE_TIMESTAMP,
+            oracledb::DB_TYPE_TIMESTAMP_TZ,
+            oracledb::DB_TYPE_TIMESTAMP_LTZ,
+        ]
+        .contains(&db_type)
+            && scale > 6
+        {
+            return Err(OracleError::UnsupportedType {
+                column: String::from(name),
+                oracle_type: "timestamp precision greater than 6",
+            });
         }
         if db_type == oracledb::DB_TYPE_NUMBER {
             numbers.push(index);
@@ -348,22 +356,28 @@ mod tests {
     #[test]
     fn only_a_number_column_is_read_as_an_integer() {
         let columns = [
-            ("N", oracledb::DB_TYPE_NUMBER),
-            ("CODE", oracledb::DB_TYPE_VARCHAR),
-            ("M", oracledb::DB_TYPE_NUMBER),
+            ("N", oracledb::DB_TYPE_NUMBER, 0),
+            ("CODE", oracledb::DB_TYPE_VARCHAR, 0),
+            ("M", oracledb::DB_TYPE_NUMBER, 0),
         ];
         let numbers = number_columns(columns).expect("no column is refused");
         assert_eq!(numbers, [0, 2], "a VARCHAR2 holding '007' would read as 7");
     }
 
     #[test]
-    fn a_local_time_zone_column_is_refused_by_name() {
-        let columns = [("N", oracledb::DB_TYPE_NUMBER), ("SEEN", oracledb::DB_TYPE_TIMESTAMP_LTZ)];
-        let refused = number_columns(columns);
-        assert!(
-            matches!(&refused, Err(OracleError::UnsupportedType { column, .. }) if column == "SEEN"),
-            "{refused:?}"
-        );
+    fn zoned_timestamps_are_admitted_only_through_microsecond_precision() {
+        for kind in [
+            oracledb::DB_TYPE_TIMESTAMP,
+            oracledb::DB_TYPE_TIMESTAMP_TZ,
+            oracledb::DB_TYPE_TIMESTAMP_LTZ,
+        ] {
+            assert_eq!(number_columns([("SEEN", kind, 6)]).unwrap(), [0_usize; 0]);
+            let refused = number_columns([("SEEN", kind, 9)]);
+            assert!(
+                matches!(&refused, Err(OracleError::UnsupportedType { column, .. }) if column == "SEEN"),
+                "{refused:?}"
+            );
+        }
     }
 
     #[test]
@@ -486,19 +500,19 @@ mod tests {
         let columns: [(ArrayRef, &str); 4] = [
             (
                 Arc::new(TimestampSecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
-                "1970-01-01T00:00:01",
+                "1970-01-01T00:00:01Z",
             ),
             (
                 Arc::new(TimestampMillisecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
-                "1970-01-01T00:00:00.001",
+                "1970-01-01T00:00:00.001Z",
             ),
             (
                 Arc::new(TimestampMicrosecondArray::from(vec![Some(1), None]).with_timezone("UTC")),
-                "1970-01-01T00:00:00.000001",
+                "1970-01-01T00:00:00.000001Z",
             ),
             (
                 Arc::new(TimestampNanosecondArray::from(vec![Some(-1), None]).with_timezone("UTC")),
-                "1969-12-31T23:59:59.999999",
+                "1969-12-31T23:59:59.999999Z",
             ),
         ];
         for (column, expected) in columns {
@@ -509,6 +523,12 @@ mod tests {
                 "{answer:?}"
             );
         }
+        let midnight = RecordBatch::try_from_iter([(
+            "D",
+            Arc::new(TimestampMicrosecondArray::from(vec![0]).with_timezone("UTC")) as ArrayRef,
+        )])
+        .unwrap();
+        assert_eq!(texts(midnight), [text("1970-01-01T00:00:00Z")]);
     }
 
     #[test]
