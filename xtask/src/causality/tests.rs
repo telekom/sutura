@@ -4,6 +4,31 @@ use super::{BaseState, retry_with_held_back};
 use crate::Verdict;
 
 #[test]
+fn a_mounted_clickhouse_manifest_is_restored_with_its_sources() {
+    use super::fixtures::{changed, manifest, tree};
+    use super::plan::{Plan, partition};
+
+    let test = "crates/x/tests/t.rs";
+    let source = "vendor/adbc_clickhouse/src/lib.rs";
+    let driver_manifest = "vendor/adbc_clickhouse/Cargo.toml";
+    let files = vec![
+        changed(test, 1, &["#[test]", "fn uses_the_mounted_driver() {}"]),
+        changed(driver_manifest, 1, &["_tls-mtls = []"]),
+        changed(source, 1, &["fn driver() {}"]),
+    ];
+    let read = tree(&[
+        (test, "#[test]\nfn uses_the_mounted_driver() {}\n"),
+        ("crates/x/Cargo.toml", &manifest("x")),
+        (source, "fn driver() {}\n"),
+    ]);
+    let Plan::Separable(baseline) = partition(&files, &read) else {
+        panic!("a workspace test over a mounted driver is separable");
+    };
+    assert_eq!(baseline.revert, [String::from(driver_manifest), String::from(source)]);
+    assert!(baseline.build_inputs.is_empty());
+}
+
+#[test]
 fn a_vendored_implementation_is_reverted_without_collecting_its_tests() {
     use super::fixtures::{changed, manifest, tree};
     use super::plan::{Plan, partition};

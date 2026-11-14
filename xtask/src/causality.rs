@@ -96,6 +96,7 @@ use crate::repo;
 pub(crate) mod attributes;
 mod base;
 mod claim;
+mod clickhouse;
 mod coverage;
 mod declared;
 mod diff;
@@ -271,7 +272,11 @@ fn prove(
         return Verdict::Fail;
     };
     report_moved(&moved);
-    let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
+    let Ok((head_ok, head_out)) = cargo_test(root, &shared_target, &only, Tree::Provisioned)
+        .map_err(|why| eprintln!("xtask test-causality: could not prepare HEAD: {why}"))
+    else {
+        return Verdict::Fail;
+    };
     if !head_ok {
         return report_head_failure(&head_out, &only);
     }
@@ -330,7 +335,11 @@ fn reconstruct_and_run(
         return Verdict::Fail;
     }
 
-    let (base_ok, base_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
+    let Ok((base_ok, base_out)) = cargo_test(wt, target, scope.only, Tree::Reconstructed)
+        .map_err(|why| eprintln!("xtask test-causality: could not prepare base: {why}"))
+    else {
+        return Verdict::Fail;
+    };
     let outcome = classify_base(&base_out, base_ok, scoped.tests(), scope.moved, scope.reverted.attempt(false));
 
     if retry_with_held_back(&outcome, held) {
@@ -347,7 +356,11 @@ fn reconstruct_and_run(
             eprintln!("xtask test-causality: {e}");
             return Verdict::Fail;
         }
-        let (retry_ok, retry_out) = cargo_test(wt, target, scope.only, Tree::Reconstructed);
+        let Ok((retry_ok, retry_out)) = cargo_test(wt, target, scope.only, Tree::Reconstructed)
+            .map_err(|why| eprintln!("xtask test-causality: could not prepare base retry: {why}"))
+        else {
+            return Verdict::Fail;
+        };
         return report_base_scoped(
             &classify_base(
                 &retry_out,

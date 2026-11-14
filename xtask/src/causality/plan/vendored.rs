@@ -6,6 +6,11 @@ pub(super) fn reconstruction(reach: Reach, path: &str) -> Reach {
     if reach != Reach::Outside || !path.starts_with("vendor/") {
         return reach;
     }
+    // This package is built by Nix, not resolved by the workspace's Cargo invocation. Its
+    // feature names must come from the same image as its source when the mounted driver rebuilds.
+    if path == "vendor/adbc_clickhouse/Cargo.toml" {
+        return Reach::Revertible;
+    }
     if is_build_input(path) {
         return Reach::BuildInput;
     }

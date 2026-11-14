@@ -239,6 +239,9 @@ pub(super) enum Cause {
     /// ran and the cell survived it, this is a build the gate never got a chance to run the cell
     /// against, so it is not a verdict about the declaration at all.
     BuildFailed { cell: String, why: String },
+    /// The gate could not prepare an isolated run or its mounted driver. No test verdict exists,
+    /// and this is a hard failure rather than an inconclusive claim result.
+    PreparationFailed { cell: String, why: String },
     /// The cell ended at its service-tier lookup, so it never ran. The kill worktree starts its OWN
     /// Postgres tier ([`tier`]), keyed on the kill worktree's path - not the root's, which a mutated
     /// fixture could write state into that the root's own run reads afterwards - so this is that
@@ -661,11 +664,16 @@ fn kill_cell(wt: &Path, target: &Path, scoped: &Scoped, cell: &str, tier: &[(Str
     // The isolation clean runs INSIDE `cargo_test` on the same witness (dir, target, profile);
     // there is no second call here whose failure would read as a misleading "does not apply".
     let term = added.term();
-    let (ok, text) = cargo_test(wt, target, &term, Tree::Mutated(tier));
     // ATTEST BEFORE RESTORE: the region the panic site is judged against must be the cell's
     // post-mutation file, because a mixed-file patch shifts its own test region's line numbers -
     // reading the HEAD image would compare a mutated `panicked at <line>` against the wrong region.
-    let verdict = attest(ok, &text, cell, added, &head_reader(wt));
+    let verdict = match cargo_test(wt, target, &term, Tree::Mutated(tier)) {
+        Ok((ok, text)) => attest(ok, &text, cell, added, &head_reader(wt)),
+        Err(why) => Err(Cause::PreparationFailed {
+            cell: cell.to_owned(),
+            why,
+        }),
+    };
     // RESTORE IS ON EVERY PATH and a failed restore is the run's own failure: a tree left mutated
     // leaks this cell's mutation into the NEXT cell's run, whose isolation recompiles whatever is
     // on disk.
@@ -892,6 +900,9 @@ fn cause_line(cause: &Cause) -> String {
             format!(
                 "  could not attest: {cell}: {why}  (the mutated build never reached the cell - not a verdict about the declaration)"
             )
+        }
+        Cause::PreparationFailed { cell, why } => {
+            format!("  could not prepare: {cell}: {why}")
         }
     }
 }

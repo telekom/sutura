@@ -53,24 +53,23 @@ use super::isolation::Isolated;
 ///
 /// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
 /// and passing the cargo profile there would select a nextest profile that does not exist.
-pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree<'_>) -> (bool, String) {
+pub(super) fn cargo_test(dir: &Path, target: &Path, only: &str, tree: Tree<'_>) -> Result<(bool, String), String> {
     // The removal comes FIRST and its failure is the run's failure: the run that would follow a
     // failed clean is exactly the one whose verdict cannot be trusted.
-    let isolated = match Isolated::of(dir, target) {
-        Ok(witness) => witness,
-        Err(why) => return (false, why),
-    };
+    let isolated = Isolated::of(dir, target)?;
     // WHAT THE REMOVAL SAID IT DID, because an exit status says only that it ran - and the first
     // version of this ran fine while removing nothing at all. A zero here on a directory the gate
     // has built in before is the tell that the removal has stopped reaching what the run reuses.
     println!("  {isolated}");
-    match nextest(&isolated, only, tree).output() {
+    let mut command = nextest(&isolated, only, tree);
+    super::clickhouse::bind(&mut command)?;
+    match command.output() {
         Ok(o) => {
             let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
             text.push_str(&String::from_utf8_lossy(&o.stderr));
-            (o.status.success(), text)
+            Ok((o.status.success(), text))
         }
-        Err(e) => (false, format!("could not run cargo: {e}")),
+        Err(e) => Err(format!("could not run cargo: {e}")),
     }
 }
 
