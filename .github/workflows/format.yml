@@ -11,7 +11,7 @@
 #
 # THIRD-PARTY ACTIONS: none, as everywhere else here.
 name: format
-run-name: Oracle reader admission ${{ inputs.request_id }}
+run-name: Oracle bootstrap index diagnostic ${{ inputs.request_id }}
 
 on:
   push:
@@ -46,7 +46,7 @@ on:
         type: string
         required: true
       request_id:
-        description: Unique reviewed proof request UUID
+        description: Unique reviewed diagnostic request UUID
         type: string
         required: true
       prerequisite_json:
@@ -105,12 +105,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - name: Open KVM for the native fleet
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
           extra_nix_config: |
@@ -121,7 +115,7 @@ jobs:
       - uses: $/.github/actions/nix-store-cache
         with:
           scope: ci
-      - name: Prove the admission kill and full native restoration
+      - name: Capture strict raw-index bootstrap boundaries
         working-directory: source
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -133,12 +127,64 @@ jobs:
           set -euo pipefail
           unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
           export CARGO_TERM_COLOR=never NO_COLOR=1
+          [[ "$REQUEST_ID" == 0c1c6832-dc8a-4b2f-ab17-071fcf60fb94 ]]
+          [[ "$SOURCE_SHA" == d994a05519aa8f20d39c842861c46e2eb23890d1 ]]
+          [[ "$SOURCE_TREE" == 0d39cb5ec946a2b142a413f8b98a9678ec830959 ]]
+          [[ "$GITHUB_REF_NAME" == ci/oracle-index-diagnostic-0c1c6832 && "$GITHUB_RUN_ATTEMPT" == 1 ]]
+          umask 077
+          diag_dir="$RUNNER_TEMP/oracle-index-$REQUEST_ID"
+          mkdir -- "$diag_dir"
+          export INDEX_DIAGNOSTIC_DIR="$diag_dir"
+          index="$(git --no-optional-locks rev-parse --path-format=absolute --git-path index)"
+          readonly index diag_dir
+          capture_index() {
+            local boundary="$1" status="$2"
+            printf 'phase=outer-shell\nboundary=%s\nexit=%s\nutc=%s\npid=%s\nsource=%s\ntree=%s\nhelper=%s\nrun=%s\nattempt=%s\njob=%s\nrequest=%s\ncwd=%s\nGIT_OPTIONAL_LOCKS=%s\n' \
+              "$boundary" "$status" "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" "$$" \
+              "$SOURCE_SHA" "$SOURCE_TREE" "$GITHUB_WORKFLOW_SHA" "$GITHUB_RUN_ID" \
+              "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" "$REQUEST_ID" "$PWD" "${GIT_OPTIONAL_LOCKS-unset}" \
+              > "$diag_dir/$boundary.metadata.txt" || return
+            stat --printf '%d %i %s %f %y %z\n' "$index" > "$diag_dir/$boundary.stat-before" || return
+            cp -- "$index" "$diag_dir/$boundary.index" || return
+            stat --printf '%d %i %s %f %y %z\n' "$index" > "$diag_dir/$boundary.stat-after" || return
+            sha256sum "$diag_dir/$boundary.index" > "$diag_dir/$boundary.sha256" || return
+            cmp -s "$diag_dir/$boundary.stat-before" "$diag_dir/$boundary.stat-after"
+          }
+          finish() {
+            local status=$? capture_status equal=0
+            trap - EXIT
+            set +e
+            capture_index outer-after "$status"
+            capture_status=$?
+            if (( status == 0 && capture_status != 0 )); then status=$capture_status; fi
+            if cmp -s "$diag_dir/outer-before.index" "$diag_dir/outer-after.index"; then
+              equal=1
+            elif (( status == 0 )); then
+              status=1
+            fi
+            printf 'exit=%s\ncapture_exit=%s\nraw_equal=%s\nnative_executed=false\n' \
+              "$status" "$capture_status" "$equal" > "$diag_dir/terminal.txt" || status=1
+            (
+              cd "$diag_dir" || exit 1
+              for file in *; do
+                if [[ "$file" != manifest.sha256 ]]; then sha256sum -- "$file" || exit 1; fi
+              done
+            ) > "$diag_dir/manifest.sha256" || status=1
+            exit "$status"
+          }
+          trap finish EXIT
+          capture_index outer-before 0
+          printf '%q ' nix shell --inputs-from . nixpkgs#python3 nixpkgs#coreutils --command python3 -I ../devco/oracle_reader_admission_proof.py > "$diag_dir/command.txt"
+          command -v nix > "$diag_dir/nix-path.txt"
+          sha256sum "$(command -v nix)" > "$diag_dir/nix.sha256"
           nix shell --inputs-from . nixpkgs#python3 nixpkgs#coreutils --command python3 -I ../devco/oracle_reader_admission_proof.py
-      - name: Retain original failures and restored native evidence
+      - name: Retain strict index diagnostics and original failures
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: oracle-reader-admission-proof-${{ inputs.request_id }}-${{ github.run_id }}
-          path: source/target/oracle-reader-admission-proof/
+          name: oracle-index-diagnostic-${{ inputs.request_id }}-${{ github.run_id }}
+          path: |
+            source/target/oracle-index-diagnostic/
+            ${{ runner.temp }}/oracle-index-${{ inputs.request_id }}/
           if-no-files-found: error
           retention-days: 14
