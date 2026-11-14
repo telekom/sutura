@@ -70,6 +70,7 @@ pub(crate) enum ReadQuery {
     },
     Native {
         selection: sutura_domain::catalog::DictionarySelection,
+        unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
     },
 }
 
@@ -77,6 +78,7 @@ impl ReadQuery {
     pub(crate) fn native(selection: &sutura_domain::catalog::DictionarySelection) -> Self {
         Self::Native {
             selection: selection.clone(),
+            unbounded_number: None,
         }
     }
 
@@ -87,7 +89,10 @@ impl ReadQuery {
     ) -> Result<Dictionary, RdbmsError> {
         match self {
             Self::View { .. } => Ok(dictionary),
-            Self::Native { selection } => dictionary.native(selection, dialect),
+            Self::Native {
+                selection,
+                unbounded_number,
+            } => dictionary.native_with_unbounded_number(selection, dialect, *unbounded_number),
         }
     }
 
@@ -100,7 +105,7 @@ impl ReadQuery {
 
     pub(crate) fn binds(&self) -> Vec<String> {
         match self {
-            Self::Native { selection } => selection
+            Self::Native { selection, .. } => selection
                 .include()
                 .iter()
                 .map(|include| include.schema().sql_like())
@@ -120,7 +125,7 @@ impl ReadQuery {
     pub(crate) fn postgres_statement(&self, bounds: DictionaryBounds) -> String {
         let limit = bounds.max_rows().get().saturating_add(1);
         match self {
-            Self::Native { selection } => crate::native::sql::postgres(selection.include().len(), limit),
+            Self::Native { selection, .. } => crate::native::sql::postgres(selection.include().len(), limit),
             Self::View { schema, predicate, .. } => {
                 let predicate = match predicate {
                     RowPredicate::None => String::new(),
@@ -141,7 +146,7 @@ impl ReadQuery {
     #[cfg(feature = "live-oracle")]
     pub(crate) fn oracle_statement(&self, bounds: DictionaryBounds) -> String {
         match self {
-            Self::Native { selection } => {
+            Self::Native { selection, .. } => {
                 crate::native::sql::oracle(selection.include().len(), bounds.max_rows().get().saturating_add(1))
             }
             Self::View { schema, predicate, .. } => crate::oracle_reader::statement(schema, predicate),

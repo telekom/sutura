@@ -5,8 +5,6 @@
 //! done by the `config` crate - which speaks in strings, numbers and booleans - and the parsing
 //! can be done once, afterwards, by [`crate::Settings::parse`].
 //!
-//! Three things about this module are load-bearing rather than incidental.
-//!
 //! **No `Debug` derive on a shape holding a secret.** [`RawSource`] holds the credential, password
 //! and key *file paths* as plain `String`s, so a `{:?}` on it would print them; a shape that
 //! carries none of that - [`RawWorkloadIdentity`], [`RawGovernance`], [`RawSpendCeiling`] - derives
@@ -147,6 +145,8 @@ pub(crate) struct RawSource {
     /// buckets - see `sutura_domain::source::HashBucketsDeclared`.
     #[serde(default)]
     pub(crate) hash_buckets_acknowledged_because: Option<String>,
+    #[serde(default)]
+    pub(crate) unbounded_number: Option<String>,
     /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
     #[serde(default)]
     pub(crate) split: Option<String>,

@@ -2,6 +2,8 @@
 
 use std::ops::ControlFlow;
 
+use datafusion::arrow::array::ArrayRef;
+
 use datafusion::sql::sqlparser::ast::{LimitClause, Query, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -146,6 +148,95 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
                 text.contains("AS \"c0\""),
                 "the local combine needs the quoted column label: {text}"
             );
+        }
+    }
+}
+
+#[test]
+fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_and_federated() {
+    use sutura_domain::warehouse::Value;
+
+    type TextCase<'a> = (&'a str, &'a [&'a str]);
+
+    let physical = RecordBatch::try_from_iter([
+        ("region", Arc::new(StringArray::from(vec!["north", "south"])) as ArrayRef),
+        ("sales_area", Arc::new(Int64Array::from(vec![2, 10])) as ArrayRef),
+    ])
+    .expect("the fake source stores physical numbers");
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("sales_area", DataType::Utf8, false).with_metadata(std::collections::HashMap::from([(
+            String::from("sutura:unbounded_number"),
+            String::from("utf8"),
+        )])),
+    ]));
+    let tables = vec![
+        StatementTable::new(
+            named("crm"),
+            QualifiedTable::parse("dim_customer").expect("a fixture table"),
+            TypeDialect::DuckDb,
+            customers().schema(),
+        ),
+        StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            TypeDialect::Oracle,
+            schema,
+        ),
+    ];
+    let cases: [TextCase<'_>; 8] = [
+        ("select sales_area from dim_region", &["2", "10"]),
+        ("select * from dim_region", &["2", "10"]),
+        ("select sales_area from dim_region order by sales_area", &["10", "2"]),
+        (
+            "select distinct r.sales_area from dim_customer c join dim_region r on c.region = r.region order by r.sales_area",
+            &["10", "2"],
+        ),
+        ("select min(sales_area) from dim_region", &["10"]),
+        (
+            "select min(r.sales_area) from dim_customer c join dim_region r on c.region = r.region",
+            &["10"],
+        ),
+        ("select sales_area from dim_region where sales_area > '2'", &[]),
+        (
+            "select r.sales_area from dim_customer c join dim_region r on c.region = r.region where r.sales_area > '2'",
+            &[],
+        ),
+    ];
+    for (sql, expected) in cases {
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        drop(
+            legs.engines
+                .at
+                .insert(named("geo"), holding(&[("dim_region", physical.clone())])),
+        );
+        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!("the mapped number must run: {answer:?}");
+        };
+        assert_eq!(rows.rows().len(), expected.len(), "{sql}: {:?}", legs.statements);
+        for (row, text) in rows.rows().iter().zip(expected) {
+            assert_eq!(row.last(), Some(&Value::Text(String::from(*text))), "{sql}");
+        }
+        assert!(!legs.statements.is_empty(), "the physical source must run");
+        for statement in legs.statements {
+            let statement = statement.to_ascii_uppercase();
+            for operator in ["ORDER BY", "MIN(", "WHERE"] {
+                assert!(!statement.contains(operator), "{operator} was pushed: {statement}");
+            }
         }
     }
 }

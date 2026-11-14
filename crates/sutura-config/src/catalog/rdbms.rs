@@ -42,6 +42,7 @@ pub struct RdbmsSettings {
     environment: Option<CatalogEnvironment>,
     live_row_predicate: Option<LiveRowPredicate>,
     source_alias: SourceName,
+    unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
     dictionary_schema: Option<DocumentationSchema>,
     max_dictionary_rows: Option<NonZeroU64>,
     max_dictionary_bytes: Option<NonZeroU64>,
@@ -108,6 +109,9 @@ impl RdbmsSettings {
         Ok(Self {
             environment,
             live_row_predicate,
+            unbounded_number: sources
+                .get(&source_alias)
+                .and_then(crate::sources::ConfiguredSource::unbounded_number),
             source_alias,
             dictionary_schema,
             max_dictionary_rows: non_zero("max_dictionary_rows", raw.max_dictionary_rows)?,
@@ -149,6 +153,12 @@ impl RdbmsSettings {
     #[must_use]
     pub const fn source_alias(&self) -> &SourceName {
         &self.source_alias
+    }
+
+    /// The source alias's explicit NUMBER representation, also used by native dictionary admission.
+    #[must_use]
+    pub const fn unbounded_number(&self) -> Option<sutura_domain::warehouse::schema::UnboundedNumber> {
+        self.unbounded_number
     }
 
     /// The schema holding the dictionary rows, or `None` for the reader's documented default.
