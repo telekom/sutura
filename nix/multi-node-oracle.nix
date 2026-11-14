@@ -93,7 +93,7 @@ let
   acknowledged = { acknowledged_because = "every node reads fixture tables as one declared identity"; };
   settings = { server, security, sources, model ? catalog }: pkgs.writeTextDir "base.yaml" (builtins.toJSON {
     inherit server security sources;
-    telemetry.format = "bunyan";
+    telemetry = { format = "bunyan"; filter = "info,sutura_diagnostic=debug"; };
     rate_limit.enabled = true;
     catalogs = [{ name = "model"; kind = "markdown"; dir = "${model}"; data_dir = "${example}/data"; inherit version; }];
   });

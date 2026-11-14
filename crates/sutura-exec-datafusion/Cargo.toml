@@ -116,6 +116,7 @@ measurement = []
 # binary plans a combine across nodes yet. `tokio/net` for the runtime's I/O driver, which the links
 # to the other nodes need, and `tokio/sync` for the lock their question keys are kept under.
 distributed = [
+  "dep:tracing",
   "dep:datafusion-distributed",
   "dep:url",
   "dep:async-trait",

@@ -577,21 +577,34 @@ impl ExecutionPlan for PartitionScanExec {
         .map_err(Unread::into_error)?;
         let schema = Arc::clone(schema);
         let mut accepted = Accumulating::announcing(Arc::clone(&schema), admitted.rows, admitted.budget);
-        Ok(read_later(schema, async move {
-            while let Some(batch) = batches.next().await {
-                let batch = batch.map_err(Unread::Failed)?;
-                accepted.push(batch).map_err(|cause| match cause {
-                    UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. } => Unread::DidNotFit,
-                    UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => {
-                        Unread::Failed(DataFusionError::External(Box::new(cause)))
+        let diagnostic = context
+            .session_config()
+            .get_extension::<datafusion_distributed::TaskKey>()
+            .map_or_else(tracing::Span::none, |key| {
+                tracing::debug_span!(target: "sutura_diagnostic", "partition_read",
+                query = %key.query_id, stage = key.stage_id, task = key.task_number)
+            });
+        Ok(read_later(
+            schema,
+            tracing::Instrument::instrument(
+                async move {
+                    while let Some(batch) = batches.next().await {
+                        let batch = batch.map_err(Unread::Failed)?;
+                        accepted.push(batch).map_err(|cause| match cause {
+                            UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. } => Unread::DidNotFit,
+                            UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => {
+                                Unread::Failed(DataFusionError::External(Box::new(cause)))
+                            }
+                        })?;
                     }
-                })?;
-            }
-            if let Some(capture) = required_capture {
-                capture.require_recorded()?;
-            }
-            Ok(accepted.finish())
-        }))
+                    if let Some(capture) = required_capture {
+                        capture.require_recorded()?;
+                    }
+                    Ok(accepted.finish())
+                },
+                diagnostic,
+            ),
+        ))
     }
 }
 

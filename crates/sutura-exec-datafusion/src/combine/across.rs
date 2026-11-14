@@ -867,11 +867,19 @@ impl Links {
             None => host,
         };
         let connector = self.identity.0.clone();
+        let peer = url.host_str().map_or_default(String::from);
         let dial = tower::service_fn(move |_uri| {
-            let (connector, name, address) = (connector.clone(), name.clone(), address.clone());
+            let (connector, name, address, peer) = (connector.clone(), name.clone(), address.clone(), peer.clone());
             async move {
-                let tcp = tokio::net::TcpStream::connect((address.as_str(), port)).await?;
-                let tls = connector.connect(name, tcp).await?;
+                tracing::debug!(target: "sutura_diagnostic", phase = "dial_tcp_start", peer, port, "distributed link phase");
+                let tcp = tokio::net::TcpStream::connect((address.as_str(), port))
+                    .await
+                    .inspect_err(|_| tracing::debug!(target: "sutura_diagnostic", phase = "dial_tcp_error", peer, port, "distributed link phase"))?;
+                tracing::debug!(target: "sutura_diagnostic", phase = "dial_tls_start", peer, port, "distributed link phase");
+                let tls = connector.connect(name, tcp)
+                    .await
+                    .inspect_err(|_| tracing::debug!(target: "sutura_diagnostic", phase = "dial_tls_error", peer, port, "distributed link phase"))?;
+                tracing::debug!(target: "sutura_diagnostic", phase = "dial_ready", peer, port, "distributed link phase");
                 Ok::<_, std::io::Error>(TokioIo::new(tls))
             }
         });

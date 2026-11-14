@@ -20,6 +20,9 @@ impl Worker {
         &self,
         request: ExecuteTaskRequest,
     ) -> Result<(Vec<SendableRecordBatchStream>, Arc<TaskContext>)> {
+        tracing::debug!(target: "sutura_diagnostic", phase = "worker_received", method = "ExecuteTask",
+            query = %request.task_key.query_id, stage = request.task_key.stage_id, task = request.task_key.task_number,
+            "distributed task phase");
         let entry = self
             .task_data_entries
             .get_with(request.task_key, async { Default::default() })
@@ -55,6 +58,9 @@ impl Worker {
 
             streams.push(Box::pin(RecordBatchStreamAdapter::new(stream_schema, stream)) as _);
         }
+        tracing::debug!(target: "sutura_diagnostic", phase = "worker_streams_ready", method = "ExecuteTask",
+            query = %request.task_key.query_id, stage = request.task_key.stage_id, task = request.task_key.task_number,
+            "distributed task phase");
         Ok((streams, task_ctx))
     }
 }

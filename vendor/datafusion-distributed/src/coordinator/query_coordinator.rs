@@ -152,6 +152,10 @@ impl<'a> StageCoordinator<'a> {
             task_number: task_i,
         };
 
+        tracing::debug!(target: "sutura_diagnostic", phase = "placement",
+            query = %task_key.query_id, stage = task_key.stage_id, task = task_key.task_number,
+            worker = url.host_str().unwrap_or("unknown"), operator = self.plan.name(),
+            "distributed task phase");
         let completion = session_config.get_extension::<crate::QueryCompletion>();
         let completion_request = completion.as_ref().map(|capture| capture.register(task_key)).transpose()?;
         let set_plan_request = SetPlanRequest {
@@ -197,6 +201,9 @@ impl<'a> StageCoordinator<'a> {
                     ch_resolver.get_worker_client_for_url(&url).await
                 }
             }?;
+            tracing::debug!(target: "sutura_diagnostic", phase = "rpc_start", method = "CoordinatorChannel",
+                query = %task_key.query_id, stage = task_key.stage_id, task = task_key.task_number,
+                "distributed task phase");
             let worker_to_coordinator_stream = client
                 .coordinator_channel(
                     headers,
@@ -205,10 +212,20 @@ impl<'a> StageCoordinator<'a> {
                     metrics_set,
                     &task_ctx,
                 )
-                .await?;
+                .await
+                .inspect_err(|_| tracing::debug!(target: "sutura_diagnostic", phase = "rpc_error", method = "CoordinatorChannel",
+                    query = %task_key.query_id, stage = task_key.stage_id, task = task_key.task_number,
+                    "distributed task phase"))?;
+            tracing::debug!(target: "sutura_diagnostic", phase = "rpc_headers", method = "CoordinatorChannel",
+                query = %task_key.query_id, stage = task_key.stage_id, task = task_key.task_number,
+                "distributed task phase");
             metrics.plan_send_latency.record(&start);
-            receive_worker_messages(worker_to_coordinator_stream, worker_to_coordinator_tx,
-                task_key, completion, completion_request).await
+            let result = receive_worker_messages(worker_to_coordinator_stream, worker_to_coordinator_tx,
+                task_key, completion, completion_request).await;
+            tracing::debug!(target: "sutura_diagnostic", phase = "rpc_end", method = "CoordinatorChannel",
+                query = %task_key.query_id, stage = task_key.stage_id, task = task_key.task_number,
+                succeeded = result.is_ok(), "distributed task phase");
+            result
         });
 
         Ok((coordinator_to_worker_tx, worker_to_coordinator_rx))

@@ -51,7 +51,26 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
 
     def answer():
         status, reply = ask()
-        assert status == "200" and reply.get("outcome") == "answer", (status, reply)
+        try:
+            assert status == "200" and reply.get("outcome") == "answer", (status, reply)
+        except AssertionError:
+            try:
+                events = bucket_events(traces())
+                totals = {
+                    node: {
+                        kind: sum(
+                            event[3]
+                            for event in events
+                            if event[1] == node and event[2] == kind
+                        )
+                        for kind in ("EXEC", "FETCH")
+                    }
+                    for node in addresses
+                }
+                print("native EXEC/FETCH row totals: " + json.dumps(totals), flush=True)
+            except Exception:  # noqa: BLE001 - preserve the original answer failure if trace collection fails.
+                print("native EXEC/FETCH row totals unavailable", flush=True)
+            raise
         assert reply["columns"] == COLUMNS and reply["rows"] == GOLDEN, reply
         assert reply["executed_as"] == [
             {"source": "geo", "posture": "shared-service-user"},
