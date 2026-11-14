@@ -1,0 +1,990 @@
+{
+  "mutants": [
+    {
+      "label": "sql1909-app-scan-set",
+      "package": "sutura-app",
+      "tests": [
+        "a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_text"
+      ],
+      "preimage_sha256": "325a255dd9498680680dd9392e5484027b0b0d71a4a475b259f02f194449ae33",
+      "mutated_sha256": "a1028c0053a3182ff51533565ecbfe6503a26b8d63f3372ef100076949072a2b",
+      "edits": [
+        {
+          "path": "crates/sutura-app/src/raw.rs",
+          "before": "        statement: &RawStatement,\n        tables: &BTreeSet<QualifiedTable>,\n    ) -> Result<RawRows, Self::Stop> {\n        self.run_at(source, statement, Some(tables))\n    }\n}\n\n",
+          "after": "        statement: &RawStatement,\n        tables: &BTreeSet<QualifiedTable>,\n    ) -> Result<RawRows, Self::Stop> {\n        self.run_at(source, statement, Some(&tables.difference(tables).cloned().collect()))\n    }\n}\n\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Remove planned scan-table delivery.",
+      "limit": "Only this named branch is proposed; head PASS is not base-red."
+    },
+    {
+      "label": "sql1909-bigquery-caller",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough"
+      ],
+      "preimage_sha256": "832a56aaf75c8e77efae770c968bab0613e7b0ce718dc26dbe4169115f47dcf6",
+      "mutated_sha256": "33b274af81c9aef1a975f6f37e06a1a583e069400b971a6223f58b2b45d66110",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/statement.rs",
+          "before": "            statement.as_str(),\n            &[],\n            &payer,\n            identity,\n            JobDeadline::Port(deadline),\n        ))\n        .map_err(|cause| crate::BigQueryError::Endpoint { cause })?;\n",
+          "after": "            statement.as_str(),\n            &[],\n            &payer,\n            { let _ = identity; crate::transport::JobIdentity::Transport },\n            JobDeadline::Port(deadline),\n        ))\n        .map_err(|cause| crate::BigQueryError::Endpoint { cause })?;\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Replace caller job identity with deployment transport identity.",
+      "limit": "Only this named branch is proposed; head PASS is not base-red."
+    },
+    {
+      "label": "sql1909-bigquery-deadline",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough"
+      ],
+      "preimage_sha256": "832a56aaf75c8e77efae770c968bab0613e7b0ce718dc26dbe4169115f47dcf6",
+      "mutated_sha256": "c09dbed5205ed8cc806ad48e19893e9d130a620d79141e2abbea4ad798eccaf9",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/statement.rs",
+          "before": "            &[],\n            &payer,\n            identity,\n            JobDeadline::Port(deadline),\n        ))\n        .map_err(|cause| crate::BigQueryError::Endpoint { cause })?;\n    let (columns, rows) = BigQueryWarehouse::<T>::rows(&rows)?.into_parts();\n",
+          "after": "            &[],\n            &payer,\n            identity,\n            { let _ = deadline; JobDeadline::Boot },\n        ))\n        .map_err(|cause| crate::BigQueryError::Endpoint { cause })?;\n    let (columns, rows) = BigQueryWarehouse::<T>::rows(&rows)?.into_parts();\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Discard request job deadline.",
+      "limit": "Only this named branch is proposed; head PASS is not base-red."
+    },
+    {
+      "label": "sql1909-bigquery-payer",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough"
+      ],
+      "preimage_sha256": "832a56aaf75c8e77efae770c968bab0613e7b0ce718dc26dbe4169115f47dcf6",
+      "mutated_sha256": "6c44012c77d7828e9d9981155d658a84840bcd1ee7fed44b34c9555183f475eb",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/statement.rs",
+          "before": "{\n    warehouse.deliverable(presented)?;\n    let identity = warehouse.job_identity(presented)?;\n    let payer = warehouse.unstated_payer(&billing::projects(tables)?)?;\n    let rows = warehouse\n        .transport\n        .run(&JobRequest::new(\n",
+          "after": "{\n    warehouse.deliverable(presented)?;\n    let identity = warehouse.job_identity(presented)?;\n    let payer = warehouse.unstated_payer(&billing::projects(&tables.iter().take(1).cloned().collect())?)?;\n    let rows = warehouse\n        .transport\n        .run(&JobRequest::new(\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Hide multiple billing projects instead of refusing ambiguous payer.",
+      "limit": "Only this named branch is proposed; head PASS is not base-red."
+    },
+    {
+      "label": "sql1909-boot-capability",
+      "package": "sutura-cli",
+      "tests": [
+        "planned_only_files_require_the_sql_feature_at_boot"
+      ],
+      "preimage_sha256": "1f17785d14042141d9b0a055a02e1d3a48ac57e6bee648e2c241cb69e6ce303b",
+      "mutated_sha256": "29c4901f66fd7854c9fbd1eb1e50b2df602246a8809dae3298f1ad8015a0c3e6",
+      "edits": [
+        {
+          "path": "crates/sutura-cli/src/catalog.rs",
+          "before": "            }\n            Some(engine)\n                if !(if cfg!(feature = \"sql\") {\n                    engine.accepts_planned_statements()\n                } else {\n                    engine.accepts_raw_statements()\n                }) =>\n",
+          "after": "            }\n            Some(engine)\n                if !(if cfg!(feature = \"sql\") {\n                    engine.accepts_raw_statements()\n                } else {\n                    engine.accepts_raw_statements()\n                }) =>\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Ask planned-only engine for passthrough capability at SQL boot.",
+      "limit": "SQL/all-features branch only; no no-SQL startup-refusal proof from this mutation."
+    },
+    {
+      "label": "sql1909-census-name-floor",
+      "package": "sutura-app",
+      "tests": [
+        "every_dialect_declares_what_backs_its_goldens"
+      ],
+      "preimage_sha256": "8c16e85634d2aed442e3d0d5daecdca0f53a04876d4bc4cd0072067bbbe639cb",
+      "mutated_sha256": "b0d2bf3a8729b2f95d4553ba82bfed68348fd7dcbb95af09fe8f996799929561",
+      "edits": [
+        {
+          "path": "crates/sutura-sql/src/dialect.rs",
+          "before": "    #[inline]\n    pub const fn as_str(self) -> &'static str {\n        match self {\n            Self::DuckDb => \"duckdb\",\n            Self::Postgres => \"postgres\",\n            Self::ClickHouse => \"clickhouse\",\n            Self::BigQuery => \"bigquery\",\n",
+          "after": "    #[inline]\n    pub const fn as_str(self) -> &'static str {\n        match self {\n            Self::DuckDb => \"mutation_dialect\",\n            Self::Postgres => \"postgres\",\n            Self::ClickHouse => \"clickhouse\",\n            Self::BigQuery => \"bigquery\",\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Break production dialect-to-filename association.",
+      "limit": "Existing nonempty-floor witness ONLY. Does NOT prove exact planned-family enrollment, strict unknown rejection, snapshot contents or engine execution. New enrollment is test-only and statically reviewed."
+    },
+    {
+      "label": "sql1909-cube-type",
+      "package": "sutura-domain",
+      "tests": [
+        "each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread"
+      ],
+      "preimage_sha256": "c719084d5f511462f82902883d9d2e4e78cdc10915925a636429bcf006e7ec18",
+      "mutated_sha256": "9be7acf3f87a281d0af51d42af3840ae5a070f794af36f73eb1c350902277a01",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema/types.rs",
+          "before": "                Self::Oracle => oracle(name, parameters),\n                Self::DuckDb | Self::Postgres | Self::DataFusion => postgres(name, parameters),\n                Self::Cube => match name {\n                    \"number\" => Some(DataType::Float64),\n                    \"time\" => Some(micros(None)),\n                    _ => None,\n                },\n",
+          "after": "                Self::Oracle => oracle(name, parameters),\n                Self::DuckDb | Self::Postgres | Self::DataFusion => postgres(name, parameters),\n                Self::Cube => match name {\n                    \"number\" => Some(DataType::Int64),\n                    \"time\" => Some(micros(None)),\n                    _ => None,\n                },\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Misread Cube number type as signed integer.",
+      "limit": "Only this named branch is proposed; head PASS is not base-red."
+    },
+    {
+      "label": "sql1909-datafusion-type",
+      "package": "sutura-domain",
+      "tests": [
+        "each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread"
+      ],
+      "preimage_sha256": "c719084d5f511462f82902883d9d2e4e78cdc10915925a636429bcf006e7ec18",
+      "mutated_sha256": "2b57d4b5f5c3cecbff697c791bde216618098e7360e9b9c0c598ef483e8fd99d",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema/types.rs",
+          "before": "                Self::ClickHouse => clickhouse(name, parameters),\n                Self::BigQuery => bigquery(name, parameters),\n                Self::Oracle => oracle(name, parameters),\n                Self::DuckDb | Self::Postgres | Self::DataFusion => postgres(name, parameters),\n                Self::Cube => match name {\n                    \"number\" => Some(DataType::Float64),\n                    \"time\" => Some(micros(None)),\n",
+          "after": "                Self::ClickHouse => clickhouse(name, parameters),\n                Self::BigQuery => bigquery(name, parameters),\n                Self::Oracle => oracle(name, parameters),\n                Self::DuckDb | Self::Postgres => postgres(name, parameters),\n                Self::DataFusion => None,\n                Self::Cube => match name {\n                    \"number\" => Some(DataType::Float64),\n                    \"time\" => Some(micros(None)),\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Remove DataFusion declared-type mapping.",
+      "limit": "Only this named branch is proposed; head PASS is not base-red."
+    },
+    {
+      "label": "sql1909-native-scan-set",
+      "package": "sutura-app",
+      "tests": [
+        "native_clickhouse",
+        "native_datafusion",
+        "native_duckdb",
+        "native_postgres"
+      ],
+      "preimage_sha256": "15073b688c8b318646c5497107b661d6d7f26fc16e4e46870b414b727272fef3",
+      "mutated_sha256": "8081b2651bf802a0648bd3afc5fd4ea073317417dda648e5b9393d0a83998df1",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "    legs.open(&sources).map_err(StatementStopped::Leg)?;\n    let mut leaves = Vec::with_capacity(parts.len());\n    for (part, (statement, tables)) in parts.into_iter().zip(&statements) {\n        let rows = legs.run_planned(&part.source, statement, tables).map_err(|cause| {\n            tracing::debug!(source = %part.source, statement = statement.as_str(), \"run_sql: a source part did not run\");\n            StatementStopped::Leg(cause)\n        })?;\n",
+          "after": "    legs.open(&sources).map_err(StatementStopped::Leg)?;\n    let mut leaves = Vec::with_capacity(parts.len());\n    for (part, (statement, tables)) in parts.into_iter().zip(&statements) {\n        let rows = legs.run_planned(&part.source, statement, &tables.difference(tables).cloned().collect()).map_err(|cause| {\n            tracing::debug!(source = %part.source, statement = statement.as_str(), \"run_sql: a source part did not run\");\n            StatementStopped::Leg(cause)\n        })?;\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Remove scan provenance reaching all four offline native matrix cells.",
+      "limit": "Four explicit offline engine identities only. Shared generic assertion helper must fail. Does not independently mutate every SQL/result branch; three live cells stay native venue evidence."
+    },
+    {
+      "label": "sql1909-rendered-statement-pin",
+      "package": "sutura-app",
+      "tests": [
+        "render_bigquery",
+        "render_clickhouse",
+        "render_cube",
+        "render_datafusion",
+        "render_duckdb",
+        "render_oracle",
+        "render_postgres"
+      ],
+      "preimage_sha256": "15073b688c8b318646c5497107b661d6d7f26fc16e4e46870b414b727272fef3",
+      "mutated_sha256": "b10b5857d6cd02d298c3ad1c4a62192b5bf38f758c7b145bb0a4188bda644ff9",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "        } else {\n            unparsed(&labelled(&self.plan)?, self.dialect)?\n        };\n        RawStatement::parse(text).map_err(|cause| plan_datafusion_err!(\"{cause}\"))\n    }\n}\n\n",
+          "after": "        } else {\n            unparsed(&labelled(&self.plan)?, self.dialect)?\n        };\n        RawStatement::parse(format!(\"{text} /* mutation */\")).map_err(|cause| plan_datafusion_err!(\"{cause}\"))\n    }\n}\n\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Alter emitted statement bytes for all seven renderers.",
+      "limit": "Rendering byte pin only; own panic must be in shared renderer helper. No engine execution claim."
+    },
+    {
+      "label": "sql1909-served-file-rows",
+      "package": "sutura-cli",
+      "tests": [
+        "a_listed_file_source_uses_the_execution_capability_of_this_build"
+      ],
+      "preimage_sha256": "2cc2ad72a611c5986593b54d85eaa19372dd434b20622841d181cddbe357f0b8",
+      "mutated_sha256": "3b8ba6b713e04c1709956c1989a09d5ae20ceed9e7731817df0b7db7545e95b1",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/statement.rs",
+          "before": "                .with_allow_statements(false);\n            let frame = warehouse\n                .context\n                .sql_with_options(statement.as_str(), options)\n                .await\n                .map_err(|cause| DataFusionError::Analyze { cause })?;\n            let rows = collect::collected(frame, warehouse.working_set).await?;\n",
+          "after": "                .with_allow_statements(false);\n            let frame = warehouse\n                .context\n                .sql_with_options(&format!(\"SELECT * FROM ({}) LIMIT 0\", statement.as_str()), options)\n                .await\n                .map_err(|cause| DataFusionError::Analyze { cause })?;\n            let rows = collect::collected(frame, warehouse.working_set).await?;\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Suppress file rows through served planned path.",
+      "limit": "SQL/all-features branch only; no no-SQL startup-refusal proof from this mutation."
+    },
+    {
+      "label": "sql1909-subject-planner-posture",
+      "package": "sutura-config",
+      "tests": [
+        "a_subject_source_needs_the_sql_planner_before_the_raw_tool_may_serve",
+        "every_listed_subject_source_requires_the_sql_planner"
+      ],
+      "preimage_sha256": "c4f46d4d22d36aa6ac6a798859eb7298d6f0211c8827427962f20661f6c1b12e",
+      "mutated_sha256": "2cd215889ccbe026d97b6063efe4d74823a034c5031708411ca8c98c24128aac",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/posture.rs",
+          "before": "    let unshared = tools.run_sql_sources().iter().any(|alias| {\n        !sources.get(alias).is_some_and(|source| match source.posture() {\n            Some(SourcePosture::SharedServiceUser { .. }) => true,\n            Some(SourcePosture::ImpersonationAtSource) => cfg!(feature = \"sql\"),\n            None => false,\n        })\n    });\n",
+          "after": "    let unshared = tools.run_sql_sources().iter().any(|alias| {\n        !sources.get(alias).is_some_and(|source| match source.posture() {\n            Some(SourcePosture::SharedServiceUser { .. }) => true,\n            Some(SourcePosture::ImpersonationAtSource) => false,\n            None => false,\n        })\n    });\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Refuse subject sources despite compiled SQL planner.",
+      "limit": "SQL/all-features branch only; no no-SQL startup-refusal proof from this mutation."
+    },
+    {
+      "label": "sql1909-clickhouse-deadline",
+      "package": "sutura-exec-clickhouse",
+      "tests": [
+        "planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough"
+      ],
+      "preimage_sha256": "22b5ec5570d05f7263bbf3116058d12f6a9fba312ab5c16a801e169407184c8c",
+      "mutated_sha256": "7bff0af072e25b139a199ecbd4a46c3f3584f2ab10114caf8d24fe135d41b229",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-clickhouse/src/adbc.rs",
+          "before": "            let rows = self.run(&query, deadline, MOST_RESULT_ROWS, &runs_as)?;\n",
+          "after": "            let rows = self.run(&query, { let _ = deadline; boot_deadline() }, MOST_RESULT_ROWS, &runs_as)?;\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Replace planned caller deadline with boot deadline; fixture driver is nonexistent.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-clickhouse-principal",
+      "package": "sutura-exec-clickhouse",
+      "tests": [
+        "planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough"
+      ],
+      "preimage_sha256": "22b5ec5570d05f7263bbf3116058d12f6a9fba312ab5c16a801e169407184c8c",
+      "mutated_sha256": "cfbdbd5aa743f111a00293755f320b5b9b8ae73e87f775f33c10517846ca91c7",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-clickhouse/src/adbc.rs",
+          "before": "        Some((|| {\n            let runs_as = self.deliverable(presented)?;\n            let query = GeneratedQuery::literal(self.source.clone(), statement.as_str().to_owned());\n",
+          "after": "        Some((|| {\n            let runs_as = self.deliverable(presented).unwrap_or(RunsAs::Deployment);\n            let query = GeneratedQuery::literal(self.source.clone(), statement.as_str().to_owned());\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Bypass invalid planned principal refusal; fixture driver is nonexistent.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-clickhouse-planned-grants",
+      "package": "sutura-exec-clickhouse",
+      "tests": [
+        "a_switched_user_answers_under_its_own_grants"
+      ],
+      "preimage_sha256": "22b5ec5570d05f7263bbf3116058d12f6a9fba312ab5c16a801e169407184c8c",
+      "mutated_sha256": "26f94035116548258f15c5f69591ca69c4ca0473bb24c719e515fadfd2d24389",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-clickhouse/src/adbc.rs",
+          "before": "        Some((|| {\n            let runs_as = self.deliverable(presented)?;\n            let query = GeneratedQuery::literal(self.source.clone(), statement.as_str().to_owned());\n",
+          "after": "        Some((|| {\n            let runs_as = { self.deliverable(presented)?; RunsAs::Deployment };\n            let query = GeneratedQuery::literal(self.source.clone(), statement.as_str().to_owned());\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Execute only planned calls as deployment rather than caller.",
+      "limit": "Real provisioned ClickHouse required; no skip accepted. Expect own failure at new planned service-only-table refusal after old execute checks pass."
+    },
+    {
+      "label": "sql1909-cube-caller-token",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_sends_the_callers_bearer_and_original_deadline_without_enabling_raw_sql",
+        "planned_sql_uses_each_questions_own_bearer_on_one_shared_adapter"
+      ],
+      "preimage_sha256": "8020fc23f555446433870824b87bcd70f586d2f95b26c1657cb1becf751e6d00",
+      "mutated_sha256": "2311baf43a97342a670c4804e236ff4627acec6f6ed9bf1fae3458e5da19717a",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/lib.rs",
+          "before": "        let token = self.deliverable(presented)?;\n        if tables.is_empty() {\n",
+          "after": "        let token = { self.deliverable(presented)?; &self.token };\n        if tables.is_empty() {\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Deliver deployment token instead of question own token after posture validation.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-empty-scan",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_refuses_a_mismatched_posture_and_an_empty_scan_set"
+      ],
+      "preimage_sha256": "8020fc23f555446433870824b87bcd70f586d2f95b26c1657cb1becf751e6d00",
+      "mutated_sha256": "a6ac6e016c672245bd38bba324613ec411db37bbfe190419ec323bf264ceda31",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/lib.rs",
+          "before": "        if tables.is_empty() {\n",
+          "after": "        if tables.is_empty() && tables.len() > 0 {\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Remove empty planned scan-set refusal.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-posture",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_refuses_a_mismatched_posture_and_an_empty_scan_set"
+      ],
+      "preimage_sha256": "8020fc23f555446433870824b87bcd70f586d2f95b26c1657cb1becf751e6d00",
+      "mutated_sha256": "d3c7f5b2755d3d77318fd56b9099b64514a8ec77c7cfa570229fe718d587b6cd",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/lib.rs",
+          "before": "        presented\n            .agrees_with(&self.posture, &self.source)\n            .map_err(|cause| CubeError::PresentedDisagreesWithPosture { cause })?;\n",
+          "after": "        let _ = presented.agrees_with(&self.posture, &self.source);\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Discard posture disagreement rather than refuse.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-preflight-deadline",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_refuses_a_spent_deadline_before_calling_the_transport"
+      ],
+      "preimage_sha256": "8020fc23f555446433870824b87bcd70f586d2f95b26c1657cb1becf751e6d00",
+      "mutated_sha256": "ab29970c6b2d8501ce5b13151190f4d8321bfdc4fe98216a3d79e04460f4bb32",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/lib.rs",
+          "before": "        check_deadline(deadline)?;\n        let body = self\n",
+          "after": "        let body = self\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Allow spent deadline to consume transport answer before later deadline refusal.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-stream-error",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_discards_rows_when_cube_appends_an_error_without_exposing_its_text"
+      ],
+      "preimage_sha256": "b905f5ae3b837da8601fe39604e9a00a0fde5b4fbf85a2133c325e5ef14a6a06",
+      "mutated_sha256": "b4d9a372f095bbaf0f0a34c802c8d5ced6c4a87ee74d8210e79dac0be210d85a",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/sql.rs",
+          "before": "            return Err(CubeError::StatementFailed);\n",
+          "after": "            continue;\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Ignore trailing stream error and return earlier rows.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-ragged",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_refuses_ragged_out_of_order_or_unsupported_data"
+      ],
+      "preimage_sha256": "b905f5ae3b837da8601fe39604e9a00a0fde5b4fbf85a2133c325e5ef14a6a06",
+      "mutated_sha256": "190c61dddbf335a7035fc4ff05d7e5c40de7ee712613a259001dd384a3c9ce42",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/sql.rs",
+          "before": "                .filter(|values| values.len() == columns.len())\n",
+          "after": "",
+          "count": 1
+        }
+      ],
+      "mechanism": "Allow short ragged rows through zip truncation.",
+      "limit": "Ragged branch only; no independent mutation of order/duplicate schema/unsupported types."
+    },
+    {
+      "label": "sql1909-cube-typed-boolean",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_reads_the_declared_wire_types_and_empty_answers"
+      ],
+      "preimage_sha256": "b905f5ae3b837da8601fe39604e9a00a0fde5b4fbf85a2133c325e5ef14a6a06",
+      "mutated_sha256": "f4e5a0044fad2ab13dc8e1cef1082c29c4da126e6c63b13f72071bd8fd29a5d0",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/sql.rs",
+          "before": "            .map(|flag| Value::Integer(i64::from(flag)))\n",
+          "after": "            .map(|flag| Value::Integer(i64::from(!flag)))\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Invert declared boolean result values.",
+      "limit": "Boolean branch only; empty answer acceptance is baseline evidence."
+    },
+    {
+      "label": "sql1909-cube-double-exact",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_refuses_inexact_and_non_finite_double_answers"
+      ],
+      "preimage_sha256": "b905f5ae3b837da8601fe39604e9a00a0fde5b4fbf85a2133c325e5ef14a6a06",
+      "mutated_sha256": "19a4269f84985781827ef4b9f4463fc0a266404f74eb5ab29b2899cefe0eb94d",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/sql.rs",
+          "before": "            if crate::rows::beyond_exact(text) || number.abs() > 9_007_199_254_740_992.0 {\n",
+          "after": "            if crate::rows::beyond_exact(text) && number.abs() > 9_007_199_254_740_992.0 {\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Permit first rounded double beyond exact signed integer precision.",
+      "limit": "Inexact finite branch only; Real still refuses non-finite values."
+    },
+    {
+      "label": "sql1909-cube-signed-precision",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_keeps_signed_integer_precision_and_boolean_nulls"
+      ],
+      "preimage_sha256": "b905f5ae3b837da8601fe39604e9a00a0fde5b4fbf85a2133c325e5ef14a6a06",
+      "mutated_sha256": "49c1e5827466e393d281d210e5bc702008196ec5dc78defabe4c9a1f50d3d529",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/sql.rs",
+          "before": "            .map(Value::Integer)\n",
+          "after": "            .map(|value| Value::Integer((value as f64) as i64))\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Round signed integer strings through double precision.",
+      "limit": "Signed precision only; Boolean/null not independently mutated."
+    },
+    {
+      "label": "sql1909-cube-integer-refusal",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_refuses_integer_overflow_and_non_integral_decimal_text"
+      ],
+      "preimage_sha256": "b905f5ae3b837da8601fe39604e9a00a0fde5b4fbf85a2133c325e5ef14a6a06",
+      "mutated_sha256": "dfe62a96bf1c5391ffc7e8211deadb7ae54683954c2ea53bf4488c4ec92b2908",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/sql.rs",
+          "before": "            .parse::<i64>()\n",
+          "after": "            .parse::<i64>()\n            .or_else(|_| \"0\".parse::<i64>())\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Replace overflow/noninteger parse refusal with zero.",
+      "limit": "First overflow case should kill; no separate kill credit for later decimal/text cases."
+    },
+    {
+      "label": "sql1909-cube-row-cap",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_classifies_row_and_transport_byte_caps_as_result_bounds"
+      ],
+      "preimage_sha256": "8020fc23f555446433870824b87bcd70f586d2f95b26c1657cb1becf751e6d00",
+      "mutated_sha256": "d8d65d1cb880ec5609ecdfc202e95d57c7c2a069c11ded0a882b1bc788a68f65",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/lib.rs",
+          "before": "        let rows = sql::read(&body, MAX_ROWS)?;\n",
+          "after": "        let rows = sql::read(&body, MAX_ROWS.saturating_add(1))?;\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Admit one row beyond MAX_ROWS.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-byte-classification",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_classifies_row_and_transport_byte_caps_as_result_bounds"
+      ],
+      "preimage_sha256": "8020fc23f555446433870824b87bcd70f586d2f95b26c1657cb1becf751e6d00",
+      "mutated_sha256": "019b34819b15d388362310b5827df9f2d4c9aacd58621666be6e117bbf137f3d",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/lib.rs",
+          "before": "            CubeError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),\n",
+          "after": "            CubeError::Endpoint { ref cause } => { let _ = cause; false },\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Lose transport-byte-cap result-bound classification.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-http-utc",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_uses_the_rest_bearer_and_utc_without_a_shared_sql_login"
+      ],
+      "preimage_sha256": "80b7e378d7ab590d1ef660f3796f5765e6c1ae50fb6dcc29080da05a25add7fe",
+      "mutated_sha256": "de3bb5b08c8623d90afdd4372aadb56fe5adec451dc2d40b40778ca4e8e74f13",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/http.rs",
+          "before": "serde_json::json!({ \"query\": query, \"timezone\": \"UTC\" })",
+          "after": "serde_json::json!({ \"query\": query, \"timezone\": \"GMT\" })",
+          "count": 1
+        }
+      ],
+      "mechanism": "Alter SQL REST timezone payload.",
+      "limit": "UTC assertion only; bearer identity separately mutated at adapter fake boundary, not HTTP header."
+    },
+    {
+      "label": "sql1909-cube-http-byte-cap",
+      "package": "sutura-exec-cube",
+      "tests": [
+        "planned_sql_responses_are_bounded_before_decoding"
+      ],
+      "preimage_sha256": "80b7e378d7ab590d1ef660f3796f5765e6c1ae50fb6dcc29080da05a25add7fe",
+      "mutated_sha256": "a0e8ddd5340c6d8d77a88fda1d23d8cff5540e6370efecd1ef1ad1d70e7c5eef",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-cube/src/http.rs",
+          "before": "        if body.len() as u64 > cap {\n",
+          "after": "        if body.len() as u64 > cap.saturating_add(1024) {\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Relax concrete response-byte cap below existing read backstop.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-cube-unsigned-guard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "cube_unsigned_results_are_refused_before_open_and_signed_results_still_run"
+      ],
+      "preimage_sha256": "15073b688c8b318646c5497107b661d6d7f26fc16e4e46870b414b727272fef3",
+      "mutated_sha256": "8011b1dc237ea791e5b63edcf513496dd46a6405b1d8aa3bc55a4a1206361aed",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "    if dialect == TypeDialect::Cube\n",
+          "after": "    if dialect != TypeDialect::Cube\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Remove Cube unsigned planned result refusal before credential open.",
+      "limit": "Only the named mutation branch is proposed; no independent proof for every subclaim in a compound test."
+    },
+    {
+      "label": "sql1909-source-debug-log",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "a_failed_source_part_logs_its_own_statement_at_debug_only"
+      ],
+      "preimage_sha256": "15073b688c8b318646c5497107b661d6d7f26fc16e4e46870b414b727272fef3",
+      "mutated_sha256": "2db7bb474162d419ec226bca3dad03296c62bc3ea4a9b6a08b4f16aa97511eeb",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "            tracing::debug!(source = %part.source, statement = statement.as_str(), \"run_sql: a source part did not run\");\n",
+          "after": "",
+          "count": 1
+        }
+      ],
+      "mechanism": "Remove failed-source statement debug event.",
+      "limit": "Debug-event presence only; above-debug leakage is unmutated."
+    },
+    {
+      "label": "sql1909-oracle-temporal-ansi",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "oracle_temporal_constants_use_ansi_literals_without_session_format_casts"
+      ],
+      "preimage_sha256": "a1d1144813b7da29e037640aa8306c07a16f2c34e2840b9a17925669904bad9e",
+      "mutated_sha256": "3664afe3036b9d7722a879259f24666f597cff056e2bb7232f88f97639752de8",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/oracle.rs",
+          "before": "                && matches!(value.value, Value::SingleQuotedString(_))\n",
+          "after": "                && !matches!(value.value, Value::SingleQuotedString(_))\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Stop converting temporal string casts to ANSI typed literals.",
+      "limit": "Unparser witness only; no live Oracle readiness/endpoint decode/universal NUMBER-i64 claim."
+    },
+    {
+      "label": "sql1909-files-no-ddl",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "planned_files_read_registered_rows_but_never_enable_raw_writes"
+      ],
+      "preimage_sha256": "2cc2ad72a611c5986593b54d85eaa19372dd434b20622841d181cddbe357f0b8",
+      "mutated_sha256": "4d0a75a69df46ce12ecf87067fd7bbc93ab3b7c855ea0ad5340c4b5d35b68160",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/statement.rs",
+          "before": "                .with_allow_ddl(false)\n                .with_allow_dml(false)\n                .with_allow_statements(false);\n",
+          "after": "                .with_allow_ddl(true)\n                .with_allow_dml(true)\n                .with_allow_statements(true);\n",
+          "count": 1
+        }
+      ],
+      "mechanism": "Permit writes through planned-only local file engine.",
+      "limit": "Cell unnamed in ordinary base filter. Head PASS observed; mutation is supplemental proof, no base-red credit."
+    }
+  ],
+  "test_files": {
+    "a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_text": "crates/sutura-app/src/raw/planned.rs",
+    "every_dialect_declares_what_backs_its_goldens": "crates/sutura-app/tests/golden/dialects.rs",
+    "render_bigquery": "crates/sutura-app/tests/golden/statements.rs",
+    "render_clickhouse": "crates/sutura-app/tests/golden/statements.rs",
+    "render_cube": "crates/sutura-app/tests/golden/statements.rs",
+    "render_datafusion": "crates/sutura-app/tests/golden/statements.rs",
+    "render_duckdb": "crates/sutura-app/tests/golden/statements.rs",
+    "native_clickhouse": "crates/sutura-app/tests/golden/statements.rs",
+    "native_datafusion": "crates/sutura-app/tests/golden/statements.rs",
+    "native_duckdb": "crates/sutura-app/tests/golden/statements.rs",
+    "native_postgres": "crates/sutura-app/tests/golden/statements.rs",
+    "render_oracle": "crates/sutura-app/tests/golden/statements.rs",
+    "render_postgres": "crates/sutura-app/tests/golden/statements.rs",
+    "planned_only_files_require_the_sql_feature_at_boot": "crates/sutura-cli/src/catalog/planned_tests.rs",
+    "a_listed_file_source_uses_the_execution_capability_of_this_build": "crates/sutura-cli/tests/served/run_sql_federation.rs",
+    "a_subject_source_needs_the_sql_planner_before_the_raw_tool_may_serve": "crates/sutura-config/src/settings/tests/tools.rs",
+    "every_listed_subject_source_requires_the_sql_planner": "crates/sutura-config/src/settings/tests/tools.rs",
+    "each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+    "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough": "crates/sutura-exec-bigquery/src/tests/statement.rs",
+    "planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough": "crates/sutura-exec-clickhouse/src/adbc/tests.rs",
+    "a_switched_user_answers_under_its_own_grants": "crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs",
+    "planned_sql_classifies_row_and_transport_byte_caps_as_result_bounds": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_discards_rows_when_cube_appends_an_error_without_exposing_its_text": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_keeps_signed_integer_precision_and_boolean_nulls": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_reads_the_declared_wire_types_and_empty_answers": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_refuses_a_mismatched_posture_and_an_empty_scan_set": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_refuses_a_spent_deadline_before_calling_the_transport": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_refuses_inexact_and_non_finite_double_answers": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_refuses_integer_overflow_and_non_integral_decimal_text": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_refuses_ragged_out_of_order_or_unsupported_data": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_sends_the_callers_bearer_and_original_deadline_without_enabling_raw_sql": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_uses_each_questions_own_bearer_on_one_shared_adapter": "crates/sutura-exec-cube/src/sql_tests.rs",
+    "planned_sql_responses_are_bounded_before_decoding": "crates/sutura-exec-cube/tests/http.rs",
+    "planned_sql_uses_the_rest_bearer_and_utc_without_a_shared_sql_login": "crates/sutura-exec-cube/tests/http.rs",
+    "cube_unsigned_results_are_refused_before_open_and_signed_results_still_run": "crates/sutura-exec-datafusion/src/combine/statement/tests.rs",
+    "a_failed_source_part_logs_its_own_statement_at_debug_only": "crates/sutura-exec-datafusion/src/combine/statement/tests/logged.rs",
+    "oracle_temporal_constants_use_ansi_literals_without_session_format_casts": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
+    "planned_files_read_registered_rows_but_never_enable_raw_writes": "crates/sutura-exec-datafusion/src/statement.rs"
+  },
+  "test_identities": {
+    "a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_text": [
+      "sutura-app",
+      "raw::planned::a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_text"
+    ],
+    "every_dialect_declares_what_backs_its_goldens": [
+      "sutura-app::golden",
+      "dialects::every_dialect_declares_what_backs_its_goldens"
+    ],
+    "render_bigquery": [
+      "sutura-app::golden",
+      "statements::bigquery::pins_planned_source_statements"
+    ],
+    "render_clickhouse": [
+      "sutura-app::golden",
+      "statements::clickhouse::pins_planned_source_statements"
+    ],
+    "render_cube": [
+      "sutura-app::golden",
+      "statements::cube::pins_planned_source_statements"
+    ],
+    "render_datafusion": [
+      "sutura-app::golden",
+      "statements::datafusion::pins_planned_source_statements"
+    ],
+    "render_duckdb": [
+      "sutura-app::golden",
+      "statements::duckdb::pins_planned_source_statements"
+    ],
+    "native_clickhouse": [
+      "sutura-app::golden",
+      "statements::engines::clickhouse::every_planned_shape_answers_at_the_native_engine"
+    ],
+    "native_datafusion": [
+      "sutura-app::golden",
+      "statements::engines::datafusion::every_planned_shape_answers_at_the_native_engine"
+    ],
+    "native_duckdb": [
+      "sutura-app::golden",
+      "statements::engines::duckdb::every_planned_shape_answers_at_the_native_engine"
+    ],
+    "native_postgres": [
+      "sutura-app::golden",
+      "statements::engines::postgres::every_planned_shape_answers_at_the_native_engine"
+    ],
+    "render_oracle": [
+      "sutura-app::golden",
+      "statements::oracle::pins_planned_source_statements"
+    ],
+    "render_postgres": [
+      "sutura-app::golden",
+      "statements::postgres::pins_planned_source_statements"
+    ],
+    "planned_only_files_require_the_sql_feature_at_boot": [
+      "sutura-cli::bin/sutura",
+      "catalog::planned_tests::planned_only_files_require_the_sql_feature_at_boot"
+    ],
+    "a_listed_file_source_uses_the_execution_capability_of_this_build": [
+      "sutura-cli::served",
+      "duckdb::run_sql_federation::tests::a_listed_file_source_uses_the_execution_capability_of_this_build"
+    ],
+    "a_subject_source_needs_the_sql_planner_before_the_raw_tool_may_serve": [
+      "sutura-config",
+      "settings::tests::tools::a_subject_source_needs_the_sql_planner_before_the_raw_tool_may_serve"
+    ],
+    "every_listed_subject_source_requires_the_sql_planner": [
+      "sutura-config",
+      "settings::tests::tools::every_listed_subject_source_requires_the_sql_planner"
+    ],
+    "each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread": [
+      "sutura-domain",
+      "warehouse::schema::tests::each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread"
+    ],
+    "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough": [
+      "sutura-exec-bigquery",
+      "tests::statement::planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough"
+    ],
+    "planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough": [
+      "sutura-exec-clickhouse",
+      "adbc::tests::planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough"
+    ],
+    "a_switched_user_answers_under_its_own_grants": [
+      "sutura-exec-clickhouse::adbc_execute_as",
+      "adbc_execute_as::a_switched_user_answers_under_its_own_grants"
+    ],
+    "planned_sql_classifies_row_and_transport_byte_caps_as_result_bounds": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_classifies_row_and_transport_byte_caps_as_result_bounds"
+    ],
+    "planned_sql_discards_rows_when_cube_appends_an_error_without_exposing_its_text": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_discards_rows_when_cube_appends_an_error_without_exposing_its_text"
+    ],
+    "planned_sql_keeps_signed_integer_precision_and_boolean_nulls": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_keeps_signed_integer_precision_and_boolean_nulls"
+    ],
+    "planned_sql_reads_the_declared_wire_types_and_empty_answers": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_reads_the_declared_wire_types_and_empty_answers"
+    ],
+    "planned_sql_refuses_a_mismatched_posture_and_an_empty_scan_set": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_refuses_a_mismatched_posture_and_an_empty_scan_set"
+    ],
+    "planned_sql_refuses_a_spent_deadline_before_calling_the_transport": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_refuses_a_spent_deadline_before_calling_the_transport"
+    ],
+    "planned_sql_refuses_inexact_and_non_finite_double_answers": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_refuses_inexact_and_non_finite_double_answers"
+    ],
+    "planned_sql_refuses_integer_overflow_and_non_integral_decimal_text": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_refuses_integer_overflow_and_non_integral_decimal_text"
+    ],
+    "planned_sql_refuses_ragged_out_of_order_or_unsupported_data": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_refuses_ragged_out_of_order_or_unsupported_data"
+    ],
+    "planned_sql_sends_the_callers_bearer_and_original_deadline_without_enabling_raw_sql": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_sends_the_callers_bearer_and_original_deadline_without_enabling_raw_sql"
+    ],
+    "planned_sql_uses_each_questions_own_bearer_on_one_shared_adapter": [
+      "sutura-exec-cube",
+      "sql_tests::planned_sql_uses_each_questions_own_bearer_on_one_shared_adapter"
+    ],
+    "planned_sql_responses_are_bounded_before_decoding": [
+      "sutura-exec-cube::http",
+      "tests::planned_sql_responses_are_bounded_before_decoding"
+    ],
+    "planned_sql_uses_the_rest_bearer_and_utc_without_a_shared_sql_login": [
+      "sutura-exec-cube::http",
+      "tests::planned_sql_uses_the_rest_bearer_and_utc_without_a_shared_sql_login"
+    ],
+    "cube_unsigned_results_are_refused_before_open_and_signed_results_still_run": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::cube_unsigned_results_are_refused_before_open_and_signed_results_still_run"
+    ],
+    "a_failed_source_part_logs_its_own_statement_at_debug_only": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::logged::a_failed_source_part_logs_its_own_statement_at_debug_only"
+    ],
+    "oracle_temporal_constants_use_ansi_literals_without_session_format_casts": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::oracle::oracle_temporal_constants_use_ansi_literals_without_session_format_casts"
+    ],
+    "planned_files_read_registered_rows_but_never_enable_raw_writes": [
+      "sutura-exec-datafusion",
+      "statement::tests::planned_files_read_registered_rows_but_never_enable_raw_writes"
+    ]
+  },
+  "test_functions": {
+    "a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_text": {
+      "name": "a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_text",
+      "indent": ""
+    },
+    "every_dialect_declares_what_backs_its_goldens": {
+      "name": "every_dialect_declares_what_backs_its_goldens",
+      "indent": ""
+    },
+    "render_bigquery": {
+      "name": "pins_planned_source_statements",
+      "indent": ""
+    },
+    "render_clickhouse": {
+      "name": "pins_planned_source_statements",
+      "indent": ""
+    },
+    "render_cube": {
+      "name": "pins_planned_source_statements",
+      "indent": ""
+    },
+    "render_datafusion": {
+      "name": "pins_planned_source_statements",
+      "indent": ""
+    },
+    "render_duckdb": {
+      "name": "pins_planned_source_statements",
+      "indent": ""
+    },
+    "native_clickhouse": {
+      "name": "every_planned_shape_answers_at_the_native_engine",
+      "indent": ""
+    },
+    "native_datafusion": {
+      "name": "every_planned_shape_answers_at_the_native_engine",
+      "indent": ""
+    },
+    "native_duckdb": {
+      "name": "every_planned_shape_answers_at_the_native_engine",
+      "indent": ""
+    },
+    "native_postgres": {
+      "name": "every_planned_shape_answers_at_the_native_engine",
+      "indent": ""
+    },
+    "render_oracle": {
+      "name": "pins_planned_source_statements",
+      "indent": ""
+    },
+    "render_postgres": {
+      "name": "pins_planned_source_statements",
+      "indent": ""
+    },
+    "planned_only_files_require_the_sql_feature_at_boot": {
+      "name": "planned_only_files_require_the_sql_feature_at_boot",
+      "indent": ""
+    },
+    "a_listed_file_source_uses_the_execution_capability_of_this_build": {
+      "name": "a_listed_file_source_uses_the_execution_capability_of_this_build",
+      "indent": "    "
+    },
+    "a_subject_source_needs_the_sql_planner_before_the_raw_tool_may_serve": {
+      "name": "a_subject_source_needs_the_sql_planner_before_the_raw_tool_may_serve",
+      "indent": ""
+    },
+    "every_listed_subject_source_requires_the_sql_planner": {
+      "name": "every_listed_subject_source_requires_the_sql_planner",
+      "indent": ""
+    },
+    "each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread": {
+      "name": "each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread",
+      "indent": ""
+    },
+    "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough": {
+      "name": "planned_bigquery_jobs_keep_each_callers_token_project_and_deadline_without_enabling_passthrough",
+      "indent": ""
+    },
+    "planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough": {
+      "name": "planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough",
+      "indent": ""
+    },
+    "a_switched_user_answers_under_its_own_grants": {
+      "name": "a_switched_user_answers_under_its_own_grants",
+      "indent": "    "
+    },
+    "planned_sql_classifies_row_and_transport_byte_caps_as_result_bounds": {
+      "name": "planned_sql_classifies_row_and_transport_byte_caps_as_result_bounds",
+      "indent": ""
+    },
+    "planned_sql_discards_rows_when_cube_appends_an_error_without_exposing_its_text": {
+      "name": "planned_sql_discards_rows_when_cube_appends_an_error_without_exposing_its_text",
+      "indent": ""
+    },
+    "planned_sql_keeps_signed_integer_precision_and_boolean_nulls": {
+      "name": "planned_sql_keeps_signed_integer_precision_and_boolean_nulls",
+      "indent": ""
+    },
+    "planned_sql_reads_the_declared_wire_types_and_empty_answers": {
+      "name": "planned_sql_reads_the_declared_wire_types_and_empty_answers",
+      "indent": ""
+    },
+    "planned_sql_refuses_a_mismatched_posture_and_an_empty_scan_set": {
+      "name": "planned_sql_refuses_a_mismatched_posture_and_an_empty_scan_set",
+      "indent": ""
+    },
+    "planned_sql_refuses_a_spent_deadline_before_calling_the_transport": {
+      "name": "planned_sql_refuses_a_spent_deadline_before_calling_the_transport",
+      "indent": ""
+    },
+    "planned_sql_refuses_inexact_and_non_finite_double_answers": {
+      "name": "planned_sql_refuses_inexact_and_non_finite_double_answers",
+      "indent": ""
+    },
+    "planned_sql_refuses_integer_overflow_and_non_integral_decimal_text": {
+      "name": "planned_sql_refuses_integer_overflow_and_non_integral_decimal_text",
+      "indent": ""
+    },
+    "planned_sql_refuses_ragged_out_of_order_or_unsupported_data": {
+      "name": "planned_sql_refuses_ragged_out_of_order_or_unsupported_data",
+      "indent": ""
+    },
+    "planned_sql_sends_the_callers_bearer_and_original_deadline_without_enabling_raw_sql": {
+      "name": "planned_sql_sends_the_callers_bearer_and_original_deadline_without_enabling_raw_sql",
+      "indent": ""
+    },
+    "planned_sql_uses_each_questions_own_bearer_on_one_shared_adapter": {
+      "name": "planned_sql_uses_each_questions_own_bearer_on_one_shared_adapter",
+      "indent": ""
+    },
+    "planned_sql_responses_are_bounded_before_decoding": {
+      "name": "planned_sql_responses_are_bounded_before_decoding",
+      "indent": "    "
+    },
+    "planned_sql_uses_the_rest_bearer_and_utc_without_a_shared_sql_login": {
+      "name": "planned_sql_uses_the_rest_bearer_and_utc_without_a_shared_sql_login",
+      "indent": "    "
+    },
+    "cube_unsigned_results_are_refused_before_open_and_signed_results_still_run": {
+      "name": "cube_unsigned_results_are_refused_before_open_and_signed_results_still_run",
+      "indent": ""
+    },
+    "a_failed_source_part_logs_its_own_statement_at_debug_only": {
+      "name": "a_failed_source_part_logs_its_own_statement_at_debug_only",
+      "indent": ""
+    },
+    "oracle_temporal_constants_use_ansi_literals_without_session_format_casts": {
+      "name": "oracle_temporal_constants_use_ansi_literals_without_session_format_casts",
+      "indent": ""
+    },
+    "planned_files_read_registered_rows_but_never_enable_raw_writes": {
+      "name": "planned_files_read_registered_rows_but_never_enable_raw_writes",
+      "indent": "    "
+    }
+  }
+}

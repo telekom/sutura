@@ -40,7 +40,7 @@ on:
         description: Check fuzz metadata or run finishing gates on the pinned source
         type: choice
         required: true
-        options: [preflight, gates, gates-mutations]
+        options: [preflight, gates, gates-mutations, sql-mutations]
       source_sha:
         description: Exact frozen source commit
         type: string
@@ -128,6 +128,8 @@ jobs:
             finishing_operations=(preflight)
           elif [[ "$OPERATION" == gates-mutations ]]; then
             finishing_operations+=(mutations)
+          elif [[ "$OPERATION" == sql-mutations ]]; then
+            finishing_operations=(sql-mutations)
           fi
           for finishing_operation in "${finishing_operations[@]}"; do
             nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py "$finishing_operation" "$finishing_plan_path"

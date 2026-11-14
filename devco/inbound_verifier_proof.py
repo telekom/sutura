@@ -121,23 +121,38 @@ def whole(label, binary, cells, green):
 
 
 def region(path, cell):
+    specification = PLAN.get("test_functions", {}).get(cell, {"name": cell})
+    function = specification["name"]
     lines = Path(path).read_text().splitlines()
     starts = [
         (i, m.group(1))
         for i, line in enumerate(lines)
-        if (m := re.match(rf"^([ \t]*)(?:async )?fn {re.escape(cell)}\(", line))
+        if (
+            m := re.match(
+                rf"^([ \t]*)(?:async )?fn {re.escape(function)}(?:<[^\n]+>)?\(", line
+            )
+        )
     ]
+    if "indent" in specification:
+        starts = [
+            (line, indent)
+            for line, indent in starts
+            if indent == specification["indent"]
+        ]
     assert len(starts) == 1, (path, cell, starts)
     start, indent = starts[0]
     end = next(i for i in range(start + 1, len(lines)) if lines[i] == indent + "}")
     return start + 1, end + 1, "\n".join(lines[start : end + 1])
 
 
-def own_sites(text, cell):
+def own_sites(text, cell, full_name):
     path = PLAN["test_files"][cell]
     start, end, body = region(path, cell)
     sites = []
-    for match in re.finditer(r" panicked at ([^\n]+):(\d+):(\d+):", text):
+    for match in re.finditer(
+        rf"thread '{re.escape(full_name)}'(?: \(\d+\))? panicked at ([^\n]+):(\d+):(\d+):",
+        text,
+    ):
         found_path, line = match.group(1), int(match.group(2))
         if found_path == path and start <= line <= end:
             lines = text[match.start() :].splitlines()
@@ -150,9 +165,18 @@ def mutations():
     global BINARY_CELLS
     os.environ["NEXTEST_PROFILE"] = "nofailfast"
     packages = sorted({mutant["package"] for mutant in PLAN["mutants"]})
+    explicit = PLAN.get("test_identities", {})
+    discovery = (
+        " | ".join(
+            f"binary_id(={binary})"
+            for binary in sorted({identity[0] for identity in explicit.values()})
+        )
+        if explicit
+        else " | ".join(f"package(={package})" for package in packages)
+    )
     status, text = execute(
         "discover",
-        ["just", "test-only", " | ".join(f"package(={p})" for p in packages)],
+        ["just", "test-only", discovery],
     )
     assert status == 0
     rows = results(text)
@@ -162,6 +186,16 @@ def mutations():
     cells = sorted({cell for mutant in PLAN["mutants"] for cell in mutant["tests"]})
     locations = {}
     for cell in cells:
+        if explicit:
+            assert cell in explicit, ("unbound declared identity", cell)
+            identity = tuple(explicit[cell])
+            assert rows.get(identity) == "PASS", (
+                "missing exact identity",
+                cell,
+                identity,
+            )
+            locations[cell] = identity
+            continue
         found = [
             (binary, full)
             for (binary, full), verdict in rows.items()
@@ -169,6 +203,9 @@ def mutations():
         ]
         assert len(found) == 1, (cell, found)
         locations[cell] = found[0]
+    assert not explicit or set(explicit) == set(cells), (
+        "undeclared or unmeasured identity"
+    )
     write("binaries.json", locations)
     exact(BASELINE)
     saved_tests = {
@@ -212,10 +249,10 @@ def mutations():
                 new = Path(path).read_bytes()
                 assert digest(new) == mutant["mutated_sha256"]
                 old_tail = re.split(
-                    rb"(?m)^#\[cfg\(test\)\]\nmod tests", old, maxsplit=1
+                    rb"(?m)^#\[cfg\(test\)\]\nmod tests[ \t]*\{", old, maxsplit=1
                 )[1:]
                 new_tail = re.split(
-                    rb"(?m)^#\[cfg\(test\)\]\nmod tests", new, maxsplit=1
+                    rb"(?m)^#\[cfg\(test\)\]\nmod tests[ \t]*\{", new, maxsplit=1
                 )[1:]
                 assert old_tail == new_tail, "inline test module changed"
                 expected[path] = [os.lstat(path).st_mode, digest(new)]
@@ -228,7 +265,7 @@ def mutations():
             write(label + "-mutant-state.json", expected)
             text = whole(label + "-mutant", binary, full_names, False)
             exact(expected)
-            evidence = [own_sites(text, cell) for cell in names]
+            evidence = [own_sites(text, cell, locations[cell][1]) for cell in names]
         finally:
             for path, content in changed.items():
                 Path(path).write_bytes(content)
@@ -421,15 +458,19 @@ if __name__ == "__main__":
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("preflight", "validate", "ship-check", "mutations")
+    assert mode in ("preflight", "validate", "ship-check", "mutations", "sql-mutations")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
     PLAN = json.loads(Path(plan_path).read_text())
-    if mode == "mutations":
-        mutation_plan = json.loads(
-            Path(__file__).with_name("sql1912-finishing-mutations.json").read_bytes()
+    if mode in ("mutations", "sql-mutations"):
+        mutation_file = (
+            "sql1909-finishing-mutations.json"
+            if mode == "sql-mutations"
+            else "sql1912-finishing-mutations.json"
         )
-        PLAN["mutants"] = mutation_plan["mutants"]
-        PLAN["test_files"] = mutation_plan["test_files"]
+        mutation_plan = json.loads(Path(__file__).with_name(mutation_file).read_bytes())
+        for key in ("mutants", "test_files", "test_identities", "test_functions"):
+            if key in mutation_plan:
+                PLAN[key] = mutation_plan[key]
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == PLAN["source_tree"]
     assert (
@@ -491,7 +532,7 @@ if __name__ == "__main__":
         if mode == "preflight":
             fuzz_metadata_preflight(inherited_home)
             status = 0
-        elif mode == "mutations":
+        elif mode in ("mutations", "sql-mutations"):
             mutations()
             status = 0
         else:
