@@ -185,7 +185,7 @@ mod across {
         // engine's error carries and the caller's body does not.
         let dropped = ran(&served, "drop table dim_region");
         assert_eq!(dropped.status, 422, "{}", dropped.body);
-        assert_eq!(dropped.json()["code"], "statement_failed", "{}", dropped.body);
+        assert_eq!(dropped.json()["code"], "unsupported_syntax", "{}", dropped.body);
         let unknown = ran(&served, "select no_such_column from dim_region");
         assert_eq!(unknown.status, 422, "{}", unknown.body);
         assert!(!unknown.body.contains("no_such_column"), "{}", unknown.body);

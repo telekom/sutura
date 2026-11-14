@@ -586,7 +586,7 @@ mod tests {
                 let reply = ran(&served, &statement);
                 assert_eq!(reply.status, 422, "{statement}: {}", reply.body);
                 assert_eq!(reply.json()["outcome"], "raw_refusal", "{}", reply.body);
-                assert_eq!(reply.json()["code"], "statement_failed", "{}", reply.body);
+                assert_eq!(reply.json()["code"], "unknown_column", "{}", reply.body);
                 assert!(!reply.body.contains("private value"));
             }
             let certified = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN),
