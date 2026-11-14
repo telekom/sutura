@@ -1,30 +1,30 @@
-# TPC-H across nodes against one node, in four NixOS VMs (`telekom/sutura#828`).
+# TPC-H across nodes against one node, in five NixOS VMs (`telekom/sutura#828`).
 #
 # `query` holds the generated star (`nix/tpch-data.nix`) as a DuckDB file and serves three
 # `sutura serve` topologies over it, one running at a time:
 #
 #   REF   every model on the DuckDB source: one statement, no federation. The answer.
 #   ONE   the federated catalog (facts in DuckDB, dimensions in PostgreSQL), no `server.nodes`.
-#   MANY  the same catalog with `reader1` and `reader2` as `server.role: reading-worker` peers of the
-#         PostgreSQL source, which `db` holds. A lookup leg over a table past one stream's rows is
+#   MANY  the same catalog with three `server.role: reading-worker` peers of the
+#         PostgreSQL source, which `db` holds. An above-threshold lookup leg is
 #         split by `ctid` range and granted to the readers.
 #
 # `nix/tpch/acceptance.json` names the questions MANY must answer and agree with REF on, and
 # `nix/tpch-across-nodes.py` is what asks them and judges. At SF10 `customer` (1,500,000 rows) and
 # `part` (2,000,000) are past the 1,000,000 a stream may carry, so ONE refuses an unfiltered lookup
-# over either as `result_too_large` and MANY reads it in two partitions.
+# over either as `result_too_large`. MANY requests three partitions for each, and two for supplier.
 #
-# What is observed: each listed answer on MANY equals REF's, by `sutura-dev agree`. PostgreSQL's
+# What this checks: each listed answer on MANY equals REF's, by `sutura-dev agree`. PostgreSQL's
 # statement log, prefixed with each client's address, holds exactly the leg's partitions as distinct
-# `ctid` ranges read by the readers, each reader reading at least one, none by `query`, which
-# exported the snapshot. A question that splits no leg shows no range at all.
+# `ctid` ranges, each owned by one reader, with as many distinct readers as partitions per leg.
+# None is read by `query`, which exported the snapshot. A question that splits no leg shows no range.
 #
 # What this does not show: nobody signs in - the test mints the caller's token over one key. Every
 # node reads PostgreSQL as one role, so the log tells nodes apart by address alone. The fact leg is
 # read whole on `query`, so only lookup legs are distributed, and nothing here measures load. REF
 # and MANY share the semantic compiler: a defect in the plan they share agrees with itself. A split
-# is cut by pages, so a table of exactly two streams' rows has no slack and a partition may pass the
-# bound; such a question is only observed. One CA signs every node certificate and PostgreSQL's.
+# is cut by pages, so even a spare partition does not guarantee a stream fits its bound; unproven
+# recoveries remain observed. One CA signs every node certificate and PostgreSQL's.
 # The VMs run under KVM, so the times are this host's and not a deployment's.
 #
 # `reltuples` decides the partition count, and `ANALYZE` only estimates it, so the tables are
@@ -49,6 +49,9 @@
 let
   inherit (pkgs) lib;
 
+  readerNames = [ "reader1" "reader2" "reader3" ];
+  aboveBytes = 1;
+
   python = pkgs.python3.withPackages (p: [
     p.pyjwt
     p.cryptography
@@ -64,7 +67,7 @@ let
         mkdir "$out" && cd "$out"
         printf '[req]\ndistinguished_name=dn\nx509_extensions=ca\nprompt=no\n[dn]\nCN=tpch-across-nodes-ca\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\nsubjectKeyIdentifier=hash\n' > ca.cnf
         openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.pem -days 3650 -config ca.cnf
-        for node in query reader1 reader2 db; do
+        for node in query ${lib.concatStringsSep " " readerNames} db; do
           openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout $node.key -out $node.csr -subj /CN=$node
           printf 'subjectAltName=DNS:%s\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\n' $node > $node.ext
           openssl x509 -req -in $node.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out $node.pem -days 3650 -extfile $node.ext
@@ -324,8 +327,8 @@ let
             url = "https://${other}:8443";
             role = "reading-worker";
             sources = [ "crm" ];
-          }) [ "reader1" "reader2" ];
-        across_above_bytes = 1;
+          }) readerNames;
+        across_above_bytes = aboveBytes;
       };
     };
     security = offHost // multiUser;
@@ -362,6 +365,8 @@ let
   plan = pkgs.writeText "tpch-across-nodes-plan.json" (
     builtins.toJSON {
       inherit scale;
+      readers = readerNames;
+      above_bytes = aboveBytes;
       data = "${data}";
       corpus = "${corpus}";
       material = "${material}";
@@ -396,19 +401,12 @@ let
           config = "${manyConfig}";
           catalog = "${corpus}/catalog";
         }
-        {
-          machine = "reader1";
-          name = "reader1";
-          config = "${readerConfig "reader1"}";
-          catalog = "${corpus}/catalog";
-        }
-        {
-          machine = "reader2";
-          name = "reader2";
-          config = "${readerConfig "reader2"}";
-          catalog = "${corpus}/catalog";
-        }
-      ];
+      ] ++ map (own: {
+        machine = own;
+        name = own;
+        config = "${readerConfig own}";
+        catalog = "${corpus}/catalog";
+      }) readerNames;
       load = "${load}";
       role = "${role}";
       tables = builtins.attrNames dimensions;
@@ -462,6 +460,7 @@ pkgs.testers.runNixOSTest {
 
   nodes.reader1 = reader "reader1";
   nodes.reader2 = reader "reader2";
+  nodes.reader3 = reader "reader3";
 
   nodes.query = {
     virtualisation = {
@@ -491,12 +490,11 @@ pkgs.testers.runNixOSTest {
 
       plan = json.load(open("${plan}"))
       # Both families: PostgreSQL logs whichever one the client connected over.
-      plan["addresses"] = {
-          "query": ["${nodes.query.networking.primaryIPAddress}", "${nodes.query.networking.primaryIPv6Address}"],
-          "reader1": ["${nodes.reader1.networking.primaryIPAddress}", "${nodes.reader1.networking.primaryIPv6Address}"],
-          "reader2": ["${nodes.reader2.networking.primaryIPAddress}", "${nodes.reader2.networking.primaryIPv6Address}"],
-      }
+      plan["addresses"] = json.loads('${builtins.toJSON (lib.genAttrs ([ "query" ] ++ readerNames) (own: [
+        nodes.${own}.networking.primaryIPAddress
+        nodes.${own}.networking.primaryIPv6Address
+      ]))}')
       harness = runpy.run_path("${./tpch-across-nodes.py}")
-      harness["main"](plan, query, db, [reader1, reader2], start_all, subtest, driver.out_dir)
+      harness["main"](plan, query, db, [${lib.concatStringsSep ", " readerNames}], start_all, subtest, driver.out_dir)
     '';
 }

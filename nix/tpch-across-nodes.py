@@ -1,12 +1,12 @@
 """The driver half of `nix/tpch-across-nodes.nix`: TPC-H across nodes against one node.
 
-`nix/tpch-across-nodes.nix` boots four VMs and hands this file's `main` the machines and a plan.
+`nix/tpch-across-nodes.nix` boots five VMs and hands this file's `main` the machines and a plan.
 Three `sutura serve` topologies answer the same questions, one at a time, over the same star:
 
   REF   one node, every model on the DuckDB source. One statement, no federation: the answer.
   ONE   one node, the federated catalog, no `server.nodes`. A lookup leg past one stream's rows
         is refused `result_too_large`.
-  MANY  a planner and two reading workers over the federated catalog. A split lookup leg is
+  MANY  a planner and three reading workers over the federated catalog. A split lookup leg is
         granted to the readers, which read its `ctid` ranges.
 
 `nix/tpch/acceptance.json` names the questions that must answer on MANY, equal REF. Every
@@ -17,31 +17,29 @@ exactly, and only a column that holds an `avg` or a ratio at 13 significant digi
 judged too, on every question.
 
 That the legs were read across nodes is the PostgreSQL statement log, one line per statement,
-prefixed with the client's address. A listed question that splits a leg must show exactly that
-leg's partitions as distinct ranges read by the readers, each reader reading at least one, and
+prefixed with the client's address. Every MANY answer must show exactly each split
+leg's partitions, with one owner per range and as many distinct readers as partitions on that leg, and
 none read by the serving node, which exported the snapshot. A question that splits no leg must
 show no range at all.
 
 Limits: the fact leg (DuckDB) is read whole on the serving node, so only lookup legs are
 distributed. Every node reads PostgreSQL as one role, so the log tells nodes apart by address
 alone. REF and MANY share the semantic compiler, so a defect in the plan they share agrees with
-itself. A split leg's partitions are cut by pages, not by rows: a table of exactly two streams'
-rows has no slack, and a partition past the bound is refused, so a question over such a leg is
-recorded under `observed` rather than listed until a run says it answers.
+itself. A split leg's partitions are cut by pages, not by rows: even one spare partition cannot
+guarantee a stream fits, so a recovery stays `observed` until a run says it answers.
 """
 
 import datetime as dt
 import ipaddress
 import json
-import math
 import re
 import shlex
 import time
 from itertools import pairwise
 from pathlib import Path
 
-# One stream's rows (`MOST_RESULT_ROWS` in `sutura-exec-postgres`). A split leg is cut into the
-# fewest partitions that each fit it.
+# One stream's rows (`MOST_RESULT_ROWS` in `sutura-exec-postgres`). Above the byte threshold,
+# the planner adds one partition to the required count when a declared reader is spare.
 STREAM_ROWS = 1_000_000
 
 # The dimensions whose lookup leg is rooted at a PostgreSQL table, by the table.
@@ -97,8 +95,11 @@ def legs_of(body: dict) -> list[str]:
     return sorted({LEG_OF[d] for d in named if d in LEG_OF})
 
 
-def partitions(counts: dict, table: str) -> int:
-    return max(1, math.ceil(counts[table] / STREAM_ROWS))
+def partitions(counts: dict, table: str, readers: int) -> int:
+    required = max(1, (counts[table] + STREAM_ROWS - 1) // STREAM_ROWS)
+    if required > readers:
+        refuse(f"{table} needs {required} partitions, only {readers} readers declared")
+    return min(required + 1, readers)
 
 
 class Corpus:
@@ -113,6 +114,7 @@ class Corpus:
         accepted = json.loads((corpus / "acceptance.json").read_text())
         self.scale = plan["scale"]
         self.counts = data["counts"]
+        self.readers = len(plan["readers"])
         self.real = real_metrics(corpus / "catalog")
         self.listed = accepted["questions"]
         self.observed = accepted["observed"]
@@ -144,7 +146,7 @@ class Corpus:
             if everything.get(name, {}).get("path") != "single":
                 refuse(f"{name} is not a single-source question of questions.json")
         for table in ("customer", "part"):
-            if partitions(self.counts, table) < 2:
+            if self.counts[table] <= STREAM_ROWS:
                 refuse(
                     f"SF{self.scale} does not split {table}: nothing is across nodes"
                 )
@@ -160,9 +162,9 @@ class Corpus:
     def splits(self, name: str) -> dict[str, int]:
         """The leg tables the question reads in partitions, and into how many."""
         return {
-            t: partitions(self.counts, t)
+            t: partitions(self.counts, t, self.readers)
             for t in self.legs(name)
-            if partitions(self.counts, t) > 1
+            if partitions(self.counts, t, self.readers) > 1
         }
 
     def names(self) -> list[str]:
@@ -180,6 +182,8 @@ class Venue:
         self.query = query
         self.db = db
         self.readers = readers
+        if [r.name for r in readers] != plan["readers"]:
+            refuse("the reader machines differ from the declared readers")
         self.node = {
             address: node
             for node, addresses in plan["addresses"].items()
@@ -321,8 +325,10 @@ def cut_whole(rows: list[tuple]) -> bool:
     """Whether the ranges, in page order, meet end to end and the last is open."""
     ordered = sorted(rows, key=lambda r: r[1])
     return (
-        ordered[0][1] == 0
+        bool(ordered)
+        and ordered[0][1] == 0
         and ordered[-1][2] == OPEN
+        and all(a >= 0 and (b == OPEN or a < b) for _, a, b in ordered)
         and all(a[2] == b[1] for a, b in pairwise(ordered))
     )
 
@@ -346,10 +352,14 @@ def judge_ranges(
             )
         elif not cut_whole(mine):
             problems.append(f"{table}: the ranges do not cover the table: {mine}")
+        owners = [node for node in readers if any(r[0] == table for r in read[node])]
+        if len(owners) != wanted:
+            problems.append(f"{table}: {len(owners)} distinct readers, {wanted} wanted")
+        for span in mine:
+            owners = [node for node in readers if span in read[node]]
+            if len(owners) != 1:
+                problems.append(f"{table}: range {span} has {len(owners)} owners")
     if splits:
-        for node in readers:
-            if not read[node]:
-                problems.append(f"{node} read no range")
         exported = any(
             "pg_export_snapshot" in text
             for client, text in statements
@@ -369,11 +379,14 @@ def cell(result: dict) -> str:
 
 
 def table_of(report: dict) -> str:
+    readers = report["readers"]
     lines = [
         f"## TPC-H across nodes, SF{report['scale']}",
         "",
-        "| question | tier | splits | reader1 | reader2 | query | MANY | verdict |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| question | tier | splits | "
+        + " | ".join(readers)
+        + " | query | MANY | verdict |",
+        "| " + " | ".join(["---"] * (len(readers) + 6)) + " |",
     ]
 
     def span(rows: list) -> str:
@@ -381,13 +394,98 @@ def table_of(report: dict) -> str:
 
     for name, record in report["questions"].items():
         ranges = record["ranges"]
+        placement = " | ".join(span(ranges.get(reader, [])) for reader in readers)
         lines.append(
             f"| {name} | {record['tier']} | {record['splits'] or '-'} "
-            f"| {span(ranges.get('reader1', []))} | {span(ranges.get('reader2', []))} "
-            f"| {span(ranges.get('query', []))} | {cell(record['many'])} "
+            f"| {placement} | {span(ranges.get('query', []))} | {cell(record['many'])} "
             f"| {'; '.join(record['problems']) or 'ok'} |"
         )
     return "\n".join(lines) + "\n"
+
+
+def check_range_ownership() -> None:
+    """The real judge rejects duplicate ownership and permits an idle third supplier reader."""
+    readers = ["reader1", "reader2", "reader3"]
+
+    def span(node: str, table: str, lower: int, upper: int = OPEN) -> tuple[str, str]:
+        sql = f'SELECT * FROM "{table}" WHERE "{table}"."ctid" >= \'({lower},0)\''
+        if upper != OPEN:
+            sql += f' AND "{table}"."ctid" < \'({upper},0)\''
+        return node, sql
+
+    exported = ("query", "SELECT pg_export_snapshot()")
+    part = [
+        span("reader1", "part", 0, 10),
+        span("reader2", "part", 10, 20),
+        span("reader3", "part", 20),
+    ]
+    complete = [exported, *part]
+    _, problems = judge_ranges(
+        {"part": 3}, [*complete, ("reader2", part[0][1])], readers
+    )
+    assert any("has 2 owners" in p for p in problems), (
+        f"duplicate owner accepted: {problems}"
+    )
+    _, problems = judge_ranges({"part": 3}, complete, readers)
+    assert not problems, problems
+    supplier = [span("reader1", "supplier", 0, 10), span("reader2", "supplier", 10)]
+    for splits, statements in [
+        ({"supplier": 2}, [exported, *supplier]),
+        ({"part": 3, "supplier": 2}, [*complete, *supplier]),
+    ]:
+        _, problems = judge_ranges(splits, statements, readers)
+        assert not problems, problems
+    for case, wanted, statements, expected in [
+        ("missing range", 3, complete[:-1], "2 distinct ranges"),
+        ("wrong count", 2, complete, "3 distinct ranges"),
+        ("gap", 3, [*complete[:-1], span("reader3", "part", 21)], "do not cover"),
+        ("overlap", 3, [*complete[:-1], span("reader3", "part", 19)], "do not cover"),
+        (
+            "empty range",
+            3,
+            [
+                exported,
+                span("reader1", "part", 0, 0),
+                span("reader2", "part", 0, 20),
+                part[2],
+            ],
+            "do not cover",
+        ),
+        (
+            "two readers",
+            3,
+            [*complete[:-1], ("reader2", part[2][1])],
+            "2 distinct readers",
+        ),
+        (
+            "query read",
+            3,
+            [*complete, ("query", part[0][1])],
+            "serving node read ranges",
+        ),
+        ("no export", 3, part, "exported no snapshot"),
+    ]:
+        _, problems = judge_ranges({"part": wanted}, statements, readers)
+        assert any(expected in p for p in problems), f"{case}: {problems}"
+    for table, rows, expected in [
+        ("part", 2_000_000, 3),
+        ("customer", 1_500_000, 3),
+        ("supplier", 100_000, 2),
+    ]:
+        assert partitions({table: rows}, table, 3) == expected, table
+    venue = Venue(
+        {"material": ".", "readers": [], "addresses": {"reader1": ["192.0.2.1"]}},
+        None,
+        None,
+        [],
+    )
+    assert venue.statements(["192.0.2.1 LOG: statement: SELECT 1"])[0][0] == "reader1"
+    try:
+        venue.statements(["192.0.2.2 LOG: statement: SELECT 1"])
+    except AssertionError as error:
+        assert "which is no node's address" in str(error), error
+    else:
+        refuse("unknown client address accepted")
 
 
 def start_service(venue: Venue, topology: str) -> None:
@@ -430,18 +528,27 @@ def load_dimensions(venue: Venue, corpus: Corpus) -> None:
     )
     for table in venue.plan["tables"]:
         sql = (
-            f"SELECT count(*), (SELECT reltuples::bigint FROM pg_class"
-            f" WHERE oid = '{table}'::regclass) FROM {table}"
+            f"SELECT (SELECT count(*) FROM {table}), reltuples::bigint, relpages,"
+            f" current_setting('block_size')::bigint FROM pg_class"
+            f" WHERE oid = '{table}'::regclass"
         )
         printed = venue.db.succeed(
             f"runuser -u postgres -- psql -d sutura -At -F , -c {shlex.quote(sql)}"
         )
-        rows, estimate = (int(n) for n in printed.strip().split(","))
+        rows, estimate, pages, block_size = (int(n) for n in printed.strip().split(","))
         if rows != corpus.counts[table]:
             refuse(f"{table} holds {rows} rows, the data {corpus.counts[table]}")
         if estimate != rows:
             refuse(f"{table}: pg_class says {estimate} rows, the table holds {rows}")
-        venue.say(f"{table}: {rows} rows, estimated exactly")
+        if table in LEG_OF.values():
+            wanted = partitions(corpus.counts, table, corpus.readers)
+            if pages * block_size <= venue.plan["above_bytes"] or pages < wanted:
+                refuse(
+                    f"{table}: {pages} pages of {block_size} bytes cannot cut {wanted} above-threshold ranges"
+                )
+        venue.say(
+            f"{table}: {rows} rows, estimated exactly; {pages} pages, block size {block_size}"
+        )
 
 
 def run(venue: Venue, corpus: Corpus, subtest) -> dict:
@@ -472,7 +579,7 @@ def run(venue: Venue, corpus: Corpus, subtest) -> dict:
                         )
             stop_service(venue, topology)
 
-    readers = ["reader1", "reader2"]
+    readers = [reader.name for reader in venue.readers]
     questions: dict[str, dict] = {}
     for name in corpus.names():
         tier, body = corpus.tier(name), corpus.body(name)
@@ -497,8 +604,8 @@ def run(venue: Venue, corpus: Corpus, subtest) -> dict:
                 problems.append(f"MANY did not answer: {cell(many)}")
             if one["outcome"] == "refusal" and one["code"] != "result_too_large":
                 problems.append(f"ONE refused `{one['code']}`, not result_too_large")
-            if many["outcome"] == "answer":
-                problems += range_problems
+        if many["outcome"] == "answer":
+            problems += range_problems
         for other, label in ((many, "MANY"), (one, "ONE")):
             if ref["outcome"] == "answer" and other["outcome"] == "answer":
                 differs = venue.agree(ref["file"], other["file"], body, corpus.real)
@@ -518,6 +625,7 @@ def run(venue: Venue, corpus: Corpus, subtest) -> dict:
 
     return {
         "scale": corpus.scale,
+        "readers": readers,
         "counts": corpus.counts,
         "questions": questions,
         "failures": failures,
@@ -534,6 +642,8 @@ def dump(venue: Venue) -> None:
 
 
 def main(plan: dict, query, db, readers: list, start_all, subtest, out: Path) -> None:
+    with subtest("the range judge holds ownership per leg"):
+        check_range_ownership()
     corpus = Corpus(plan)
     venue = Venue(plan, query, db, readers)
     start_all()
