@@ -191,6 +191,22 @@ where
     super::declared_keys::hold(&pinned, warehouses)?;
     let report = super::verify_anchors(&pinned, warehouses);
     report.verdict(&pinned)?;
+    for model in pinned.definitions().models().values() {
+        let columns: Vec<_> = schemas
+            .fell_back(model.name())
+            .filter_map(|name| model.column(name))
+            .map(|column| {
+                (
+                    column.name().as_str(),
+                    column.data_type().map_or("<undeclared>", |kind| kind.as_str()),
+                )
+            })
+            .collect();
+        if !columns.is_empty() {
+            tracing::warn!(model = %model.name(), source = %model.source(), columns = ?columns,
+                "model excluded from planned run_sql because column types are unsupported or undeclared");
+        }
+    }
     Ok(Validated(Arc::new(pinned), Arc::new(schemas)))
 }
 
@@ -204,5 +220,10 @@ where
         .each()
         .filter_map(|(source, warehouse)| Some((source.clone(), warehouse.type_dialect()?)))
         .collect();
-    PinnedSchemas::pin(pinned.definitions(), &dialects)
+    let numbers = warehouses
+        .each()
+        .filter(|(_, warehouse)| warehouse.unbounded_number().is_some())
+        .map(|(source, _)| source.clone())
+        .collect();
+    PinnedSchemas::pin_with_unbounded_numbers(pinned.definitions(), &dialects, &numbers)
 }

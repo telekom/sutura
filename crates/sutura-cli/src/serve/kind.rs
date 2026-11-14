@@ -407,6 +407,10 @@ impl Warehouse for AnyWarehouse {
         any!(self, type_dialect)
     }
 
+    fn unbounded_number(&self) -> Option<sutura_domain::warehouse::schema::UnboundedNumber> {
+        any!(self, unbounded_number)
+    }
+
     fn execute_raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> RawExecution<Self::Error> {
         statements::statement!(self, execute_raw, statement, presented, deadline)
     }

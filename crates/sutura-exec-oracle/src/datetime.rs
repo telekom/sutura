@@ -2,7 +2,10 @@
 
 use sutura_domain::calendar::Date;
 
-use crate::OracleError;
+use crate::{Dial, OracleError, connect_err};
+use sutura_domain::identity::Secret;
+use sutura_domain::warehouse::deadline::Deadline;
+use sutura_oracle_connect::{DialError, PrepareError};
 
 /// A domain [`Date`], as the driver's `OracleTimestamp::new_date` wants it - via the date's own ISO
 /// text rather than a day-offset arithmetic, because [`Date`] exposes no field accessors and its ISO
@@ -19,8 +22,7 @@ pub(crate) fn oracle_date(date: Date) -> oracledb::OracleTimestamp {
 const MICROS_PER_SECOND: i64 = 1_000_000;
 const MICROS_PER_DAY: i64 = 86_400 * MICROS_PER_SECOND;
 
-/// A `DATE`, `TIMESTAMP` or `TIMESTAMP WITH TIME ZONE` value as the driver's Arrow batch hands it -
-/// `micros` since the epoch, a zoned value already folded to its UTC instant - to its domain text.
+/// A naive `DATE` or `TIMESTAMP` value as microseconds since the epoch, rendered as domain text.
 ///
 /// Midnight with no fraction answers the ISO day - the reverse of [`oracle_date`], and how the
 /// domain's Arrow reader renders a Postgres `DATE`. Any other time answers the ISO-8601 date-time
@@ -52,18 +54,81 @@ pub(crate) fn date_text(micros: i64) -> Result<String, OracleError> {
     Ok(format!("{day}T{hour:02}:{minute:02}:{second:02}{fraction}"))
 }
 
-/// The text representation of a zoned result.
+/// A zoned instant always includes a time and UTC suffix, including midnight.
 pub(crate) fn utc_text(micros: i64) -> Result<String, OracleError> {
-    date_text(micros)
+    let text = date_text(micros)?;
+    Ok(if micros.rem_euclid(MICROS_PER_DAY) == 0 {
+        format!("{text}T00:00:00Z")
+    } else {
+        format!("{text}Z")
+    })
 }
 
-/// A `TIMESTAMP WITH LOCAL TIME ZONE` column, refused by name: the driver hands it in the session
-/// zone with no offset.
-pub(crate) fn local_zone_refused(column: &str) -> OracleError {
-    OracleError::UnsupportedType {
-        column: String::from(column),
-        oracle_type: "TIMESTAMP WITH LOCAL TIME ZONE; the driver hands it in the session zone with no offset",
+impl crate::TokenSessions {
+    /// The driver's configuration for `dial`: its address, its channel and anchors, the dial bound, and a refused redirect.
+    ///
+    /// # Errors
+    ///
+    /// [`OracleError::PacketTraceOn`] while the driver's packet trace is switched on,
+    /// [`OracleError::TrustAnchors`] for anchors that are not usable certificates, and
+    /// [`OracleError::Connect`] for an address the driver cannot parse.
+    pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
+        dial.config().map(Self).map_err(|refused| match refused {
+            DialError::PacketTraceOn(on) => OracleError::PacketTraceOn(on),
+            DialError::Prepare(PrepareError::TrustAnchors(cause)) => OracleError::TrustAnchors { cause: cause.into() },
+            DialError::Prepare(PrepareError::Address(cause)) => connect_err(cause),
+        })
     }
+
+    /// Opens one session that authenticates with `token`. Dropping it closes the session.
+    ///
+    /// # Errors
+    ///
+    /// [`OracleError::RedirectRefused`] for a listener that redirects, and [`OracleError::Connect`]
+    /// for every other refused dial or login. Neither carries the token.
+    pub fn open(&self, token: &Secret) -> Result<oracledb::Connection, OracleError> {
+        self.open_before(token, None)
+    }
+
+    pub(crate) fn open_before(&self, token: &Secret, deadline: Option<Deadline>) -> Result<oracledb::Connection, OracleError> {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the asker's token is what this session authenticates with, so it is handed to the \
+                      driver once, here; nothing on this path logs or formats it"
+        )]
+        let token = String::from(token.expose_secret());
+        #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
+        let session = oracledb::connect(self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token)));
+        let session = session.map_err(connect_err)?;
+        pin_utc(&session, deadline)?;
+        Ok(session)
+    }
+}
+
+/// Every execution dial overrides the driver's host or `ORA_SDTZ` default and confirms UTC before use.
+pub(crate) fn pin_utc(connection: &oracledb::Connection, deadline: Option<Deadline>) -> Result<(), OracleError> {
+    let timed = || {
+        let timeout = deadline.map_or(Ok(crate::DIAL_DEADLINE), crate::refuse_if_spent)?;
+        connection
+            .set_call_timeout(Some(timeout))
+            .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })
+    };
+    timed()?;
+    connection
+        .execute("ALTER SESSION SET TIME_ZONE = '+00:00'", &[])
+        .map_err(crate::execute_err_mapped)?;
+    timed()?;
+    let row = connection
+        .query_row("SELECT SESSIONTIMEZONE FROM DUAL", &[])
+        .map_err(crate::execute_err_mapped)?;
+    let zone: String = row.get(0).map_err(crate::execute_err_mapped)?;
+    if zone != "+00:00" {
+        return Err(OracleError::UnsupportedType {
+            column: String::from("<session>"),
+            oracle_type: "UTC session time zone was not confirmed",
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]

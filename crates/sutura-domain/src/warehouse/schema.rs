@@ -8,7 +8,7 @@
 
 mod types;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
@@ -22,7 +22,7 @@ use crate::pinned::NotValidated;
 pub use types::{TypeDialect, UnboundedNumber};
 
 /// The digest of a [`PinnedSchemas`]: lower-case hex SHA-256 over each pinned model's name and,
-/// in order, each column's name, Arrow type and nullability.
+/// in order, each column's name, Arrow type, nullability and local-operator marker.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct SchemaDigest(String);
 
@@ -62,6 +62,15 @@ impl PinnedSchemas {
     /// declaration, and not a type to fall back from. A model no relationship federates is pinned
     /// with every column fallen back, and is no table of the SQL tool.
     pub fn pin(definitions: &Definitions, dialects: &BTreeMap<SourceName, TypeDialect>) -> Result<Self, NotValidated> {
+        Self::pin_with_unbounded_numbers(definitions, dialects, &BTreeSet::new())
+    }
+
+    /// Pins each source's explicitly selected exact representation for unbounded Oracle NUMBER.
+    pub fn pin_with_unbounded_numbers(
+        definitions: &Definitions,
+        dialects: &BTreeMap<SourceName, TypeDialect>,
+        numbers: &BTreeSet<SourceName>,
+    ) -> Result<Self, NotValidated> {
         let federated: BTreeSet<&ModelName> = definitions
             .relationships()
             .values()
@@ -85,18 +94,33 @@ impl PinnedSchemas {
             }
             let mut fields = Vec::with_capacity(model.columns().len());
             for column in model.columns() {
-                let mapped = column.data_type().and_then(|declared| dialect.arrow(declared));
+                let mapped = column.data_type().and_then(|declared| {
+                    dialect
+                        .arrow_with_unbounded_number(declared, numbers.contains(model.source()).then_some(UnboundedNumber::Utf8))
+                });
                 if mapped.is_none() {
                     fell_back
                         .entry(model.name().clone())
                         .or_insert_with(BTreeSet::new)
                         .insert(column.name().clone());
                 }
-                fields.push(Field::new(
+                let mut field = Field::new(
                     column.name().as_str(),
                     mapped.unwrap_or(DataType::Utf8),
                     column.nullable().unwrap_or(true),
-                ));
+                );
+                if *dialect == TypeDialect::Oracle
+                    && numbers.contains(model.source())
+                    && column
+                        .data_type()
+                        .is_some_and(|declared| declared.as_str().eq_ignore_ascii_case("NUMBER"))
+                {
+                    field = field.with_metadata(HashMap::from([(
+                        String::from("sutura:unbounded_number"),
+                        String::from("utf8"),
+                    )]));
+                }
+                fields.push(field);
             }
             models.insert(model.name().clone(), Arc::new(Schema::new(fields)));
         }
@@ -155,6 +179,12 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
             part(&mut hash, &field.data_type().to_string());
             hash.update([
                 u8::from(field.is_nullable()),
+                u8::from(
+                    field
+                        .metadata()
+                        .get("sutura:unbounded_number")
+                        .is_some_and(|value| value == "utf8"),
+                ),
                 u8::from(
                     fell_back
                         .get(model)
