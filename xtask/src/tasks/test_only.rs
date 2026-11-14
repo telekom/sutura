@@ -1,15 +1,17 @@
-//! `just test-only <filterset>` is `just test`'s own invocation plus `-E <filterset>`, by construction.
+//! `just test-only <filterset> [profile]` is `just test`'s own invocation plus
+//! `-E <filterset>`, by construction.
 //!
 //! `test-only` is a dependency-only header over `test`, so it cannot carry a cargo line of its own
-//! that drifts: the filter is the only difference. `test`'s doctest leg runs only with no filter,
-//! because nextest runs no doctests and a filterset cannot select them.
+//! that drifts: the filterset and the optional Cargo profile are the only differences. `test`'s
+//! doctest leg runs only with no filter, because nextest runs no doctests and a filterset cannot
+//! select them.
 //! `test`'s whole command list is compared, shebang included and comments excluded, so a
 //! same-meaning rewrite of one of its lines is red too.
 //! Limit: this reads the justfile's text, so it holds the wiring and the commands, not what
 //! `nix/with-tier.sh` or nextest then do with them.
-
-const NEXTEST: &str = r#"cargo nextest run --workspace --all-features ${filter:+-E "$filter"}"#;
-const DOCTEST: &str = r#"[ -n "$filter" ] || cargo test --doc --workspace --all-features"#;
+const NEXTEST: &str =
+    r#"cargo nextest run --workspace --all-features ${filter:+-E "$filter"} ${profile:+--cargo-profile "$profile"}"#;
+const DOCTEST: &str = r#"[ -n "$filter" ] || cargo test --doc --workspace --all-features ${profile:+--profile "$profile"}"#;
 
 fn justfile() -> String {
     let root = crate::repo::root().expect("the repo root");
@@ -32,11 +34,11 @@ fn the_filtered_task_is_test_handed_a_filterset_and_nothing_else() {
     let text = justfile();
     let headers: Vec<&str> = text.lines().collect();
     assert!(
-        headers.contains(&"test $filter='':"),
+        headers.contains(&"test $filter='' $profile='':"),
         "`just test` no longer takes the filterset as an optional exported parameter"
     );
     assert!(
-        headers.contains(&"test-only filter: (test filter)"),
+        headers.contains(&"test-only filter profile='': (test filter profile)"),
         "`just test-only` no longer hands its filterset to `just test`"
     );
     assert_eq!(
