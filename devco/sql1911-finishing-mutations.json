@@ -1,0 +1,38 @@
+{
+  "mutants": [
+    {
+      "label": "sql1911-native-number-policy",
+      "package": "sutura-catalog-rdbms",
+      "tests": [
+        "oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata"
+      ],
+      "preimage_sha256": "113b4e54876e7dfaea44032ab61dc517125f459feeea9fb43c1a643f22208147",
+      "mutated_sha256": "1d053b0bb73bd59cd82a3b022307db81a356e5912923a736f3f4f3450078a455",
+      "edits": [
+        {
+          "path": "crates/sutura-catalog-rdbms/src/native.rs",
+          "before": ".and_then(|declared| dialect.arrow_with_unbounded_number(&declared, unbounded_number))",
+          "after": ".and_then(|declared| dialect.arrow_with_unbounded_number(&declared, unbounded_number.and(None)))",
+          "count": 1
+        }
+      ],
+      "mechanism": "Discard the configured unbounded NUMBER policy at native admission; the first NUMBER fixture must fail its own successful-admission expectation.",
+      "limit": "Measures one policy-consumption branch. It does not independently kill the declared-metadata retention or timestamp-precision assertions; actual head/kill/restore execution remains required."
+    }
+  ],
+  "test_files": {
+    "oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata": "crates/sutura-catalog-rdbms/src/native.rs"
+  },
+  "test_identities": {
+    "oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata": [
+      "sutura-catalog-rdbms",
+      "native::tests::oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata"
+    ]
+  },
+  "test_functions": {
+    "oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata": {
+      "name": "oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata",
+      "indent": "    "
+    }
+  }
+}

@@ -465,7 +465,7 @@ if __name__ == "__main__":
         mutation_file = (
             "sql1909-finishing-mutations.json"
             if mode == "sql-mutations"
-            else "sql1912-finishing-mutations.json"
+            else "sql1911-finishing-mutations.json"
         )
         mutation_plan = json.loads(Path(__file__).with_name(mutation_file).read_bytes())
         for key in ("mutants", "test_files", "test_identities", "test_functions"):
