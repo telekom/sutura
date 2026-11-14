@@ -551,11 +551,13 @@ fn open_one_rdbms_catalog(
     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
     // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
     let bounds = reader.bounds();
-    Ok(
-        sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
-            .with_source_alias(rdbms.source_alias().clone())
-            .with_bounds(bounds),
-    )
+    let catalog = sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
+        .with_source_alias(rdbms.source_alias().clone())
+        .with_bounds(bounds);
+    Ok(match rdbms.audience() {
+        Some(audience) => catalog.with_audience(audience.clone()),
+        None => catalog,
+    })
 }
 
 /// The Postgres reader over the catalog's own read-only connection and declared transport.

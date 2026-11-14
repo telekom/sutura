@@ -843,6 +843,9 @@ pub(crate) struct RawCatalog {
     /// same shape as the Postgres reader.
     #[serde(default)]
     pub(crate) dictionary_source: Option<String>,
+    /// Absent leaves inferred models invisible to verified callers.
+    #[serde(default)]
+    pub(crate) audience: Option<crate::audience::RawAudience>,
     #[serde(default)]
     pub(crate) include: Option<Vec<RawDictionaryInclude>>,
     #[serde(default)]

@@ -158,10 +158,12 @@ mod tests {
     mod native {
         use super::{DataDir, settings};
         use crate::harness::{
-            DiscoveredTier, Reply, Served, TOKEN, discover_tier, refused_to_start, start_configured, v1, written,
+            DiscoveredTier, Reply, Served, TOKEN, accepted_by, an_issuer, discover_tier, refused_to_start, start_configured, v1,
+            written,
         };
         use std::time::{Duration, Instant};
         use sutura_config::Environment;
+        use sutura_dev::issuer::PublishedKeySet;
         use sutura_domain::model::SourceName;
         use sutura_exec_postgres::adbc::{Channel, FixtureAdmin, PostgresDriver};
         use sutura_exec_postgres::fixture::FixtureCredential;
@@ -251,6 +253,103 @@ mod tests {
             let reply = served.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
             assert_eq!(reply.status, 200, "{}", reply.body);
             reply.json()
+        }
+
+        #[test]
+        fn composed_native_models_register_once_for_shared_and_unrelated_tables() {
+            let Some(tier) = discover_tier() else { return };
+            let mut fixture = Native::new("native-registration", &tier);
+            fixture
+                .admin
+                .run(&format!(
+                    "CREATE TABLE {0}.other (id bigint); INSERT INTO {0}.other VALUES (9)",
+                    fixture.schema,
+                ))
+                .unwrap();
+            let base = fixture.native_settings(&tier, "").replace(
+                "table: events}",
+                &format!("table: events}}, {{schema: {}, table: other}}", fixture.schema),
+            );
+            let served = start_configured("native-registration", &fixture.compose(&base, Some("id")));
+            for (table, columns, rows) in [
+                (
+                    "events",
+                    serde_json::json!(["id", "month"]),
+                    serde_json::json!([["7", "2026-06-01"]]),
+                ),
+                ("other", serde_json::json!(["id"]), serde_json::json!([["9"]])),
+            ] {
+                let reply = ran(&served, &format!("select * from {}.{table}", fixture.schema));
+                assert_eq!(reply.status, 200, "{}", reply.body);
+                assert_eq!(reply.json()["columns"], columns, "{}", reply.body);
+                assert_eq!(reply.json()["rows"], rows, "{}", reply.body);
+            }
+        }
+
+        #[test]
+        fn verified_native_audiences_merge_only_models_visible_to_each_caller() {
+            let Some(tier) = discover_tier() else { return };
+            let fixture = Native::new("native-audiences", &tier);
+            let issuer = an_issuer();
+            let keys = PublishedKeySet::of(&issuer, "native-audiences").unwrap();
+            let security = format!(
+                "  inbound:\n    mode: direct\n    resource: {}\n    authorization_server: {}\n    key_set_file: {}\n    algorithms: [ES256]\n  audience_mapping:\n    finance-team: [finance]\n",
+                issuer.audience(),
+                issuer.issuer(),
+                keys.path().display(),
+            );
+            let tokens = [
+                issuer.mint(&accepted_by("user@example.com")).unwrap(),
+                issuer
+                    .mint(&accepted_by("user@example.com").claiming("groups", serde_json::json!(["finance-team"])))
+                    .unwrap(),
+            ];
+            for (case, declaration, visible) in [
+                ("open", "    audience: open\n", [true, true]),
+                ("absent", "", [false, false]),
+                ("restricted", "    audience: {restricted: [finance]}\n", [false, true]),
+            ] {
+                let base = fixture
+                    .native_settings(&tier, declaration)
+                    .replace(&format!("  access_token: \"{TOKEN}\"\n"), &security);
+                let settings = fixture.compose(&base, Some("id"));
+                let alias = fixture.data.0.join("catalog/alias.md");
+                let text = std::fs::read_to_string(&alias).unwrap();
+                std::fs::write(&alias, text.replace("name: alias\n", "name: alias\naudience: open\n")).unwrap();
+                let served = start_configured(&format!("native-audience-{case}"), &settings);
+                for (token, can_see) in tokens.iter().zip(visible) {
+                    let run = |column| {
+                        served.post(
+                            &v1(sutura_http::constants::base_paths::RUN_SQL),
+                            Some(token),
+                            &serde_json::json!({"statement": format!("select {column} from {}.events", fixture.schema)})
+                                .to_string(),
+                        )
+                    };
+                    let reply = run("*");
+                    assert_eq!(reply.status, 200, "{case}: {}", reply.body);
+                    let columns = if can_see {
+                        serde_json::json!(["id", "month"])
+                    } else {
+                        serde_json::json!(["id"])
+                    };
+                    let rows = if can_see {
+                        serde_json::json!([["7", "2026-06-01"]])
+                    } else {
+                        serde_json::json!([["7"]])
+                    };
+                    assert_eq!(reply.json()["columns"], columns, "{case}: {}", reply.body);
+                    assert_eq!(reply.json()["rows"], rows, "{case}: {}", reply.body);
+                    let missing = run("absent_column");
+                    assert_eq!(missing.status, 422, "{}", missing.body);
+                    let hidden: &[&str] = if can_see { &["secret"] } else { &["month", "secret"] };
+                    for column in hidden {
+                        let denied = run(column);
+                        assert_eq!(denied.status, missing.status, "{}", denied.body);
+                        assert_eq!(denied.body, missing.body, "{case}: {column}");
+                    }
+                }
+            }
         }
 
         #[test]
