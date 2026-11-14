@@ -1004,7 +1004,7 @@
               import ./nix/k3s-worker-pool.nix {
                 inherit pkgs;
                 chartHelm = chart.helm;
-                ociImage = shipped.localImages.oci;
+                ociImage = shipped.ociImages.oci-x86_64-unknown-linux-musl;
                 operatorImage = shipped.localImages.oci-operator;
                 chart = ./charts/sutura;
                 example = ./examples/single-player;

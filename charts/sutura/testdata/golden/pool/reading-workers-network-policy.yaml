@@ -27,9 +27,9 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# Workers answer only this release's serving pods and each other - a combine across nodes dials a
-# sibling worker directly, and a serving pod dials a worker it planned a stage onto. No other
-# namespace or workload needs the node port.
+# Workers answer this release's serving pods, each other and the operator's metric scrapes.
+# Metrics share the node port; their bearer check and the worker transport's client certificate
+# check still decide which operations an allowed peer may call.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -56,6 +56,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-operator
               app.kubernetes.io/instance: test-release
       ports:
         - port: 8080
@@ -103,9 +107,9 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# The operator calls the Kubernetes API and nothing else: it holds a node certificate only to read
-# the CA bundle (finding 4), it never dials a node. DNS stays open because this chart does not know
-# whether the cluster resolves the API server by name.
+# The operator calls the Kubernetes API and scrapes this release's serving and worker metrics.
+# It holds the node CA bundle, with no node client identity. DNS stays open because this chart
+# does not know whether the cluster resolves the API server by name.
 # STATED LIMIT: the API server's own address is cluster-specific and this chart has no way to name
 # it, so this bounds the port (443, the apiserver's common port, and 6443, its other common one),
 # not the destination - it does not stop the operator reaching some other HTTPS endpoint.
@@ -127,6 +131,18 @@ spec:
   policyTypes:
     - Egress
   egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
     - ports:
         - port: 53
           protocol: UDP
