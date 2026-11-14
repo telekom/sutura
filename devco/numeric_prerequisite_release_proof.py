@@ -1,4 +1,4 @@
-"""Hosted retained-lock check/lint and ten scoped claim cycles."""
+"""Hosted diagnostic of index writes through the sixth scoped claim kill."""
 
 import base64
 import copy
@@ -10,6 +10,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import tomllib
@@ -18,7 +19,7 @@ BASE = "b8bce349b79fc16891f8bfd466ba7187cafdf019"
 BASE_TREE = "2191984dba94ae674e39f101b48d07a619d72255"
 PREPARED_TREE = "ef25185218ea0ac728ea9903abbdffd091e830a9"
 PATCH_SHA256 = "66e9374f267ead8454c43b081d5388478fda7035b37f80782e0a24dfb88d66c6"
-REQUEST_ID = "f4d022aa-3eab-4cf5-879a-37d46153a6b0"
+REQUEST_ID = "60782fd2-5a25-44d2-87eb-7166c77e56eb"
 REF = "refs/heads/ci/numeric-prerequisite-release-proof"
 PAYLOAD_HASHES = {
     "source-manifest.json": "f5c8aa0331ce3db86aef63701b37ab4309499f0dd7775cd1893c5214223032fd",
@@ -69,6 +70,74 @@ def index(root: Path) -> bytes:
     return Path(path).read_bytes()
 
 
+def capture_index(
+    out: Path, label: str, details: dict, *, expected: bytes | None
+) -> bytes | None:
+    record = {
+        "phase": label,
+        "details": details,
+        "request_id": REQUEST_ID,
+        "helper_commit": os.environ["GITHUB_SHA"],
+        "helper_tree": os.environ["HELPER_TREE"],
+        "run_id": os.environ["GITHUB_RUN_ID"],
+        "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+        "source_tree": PREPARED_TREE,
+        "optional_locks": os.environ.get("GIT_OPTIONAL_LOCKS"),
+        "started_ns": time.time_ns(),
+        "started_monotonic_ns": time.monotonic_ns(),
+        "stable": False,
+    }
+    raw = None
+    try:
+        path = Path((out / "scratch-index-path.txt").read_text(encoding="utf-8"))
+        record["path"] = str(path)
+        before = path.stat()
+        with path.open("rb") as stream:
+            fd_before = os.fstat(stream.fileno())
+            raw = stream.read()
+            fd_after = os.fstat(stream.fileno())
+        after = path.stat()
+        record["stats"] = {
+            name: {
+                key: getattr(value, key)
+                for key in (
+                    "st_dev",
+                    "st_ino",
+                    "st_mode",
+                    "st_size",
+                    "st_mtime_ns",
+                    "st_ctime_ns",
+                )
+            }
+            for name, value in (
+                ("path_before", before),
+                ("fd_before", fd_before),
+                ("fd_after", fd_after),
+                ("path_after", after),
+            )
+        }
+        record["stable"] = (
+            stat.S_ISREG(fd_before.st_mode)
+            and len(raw) == fd_before.st_size
+            and all(
+                value == record["stats"]["fd_before"]
+                for value in record["stats"].values()
+            )
+        )
+    except OSError as error:
+        record["error"] = str(error)
+    record["finished_ns"] = time.time_ns()
+    record["finished_monotonic_ns"] = time.monotonic_ns()
+    record["size"] = None if raw is None else len(raw)
+    record["sha256"] = None if raw is None else digest(raw)
+    record["expected_sha256"] = None if expected is None else digest(expected)
+    if expected is None or raw != expected or not record["stable"]:
+        if raw is not None:
+            (out / f"{label}-index.bin").write_bytes(raw)
+        write(out, f"{label}-index.json", record)
+    return raw if record["stable"] else None
+
+
 def manifest(root: Path) -> dict:
     result = {}
     for name in git(root, "ls-files", "-z").decode().split("\0"):
@@ -85,13 +154,42 @@ def manifest(root: Path) -> dict:
     return result
 
 
-def execute(root: Path, out: Path, label: str, argv: list[str]) -> tuple[int, str]:
+def execute(
+    root: Path,
+    out: Path,
+    label: str,
+    argv: list[str],
+    *,
+    saved_index: bytes | None = None,
+) -> tuple[int, str]:
     print(f"{label}: starting", flush=True)
     log_path = out / f"{label}.log"
     with log_path.open("wb") as log:
-        status = subprocess.run(
-            argv, cwd=root, stdout=log, stderr=subprocess.STDOUT, check=False
-        ).returncode
+        if saved_index is not None:
+            require(
+                capture_index(
+                    out, label + "-before-cargo", {"argv": argv}, expected=None
+                )
+                == saved_index,
+                "scratch index bytes changed before Cargo",
+            )
+        status = None
+        try:
+            status = subprocess.run(
+                argv, cwd=root, stdout=log, stderr=subprocess.STDOUT, check=False
+            ).returncode
+        finally:
+            if saved_index is not None:
+                require(
+                    capture_index(
+                        out,
+                        label + "-after-cargo",
+                        {"argv": argv, "exit": status},
+                        expected=None,
+                    )
+                    == saved_index,
+                    "scratch index bytes changed during Cargo",
+                )
     raw = log_path.read_bytes()
     write(
         out, f"{label}.json", {"argv": argv, "exit": status, "log_sha256": digest(raw)}
@@ -123,7 +221,11 @@ def exact(
         git(root, "rev-parse", "HEAD").decode().strip() == BASE, "scratch HEAD changed"
     )
     require(manifest(root) == expected, "source/lock byte or mode drift")
-    require(index(root) == saved_index, "scratch index bytes changed")
+    require(
+        capture_index(out, f"strict-{time.time_ns()}", {}, expected=saved_index)
+        == saved_index,
+        "scratch index bytes changed",
+    )
     require(
         not git(root, "ls-files", "--others", "--exclude-standard"),
         "unexpected nonignored source",
@@ -276,7 +378,13 @@ def parser_check(out: Path, cell: dict) -> None:
 
 
 def cell_test(
-    root: Path, out: Path, label: str, cell: dict, failure: bool = False
+    root: Path,
+    out: Path,
+    label: str,
+    cell: dict,
+    failure: bool = False,
+    *,
+    saved_index: bytes | None = None,
 ) -> None:
     argv = [
         "cargo",
@@ -294,7 +402,7 @@ def cell_test(
         "--nocapture",
         "--test-threads=1",
     ]
-    status, text = execute(root, out, label, argv)
+    status, text = execute(root, out, label, argv, saved_index=saved_index)
     try:
         own = verdict(
             text, status, cell, cell["own_assertion_line"] if failure else None
@@ -335,7 +443,7 @@ def claims(
     targets = ("crates/sutura-app/src/federated/leg.rs", "crates/sutura-app/src/lib.rs")
     originals = {name: (root / name).read_bytes() for name in targets}
     completed = []
-    for number, cell in enumerate(cells, 1):
+    for number, cell in enumerate(cells[:6], 1):
         label = f"claim-{number:02d}-{cell['name']}"
         exact(root, out, tools, generated, saved_index)
         cell_test(root, out, label + "-baseline", cell)
@@ -370,16 +478,68 @@ def claims(
                     "index_sha256": digest(saved_index),
                 },
             )
-            (out / (label + "-applied.patch")).write_bytes(
-                git(root, "diff", "--binary", "--full-index")
+            diff_argv = [
+                "git",
+                "--no-optional-locks",
+                "-C",
+                str(root),
+                "diff",
+                "--binary",
+                "--full-index",
+            ]
+            if number == 6:
+                require(
+                    capture_index(
+                        out, label + "-before-diff", {"argv": diff_argv}, expected=None
+                    )
+                    == saved_index,
+                    "scratch index bytes changed before diff",
+                )
+            diff_exit = None
+            try:
+                (out / (label + "-applied.patch")).write_bytes(
+                    git(root, "diff", "--binary", "--full-index")
+                )
+                diff_exit = 0
+            except subprocess.CalledProcessError as error:
+                diff_exit = error.returncode
+                raise
+            finally:
+                if number == 6:
+                    require(
+                        capture_index(
+                            out,
+                            label + "-after-diff",
+                            {"argv": diff_argv, "exit": diff_exit},
+                            expected=None,
+                        )
+                        == saved_index,
+                        "scratch index bytes changed during diff",
+                    )
+            cell_test(
+                root,
+                out,
+                label + "-kill",
+                cell,
+                True,
+                saved_index=saved_index if number == 6 else None,
             )
-            cell_test(root, out, label + "-kill", cell, True)
             exact(root, out, tools, expected, saved_index)
         finally:
             (root / target).write_bytes(originals[target])
             (root / target).chmod(int(generated[target]["mode"], 8))
+            if number == 6:
+                restored_index = capture_index(
+                    out, label + "-after-restore", {"target": target}, expected=None
+                )
             exact(root, out, tools, generated, saved_index)
-            cell_test(root, out, label + "-restored", cell)
+            if number == 6:
+                require(
+                    restored_index == saved_index,
+                    "missing, unstable or changed restored index capture",
+                )
+            if number < 6:
+                cell_test(root, out, label + "-restored", cell)
             exact(root, out, tools, generated, saved_index)
             write(
                 out,
@@ -390,15 +550,21 @@ def claims(
                     ),
                     "index_sha256": digest(saved_index),
                     "pristine": True,
+                    "restored_test_run": number < 6,
                 },
             )
-        completed.append(cell["name"])
+        if number < 6:
+            completed.append(cell["name"])
     write(
         out,
         "claims-verdict.json",
         {
+            "status": "DIAGNOSTIC_ONLY_NO_PREREQUISITE_PASS",
             "completed_baseline_own_kill_restored": completed,
             "count": len(completed),
+            "sixth_baseline_and_kill_only": cells[5]["name"],
+            "claim_phase_cap": 17,
+            "remaining_cells_unrun": [cell["name"] for cell in cells[6:]],
             "limit": "Opaque loop kill reaches its first case; baseline/restored cover both cases. No ordinary causality or full-suite credit.",
         },
     )
@@ -523,6 +689,12 @@ def main() -> None:
         not git(tools, "status", "--porcelain", "--untracked-files=all"), "dirty tools"
     )
     out.mkdir(exist_ok=False)
+    (out / "scratch-index-path.txt").write_text(
+        git(root, "rev-parse", "--path-format=absolute", "--git-path", "index")
+        .decode()
+        .strip(),
+        encoding="utf-8",
+    )
     write(out, "verdict.json", {"status": "INCOMPLETE", "tests": "UNRUN"})
     write(
         out,
@@ -702,6 +874,7 @@ def main() -> None:
         require(status == 0, "hosted check/lint/claim phase failed")
         success = True
     finally:
+        final_entry = capture_index(out, "final-entry", {}, expected=None)
         final = manifest(root)
         write(out, "final-manifest.json", final)
         (out / "final-index.bin").write_bytes(index(root))
@@ -716,19 +889,27 @@ def main() -> None:
                 ).decode()
             },
         )
+        final_after_status = capture_index(out, "final-after-status", {}, expected=None)
         intact = (
             None
             if generated is None
-            else (final == generated and index(root) == generated_index)
+            else (
+                final == generated
+                and index(root) == generated_index
+                and final_entry == generated_index
+                and final_after_status == generated_index
+            )
         )
         write(
             out,
             "verdict.json",
             {
-                "status": "SCOPED_RETAINED_LOCK_CHECK_LINT_TEN_CLAIMS_PASS"
+                "status": "DIAGNOSTIC_ONLY_NO_PREREQUISITE_PASS"
                 if success and intact
                 else "FAILED",
                 "source_and_index_intact": intact,
+                "diagnostic_only": True,
+                "claim_phase_cap": 17,
                 "ordinary_causality": "UNRUN",
                 "validate": "UNRUN",
                 "ship_check": "UNRUN",
@@ -740,6 +921,10 @@ def main() -> None:
         )
         require(
             intact is not False, "source/index not restored; final evidence retained"
+        )
+        require(
+            final_entry is not None and final_after_status is not None,
+            "missing or unstable final index capture",
         )
         immutable(tools, out)
 
