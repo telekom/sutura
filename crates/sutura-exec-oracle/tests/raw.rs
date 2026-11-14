@@ -96,7 +96,8 @@ mod acceptance {
             &warehouse,
             "WITH reading AS (SELECT CAST(9007199254740993 AS NUMBER) N, \
              TO_DATE('2026-10-11 13:45:30', 'YYYY-MM-DD HH24:MI:SS') D, \
-             TO_TIMESTAMP_TZ('2026-10-11 13:45:30 +02:00', 'YYYY-MM-DD HH24:MI:SS TZH:TZM') T FROM dual) \
+             CAST(TO_TIMESTAMP_TZ('2026-10-11 13:45:30 +02:00', 'YYYY-MM-DD HH24:MI:SS TZH:TZM') \
+             AS TIMESTAMP(6) WITH TIME ZONE) T FROM dual) \
              SELECT N, D, T FROM reading",
         )
         .expect("one query answers");
@@ -106,7 +107,7 @@ mod acceptance {
             [vec![
                 Value::Integer(0x0020_0000_0000_0001),
                 Value::Text(String::from("2026-10-11T13:45:30")),
-                Value::Text(String::from("2026-10-11T11:45:30")),
+                Value::Text(String::from("2026-10-11T11:45:30Z")),
             ]]
         );
     }

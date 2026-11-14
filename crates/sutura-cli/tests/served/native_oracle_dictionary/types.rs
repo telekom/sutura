@@ -74,11 +74,15 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
         "{log}"
     );
     let settings = absent.replace("    posture:", "    unbounded_number: utf8\n    posture:");
-    let served = start_configured_with_environment(
+    let mut served = start_configured_with_environment(
         "oracle-exact-types",
         &settings,
         None,
-        &[("ORA_SDTZ", "+09:00"), ("TZ", "Pacific/Honolulu")],
+        &[
+            ("ORA_SDTZ", "+09:00"),
+            ("TZ", "Pacific/Honolulu"),
+            ("RUST_LOG", "info,sutura_exec_datafusion::combine::statement=debug"),
+        ],
         &[],
     );
     let reply = run(
@@ -99,7 +103,7 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
     assert_eq!(reply.json()["rows"], serde_json::json!(expected));
     let lexical = serde_json::json!([[cases[3].0], [cases[1].0], [huge], [cases[0].0], [cases[2].0], ["null"]]);
     text_operators(
-        &served,
+        &mut served,
         &format!("\"{}\".\"TYPE_EVENTS\" t", fixture.schema),
         &huge,
         &lexical,
@@ -120,11 +124,15 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
         .replace("sources:\n", &format!("{lookup}sources:\n"))
         .replace("tools:\n", &format!("{sources}tools:\n"))
         .replace("sources: [warehouse]", "sources: [warehouse, lookup]");
-    let served = start_configured_with_environment(
+    let mut served = start_configured_with_environment(
         "oracle-exact-types-federated",
         &federated,
         None,
-        &[("ORA_SDTZ", "-07:00"), ("TZ", "Asia/Tokyo")],
+        &[
+            ("ORA_SDTZ", "-07:00"),
+            ("TZ", "Asia/Tokyo"),
+            ("RUST_LOG", "info,sutura_exec_datafusion::combine::statement=debug"),
+        ],
         &[],
     );
     let reply = run(
@@ -144,7 +152,7 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
     numbers.push(serde_json::json!(["null", "null", "null", "null"]));
     assert_eq!(reply.json()["rows"], serde_json::json!(numbers));
     text_operators(
-        &served,
+        &mut served,
         &format!(
             "\"{0}\".\"TYPE_EVENTS\" t join \"{0}\".\"TYPE_KEYS\" k on t.\"ID\" = k.\"ID\"",
             fixture.schema
@@ -179,7 +187,7 @@ fn refuses_sub_microsecond_timestamps(fixture: &Fixture, settings: &str) {
     }
 }
 
-fn text_operators(served: &Served, from: &str, huge: &str, lexical: &serde_json::Value, sources: usize) {
+fn text_operators(served: &mut Served, from: &str, huge: &str, lexical: &serde_json::Value, sources: usize) {
     for (statement, expected) in [
         (
             format!("select t.\"FULL_VALUE\" from {from} order by t.\"FULL_VALUE\" nulls last"),
@@ -201,6 +209,26 @@ fn text_operators(served: &Served, from: &str, huge: &str, lexical: &serde_json:
         ),
     ] {
         let reply = run(served, &statement);
+        if reply.status != 200 {
+            let status = served.terminate();
+            eprintln!("planned Oracle fixture exited: {status}");
+            for line in served.log() {
+                let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    continue;
+                };
+                if event["msg"].as_str().is_some_and(|message| message.contains("run_sql:")) {
+                    eprintln!(
+                        "planned Oracle fixture: {}",
+                        serde_json::json!({
+                            "message": event["msg"],
+                            "cause": event["cause"],
+                            "source": event["source"],
+                            "statement": event["statement"],
+                        })
+                    );
+                }
+            }
+        }
         assert_eq!(reply.status, 200, "{statement}: {}", reply.body);
         let body = reply.json();
         assert_eq!(body["rows"], expected, "{statement}: {}", reply.body);
