@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use arrow_schema::SchemaRef;
 
 use crate::model::{QualifiedTable, SourceName};
-use crate::raw::RawStatement;
+use crate::raw::{RawStatement, SqlConstruct};
 use crate::warehouse::RawRows;
 use crate::warehouse::deadline::Deadline;
 use crate::warehouse::schema::TypeDialect;
@@ -166,6 +166,12 @@ pub trait StatementLegs {
 /// Why a statement got no answer from the combiner.
 #[derive(Debug)]
 pub enum StatementStopped<S> {
+    /// No table in the caller's admitted table set resolves the path.
+    UnknownTable,
+    /// The caller's admitted schemas have no resolving column.
+    UnknownColumn,
+    /// A closed unsupported construct, without engine or source text.
+    UnsupportedSyntax(SqlConstruct),
     /// A leg did not answer.
     Leg(S),
     /// The plan reads more than one source, and the tool does not federate. No leg ran.
