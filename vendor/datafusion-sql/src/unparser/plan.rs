@@ -2098,6 +2098,7 @@ impl Unparser<'_> {
         matches!(
             plan,
             LogicalPlan::Aggregate(_)
+                | LogicalPlan::Filter(_)
                 | LogicalPlan::Window(_)
                 | LogicalPlan::Sort(_)
                 | LogicalPlan::Limit(_)

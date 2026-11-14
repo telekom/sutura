@@ -73,6 +73,12 @@ pub(super) const CASES: &[Case] = &[
         expected: Expected::Keys(Predicate::Key),
     },
     Case {
+        name: "aliased_filter",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\"",
+        after_table: "\"k\" WHERE \"k\".\"subscription_key\" = 1002",
+        expected: Expected::Keys(Predicate::Key),
+    },
+    Case {
         name: "not_null_and_filter",
         projection: KEY,
         after_table: "WHERE \"usage_date\" IS NOT NULL AND \"subscription_key\" = 1002",
