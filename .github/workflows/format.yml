@@ -40,7 +40,7 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [vendor, elastic]
+        options: [elastic]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -105,11 +105,11 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          case "$CONSUMER" in vendor | elastic) ;; *) exit 1 ;; esac
+          case "$CONSUMER" in elastic) ;; *) exit 1 ;; esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: b8bce349b79fc16891f8bfd466ba7187cafdf019
+          ref: 5c7b85d47181f25fb67584c0a6a6e8a45a24f99e
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -136,52 +136,19 @@ jobs:
           mkdir "$evidence"
           nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
           just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
-          parent=b8bce349b79fc16891f8bfd466ba7187cafdf019
+          parent=5c7b85d47181f25fb67584c0a6a6e8a45a24f99e
+          main=b8bce349b79fc16891f8bfd466ba7187cafdf019
           case "$CONSUMER" in
-                vendor)
-                    expected_tree=4c187d32ead17b757062978ed87b408e4f0ddab3
-                    patch_sha=b569fc2ee18d0e0d7fa61571b2bbf3fadf45987d6f340f601fb5582e016b9a71
-                    branch='fix/clickhouse-reviewed-refresh-20261114'
-                    subject='fix: refresh ClickHouse adapter sources'
-                    paths=(
-                        'VENDOR.md'
-                        'crates/sutura-adbc/tests/clickhouse.rs'
-                        'crates/sutura-exec-clickhouse/src/adbc.rs'
-                        'vendor/adbc_clickhouse/CHANGELOG.md'
-                        'vendor/adbc_clickhouse/Cargo.toml'
-                        'vendor/adbc_clickhouse/README.md'
-                        'vendor/adbc_clickhouse/src/lib.rs'
-                        'vendor/adbc_clickhouse/src/options.rs'
-                        'vendor/adbc_clickhouse/src/tls.rs'
-                    )
-                    hooks=(
-                        'cargo fmt'
-                        'cargo clippy (-D warnings, all features)'
-                        'structural gates'
-                        'cargo check (changed packages only)'
-                        'copy/paste detection (jscpd)'
-                        'markdown/yaml/toml (dprint), python (ruff)'
-                        'detect hardcoded secrets (CI is authoritative)'
-                        'conventional commit subject'
-                    )
-                    ;;
                 elastic)
-                    expected_tree=9defc86c67dcf0bcbfa431613f610d14e4ab106a
-                    patch_sha=fb946d2c93bd3f31e1f6966010e2846300fbe62ad470e93d0d01cef85773c920
+                    expected_tree=12574505824b3d54951f0c44a51df017a5ee22ab
+                    patch_sha=4bbee99ac2578111b0187251fb92dea8933494d3ee7b1784bd3bd0d0303fe1ac
                     branch='fix/elastic-worker-pool-20261114'
-                    subject='fix: align elastic worker pool policies and coverage'
+                    subject='fix: declare worker-pool fixture column types'
                     paths=(
-                        'charts/sutura/templates/networkpolicy.yaml'
-                        'charts/sutura/testdata/golden/pool/reading-workers-network-policy.yaml'
-                        'charts/sutura/testdata/golden/pool/worker-pool-network-policy.yaml'
-                        'flake.nix'
                         'nix/k3s-worker-pool.nix'
                     )
                     hooks=(
                         'structural gates'
-                        'copy/paste detection (jscpd)'
-                        'markdown/yaml/toml (dprint), python (ruff)'
-                        'Helm chart (lint, render, goldens, kubeconform)'
                         'detect hardcoded secrets (CI is authoritative)'
                         'conventional commit subject'
                     )
@@ -195,7 +162,9 @@ jobs:
           test "$(git rev-parse HEAD)" = "$parent"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           remote_main="$(git ls-remote --refs origin refs/heads/main)"
-          test "$remote_main" = "$parent"$'\trefs/heads/main'
+          test "$remote_main" = "$main"$'\trefs/heads/main'
+          remote_source="$(git ls-remote --refs origin refs/heads/fix/elastic-worker-pool-20261114)"
+          test "$remote_source" = "$parent"$'\trefs/heads/fix/elastic-worker-pool-20261114'
           git apply --index --check "$patch"
           git apply --index "$patch"
           test "$(git write-tree)" = "$expected_tree"
