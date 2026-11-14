@@ -856,7 +856,7 @@ impl Dictionary {
         self.native_with_unbounded_number(selection, dialect, None)
     }
 
-    /// Applies native selection with the existing declared-type mapping.
+    /// Native selection with the source's explicitly declared unbounded NUMBER representation.
     pub fn native_with_unbounded_number(
         self,
         selection: &sutura_domain::catalog::DictionarySelection,

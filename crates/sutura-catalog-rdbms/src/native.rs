@@ -77,7 +77,7 @@ pub(crate) fn select(
     dictionary: Dictionary,
     selection: &DictionarySelection,
     dialect: TypeDialect,
-    _unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
+    unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
 ) -> Result<Dictionary, RdbmsError> {
     let mut matched = vec![false; selection.include().len()];
     let mut tables = Vec::new();
@@ -103,7 +103,7 @@ pub(crate) fn select(
             }
             let precise = ColumnType::parse(native)
                 .ok()
-                .and_then(|declared| dialect.arrow(&declared))
+                .and_then(|declared| dialect.arrow_with_unbounded_number(&declared, unbounded_number))
                 .is_some();
             // Arrow mapping also includes Float32/Binary, which the row reader refuses.
             // Oracle normalizes timestamps, but FLOAT declares decimal values with binary precision.
@@ -277,6 +277,34 @@ mod tests {
         assert_eq!(id.description(), "A column comment.");
         assert!(pinned.manifest().get(&SourceName::parse("dictionary").unwrap()).is_some());
         assert!(pinned.manifest().get(&SourceName::parse("warehouse").unwrap()).is_none());
+    }
+
+    #[test]
+    fn oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata() {
+        use sutura_domain::warehouse::schema::UnboundedNumber;
+        for kind in ["NUMBER", "TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMP(3) WITH LOCAL TIME ZONE"] {
+            let selected = Dictionary::new(vec![table("events", &[("value", kind)])], vec![])
+                .native_with_unbounded_number(
+                    &selection("events", &[], &[]),
+                    TypeDialect::Oracle,
+                    Some(UnboundedNumber::Utf8),
+                )
+                .expect("the explicit representation and supported UTC timestamps are admitted");
+            assert_eq!(selected.tables()[0].column_metadata("value").unwrap().data_type(), Some(kind));
+        }
+        let refused = Dictionary::new(vec![table("events", &[("value", "TIMESTAMP(9) WITH TIME ZONE")])], vec![])
+            .native_with_unbounded_number(
+                &selection("events", &[], &[]),
+                TypeDialect::Oracle,
+                Some(UnboundedNumber::Utf8),
+            )
+            .expect_err("sub-microsecond precision is refused");
+        assert!(matches!(
+            refused,
+            RdbmsError::Native {
+                cause: NativeSelectionError::UnsupportedType { .. }
+            }
+        ));
     }
 
     #[test]

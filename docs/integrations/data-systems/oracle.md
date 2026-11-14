@@ -99,6 +99,35 @@ establish 10G native interoperability: 16-byte native authentication-key folding
 source evidence only. Other allowed AES/SHA-2 combinations have vector and unit coverage, not
 live interoperability evidence. No Oracle per-caller identity claim follows from this run.
 
+## Column types
+
+An unbounded `NUMBER` has no implicit approximation. To include it in a native dictionary and
+planned `run_sql`, declare `unbounded_number: utf8` on its `sources:` entry. The dictionary keeps
+the physical `NUMBER` declaration; the planner uses UTF-8 and the adapter fetches the exact full
+decimal text, including values wider than 38 integer digits. A table with an explicitly mapped
+`NUMBER` is scanned without operator pushdown; filtering, ordering and aggregation run locally
+against UTF-8, including in a single-source query. Ordering and `MIN` are lexical; arithmetic does
+not acquire decimal semantics. This may read more rows and reach the existing scan row, memory
+or deadline limits sooner than a pushed-down query. No decimal policy is available.
+Without the declaration, native dictionary loading refuses the column. Other catalogs keep the
+model out of planned SQL and startup logs a `WARN` naming the model, column and declared type;
+undeclared types are named as `<undeclared>`.
+
+`TIMESTAMP WITH TIME ZONE` and `TIMESTAMP WITH LOCAL TIME ZONE`, with optional precision up to 6,
+map to UTC microseconds. Every execution session sets `TIME_ZONE = '+00:00'` and verifies
+`SESSIONTIMEZONE` before querying, including fresh raw and caller-token sessions. A failure to
+set or confirm UTC refuses the session. Values retain their UTC instant, including offset and
+DST changes, rather than the original zone spelling. Precision above 6 is refused instead of
+truncated. The pinned driver's LTZ conversion supports numeric database time-zone offsets;
+a named database time zone is refused by that driver.
+
+Whole Oracle queries and federated UTC timestamp projections return ISO date-time text with `Z`,
+preserving microseconds and nulls. Naive `DATE` and `TIMESTAMP` retain their existing zone-free
+rendering, including a date alone at midnight. The shared Arrow decoder admits only the UTC
+microsecond timestamp type; other zones and units remain refused. Caller-token UTC setup is built,
+but these type fixtures use shared-service-user sessions and do not prove caller impersonation.
+The live cases are part of `just oracle-acceptance`; they have not yet been run for this change.
+
 ## Example
 
 One database user for every caller:
