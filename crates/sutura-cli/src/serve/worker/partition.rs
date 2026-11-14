@@ -72,10 +72,17 @@ impl PartitionReader for Reader {
         let (wire, source, partition, granted) = (wire.to_vec(), source.clone(), partition.to_vec(), Arc::clone(schema));
         Ok(read_later(Arc::clone(schema), async move {
             sutura_runtime::spawn_carrying_span(move || {
+                tracing::debug!(target: "sutura_diagnostic", phase = "capture_begin", "native read phase");
                 let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
-                let mut answered = opened.read(&wire, &source, &partition, &granted)?;
+                tracing::debug!(target: "sutura_diagnostic", phase = "native_begin", "native read phase");
+                let answer = opened.read(&wire, &source, &partition, &granted);
+                tracing::debug!(target: "sutura_diagnostic", phase = "native_end", succeeded = answer.is_ok(), "native read phase");
+                let mut answered = answer?;
                 if let Some(recording) = recording {
-                    recording.complete(&mut answered)?;
+                    tracing::debug!(target: "sutura_diagnostic", phase = "capture_complete_start", "native read phase");
+                    let result = recording.complete(&mut answered);
+                    tracing::debug!(target: "sutura_diagnostic", phase = "capture_complete_end", succeeded = result.is_ok(), "native read phase");
+                    result?;
                 }
                 Ok(answered)
             })
