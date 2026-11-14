@@ -95,7 +95,21 @@ const TIER_CA: &str = "SUTURA_ORACLE_TIER_CA";
 pub struct FixtureCredential {
     user: String,
     password: Secret,
-    anchors_pem: String,
+    channel: FixtureChannel,
+}
+
+#[derive(Debug, Clone)]
+enum FixtureChannel {
+    Verified(String),
+    NativeEncryption,
+}
+
+fn present(lookup: &impl Fn(&'static str) -> Option<String>, name: &'static str) -> Result<String, UnconfiguredFixture> {
+    match lookup(name) {
+        None => Err(UnconfiguredFixture::Unset(name)),
+        Some(value) if value.trim().is_empty() => Err(UnconfiguredFixture::Blank(name)),
+        Some(value) => Ok(value),
+    }
 }
 
 impl FixtureCredential {
@@ -103,6 +117,17 @@ impl FixtureCredential {
     /// certificate authority read from the file `SUTURA_ORACLE_TIER_CA` names.
     pub fn from_env() -> Result<Self, UnconfiguredFixture> {
         Self::read(|name| std::env::var(name).ok())
+    }
+
+    /// The native-encryption venue's administrator credential. Unlike [`Self::from_env`], this
+    /// deliberately selects AES/SHA-2 native encryption and reads no TLS certificate authority.
+    pub fn native_from_env() -> Result<Self, UnconfiguredFixture> {
+        let lookup = |name| std::env::var(name).ok();
+        Ok(Self {
+            user: present(&lookup, "SUTURA_DEV_USER")?,
+            password: Secret::new(present(&lookup, "SUTURA_DEV_PASSWORD")?),
+            channel: FixtureChannel::NativeEncryption,
+        })
     }
 
     /// [`Self::parse`] with the certificate authority read from the file `lookup` names for it.
@@ -117,23 +142,18 @@ impl FixtureCredential {
     /// `unsafe` in Rust 2024 and this crate's root forbids `unsafe_code`, so a test exercising
     /// the real environment could not be written at all.
     pub(crate) fn parse(lookup: impl Fn(&'static str) -> Option<String>) -> Result<Self, UnconfiguredFixture> {
-        let present = |name: &'static str| match lookup(name) {
-            None => Err(UnconfiguredFixture::Unset(name)),
-            Some(value) if value.trim().is_empty() => Err(UnconfiguredFixture::Blank(name)),
-            Some(value) => Ok(value),
-        };
         Ok(Self {
-            user: present("SUTURA_DEV_USER")?,
-            password: Secret::new(present("SUTURA_DEV_PASSWORD")?),
-            anchors_pem: present(TIER_CA)?,
+            user: present(&lookup, "SUTURA_DEV_USER")?,
+            password: Secret::new(present(&lookup, "SUTURA_DEV_PASSWORD")?),
+            channel: FixtureChannel::Verified(present(&lookup, TIER_CA)?),
         })
     }
 
     /// Creates `cell`'s user on the tier at `host:port`, as the tier's administrator, replacing a
     /// stale one of the same name, and returns the credential that logs in as it.
     ///
-    /// The returned credential carries the tier's certificate authority and the fixture password
-    /// unchanged; only the user differs.
+    /// The returned credential carries the tier's channel and fixture password unchanged; only
+    /// the user differs.
     pub fn provision_cell(&self, host: &str, port: u16, cell: &CellName) -> Result<Self, FixtureError> {
         cell::provision(self, host, port, cell)
     }
@@ -150,10 +170,13 @@ impl FixtureCredential {
         &self.password
     }
 
-    /// The PEM the fixture connection verifies the tier's server against, and nothing else.
+    /// The transport selected when the fixture credential was built.
     #[inline]
-    pub(crate) fn anchors_pem(&self) -> &str {
-        &self.anchors_pem
+    pub(crate) fn channel(&self) -> crate::Channel<'_> {
+        match &self.channel {
+            FixtureChannel::Verified(anchors_pem) => crate::Channel::Verified { anchors_pem },
+            FixtureChannel::NativeEncryption => crate::Channel::NativeEncryption,
+        }
     }
 }
 

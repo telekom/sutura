@@ -10,7 +10,7 @@
 //! is otherwise harmless. Nothing here drops a user a live session holds.
 
 use super::{FixtureCredential, FixtureError, SERVICE_NAME};
-use crate::{Channel, Dial, DriverError, TokenSessions, connect_err};
+use crate::{Dial, DriverError, TokenSessions, connect_err};
 
 #[cfg(test)]
 mod tests;
@@ -76,15 +76,7 @@ pub(super) fn provision(
     )]
     let password = tier.password.expose_secret();
     let create = create_user(cell, password)?;
-    let dialled = TokenSessions::new(Dial::new(
-        host,
-        port,
-        SERVICE_NAME,
-        Channel::Verified {
-            anchors_pem: &tier.anchors_pem,
-        },
-    ))
-    .map_err(FixtureError::Admin)?;
+    let dialled = TokenSessions::new(Dial::new(host, port, SERVICE_NAME, tier.channel())).map_err(FixtureError::Admin)?;
     #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
     let admin = oracledb::connect(dialled.0.set_credentials(ADMINISTRATOR, password))
         .map_err(|cause| FixtureError::Admin(connect_err(cause)))?;
@@ -104,6 +96,6 @@ pub(super) fn provision(
     Ok(FixtureCredential {
         user: String::from(cell.as_str()),
         password: tier.password.clone(),
-        anchors_pem: tier.anchors_pem.clone(),
+        channel: tier.channel.clone(),
     })
 }

@@ -97,6 +97,8 @@ pub(super) fn list(executions: &[Execution]) -> Vec<ExecutionBody> {
                 source: source.as_str().to_owned(),
                 dialect: match dialect {
                     TypeDialect::DuckDb => "duckdb",
+                    TypeDialect::DataFusion => "datafusion",
+                    TypeDialect::Cube => "cube",
                     TypeDialect::Postgres => "postgres",
                     TypeDialect::ClickHouse => "clickhouse",
                     TypeDialect::BigQuery => "bigquery",

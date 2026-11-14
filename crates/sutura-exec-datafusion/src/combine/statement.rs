@@ -490,7 +490,7 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
         TypeDialect::DuckDb => text(&DuckDBDialect::new()),
         TypeDialect::Postgres => text(&PostgreSqlDialect {}),
         TypeDialect::Oracle => oracle::unparsed(plan),
-        TypeDialect::BigQuery | TypeDialect::ClickHouse => {
+        TypeDialect::BigQuery | TypeDialect::ClickHouse | TypeDialect::DataFusion | TypeDialect::Cube => {
             plan_err!("only a source that takes raw statements has a part")
         }
     }

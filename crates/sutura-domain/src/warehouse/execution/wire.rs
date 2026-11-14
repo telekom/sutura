@@ -62,6 +62,8 @@ enum Record {
 #[serde(rename_all = "snake_case")]
 enum Dialect {
     Duckdb,
+    Datafusion,
+    Cube,
     Postgres,
     Clickhouse,
     Bigquery,
@@ -126,6 +128,8 @@ impl From<TypeDialect> for Dialect {
     fn from(value: TypeDialect) -> Self {
         match value {
             TypeDialect::DuckDb => Self::Duckdb,
+            TypeDialect::DataFusion => Self::Datafusion,
+            TypeDialect::Cube => Self::Cube,
             TypeDialect::Postgres => Self::Postgres,
             TypeDialect::ClickHouse => Self::Clickhouse,
             TypeDialect::BigQuery => Self::Bigquery,
@@ -137,6 +141,8 @@ impl From<Dialect> for TypeDialect {
     fn from(value: Dialect) -> Self {
         match value {
             Dialect::Duckdb => Self::DuckDb,
+            Dialect::Datafusion => Self::DataFusion,
+            Dialect::Cube => Self::Cube,
             Dialect::Postgres => Self::Postgres,
             Dialect::Clickhouse => Self::ClickHouse,
             Dialect::Bigquery => Self::BigQuery,
