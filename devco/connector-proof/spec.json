@@ -1,0 +1,737 @@
+{
+  "schema": "connector-proof/v1",
+  "status": "BOUND",
+  "ref": "ci/clickhouse-connector-proof",
+  "request_id": "3aef2fb8-1b04-4b7e-ba20-1b818f4ec94d",
+  "vendor_lock_path": "nix/clickhouse-adbc.Cargo.lock",
+  "vendor_lock_blob": "273e9439f7d7946dbca5a8e6cded67c42a02a787",
+  "vendor_lock_sha256": "82b5b1335a6c97749025e662535d2f2a68f9f602d70d004c9fb796ac215af264",
+  "packages": [
+    {
+      "name": "upstream",
+      "source_sha": "48af5687251f056fc08b55116940796b761db513",
+      "source_tree": "4acd63109eca69abb7b775111f3182aa777f82ad",
+      "candidate_source_tree": "4acd63109eca69abb7b775111f3182aa777f82ad",
+      "base_sha": "0249b39888a8755fe4f33a8a2816d30dbf935092",
+      "prefix": "",
+      "cell": "tests::a_custom_tls_connection_answers_and_retires_its_idle_socket",
+      "toolchain_path": "rust-toolchain.toml",
+      "toolchain_sha256": "82f8b7067312bfa77c0c9189b097b1c7f6daeed82426f78def553fa1bf98dfbb",
+      "states": {
+        "head": {
+          "package_tree": "4acd63109eca69abb7b775111f3182aa777f82ad",
+          "execution_tree": "4acd63109eca69abb7b775111f3182aa777f82ad",
+          "origin_tree": "4acd63109eca69abb7b775111f3182aa777f82ad",
+          "changed_files": {},
+          "removed_files": []
+        },
+        "actual-base": {
+          "package_tree": "07afbbd3942933442534d894e9f4999b716a8936",
+          "execution_tree": "07afbbd3942933442534d894e9f4999b716a8936",
+          "origin_tree": "0249b39888a8755fe4f33a8a2816d30dbf935092",
+          "changed_files": {
+            "Cargo.lock": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "830f1e3b4723eecb58174b850572b1562b29e4a4",
+              "sha256": "c4c8d7764a0335e657d136ac5ae699477b222a5d5a34102be834e33f88c3d0bb"
+            },
+            "Cargo.toml": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "d879541c4026312bdf437e5a3a0d0cafa1142179",
+              "sha256": "2070827a41c2927d593e911d56adf3cddde20a4b5955069e7b2b35918e1f8350"
+            },
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "524c4a58d14e35911a67e6e461fc3f58ce921a68",
+              "sha256": "8541e6c67a9bdd4c4f62dea7e837012a02689caca0dbb7561b0854f88f98e325"
+            },
+            "src/tls.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "140e8d42b29f8bbcb877da47a8c709b63c4d6f35",
+              "sha256": "a6affa1556434a9b51028272cb63f58f38857316b98cea56e599abec952a8b13"
+            }
+          },
+          "removed_files": []
+        },
+        "base-overlay": {
+          "package_tree": "a767ca240d1e09b30672a6055c1802350fb0bc48",
+          "execution_tree": "a767ca240d1e09b30672a6055c1802350fb0bc48",
+          "origin_tree": "a767ca240d1e09b30672a6055c1802350fb0bc48",
+          "changed_files": {
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "729664bd7201cd467265583fefce48fb8b595fa3",
+              "sha256": "ab39d198b88c1a704e405b6e489588061c33ee3a973b5be63124d2091294a188"
+            },
+            "src/tls.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "140e8d42b29f8bbcb877da47a8c709b63c4d6f35",
+              "sha256": "a6affa1556434a9b51028272cb63f58f38857316b98cea56e599abec952a8b13"
+            }
+          },
+          "removed_files": []
+        },
+        "enforce-http": {
+          "package_tree": "f17c1344757dec2ae5e8fd7e7e154cc894c81242",
+          "execution_tree": "f17c1344757dec2ae5e8fd7e7e154cc894c81242",
+          "origin_tree": "f17c1344757dec2ae5e8fd7e7e154cc894c81242",
+          "changed_files": {
+            "src/tls.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "5f5cc8d3836f26311038b46cd7f7b107b2e716ff",
+              "sha256": "d11338c9487f8ad827ac4d78820d9caf552015a2329ba72bffaa45a236fc0efa"
+            }
+          },
+          "removed_files": []
+        },
+        "pool-timer": {
+          "package_tree": "2f6f47a81550e7b0e8a4c310e2c2c75757553e1f",
+          "execution_tree": "2f6f47a81550e7b0e8a4c310e2c2c75757553e1f",
+          "origin_tree": "2f6f47a81550e7b0e8a4c310e2c2c75757553e1f",
+          "changed_files": {
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "0c7b446fc0edeeac43c4d2bad5440ad703a05497",
+              "sha256": "fec2c5ee39d0fbc36a1be974ae31ea105cda5b3f3fbbe88ed2a8c1d41f1488a7"
+            }
+          },
+          "removed_files": []
+        },
+        "pool-idle-timeout": {
+          "package_tree": "36afb0ac07f96e0e53668413ba8551a10c8439c2",
+          "execution_tree": "36afb0ac07f96e0e53668413ba8551a10c8439c2",
+          "origin_tree": "36afb0ac07f96e0e53668413ba8551a10c8439c2",
+          "changed_files": {
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "4765a19ec831c88445cd56c759cd9c7a22f7e6b6",
+              "sha256": "43fce6c57094763f26cb3a0a2800ad9809341a4be5e6fb41724bc5285a000ced"
+            }
+          },
+          "removed_files": []
+        }
+      },
+      "patches": {
+        "base-test-overlay": {
+          "sha256": "58ebb0cb514303bb7daa60d5fb1581fdba61d021a75e2ceb48e536d4472e3547",
+          "strip": 1,
+          "text": "diff --git a/Cargo.lock b/Cargo.lock\nindex 830f1e3b4723eecb58174b850572b1562b29e4a4..2bfaca148f8ce873825d62d0abfc9829bc60bbb7 100644\n--- a/Cargo.lock\n+++ b/Cargo.lock\n@@ -21,6 +21,7 @@ dependencies = [\n  \"hyper-rustls\",\n  \"hyper-util\",\n  \"rand 0.10.3\",\n+ \"rcgen\",\n  \"rustls\",\n  \"serde\",\n  \"serde_bytes\",\n@@ -185,7 +186,7 @@ dependencies = [\n  \"arrow-schema\",\n  \"arrow-select\",\n  \"atoi\",\n- \"base64\",\n+ \"base64 0.22.1\",\n  \"chrono\",\n  \"half\",\n  \"lexical-core\",\n@@ -326,6 +327,45 @@ dependencies = [\n  \"regex-syntax\",\n ]\n \n+[[package]]\n+name = \"asn1-rs\"\n+version = \"0.7.2\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"b7f43a50ac4fdca5df8e885c21b835997f0a1cdee65494a6847694a98652d9d8\"\n+dependencies = [\n+ \"asn1-rs-derive\",\n+ \"asn1-rs-impl\",\n+ \"displaydoc\",\n+ \"nom\",\n+ \"num-traits\",\n+ \"rusticata-macros\",\n+ \"thiserror\",\n+ \"time\",\n+]\n+\n+[[package]]\n+name = \"asn1-rs-derive\"\n+version = \"0.6.0\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"3109e49b1e4909e9db6515a30c633684d68cdeaa252f215214cb4fa1a5bfee2c\"\n+dependencies = [\n+ \"proc-macro2\",\n+ \"quote\",\n+ \"syn 2.0.119\",\n+ \"synstructure 0.13.2\",\n+]\n+\n+[[package]]\n+name = \"asn1-rs-impl\"\n+version = \"0.2.0\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"7b18050c2cd6fe86c3a76584ef5e0baf286d038cda203eb6223df2cc413565f7\"\n+dependencies = [\n+ \"proc-macro2\",\n+ \"quote\",\n+ \"syn 2.0.119\",\n+]\n+\n [[package]]\n name = \"atoi\"\n version = \"2.0.0\"\n@@ -376,6 +416,21 @@ version = \"0.22.1\"\n source = \"registry+https://github.com/rust-lang/crates.io-index\"\n checksum = \"72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6\"\n \n+[[package]]\n+name = \"base64\"\n+version = \"0.23.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5\"\n+\n+[[package]]\n+name = \"bit-vec\"\n+version = \"0.9.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51\"\n+dependencies = [\n+ \"serde\",\n+]\n+\n [[package]]\n name = \"bitflags\"\n version = \"2.13.2\"\n@@ -613,6 +668,32 @@ dependencies = [\n  \"memchr\",\n ]\n \n+[[package]]\n+name = \"data-encoding\"\n+version = \"2.11.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06\"\n+\n+[[package]]\n+name = \"der-parser\"\n+version = \"10.0.0\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"07da5016415d5a3c4dd39b11ed26f915f52fc4e0dc197d87908bc916e51bc1a6\"\n+dependencies = [\n+ \"asn1-rs\",\n+ \"displaydoc\",\n+ \"nom\",\n+ \"num-bigint\",\n+ \"num-traits\",\n+ \"rusticata-macros\",\n+]\n+\n+[[package]]\n+name = \"deranged\"\n+version = \"0.5.9\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e\"\n+\n [[package]]\n name = \"displaydoc\"\n version = \"0.2.7\"\n@@ -1088,6 +1169,12 @@ dependencies = [\n  \"wasm-bindgen\",\n ]\n \n+[[package]]\n+name = \"lazy_static\"\n+version = \"1.5.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb\"\n+\n [[package]]\n name = \"lexical-core\"\n version = \"1.0.6\"\n@@ -1197,6 +1284,12 @@ version = \"2.8.3\"\n source = \"registry+https://github.com/rust-lang/crates.io-index\"\n checksum = \"cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98\"\n \n+[[package]]\n+name = \"minimal-lexical\"\n+version = \"0.2.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a\"\n+\n [[package]]\n name = \"mio\"\n version = \"1.2.4\"\n@@ -1225,6 +1318,16 @@ dependencies = [\n  \"tempfile\",\n ]\n \n+[[package]]\n+name = \"nom\"\n+version = \"7.1.3\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a\"\n+dependencies = [\n+ \"memchr\",\n+ \"minimal-lexical\",\n+]\n+\n [[package]]\n name = \"num-bigint\"\n version = \"0.4.8\"\n@@ -1244,6 +1347,12 @@ dependencies = [\n  \"num-traits\",\n ]\n \n+[[package]]\n+name = \"num-conv\"\n+version = \"0.2.2\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441\"\n+\n [[package]]\n name = \"num-integer\"\n version = \"0.1.47\"\n@@ -1263,6 +1372,15 @@ dependencies = [\n  \"libm\",\n ]\n \n+[[package]]\n+name = \"oid-registry\"\n+version = \"0.8.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"12f40cff3dde1b6087cc5d5f5d4d65712f34016a03ed60e9c08dcc392736b5b7\"\n+dependencies = [\n+ \"asn1-rs\",\n+]\n+\n [[package]]\n name = \"once_cell\"\n version = \"1.21.4\"\n@@ -1318,6 +1436,16 @@ version = \"0.2.1\"\n source = \"registry+https://github.com/rust-lang/crates.io-index\"\n checksum = \"1e91099d4268b0e11973f036e885d652fb0b21fedcf69738c627f94db6a44f42\"\n \n+[[package]]\n+name = \"pem\"\n+version = \"4.0.0\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120\"\n+dependencies = [\n+ \"base64 0.23.1\",\n+ \"serde_core\",\n+]\n+\n [[package]]\n name = \"percent-encoding\"\n version = \"2.3.2\"\n@@ -1345,6 +1473,12 @@ dependencies = [\n  \"zerovec\",\n ]\n \n+[[package]]\n+name = \"powerfmt\"\n+version = \"0.2.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958\"\n+\n [[package]]\n name = \"ppv-lite86\"\n version = \"0.2.21\"\n@@ -1430,6 +1564,20 @@ version = \"0.10.1\"\n source = \"registry+https://github.com/rust-lang/crates.io-index\"\n checksum = \"63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69\"\n \n+[[package]]\n+name = \"rcgen\"\n+version = \"0.14.10\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"8774e05a7d0de114588e6a28fe7e71694b82614ed569d86d8b389dfbc98b8ad8\"\n+dependencies = [\n+ \"pem\",\n+ \"ring\",\n+ \"rustls-pki-types\",\n+ \"time\",\n+ \"x509-parser\",\n+ \"yasna\",\n+]\n+\n [[package]]\n name = \"regex\"\n version = \"1.13.1\"\n@@ -1482,6 +1630,15 @@ dependencies = [\n  \"semver\",\n ]\n \n+[[package]]\n+name = \"rusticata-macros\"\n+version = \"4.1.0\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"faf0c4a6ece9950b9abdb62b1cfcf2a68b3b67a10ba445b3bb85be2a293d0632\"\n+dependencies = [\n+ \"nom\",\n+]\n+\n [[package]]\n name = \"rustix\"\n version = \"1.1.6\"\n@@ -1734,6 +1891,17 @@ dependencies = [\n  \"unicode-ident\",\n ]\n \n+[[package]]\n+name = \"synstructure\"\n+version = \"0.13.2\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2\"\n+dependencies = [\n+ \"proc-macro2\",\n+ \"quote\",\n+ \"syn 2.0.119\",\n+]\n+\n [[package]]\n name = \"synstructure\"\n version = \"0.14.0\"\n@@ -1778,6 +1946,36 @@ dependencies = [\n  \"syn 3.0.10\",\n ]\n \n+[[package]]\n+name = \"time\"\n+version = \"0.3.55\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134\"\n+dependencies = [\n+ \"deranged\",\n+ \"num-conv\",\n+ \"powerfmt\",\n+ \"serde_core\",\n+ \"time-core\",\n+ \"time-macros\",\n+]\n+\n+[[package]]\n+name = \"time-core\"\n+version = \"0.1.9\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109\"\n+\n+[[package]]\n+name = \"time-macros\"\n+version = \"0.2.32\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85\"\n+dependencies = [\n+ \"num-conv\",\n+ \"time-core\",\n+]\n+\n [[package]]\n name = \"tiny-keccak\"\n version = \"2.0.2\"\n@@ -2240,6 +2438,34 @@ version = \"0.6.4\"\n source = \"registry+https://github.com/rust-lang/crates.io-index\"\n checksum = \"3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc\"\n \n+[[package]]\n+name = \"x509-parser\"\n+version = \"0.18.1\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"d43b0f71ce057da06bc0851b23ee24f3f86190b07203dd8f567d0b706a185202\"\n+dependencies = [\n+ \"asn1-rs\",\n+ \"data-encoding\",\n+ \"der-parser\",\n+ \"lazy_static\",\n+ \"nom\",\n+ \"oid-registry\",\n+ \"ring\",\n+ \"rusticata-macros\",\n+ \"thiserror\",\n+ \"time\",\n+]\n+\n+[[package]]\n+name = \"yasna\"\n+version = \"0.6.0\"\n+source = \"registry+https://github.com/rust-lang/crates.io-index\"\n+checksum = \"b5f6765e852b9b4dc8e2a76843e4d64d1cea8e79bcde0b6901aea8e7c7f08282\"\n+dependencies = [\n+ \"bit-vec\",\n+ \"time\",\n+]\n+\n [[package]]\n name = \"yoke\"\n version = \"0.8.4\"\n@@ -2260,7 +2486,7 @@ dependencies = [\n  \"proc-macro2\",\n  \"quote\",\n  \"syn 3.0.10\",\n- \"synstructure\",\n+ \"synstructure 0.14.0\",\n ]\n \n [[package]]\n@@ -2301,7 +2527,7 @@ dependencies = [\n  \"proc-macro2\",\n  \"quote\",\n  \"syn 3.0.10\",\n- \"synstructure\",\n+ \"synstructure 0.14.0\",\n ]\n \n [[package]]\ndiff --git a/Cargo.toml b/Cargo.toml\nindex d879541c4026312bdf437e5a3a0d0cafa1142179..3bf661a0aed20659cb8b44c03423d941f125eb70 100644\n--- a/Cargo.toml\n+++ b/Cargo.toml\n@@ -115,6 +115,7 @@ name = \"it\"\n path = \"tests/it/main.rs\"\n \n [dev-dependencies]\n+rcgen = { version = \"0.14\", default-features = false, features = [\"pem\", \"ring\"] }\n arrow = \"58.3.0\"\n adbc_driver_manager = \"0.23.0\"\n \ndiff --git a/src/lib.rs b/src/lib.rs\nindex 524c4a58d14e35911a67e6e461fc3f58ce921a68..729664bd7201cd467265583fefce48fb8b595fa3 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1195,6 +1195,101 @@ mod tests {\n         assert_ne!(err.status, Status::InvalidArguments, \"{err:?}\");\n     }\n \n+    #[cfg(feature = \"_tls-mtls\")]\n+    #[test]\n+    fn a_custom_tls_connection_answers_and_retires_its_idle_socket() {\n+        use adbc_core::Statement as _;\n+        use std::io::{self, Read, Write};\n+        use std::net::TcpListener;\n+        use std::sync::Arc;\n+        use std::time::{Duration, Instant};\n+\n+        let pair = rcgen::generate_simple_self_signed([String::from(\"127.0.0.1\")]).unwrap();\n+        let root = pair.cert.pem();\n+        #[cfg(feature = \"rustls-tls-aws-lc\")]\n+        let provider = rustls::crypto::aws_lc_rs::default_provider();\n+        #[cfg(all(feature = \"rustls-tls-ring\", not(feature = \"rustls-tls-aws-lc\")))]\n+        let provider = rustls::crypto::ring::default_provider();\n+        let server = rustls::ServerConfig::builder_with_provider(Arc::new(provider))\n+            .with_safe_default_protocol_versions()\n+            .unwrap()\n+            .with_no_client_auth()\n+            .with_single_cert(\n+                vec![pair.cert.der().clone()],\n+                rustls::pki_types::PrivatePkcs8KeyDer::from(pair.signing_key.serialize_der())\n+                    .into(),\n+            )\n+            .unwrap();\n+        let listener = TcpListener::bind(\"127.0.0.1:0\").unwrap();\n+        let address = listener.local_addr().unwrap();\n+        listener.set_nonblocking(true).unwrap();\n+        let peer = std::thread::spawn(move || -> io::Result<()> {\n+            let deadline = Instant::now() + Duration::from_secs(10);\n+            let socket = loop {\n+                match listener.accept() {\n+                    Ok((socket, _)) => break socket,\n+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {\n+                        if Instant::now() >= deadline {\n+                            return Err(io::ErrorKind::TimedOut.into());\n+                        }\n+                        std::thread::sleep(Duration::from_millis(10));\n+                    }\n+                    Err(error) => return Err(error),\n+                }\n+            };\n+            socket.set_read_timeout(Some(Duration::from_secs(8)))?;\n+            socket.set_write_timeout(Some(Duration::from_secs(6)))?;\n+            let connection = rustls::ServerConnection::new(Arc::new(server)).unwrap();\n+            let mut tls = rustls::StreamOwned::new(connection, socket);\n+            let mut headers = Vec::new();\n+            while !headers.ends_with(b\"\\r\\n\\r\\n\") {\n+                let mut byte = [0];\n+                tls.read_exact(&mut byte)?;\n+                headers.push(byte[0]);\n+                if headers.len() > 16 * 1024 {\n+                    return Err(io::ErrorKind::InvalidData.into());\n+                }\n+            }\n+            let mut query = [0; 8];\n+            tls.read_exact(&mut query)?;\n+            if &query != b\"SELECT 1\" {\n+                return Err(io::ErrorKind::InvalidData.into());\n+            }\n+            tls.write_all(b\"HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n\")?;\n+            tls.flush()?;\n+            // The 8s read deadline leaves room for the client's 2s idle eviction.\n+            match tls.read(&mut [0]) {\n+                Ok(0) => Ok(()),\n+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(()),\n+                Err(error) => Err(error),\n+                Ok(_) => Err(io::ErrorKind::InvalidData.into()),\n+            }\n+        });\n+        let runtime = Arc::new(\n+            tokio::runtime::Builder::new_multi_thread()\n+                .worker_threads(1)\n+                .enable_all()\n+                .build()\n+                .unwrap(),\n+        );\n+        let database = ClickhouseDriver::init_with(runtime)\n+            .new_database_with_opts([\n+                (OptionDatabase::Uri, format!(\"https://{address}\").into()),\n+                (options::TLS_ROOT_CERTS.into(), root.into()),\n+            ])\n+            .unwrap();\n+        let mut connection = database.new_connection().unwrap();\n+        let mut statement = connection.new_statement().unwrap();\n+        statement.set_sql_query(\"SELECT 1\").unwrap();\n+        let result = statement.execute_update();\n+        let closed = peer.join().unwrap();\n+        assert!(result.is_ok(), \"custom TLS request failed: {result:?}\");\n+        assert!(\n+            closed.is_ok(),\n+            \"idle TLS socket was not retired: {closed:?}\"\n+        );\n+    }\n+\n     #[test]\n     fn test_set_product_info() {\n         let mut driver = ClickhouseDriver::init();\n"
+        },
+        "enforce-http": {
+          "sha256": "4adc666ba8c38adb682e55293b5a643f21ed851c90de11195e2d91726765bd0f",
+          "strip": 1,
+          "text": "diff --git a/src/tls.rs b/src/tls.rs\nindex e9d0b746b01d267eb7256834d484ef806a948e5d..5f5cc8d3836f26311038b46cd7f7b107b2e716ff 100644\n--- a/src/tls.rs\n+++ b/src/tls.rs\n@@ -220,7 +220,6 @@ impl TlsOptions {\n         };\n \n         let mut http = HttpConnector::new();\n-        http.enforce_http(false);\n         http.set_keepalive(Some(std::time::Duration::from_secs(60)));\n         Ok(HttpsConnectorBuilder::new()\n             .with_tls_config(config)\n"
+        },
+        "pool-timer": {
+          "sha256": "eee62c8abdf7def2d2df3e62a79ecb3a060e865d26741ddf10311f70ca25273b",
+          "strip": 1,
+          "text": "diff --git a/src/lib.rs b/src/lib.rs\nindex d3a37664003207cec3ff934a8ab1c8880cf86129..0c7b446fc0edeeac43c4d2bad5440ad703a05497 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -409,7 +409,6 @@ impl Database for ClickhouseDatabase {\n                     let http = hyper_util::client::legacy::Client::builder(\n                         hyper_util::rt::TokioExecutor::new(),\n                     )\n-                    .pool_timer(hyper_util::rt::TokioTimer::new())\n                     .pool_idle_timeout(std::time::Duration::from_secs(2))\n                     .build(connector);\n                     Client::with_http_client(http)\n"
+        },
+        "pool-idle-timeout": {
+          "sha256": "f70068065f7a015de3dc19ff200a00a9faa9ca4acf6e7eec8c6d2fb0aa57c492",
+          "strip": 1,
+          "text": "diff --git a/src/lib.rs b/src/lib.rs\nindex d3a37664003207cec3ff934a8ab1c8880cf86129..4765a19ec831c88445cd56c759cd9c7a22f7e6b6 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -410,7 +410,6 @@ impl Database for ClickhouseDatabase {\n                         hyper_util::rt::TokioExecutor::new(),\n                     )\n                     .pool_timer(hyper_util::rt::TokioTimer::new())\n-                    .pool_idle_timeout(std::time::Duration::from_secs(2))\n                     .build(connector);\n                     Client::with_http_client(http)\n                 }\n"
+        }
+      },
+      "rows": [
+        {
+          "name": "head",
+          "state": "head",
+          "exit": 0
+        },
+        {
+          "name": "base-overlay",
+          "state": "base-overlay",
+          "exit": 101,
+          "line": 1286,
+          "message": "custom TLS request failed:"
+        },
+        {
+          "name": "enforce-http",
+          "state": "enforce-http",
+          "exit": 101,
+          "line": 1288,
+          "message": "custom TLS request failed:"
+        },
+        {
+          "name": "restored-enforce-http",
+          "state": "head",
+          "exit": 0
+        },
+        {
+          "name": "pool-timer",
+          "state": "pool-timer",
+          "exit": 101,
+          "line": 1288,
+          "message": "idle TLS socket was not retired:"
+        },
+        {
+          "name": "restored-pool-timer",
+          "state": "head",
+          "exit": 0
+        },
+        {
+          "name": "pool-idle-timeout",
+          "state": "pool-idle-timeout",
+          "exit": 101,
+          "line": 1288,
+          "message": "idle TLS socket was not retired:"
+        },
+        {
+          "name": "restored-pool-idle-timeout",
+          "state": "head",
+          "exit": 0
+        }
+      ],
+      "head_files": {
+        ".docker/clickhouse/single_node/config.xml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "beac55667aacd933789f7e3d7848e8e211178a27",
+          "sha256": "05e1497d3e03066e22a6ee3bb8f7c2e0753ae09d5c01e4f98c63f930bf719832"
+        },
+        ".docker/clickhouse/users.xml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "6118853669f7ec19969554d95260cfea5b108505",
+          "sha256": "926a4dc7f1a18f518c80169f30759c51d174497e3225fbc8d85dca912989620b"
+        },
+        ".github/CODEOWNERS": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "bd2b8280830e4d6a97d1ccd1dbb085363b934a81",
+          "sha256": "57d908eaf35816178a641d7c4bb6c79f6d25fe11b73dccacc4109da78ba538f3"
+        },
+        ".github/ISSUE_TEMPLATE/bug_report.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "c60e0df5260cc3d2828256eaa2881e24f210b409",
+          "sha256": "d562cf8e9313e9d0b311027e445acac6e6c0c192823a34bfb141a56122e4a6eb"
+        },
+        ".github/ISSUE_TEMPLATE/feature_request.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "c44ae3677fbec9a66b3688c6064f81cb6e0f19d4",
+          "sha256": "e2ce3f7178370c388a42bc958aa10ddf1ab2aa9488669d39ec2b70afb423e86d"
+        },
+        ".github/ai-gate.yml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "b2f541d59c225d7b55810c2cd14be83b6c55c31c",
+          "sha256": "50cf48dbd7528f8468f3cee5eda18aab4c04e1330ef6f1d7298375258dfa5acf"
+        },
+        ".github/pull_request_template.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "d37fc0144e5bc6332160141797562cd368bd3ff8",
+          "sha256": "32e356332633c4c62671c508a906489b56ebeaabbb1f344c57975ddbaa018dfd"
+        },
+        ".github/workflows/ci.yml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "8bbd16d0a53a33bc27c69cb58424b528ce8dcda4",
+          "sha256": "eceffaaf0a077f14d9227343dafb2f8bf56512d1e41c66127f93b47d687c993e"
+        },
+        ".gitignore": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "3a8cabc9e988187922461e910f02cd5813d0d10c",
+          "sha256": "3ba05a46e39589afac5b7eb620b91d7e63b754b6ccc6cc0514097fad5e814205"
+        },
+        "CHANGELOG.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "a41d9704a3feaa5f1180d77dc99f05872cd3a116",
+          "sha256": "dde36b2f03895633c9d56b9ef14e4c3aff9e1350e078be41bf17c339d072ab0a"
+        },
+        "CODE_OF_CONDUCT.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "6d5f508fde1beef05ec2083078c66c0dd9086517",
+          "sha256": "a000a8e1c5f225184d6eb5f5e21859bc3748e2dd9de6362b1f2737275f18fe3e"
+        },
+        "Cargo.lock": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "2bfaca148f8ce873825d62d0abfc9829bc60bbb7",
+          "sha256": "9393c6e9d151dbb4f6755ecddd8aa1df78814bfcc7ff70b22ce6685320cb60d8"
+        },
+        "Cargo.toml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "3bf661a0aed20659cb8b44c03423d941f125eb70",
+          "sha256": "d0d930989a4bc46e1ffb517ea4282e2ccecf7ee954e81bf6646d1788e6454fb0"
+        },
+        "LICENSE-APACHE": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        },
+        "LICENSE-MIT": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "51835440011f1f0e0a86b178b71f957f4c37dd6c",
+          "sha256": "8a86b337d4d00aa97532c3cb929a5b412fdf5f9bc2846efe9362f71a54dcf7f3"
+        },
+        "README.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "ac7957d63a90208a73a0764659f5f2c6423eaefb",
+          "sha256": "e7eb7f17d12cc86847563c35f9934836ccfe03187024e500720f37674bdbfa50"
+        },
+        "agents.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "7f1b98dac954541311ed94f54247623facbc8d34",
+          "sha256": "f5bda08571d96bc23f1cd7fe0ed36cd015e3824c14f5f73234a26ffff604dff1"
+        },
+        "docker-compose.yml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "2e27249e477d7da8fdfe427bbff403f0336ae39f",
+          "sha256": "d271b8cdb8433c264165df83fa68ce508474d421262d8de63835974914e646be"
+        },
+        "rust-toolchain.toml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "8b6dac82155945eb1b13b3bd84e1b60e3a9d5d7c",
+          "sha256": "82f8b7067312bfa77c0c9189b097b1c7f6daeed82426f78def553fa1bf98dfbb"
+        },
+        "src/lib.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "d3a37664003207cec3ff934a8ab1c8880cf86129",
+          "sha256": "16d840270f2782a476bd9ec73c42ca645f5284f6024b647f097aba4af729a419"
+        },
+        "src/options.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "a71f886220ec4b315fdf16cabd79fa55bb176e97",
+          "sha256": "06c50d624caf9f438274d54a8b3c6096248645164f616f026ac4844ed991cf19"
+        },
+        "src/reader.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "3ca8480be5c62e092b4cd57250419b9e991271c4",
+          "sha256": "e4134f5894d022b91bfb1d4687e4047b3647709fbbe2f0ccf3e89bef53302146"
+        },
+        "src/schema.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "e62a9e89f680f0d7f3cce844de74f69011370f13",
+          "sha256": "0701975c431924b68f00542c2359ed5124f334641e34a47717874d25e0a5701e"
+        },
+        "src/statement.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "ef4bf2b3e3616e22b3bd590e6ba529c4e853a2c2",
+          "sha256": "491c8bd6f509581b3e7bec1e5cada29e54c7c7c6309c0e2fca5a7c6b41dd2b88"
+        },
+        "src/tls.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "e9d0b746b01d267eb7256834d484ef806a948e5d",
+          "sha256": "830d564814b40ee76ae8a51013240aeccb2cb953dcf5dddbe0418179e7149925"
+        },
+        "src/writer.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "ee3d9f4fa943ca4c20da55221a3c8a03bea5715b",
+          "sha256": "461a5b84124ff60c0510fe12e98916e8aa42a3087ca9549cf5411347b8ed8391"
+        },
+        "tests/it/bulk_ingest.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "7adeb8e8913bf92d0b0fb7ec235800a8bd5571f9",
+          "sha256": "fbda7220be04fe61ef75131eebb028a47263669e003cef45b5db08e93c11dff1"
+        },
+        "tests/it/database.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "a2d4828c7da77e3195e62283f098f3e94eb55f7a",
+          "sha256": "ad2e2f8ff5e858fddead00c53411d9ca1153439b3debed9cb3349ae0914082f0"
+        },
+        "tests/it/get_table_schema.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "ae56b158a6ee0ec0ffbcbac99bde05500ab81c67",
+          "sha256": "bbd029725709c61590514216ce6f88dba5ed94fd9d7d2c417a1be3ee612d7dbb"
+        },
+        "tests/it/main.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "9f6c5c6b71fdfe8e822a9a2cbcd99200eb7a41a5",
+          "sha256": "db46e1c3a1316928174103d3dbad00871579c1506e57912b8bc4f164c80cc40c"
+        },
+        "tests/it/params.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "93d9e7228942d328cae37fcd915a358b5904d4ea",
+          "sha256": "b6eeeef75bf8fb0d0f620d82c6803cbaac8f940ec3dcbf34f281edf23092f24e"
+        },
+        "tests/it/settings.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "837d9fe66e107c0ba64391feb02eeb0f9149ca59",
+          "sha256": "1ebb0be1a01f04ffb247c888a98423495f6c99ec072b4bfd560a421cb2acc515"
+        }
+      }
+    },
+    {
+      "name": "vendor",
+      "source_sha": "c1b6ad22ba1fd5a87863a6703c91505940e136c7",
+      "source_tree": "4c187d32ead17b757062978ed87b408e4f0ddab3",
+      "candidate_source_tree": "4c187d32ead17b757062978ed87b408e4f0ddab3",
+      "base_sha": "b8bce349b79fc16891f8bfd466ba7187cafdf019",
+      "prefix": "vendor/adbc_clickhouse",
+      "cell": "tests::a_custom_tls_connection_answers_and_retires_its_idle_socket",
+      "toolchain_path": "devco/rust-toolchain-nightly.toml",
+      "toolchain_sha256": "665750538bf945df8a67e5e09eb2f603e4882c8da8c949e14417745a1809cf40",
+      "states": {
+        "head": {
+          "package_tree": "9dac97be5d05f5ebc0862a77c5260558406a9b86",
+          "execution_tree": "5ee3e86d08c77c473d177d3dba97b91247f79a61",
+          "origin_tree": "4c187d32ead17b757062978ed87b408e4f0ddab3",
+          "changed_files": {},
+          "removed_files": []
+        },
+        "actual-base": {
+          "package_tree": "e12f6bed82a022e8220641819655b9787eeef4b0",
+          "execution_tree": "fd6139b8f0d4dcd4053a69af31d61a59eb8473af",
+          "origin_tree": "2191984dba94ae674e39f101b48d07a619d72255",
+          "changed_files": {
+            "CHANGELOG.md": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "7417b66fc740e40e980b68e7552d656657d45c97",
+              "sha256": "e05c8ff33a1ef714b8b025e7c713ece6084ac55a1fedf75f71a4b1da6829c595"
+            },
+            "Cargo.toml": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "b0181984a5ac0d407ccc466f33167c28307b4af4",
+              "sha256": "863f763011887995ca7f1a6ba362be944e677434bebf976eb80c3f66520f814e"
+            },
+            "README.md": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "c2d1aa7d0fc64af0ddfbc27f51beee7e255abd5c",
+              "sha256": "8f387bf022b1c82eb0bb6855529e742ab9183f48f0addbd92814ab85a2981ed2"
+            },
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "78f49f7ff7995ff33dfb453063d1c2df8d700f16",
+              "sha256": "347f11fb37041362e7e3f1046cb98ed2a15b060f82c790c7f88268dddaa5fe1b"
+            },
+            "src/options.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "70e0ba58d790a7ccab964ab0a3da300b5021ff0e",
+              "sha256": "153dd878cfd0df67f3bd13561151199e11a5a6900d879f5396289bb3328d28eb"
+            },
+            "src/tls.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "33d0eb1e64d77f8f0297ebb85b370eaf5727d1c3",
+              "sha256": "6b010551e5e0e538b7f40b6acebb00f3f3f5bc1ef70213f5ee03c36b89f3680d"
+            }
+          },
+          "removed_files": []
+        },
+        "base-overlay": {
+          "package_tree": "9d88ad29131c368302417f6d6b32de3b8eaee794",
+          "execution_tree": "5da31acd57c1e57f0027cf71c57bf1628c4d3c06",
+          "origin_tree": "5fc96421fa11308585c8800956cb0388d09c75a8",
+          "changed_files": {
+            "CHANGELOG.md": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "7417b66fc740e40e980b68e7552d656657d45c97",
+              "sha256": "e05c8ff33a1ef714b8b025e7c713ece6084ac55a1fedf75f71a4b1da6829c595"
+            },
+            "Cargo.toml": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "b0181984a5ac0d407ccc466f33167c28307b4af4",
+              "sha256": "863f763011887995ca7f1a6ba362be944e677434bebf976eb80c3f66520f814e"
+            },
+            "README.md": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "c2d1aa7d0fc64af0ddfbc27f51beee7e255abd5c",
+              "sha256": "8f387bf022b1c82eb0bb6855529e742ab9183f48f0addbd92814ab85a2981ed2"
+            },
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "c990d9b80dce3de2325f424682d50d19af1b99bf",
+              "sha256": "0b51461705be022e9d0ade32ec7672ed953fa0aaa92c27896764a6a919a4026c"
+            },
+            "src/options.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "70e0ba58d790a7ccab964ab0a3da300b5021ff0e",
+              "sha256": "153dd878cfd0df67f3bd13561151199e11a5a6900d879f5396289bb3328d28eb"
+            },
+            "src/tls.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "33d0eb1e64d77f8f0297ebb85b370eaf5727d1c3",
+              "sha256": "6b010551e5e0e538b7f40b6acebb00f3f3f5bc1ef70213f5ee03c36b89f3680d"
+            }
+          },
+          "removed_files": []
+        },
+        "enforce-http": {
+          "package_tree": "66c977ae84afd5eb2804c8701ddf9449fcb37a31",
+          "execution_tree": "a96dee61ec93e65b66c38285ce4880078a700d4c",
+          "origin_tree": "5f077d359889e59eaa6404d7fa8b743a49144c46",
+          "changed_files": {
+            "src/tls.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "ac4a11e2c6bab301b3e93c5189a4b292a655c29c",
+              "sha256": "43a1b9f67d0ca3cf89dbb31d2c2a64aea6d7cfcf6b530d8dd2a960adb1f90048"
+            }
+          },
+          "removed_files": []
+        },
+        "pool-timer": {
+          "package_tree": "2445274324c84ec1356e12d3ef13c85612b2ac2a",
+          "execution_tree": "ededeced086e60d0fe97a13a193915e3320b17e1",
+          "origin_tree": "12fb5d20638658e3ed38ffcbc031dd62dd8cbed1",
+          "changed_files": {
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "7c63e16c9aa245791b8a13b64f83f87af4a54f58",
+              "sha256": "1fe75f5879c1c1bb58228eefdf5273b868c13709fdecc54d55292980cce08a0a"
+            }
+          },
+          "removed_files": []
+        },
+        "pool-idle-timeout": {
+          "package_tree": "66f4c81592c0d0f33875197444362c907d9bad0f",
+          "execution_tree": "c49e3c55b83a2f7d456dbee86b16814da34a9c59",
+          "origin_tree": "9a8d7bf39d3438d8afc74c5f4fbdcd4c631bed18",
+          "changed_files": {
+            "src/lib.rs": {
+              "mode": "100644",
+              "permissions": 420,
+              "blob": "59026efc225cdbccf558c3f6f089c91128f66121",
+              "sha256": "269e46f7fa6fa80b14e885bc81066172d4ea8d3a1687df7362184e7afdddaf82"
+            }
+          },
+          "removed_files": []
+        }
+      },
+      "patches": {
+        "base-test-overlay": {
+          "sha256": "ca91fc408f05bec742d7d584a466ce6e60b8a615b9cddb198f2f6b1a4d58d8eb",
+          "strip": 3,
+          "text": "diff --git a/vendor/adbc_clickhouse/src/lib.rs b/vendor/adbc_clickhouse/src/lib.rs\nindex 78f49f7ff7995ff33dfb453063d1c2df8d700f16..c990d9b80dce3de2325f424682d50d19af1b99bf 100644\n--- a/vendor/adbc_clickhouse/src/lib.rs\n+++ b/vendor/adbc_clickhouse/src/lib.rs\n@@ -1140,6 +1140,101 @@ mod tests {\n     use adbc_core::{Connection, Database, Driver, Optionable};\n     use url::Url;\n \n+    #[cfg(feature = \"tls-mtls\")]\n+    #[test]\n+    fn a_custom_tls_connection_answers_and_retires_its_idle_socket() {\n+        use adbc_core::Statement as _;\n+        use std::io::{self, Read, Write};\n+        use std::net::TcpListener;\n+        use std::sync::Arc;\n+        use std::time::{Duration, Instant};\n+\n+        let pair = rcgen::generate_simple_self_signed([String::from(\"127.0.0.1\")]).unwrap();\n+        let root = pair.cert.pem();\n+        #[cfg(feature = \"rustls-tls-aws-lc\")]\n+        let provider = rustls::crypto::aws_lc_rs::default_provider();\n+        #[cfg(all(feature = \"rustls-tls-ring\", not(feature = \"rustls-tls-aws-lc\")))]\n+        let provider = rustls::crypto::ring::default_provider();\n+        let server = rustls::ServerConfig::builder_with_provider(Arc::new(provider))\n+            .with_safe_default_protocol_versions()\n+            .unwrap()\n+            .with_no_client_auth()\n+            .with_single_cert(\n+                vec![pair.cert.der().clone()],\n+                rustls::pki_types::PrivatePkcs8KeyDer::from(pair.signing_key.serialize_der())\n+                    .into(),\n+            )\n+            .unwrap();\n+        let listener = TcpListener::bind(\"127.0.0.1:0\").unwrap();\n+        let address = listener.local_addr().unwrap();\n+        listener.set_nonblocking(true).unwrap();\n+        let peer = std::thread::spawn(move || -> io::Result<()> {\n+            let deadline = Instant::now() + Duration::from_secs(10);\n+            let socket = loop {\n+                match listener.accept() {\n+                    Ok((socket, _)) => break socket,\n+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {\n+                        if Instant::now() >= deadline {\n+                            return Err(io::ErrorKind::TimedOut.into());\n+                        }\n+                        std::thread::sleep(Duration::from_millis(10));\n+                    }\n+                    Err(error) => return Err(error),\n+                }\n+            };\n+            socket.set_read_timeout(Some(Duration::from_secs(8)))?;\n+            socket.set_write_timeout(Some(Duration::from_secs(6)))?;\n+            let connection = rustls::ServerConnection::new(Arc::new(server)).unwrap();\n+            let mut tls = rustls::StreamOwned::new(connection, socket);\n+            let mut headers = Vec::new();\n+            while !headers.ends_with(b\"\\r\\n\\r\\n\") {\n+                let mut byte = [0];\n+                tls.read_exact(&mut byte)?;\n+                headers.push(byte[0]);\n+                if headers.len() > 16 * 1024 {\n+                    return Err(io::ErrorKind::InvalidData.into());\n+                }\n+            }\n+            let mut query = [0; 8];\n+            tls.read_exact(&mut query)?;\n+            if &query != b\"SELECT 1\" {\n+                return Err(io::ErrorKind::InvalidData.into());\n+            }\n+            tls.write_all(b\"HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n\")?;\n+            tls.flush()?;\n+            // The 8s read deadline leaves room for the client's 2s idle eviction.\n+            match tls.read(&mut [0]) {\n+                Ok(0) => Ok(()),\n+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(()),\n+                Err(error) => Err(error),\n+                Ok(_) => Err(io::ErrorKind::InvalidData.into()),\n+            }\n+        });\n+        let runtime = Arc::new(\n+            tokio::runtime::Builder::new_multi_thread()\n+                .worker_threads(1)\n+                .enable_all()\n+                .build()\n+                .unwrap(),\n+        );\n+        let database = ClickhouseDriver::init_with(runtime)\n+            .new_database_with_opts([\n+                (OptionDatabase::Uri, format!(\"https://{address}\").into()),\n+                (options::TLS_ROOT_CERTS.into(), root.into()),\n+            ])\n+            .unwrap();\n+        let mut connection = database.new_connection().unwrap();\n+        let mut statement = connection.new_statement().unwrap();\n+        statement.set_sql_query(\"SELECT 1\").unwrap();\n+        let result = statement.execute_update();\n+        let closed = peer.join().unwrap();\n+        assert!(result.is_ok(), \"custom TLS request failed: {result:?}\");\n+        assert!(\n+            closed.is_ok(),\n+            \"idle TLS socket was not retired: {closed:?}\"\n+        );\n+    }\n+\n     #[test]\n     fn test_set_product_info() {\n         let mut driver = ClickhouseDriver::init();\n"
+        },
+        "enforce-http": {
+          "sha256": "11634d243289b1998579afed45d8db1337f2e65f3fd27a6093447bb423ea95df",
+          "strip": 3,
+          "text": "diff --git a/vendor/adbc_clickhouse/src/tls.rs b/vendor/adbc_clickhouse/src/tls.rs\nindex 8b7a13c570b95d49fe6a56e6858611352a3744fa..ac4a11e2c6bab301b3e93c5189a4b292a655c29c 100644\n--- a/vendor/adbc_clickhouse/src/tls.rs\n+++ b/vendor/adbc_clickhouse/src/tls.rs\n@@ -217,7 +217,6 @@ impl TlsOptions {\n         };\n \n         let mut http = HttpConnector::new();\n-        http.enforce_http(false);\n         http.set_keepalive(Some(std::time::Duration::from_secs(60)));\n         Ok(HttpsConnectorBuilder::new()\n             .with_tls_config(config)\n"
+        },
+        "pool-timer": {
+          "sha256": "62e54f1117d8022d0375a10b3e9c64fe3ae059956ded0d446ba8599e22ee7463",
+          "strip": 3,
+          "text": "diff --git a/vendor/adbc_clickhouse/src/lib.rs b/vendor/adbc_clickhouse/src/lib.rs\nindex c74dcf40504b86e97065e6c79c342c0a0a7ca9f3..7c63e16c9aa245791b8a13b64f83f87af4a54f58 100644\n--- a/vendor/adbc_clickhouse/src/lib.rs\n+++ b/vendor/adbc_clickhouse/src/lib.rs\n@@ -410,7 +410,6 @@ impl Database for ClickhouseDatabase {\n                     let http = hyper_util::client::legacy::Client::builder(\n                         hyper_util::rt::TokioExecutor::new(),\n                     )\n-                    .pool_timer(hyper_util::rt::TokioTimer::new())\n                     .pool_idle_timeout(std::time::Duration::from_secs(2))\n                     .build(connector);\n                     Client::with_http_client(http)\n"
+        },
+        "pool-idle-timeout": {
+          "sha256": "3263e6db486d83910d0451db4f94b714328caa275f8ae6824a11c419f9ac5a5a",
+          "strip": 3,
+          "text": "diff --git a/vendor/adbc_clickhouse/src/lib.rs b/vendor/adbc_clickhouse/src/lib.rs\nindex c74dcf40504b86e97065e6c79c342c0a0a7ca9f3..59026efc225cdbccf558c3f6f089c91128f66121 100644\n--- a/vendor/adbc_clickhouse/src/lib.rs\n+++ b/vendor/adbc_clickhouse/src/lib.rs\n@@ -411,7 +411,6 @@ impl Database for ClickhouseDatabase {\n                         hyper_util::rt::TokioExecutor::new(),\n                     )\n                     .pool_timer(hyper_util::rt::TokioTimer::new())\n-                    .pool_idle_timeout(std::time::Duration::from_secs(2))\n                     .build(connector);\n                     Client::with_http_client(http)\n                 }\n"
+        }
+      },
+      "rows": [
+        {
+          "name": "head",
+          "state": "head",
+          "exit": 0
+        },
+        {
+          "name": "base-overlay",
+          "state": "base-overlay",
+          "exit": 101,
+          "line": 1231,
+          "message": "custom TLS request failed:"
+        },
+        {
+          "name": "enforce-http",
+          "state": "enforce-http",
+          "exit": 101,
+          "line": 1233,
+          "message": "custom TLS request failed:"
+        },
+        {
+          "name": "restored-enforce-http",
+          "state": "head",
+          "exit": 0
+        },
+        {
+          "name": "pool-timer",
+          "state": "pool-timer",
+          "exit": 101,
+          "line": 1233,
+          "message": "idle TLS socket was not retired:"
+        },
+        {
+          "name": "restored-pool-timer",
+          "state": "head",
+          "exit": 0
+        },
+        {
+          "name": "pool-idle-timeout",
+          "state": "pool-idle-timeout",
+          "exit": 101,
+          "line": 1233,
+          "message": "idle TLS socket was not retired:"
+        },
+        {
+          "name": "restored-pool-idle-timeout",
+          "state": "head",
+          "exit": 0
+        }
+      ],
+      "head_files": {
+        "CHANGELOG.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "85ba2f73c631ca77afcac66d46820bbfe403499e",
+          "sha256": "c2b0f581a5d5111c007fadcd77379ce5522c04da6552379e7606f3f6eb7c25de"
+        },
+        "Cargo.lock": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "273e9439f7d7946dbca5a8e6cded67c42a02a787",
+          "sha256": "82b5b1335a6c97749025e662535d2f2a68f9f602d70d004c9fb796ac215af264"
+        },
+        "Cargo.toml": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "d4d9b999e8e4792adf3e5d3004608fcd7cfd615f",
+          "sha256": "72d531f445852b3dd0e5e1d6d6c0fb6b1cf2068970fe1ec101b06e5c90bc301e"
+        },
+        "LICENSE-APACHE": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "1b5ec8b78e237b5c3b3d812a7c0a6589d0f7161d",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+        },
+        "LICENSE-MIT": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "51835440011f1f0e0a86b178b71f957f4c37dd6c",
+          "sha256": "8a86b337d4d00aa97532c3cb929a5b412fdf5f9bc2846efe9362f71a54dcf7f3"
+        },
+        "README.md": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "ac7957d63a90208a73a0764659f5f2c6423eaefb",
+          "sha256": "e7eb7f17d12cc86847563c35f9934836ccfe03187024e500720f37674bdbfa50"
+        },
+        "src/lib.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "c74dcf40504b86e97065e6c79c342c0a0a7ca9f3",
+          "sha256": "f1799207189e2454f973e18bf26cfcd69ceec2f3f52ec64771a09dda0a426b9e"
+        },
+        "src/options.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "cefe3726cc22b0488b28d6a1eef8f818ab8ae5ea",
+          "sha256": "a0d8ef96957b5a83e9a19d754e0cf2c74f06c711c98f30ed05df8d54b9150946"
+        },
+        "src/reader.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "3ca8480be5c62e092b4cd57250419b9e991271c4",
+          "sha256": "e4134f5894d022b91bfb1d4687e4047b3647709fbbe2f0ccf3e89bef53302146"
+        },
+        "src/schema.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "4495371f9868391ceede588359ab95e7202192ba",
+          "sha256": "4eac7f03a6fb7cec806822e51114493fd14fe742a825f3107b4a0e077f13caf8"
+        },
+        "src/statement.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "fd12216f4808257717dc59fb432ef789600d057c",
+          "sha256": "4309c5220b4603383088857f4979e91adf920ddc3928bfcf673acc2fd94ad165"
+        },
+        "src/tls.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "8b7a13c570b95d49fe6a56e6858611352a3744fa",
+          "sha256": "2141da9dc0388ac6d00596325b1057d8db3c9775971f5af405910d35c98677a7"
+        },
+        "src/writer.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "ee3d9f4fa943ca4c20da55221a3c8a03bea5715b",
+          "sha256": "461a5b84124ff60c0510fe12e98916e8aa42a3087ca9549cf5411347b8ed8391"
+        },
+        "tests/it/bulk_ingest.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "7adeb8e8913bf92d0b0fb7ec235800a8bd5571f9",
+          "sha256": "fbda7220be04fe61ef75131eebb028a47263669e003cef45b5db08e93c11dff1"
+        },
+        "tests/it/database.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "a2d4828c7da77e3195e62283f098f3e94eb55f7a",
+          "sha256": "ad2e2f8ff5e858fddead00c53411d9ca1153439b3debed9cb3349ae0914082f0"
+        },
+        "tests/it/get_table_schema.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "164819c6885a2b0bad552eba32cd4773d4318a72",
+          "sha256": "f5019e4f3256b18851d2d7beced85d82c8223fb18004477a72b1ff6884282d74"
+        },
+        "tests/it/main.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "e18f4387d7d699aba07d3057bfc90dd317ba5c62",
+          "sha256": "5e373f1da79ab5a178c63189e3cd762019c6b7268da10116c26cb1c281e3a7fe"
+        },
+        "tests/it/params.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "93d9e7228942d328cae37fcd915a358b5904d4ea",
+          "sha256": "b6eeeef75bf8fb0d0f620d82c6803cbaac8f940ec3dcbf34f281edf23092f24e"
+        },
+        "tests/it/settings.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "837d9fe66e107c0ba64391feb02eeb0f9149ca59",
+          "sha256": "1ebb0be1a01f04ffb247c888a98423495f6c99ec072b4bfd560a421cb2acc515"
+        },
+        "tests/it/timeout.rs": {
+          "mode": "100644",
+          "permissions": 420,
+          "blob": "8af8af478499da60481e8a4fe30ba3bc54e36d4d",
+          "sha256": "d714c63e5d6beeb1eb63d5fbf1556365aa19bc40c116fff73b20cff9b8c6adc0"
+        }
+      }
+    }
+  ],
+  "actual_helper_commit": null,
+  "actual_run_id": null
+}

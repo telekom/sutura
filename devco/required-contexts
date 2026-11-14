@@ -342,6 +342,9 @@ security-audit.yml:audit
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
 
+# Dispatch-only proof: the classifier reads every job in a PR-triggered workflow and ignores job-level if.
+format.yml:proof
+
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
 # partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it
 # reports nothing on most pull requests, which alone rules out requiring it: a required context

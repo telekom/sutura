@@ -11,6 +11,7 @@
 #
 # THIRD-PARTY ACTIONS: none, as everywhere else here.
 name: format
+run-name: Connector proof ${{ inputs.request_id }}
 
 on:
   push:
@@ -35,16 +36,44 @@ on:
       - "nix/dprint.nix"
       - "nix/format-text.sh"
   workflow_dispatch:
+    inputs:
+      upstream_repository:
+        description: Reviewed upstream repository
+        type: string
+        required: true
+      upstream_sha:
+        description: Exact published upstream commit
+        type: string
+        required: true
+      upstream_tree:
+        description: Exact upstream tree
+        type: string
+        required: true
+      vendor_sha:
+        description: Exact published vendor source commit
+        type: string
+        required: true
+      vendor_tree:
+        description: Exact vendor source tree
+        type: string
+        required: true
+      helper_tree:
+        description: Exact final reviewed helper tree
+        type: string
+        required: true
+      request_id:
+        description: Unique proof request UUID
+        type: string
+        required: true
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   format:
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -65,3 +94,59 @@ jobs:
       # left at its default: the script reads the working tree, not a diff against a base.
       - name: markdown, yaml, toml and python
         run: bash nix/format-text.sh check
+
+  proof:
+    if: github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: clickhouse-connector-proof-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: rust-mcp-16core
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.upstream_repository }}
+          ref: ${{ inputs.upstream_sha }}
+          path: upstream-source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.vendor_sha }}
+          path: vendor-source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+      - name: Execute eight exact-source connector rows per package
+        env:
+          UPSTREAM_REPOSITORY: ${{ inputs.upstream_repository }}
+          UPSTREAM_SHA: ${{ inputs.upstream_sha }}
+          UPSTREAM_TREE: ${{ inputs.upstream_tree }}
+          VENDOR_SHA: ${{ inputs.vendor_sha }}
+          VENDOR_TREE: ${{ inputs.vendor_tree }}
+          HELPER_TREE: ${{ inputs.helper_tree }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_PROFILE_TEST_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND DUCKDB_LIB_DIR DUCKDB_INCLUDE_DIR
+          nix develop --impure --expr 'import ./devco/connector-proof-env.nix { source = ./vendor-source; upstream = ./upstream-source; }' --command python3 -I devco/clickhouse_connector_proof.py
+      - name: Keep original failures and exact restoration receipts
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clickhouse-connector-proof-${{ inputs.request_id }}-${{ github.run_id }}
+          path: target/clickhouse-connector-proof/
+          if-no-files-found: error
+          retention-days: 14
