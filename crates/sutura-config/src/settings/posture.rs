@@ -277,20 +277,17 @@ pub enum NotFitToServe {
          this deployment's audience. Give the deployment an audience of its own"
     )]
     InboundAudienceIsTheIssuer,
-    /// The raw SQL tool is enabled in `multi-user` mode and a source `tools.run_sql.sources` lists
-    /// is not an acknowledged `shared-service-user`.
+    /// The SQL tool is enabled in `multi-user` mode and a listed source has no usable posture.
     ///
-    /// Reads configuration only: whether each listed alias names a `shared-service-user` source,
-    /// whose `acknowledged_because` says why every caller may read what that one account reads. A
-    /// shared source with no acknowledgement in this mode is [`Self::SharedSourceNotAcknowledged`]
-    /// as well. Whether a listed source's adapter accepts a raw statement is the composed binary's
-    /// startup check.
+    /// Reads configuration only: each listed alias must name a source with a posture this build
+    /// can use: an acknowledged shared source, or with SQL planning a
+    /// declared subject source. Composition checks the concrete adapter's execution capability.
     #[error(
         "tools.run_sql.enabled is true, {key} is `multi-user`, and a source tools.run_sql.sources \
-         lists is not an acknowledged `shared-service-user`. The raw SQL tool runs only over shared \
-         sources whose `sources.<alias>.acknowledged_because` is set - every caller can then read \
-         what the shared account can read. Set tools.run_sql.enabled to false, list only \
-         acknowledged shared sources, or declare {key} as single-user with a written reason",
+         lists has no posture this build can use. A SQL build permits declared subject sources; \
+         otherwise list acknowledged shared sources whose `sources.<alias>.acknowledged_because` \
+         is set. With a shared source every caller can then read what the shared account can read. \
+         Set tools.run_sql.enabled to false or list sources with a usable declared posture",
         key = DeploymentIdentity::KEY
     )]
     RunSqlEnabledInMultiUserMode,
@@ -709,17 +706,19 @@ pub(super) fn flight_surface_refusals(inbound: &[crate::inbound::InboundVerifier
 }
 
 /// [`NotFitToServe::RunSqlEnabledInMultiUserMode`]: in `multi-user` mode, a listed alias that names
-/// no `shared-service-user` source. An `impersonation-at-source` source counts for nothing here: no
-/// adapter that runs raw text runs it as the caller.
+/// no declared posture. Without the SQL planner only a shared source may take raw text; a SQL
+/// build also permits subject credentials, and composition checks each adapter's planned capability.
 pub(super) fn run_sql_multi_user_refusal(
     tools: &ToolsSettings,
     identity: Option<&DeploymentIdentity>,
     sources: &SourceRegistry,
 ) -> Option<NotFitToServe> {
     let unshared = tools.run_sql_sources().iter().any(|alias| {
-        !sources
-            .get(alias)
-            .is_some_and(|source| matches!(source.posture(), Some(SourcePosture::SharedServiceUser { .. })))
+        !sources.get(alias).is_some_and(|source| match source.posture() {
+            Some(SourcePosture::SharedServiceUser { .. }) => true,
+            Some(SourcePosture::ImpersonationAtSource) => cfg!(feature = "sql"),
+            None => false,
+        })
     });
     (tools.run_sql_enabled() && identity == Some(&DeploymentIdentity::SubjectPerRequest) && unshared)
         .then_some(NotFitToServe::RunSqlEnabledInMultiUserMode)

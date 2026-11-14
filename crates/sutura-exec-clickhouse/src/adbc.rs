@@ -540,6 +540,9 @@ fn load_driver(location: &DriverLocation) -> Result<ManagedDriver, AdbcError> {
 }
 
 fn rewrite_placeholders(statement: &str, params: &[sutura_domain::warehouse::ParamValue]) -> Result<String, AdbcError> {
+    if params.is_empty() {
+        return Ok(statement.to_owned());
+    }
     let found = statement.matches('?').count();
     if found != params.len() {
         return Err(AdbcError::Driver(DriverMessage {
@@ -712,6 +715,26 @@ impl Warehouse for AdbcClickHouseWarehouse {
         let runs_as = self.deliverable(presented)?;
         let most_rows = executable.row_limit().unwrap_or(MOST_RESULT_ROWS);
         self.run(&Self::render(executable)?, deadline, most_rows, &runs_as)
+    }
+
+    fn accepts_planned_statements(&self) -> bool {
+        true
+    }
+
+    fn execute_planned_statement(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        _tables: &std::collections::BTreeSet<sutura_domain::model::QualifiedTable>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        Some((|| {
+            let runs_as = self.deliverable(presented)?;
+            let query = GeneratedQuery::literal(self.source.clone(), statement.as_str().to_owned());
+            let rows = self.run(&query, deadline, MOST_RESULT_ROWS, &runs_as)?;
+            let (columns, rows) = rows.to_rows().map_err(AdbcError::Decode)?.into_parts();
+            Ok(sutura_domain::warehouse::RawRows::of(columns, rows))
+        })())
     }
 
     fn type_dialect(&self) -> Option<TypeDialect> {

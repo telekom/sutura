@@ -246,6 +246,8 @@ macro_rules! any_predicate {
     };
 }
 
+mod statements;
+
 impl Warehouse for AnyWarehouse {
     type Error = AnyWarehouseError;
 
@@ -268,6 +270,10 @@ impl Warehouse for AnyWarehouse {
 
     fn accepts_raw_statements(&self) -> bool {
         any!(self, accepts_raw_statements)
+    }
+
+    fn accepts_planned_statements(&self) -> bool {
+        any!(self, accepts_planned_statements)
     }
 
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
@@ -402,43 +408,17 @@ impl Warehouse for AnyWarehouse {
     }
 
     fn execute_raw(&self, statement: &RawStatement, presented: &Presented, deadline: Deadline) -> RawExecution<Self::Error> {
-        match self {
-            Self::Files(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::Files)),
-            #[cfg(feature = "bigquery")]
-            Self::BigQuery(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::BigQuery)),
-            #[cfg(feature = "postgres")]
-            Self::Postgres(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::Postgres)),
-            #[cfg(feature = "clickhouse")]
-            Self::ClickHouse(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::ClickHouse)),
-            #[cfg(feature = "oracle")]
-            Self::Oracle(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::Oracle)),
-            #[cfg(feature = "duckdb")]
-            Self::Duckdb(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::Duckdb)),
-            #[cfg(feature = "cube")]
-            Self::Cube(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::Cube)),
-            #[cfg(feature = "node")]
-            Self::Node(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(AnyWarehouseError::Node)),
-            #[cfg(all(test, feature = "bigquery"))]
-            Self::Recorded(warehouse) => warehouse
-                .execute_raw(statement, presented, deadline)
-                .map(|result| result.map_err(|never| match never {})),
-        }
+        statements::statement!(self, execute_raw, statement, presented, deadline)
+    }
+
+    fn execute_planned_statement(
+        &self,
+        statement: &RawStatement,
+        tables: &BTreeSet<QualifiedTable>,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> RawExecution<Self::Error> {
+        statements::statement!(self, execute_planned_statement, statement, tables, presented, deadline)
     }
 }
 

@@ -173,6 +173,10 @@ cubes:
         primary_key: true
         public: true
         description: The day this row of usage was recorded on.
+      - name: voice_min
+        sql: voice_min
+        type: number
+        description: Voice minutes recorded on this usage row.
     measures:
       - name: voice_minutes
         sql: voice_min

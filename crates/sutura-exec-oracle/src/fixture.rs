@@ -44,7 +44,7 @@ pub enum FixtureError {
     #[error("the tier could not be dialled as its administrator")]
     Admin(#[source] OracleError),
     /// The server refused a fixture statement.
-    #[error("the tier refused the fixture statement for {subject}")]
+    #[error("the tier refused the fixture statement for {subject} (Oracle code {:?})", cause.ora_code())]
     Statement {
         subject: String,
         #[source]

@@ -294,7 +294,7 @@ where
 }
 
 /// Refuses a `tools.run_sql.sources` alias this process opened no source for, or whose adapter
-/// accepts no raw statement. Asked of each opened adapter, so an erased mix answers per variant.
+/// accepts no statement in this build. Asked of each opened adapter, so a mix answers per variant.
 fn raw_capable<W>(engines: &sutura_app::Warehouses<W>, listed: &[sutura_domain::model::SourceName]) -> Result<(), String>
 where
     W: sutura_domain::warehouse::Warehouse,
@@ -306,9 +306,15 @@ where
                     "tools.run_sql.sources lists `{alias}`, and no source of that alias is open"
                 ));
             }
-            Some(engine) if !engine.accepts_raw_statements() => {
+            Some(engine)
+                if !(if cfg!(feature = "sql") {
+                    engine.accepts_planned_statements()
+                } else {
+                    engine.accepts_raw_statements()
+                }) =>
+            {
                 return Err(format!(
-                    "tools.run_sql.sources lists `{alias}`, whose adapter accepts no raw statement. List \
+                    "tools.run_sql.sources lists `{alias}`, whose adapter accepts no statement in this build. List \
                      a source that does, or set tools.run_sql.enabled to false"
                 ));
             }
@@ -988,3 +994,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod planned_tests;

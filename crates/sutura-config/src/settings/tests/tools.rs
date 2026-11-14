@@ -1,5 +1,5 @@
-//! `tools.run_sql.enabled`'s own boot refusal - the raw SQL tool runs in `multi-user` mode only over
-//! an acknowledged shared source.
+//! The raw tool's startup policy: declared postures with planning, acknowledged shared sources
+//! without it. Composition separately checks the concrete adapter's capability.
 //!
 //! A file of its own for the reason `settings/tests/sources.rs` has one: `settings/tests.rs`
 //! reached the thousand-line limit `cargo xtask max-lines` enforces.
@@ -41,9 +41,13 @@ fn the_raw_tool_in_multi_user_mode_with_no_source_is_not_fit_to_serve() {
 }
 
 #[test]
-fn the_raw_tool_in_multi_user_mode_over_only_an_impersonating_source_is_not_fit_to_serve() {
+fn a_subject_source_needs_the_sql_planner_before_the_raw_tool_may_serve() {
     let refusals = refusals_of(format!("{MULTI_USER_RUN_SQL}{LOCAL}{IMPERSONATING}"));
-    assert_eq!(refusals, vec![NotFitToServe::RunSqlEnabledInMultiUserMode]);
+    if cfg!(feature = "sql") {
+        assert!(refusals.is_empty(), "{refusals:?}");
+    } else {
+        assert_eq!(refusals, vec![NotFitToServe::RunSqlEnabledInMultiUserMode]);
+    }
 }
 
 #[test]
@@ -136,15 +140,14 @@ fn the_raw_tool_on_over_no_listed_source_is_not_fit_to_serve() {
 }
 
 #[test]
-fn the_raw_tool_in_multi_user_mode_over_a_listed_impersonating_source_is_not_fit_to_serve() {
-    // Every listed source answers for itself: an acknowledged shared source does not carry an
-    // `impersonation-at-source` one listed beside it.
+fn every_listed_subject_source_requires_the_sql_planner() {
+    // The shared source cannot stand in for the subject source's own execution capability.
     let listed =
         "security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\", \"other\"]\n";
     let other = format!("  other:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/other\"\n{IMPERSONATING}");
     let refusals = refusals_of(format!("{listed}{LOCAL}{SHARED}{ACKNOWLEDGED}{other}"));
     assert!(
-        refusals.contains(&NotFitToServe::RunSqlEnabledInMultiUserMode),
+        refusals.contains(&NotFitToServe::RunSqlEnabledInMultiUserMode) != cfg!(feature = "sql"),
         "{refusals:?}"
     );
 }
