@@ -127,12 +127,18 @@ and `live_row_predicate`, which select only that view.
 
 ```yaml
 dictionary_source: native_dictionary
+audience: open
 include:
   - { schema: INVENTORY, table: "REPO_*" }
 exclude_tables: [REPO_SCRIPTS]
 exclude_columns: ["SECRET*", "*EMAIL*"]
 exclude_types: [CLOB, BLOB, LONG]
 ```
+
+The optional catalog-level `audience` applies to every inferred model, in either dictionary mode.
+Use `open` or `{ restricted: [finance] }`; restricted audiences use `security.audience_mapping`.
+Without a declaration, inferred models remain invisible to verified callers. A deployment without
+caller verification retains its single-user view. Audience changes enter the definition digest.
 
 Each include is a schema/table pair, and every pair must match a visible table before exclusions.
 Patterns are case-sensitive: only `*` (any sequence) and `?` (one character) are special; all other
@@ -158,10 +164,12 @@ Markdown model, including a differently named model of the same physical table. 
 unselected table or column cannot be reintroduced that way; two native authorities for one source
 alias refuse. Other mixed catalog kinds remain unsupported.
 
-With planned `run_sql` in a build with `sql`, only declared model columns are registered. This
-includes projections, filters and joins. **Raw pass-through SQL does not inherit these exclusions;
-its access remains the database account's grants.** These rules change no caller identity,
-model audience or database grants. `describe_catalog` lists metrics rather than model columns;
+With planned `run_sql` in a build with `sql`, only visible declared model columns are registered.
+Models on one source sharing a physical table contribute the union of their visible columns to one
+registration; hidden models add none. This includes projections, filters and joins.
+**Raw pass-through SQL does not inherit these exclusions; its access remains the database account's
+grants.** These rules change no caller identity or database grants.
+`describe_catalog` lists metrics rather than model columns;
 absence there alone is not proof that a column cannot be read.
 
 Metadata rows and bytes are bounded before exclusions. PostgreSQL bills each fetched Arrow batch,

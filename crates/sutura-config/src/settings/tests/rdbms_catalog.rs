@@ -109,6 +109,23 @@ fn a_complete_rdbms_catalog_loads() {
 }
 
 #[test]
+fn an_rdbms_catalog_accepts_only_explicit_open_or_nonempty_restricted_audiences() {
+    for declaration in ["audience: open", "audience: {restricted: [finance]}"] {
+        load(&overlay("rdbms", &edit(ENTRY, &[declaration]), Some(CONNECTION)))
+            .expect("a declared audience is parsed through settings");
+    }
+    for declaration in [
+        "audience: everyone",
+        "audience: {restricted: []}",
+        "audience: {restricted: ['bad audience']}",
+    ] {
+        assert_names(&rdbms_refusal(&[declaration], &[]), "audience");
+    }
+    let markdown = overlay("markdown", &["audience: open"], None);
+    assert_names(&refusal(&markdown), "audience");
+}
+
+#[test]
 fn an_rdbms_catalog_without_a_connection_block_is_refused() {
     let chain = refusal(&overlay("rdbms", ENTRY, None));
     assert_names(&chain, "`connection` is required for `kind: rdbms`");

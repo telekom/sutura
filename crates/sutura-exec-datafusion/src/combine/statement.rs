@@ -34,7 +34,7 @@ use std::time::Instant;
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::compute::{CastOptions, cast_with_options};
-use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
 use datafusion::common::{plan_datafusion_err, plan_err};
@@ -337,13 +337,20 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         .build();
     let context = SessionContext::new_with_state(state);
     let cut = Arc::new(Optimizer::with_rules(vec![Arc::new(Cutter(Arc::clone(fetched)))]));
+    let mut registered = BTreeSet::new();
     for table in tables {
-        if tables
-            .iter()
-            .any(|other| other.table() == table.table() && other.source() != table.source())
+        if !registered.insert(table.table())
+            || tables
+                .iter()
+                .any(|other| other.table() == table.table() && other.source() != table.source())
         {
             continue;
         }
+        let visible = || tables.iter().filter(|other| other.table() == table.table());
+        if visible().any(|other| other.dialect() != table.dialect()) {
+            return plan_err!("models of one physical table disagree on its dialect");
+        }
+        let columns = Schema::try_merge(visible().map(|other| other.schema().as_ref().clone()))?;
         let (catalog, schema) = table.table().qualifier().map_or(("", ""), |qualifier| {
             (
                 qualifier.project().map_or("", ProjectName::as_str),
@@ -368,7 +375,7 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         });
         let provider = FederatedTableProviderAdaptor::new(Arc::new(Table {
             source,
-            schema: Arc::clone(table.schema()),
+            schema: Arc::new(columns),
         }));
         schema.register_table(table.table().name().as_str().to_owned(), Arc::new(provider))?;
     }

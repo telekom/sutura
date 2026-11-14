@@ -4,10 +4,8 @@
 //!
 //! `docs/adr/0011-pluggable-by-declaration.md` defines the role this conversion implements. A
 //! database dictionary is mainly DDL and comments: the tables, the columns, their constraints, and
-//! table prose. It is not a
-//! semantic layer and does not pretend to be one - which is the whole point of a **declaring**
-//! adapter. It says which kinds it provides and which it does not, and it is measured against that
-//! declaration rather than against the golden adapters' oracle.
+//! table prose. It declares these kinds without inventing a semantic layer, and is measured
+//! against that declaration rather than against the golden adapters' oracle.
 //!
 //! This crate implements the dictionary conversion from `github.com/telekom/sutura#151`. The
 //! runtime derives the zero-metric physical-schema guidance from the pinned bundle rather than
@@ -141,7 +139,9 @@ use std::collections::btree_map::Entry;
 use std::num::NonZeroU64;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Column, Definitions, Description, JoinKey, JoinKeys, Model, Relationship as DomainRelationship};
+use sutura_domain::catalog::{
+    Audience, Column, Definitions, Description, JoinKey, JoinKeys, Model, Relationship as DomainRelationship,
+};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
     ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
@@ -307,6 +307,7 @@ pub struct RdbmsCatalog<R> {
     version: DefinitionVersion,
     reader: R,
     bounds: Option<DictionaryBounds>,
+    audience: Option<Audience>,
 }
 
 impl<R> RdbmsCatalog<R> {
@@ -319,6 +320,7 @@ impl<R> RdbmsCatalog<R> {
             version,
             reader,
             bounds: None,
+            audience: None,
         }
     }
 
@@ -329,18 +331,17 @@ impl<R> RdbmsCatalog<R> {
         self
     }
 
-    /// Holds the dictionary read to `bounds`; without it the row count is unchecked here.
-    ///
-    /// The composition root that links the `live` reader passes the declared
-    /// `max_dictionary_rows`/`max_dictionary_bytes` here (see `open_one_rdbms_catalog`); a reader
-    /// over a live socket also enforces them inline, but this stays the conversion's own post-decode
-    /// guard over a [`Dictionary`] whatever the reader did.
-    ///
-    /// **The Postgres reader bills each batch** before it decodes it: on the pinned driver
-    /// (`apache-arrow-adbc-24`), the whole result is one batch that libpq already holds, so the
-    /// byte cap refuses a result already fetched; the `LIMIT` bounds what libpq holds in rows. The
-    /// Oracle reader streams row by row. This guard is the second, non-network half that a recorded
-    /// or fetched dictionary gets regardless of the transport.
+    /// Declares who may see every inferred model. Without it, verified callers see none.
+    #[must_use]
+    pub fn with_audience(mut self, audience: Audience) -> Self {
+        self.audience = Some(audience);
+        self
+    }
+
+    /// Bounds every decoded dictionary, including fake readers; absence leaves it unchecked here.
+    /// Live readers also enforce bounds inline: Postgres bills already allocated Arrow batches
+    /// (and limits fetched rows); Oracle bills streamed rows. This is a post-decode check, not
+    /// a memory cap for the network read.
     #[must_use]
     pub const fn with_bounds(mut self, bounds: DictionaryBounds) -> Self {
         self.bounds = Some(bounds);
@@ -454,9 +455,12 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let model = Model::new(name, self.source_alias.clone(), physical_table.clone(), columns, description)
+        let mut model = Model::new(name, self.source_alias.clone(), physical_table.clone(), columns, description)
             .with_primary_key(primary_key)
             .map_err(|cause| RdbmsError::Inconsistent { cause })?;
+        if let Some(audience) = &self.audience {
+            model = model.with_audience(audience.clone());
+        }
         Ok((physical_table, model))
     }
 

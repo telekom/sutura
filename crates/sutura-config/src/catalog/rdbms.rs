@@ -21,7 +21,7 @@ use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::catalog::{
-    DictionaryInclude, DictionaryPattern, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection,
+    Audience, DictionaryInclude, DictionaryPattern, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection,
 };
 use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
 
@@ -47,6 +47,7 @@ pub struct RdbmsSettings {
     max_dictionary_bytes: Option<NonZeroU64>,
     dictionary_source: DictionarySource,
     selection: Option<DictionarySelection>,
+    audience: Option<Audience>,
     connection: CatalogConnection,
 }
 
@@ -113,6 +114,12 @@ impl RdbmsSettings {
             max_dictionary_bytes: non_zero("max_dictionary_bytes", raw.max_dictionary_bytes)?,
             dictionary_source,
             selection,
+            audience: raw
+                .audience
+                .as_ref()
+                .map(crate::audience::RawAudience::parse)
+                .transpose()
+                .map_err(|cause| InvalidRdbmsCatalog::Audience { cause })?,
             connection,
         })
     }
@@ -125,6 +132,11 @@ impl RdbmsSettings {
 
     pub const fn native_selection(&self) -> Option<&DictionarySelection> {
         self.selection.as_ref()
+    }
+
+    /// The declaration for every inferred model; absence remains invisible to verified callers.
+    pub const fn audience(&self) -> Option<&Audience> {
+        self.audience.as_ref()
     }
 
     #[inline]
@@ -702,6 +714,11 @@ fn absolute(key: &'static str, written: &str) -> Result<PathBuf, InvalidConnecti
 /// Why an rdbms catalog's own keys are not usable.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidRdbmsCatalog {
+    #[error("the inferred models' audience is invalid")]
+    Audience {
+        #[source]
+        cause: crate::audience::InvalidCatalogAudience,
+    },
     #[error("`{key}` is required for `kind: rdbms` and was not written")]
     Missing { key: &'static str },
     #[error("native include/exclude keys require dictionary_source: native_dictionary")]
