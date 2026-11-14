@@ -3007,12 +3007,17 @@ for the same transport guarantees and limits.</p>
 The native mode needs no documentation view. It refuses <code>environment</code>, <code>dictionary_schema</code>
 and <code>live_row_predicate</code>, which select only that view.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">dictionary_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">native_dictionary</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">include</span><span class="p">:</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> schema</span><span class="p">:</span><span class="w"> </span><span class="nv">INVENTORY</span><span class="p p-Indicator">,</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="s">"REPO_*"</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nt">exclude_tables</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">REPO_SCRIPTS</span><span class="p p-Indicator">]</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nt">exclude_columns</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"SECRET*"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"*EMAIL*"</span><span class="p p-Indicator">]</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nt">exclude_types</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">CLOB</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">BLOB</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">LONG</span><span class="p p-Indicator">]</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nt">include</span><span class="p">:</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> schema</span><span class="p">:</span><span class="w"> </span><span class="nv">INVENTORY</span><span class="p p-Indicator">,</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="s">"REPO_*"</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nt">exclude_tables</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">REPO_SCRIPTS</span><span class="p p-Indicator">]</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="nt">exclude_columns</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"SECRET*"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"*EMAIL*"</span><span class="p p-Indicator">]</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="nt">exclude_types</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">CLOB</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">BLOB</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">LONG</span><span class="p p-Indicator">]</span>
 </span></code></pre></div>
+<p>The optional catalog-level <code>audience</code> applies to every inferred model, in either dictionary mode.
+Use <code>open</code> or <code>{ restricted: [finance] }</code>; restricted audiences use <code>security.audience_mapping</code>.
+Without a declaration, inferred models remain invisible to verified callers. A deployment without
+caller verification retains its single-user view. Audience changes enter the definition digest.</p>
 <p>Each include is a schema/table pair, and every pair must match a visible table before exclusions.
 Patterns are case-sensitive: only <code>*</code> (any sequence) and <code>?</code> (one character) are special; all other
 characters are literal. Match the returned dictionary case: ordinarily uppercase for unquoted
@@ -3034,10 +3039,12 @@ For each configured physical source alias, its native table/column allowlist als
 Markdown model, including a differently named model of the same physical table. An excluded or
 unselected table or column cannot be reintroduced that way; two native authorities for one source
 alias refuse. Other mixed catalog kinds remain unsupported.</p>
-<p>With planned <code>run_sql</code> in a build with <code>sql</code>, only declared model columns are registered. This
-includes projections, filters and joins. <strong>Raw pass-through SQL does not inherit these exclusions;
-its access remains the database account's grants.</strong> These rules change no caller identity,
-model audience or database grants. <code>describe_catalog</code> lists metrics rather than model columns;
+<p>With planned <code>run_sql</code> in a build with <code>sql</code>, only visible declared model columns are registered.
+Models on one source sharing a physical table contribute the union of their visible columns to one
+registration; hidden models add none. This includes projections, filters and joins.
+<strong>Raw pass-through SQL does not inherit these exclusions; its access remains the database account's
+grants.</strong> These rules change no caller identity or database grants.
+<code>describe_catalog</code> lists metrics rather than model columns;
 absence there alone is not proof that a column cannot be read.</p>
 <p>Metadata rows and bytes are bounded before exclusions. PostgreSQL bills each fetched Arrow batch,
 and Oracle bills decoded rows; these checks happen after allocation, and are neither a process
