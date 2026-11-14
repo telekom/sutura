@@ -439,3 +439,29 @@ fn an_oracle_connection_with_plaintext_and_transport_anchors_is_refused() {
         "`transport_mode: plaintext` does not read it - a control nothing honours is worse than one nobody wrote",
     );
 }
+
+#[test]
+fn oracle_unbounded_number_policy_is_explicit_and_refuses_other_representations_or_sources() {
+    let connection = edit(
+        ORACLE_CONNECTION,
+        &["transport_mode: verified", "transport_anchors: /etc/sutura/ca.pem"],
+    );
+    let files = overlay("rdbms", ENTRY, Some(&connection));
+    let oracle = files.replace("kind: files\n    data_dir: /srv/data", "kind: oracle\n    host: db.example.com\n    port: 1521\n    service_name: FREEPDB1\n    user: reader\n    password_file: /run/secrets/source\n    transport_mode: verified\n    transport_anchors: /etc/sutura/ca.pem");
+    let explicit = oracle.replace("    posture:", "    unbounded_number: utf8\n    posture:");
+    let settings = load(&explicit).expect("an exact text policy loads");
+    let source = settings
+        .sources()
+        .get(&sutura_domain::model::SourceName::parse("warehouse").unwrap())
+        .unwrap();
+    assert_eq!(source.kind(), crate::sources::SourceKind::Oracle);
+    assert_eq!(rdbms(&settings).source_alias().as_str(), "warehouse");
+    load(&oracle).expect("absence remains a valid fail-closed source declaration");
+    for text in [
+        explicit.replace("unbounded_number: utf8", "unbounded_number: decimal"),
+        files.replace("    posture:", "    unbounded_number: utf8\n    posture:"),
+    ] {
+        let error = load(&text).expect_err("unknown representations and other data systems are refused");
+        assert!(matches!(error.reason(), SettingsError::Sources { .. }), "{error:?}");
+    }
+}

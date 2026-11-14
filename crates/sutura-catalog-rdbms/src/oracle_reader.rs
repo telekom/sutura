@@ -171,6 +171,15 @@ impl OracleReader {
         Self::open(login, ReadQuery::native(selection), default_bounds(row_cap, byte_cap)?)
     }
 
+    /// Applies the source's explicit NUMBER representation to native dictionary admission.
+    #[must_use]
+    pub const fn with_unbounded_number(mut self, policy: Option<sutura_domain::warehouse::schema::UnboundedNumber>) -> Self {
+        if let ReadQuery::Native { unbounded_number, .. } = &mut self.query {
+            *unbounded_number = policy;
+        }
+        self
+    }
+
     fn open(login: EncryptedOracleLogin, query: ReadQuery, bounds: DictionaryBounds) -> Result<Self, InvalidReaderConfig> {
         let EncryptedOracleLogin {
             login,

@@ -112,7 +112,8 @@ pub(crate) fn build(
         exposed,
         working_set.result_budget(),
     )
-    .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))?;
+    .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))?
+    .with_unbounded_number(configured.unbounded_number());
     match configured.split() {
         None => Ok(opened),
         Some(sutura_config::sources::split::SourceSplit::Flashback) => {
