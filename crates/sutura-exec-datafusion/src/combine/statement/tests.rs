@@ -14,7 +14,7 @@ use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{
     FederationCombiner as _, StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable,
 };
-use sutura_domain::raw::RawStatement;
+use sutura_domain::raw::{RawStatement, SqlConstruct};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{Accumulating, RawRows, ResultBudget};
@@ -25,6 +25,7 @@ use crate::combine::DataFusionCombiner;
 mod oracle;
 #[cfg(test)]
 mod registration;
+mod resolution;
 
 #[test]
 fn cube_unsigned_results_are_refused_before_open_and_signed_results_still_run() {
@@ -287,24 +288,53 @@ fn an_ordered_source_limit_keeps_its_offset_and_fetch_after_pushdown() {
 /// Only a query plans: no definition, write, session statement, explanation or description, and no
 /// statement over a table the question does not carry or over none.
 #[test]
-fn a_statement_that_is_not_a_query_over_a_listed_table_is_not_planned_and_opens_nothing() {
-    for statement in [
-        "drop table dim_region",
-        "create table dim_area (area varchar)",
-        "insert into dim_region values ('west', 'amer')",
-        "set datafusion.execution.batch_size = 1",
-        "explain select region from dim_region",
-        "describe dim_region",
-        "select region from dim_nowhere",
-        "select 1",
+fn unsupported_statements_name_only_a_closed_construct_and_open_nothing() {
+    for (statement, construct) in [
+        ("drop table dim_region", SqlConstruct::NonQuery),
+        ("create table dim_area (area varchar)", SqlConstruct::NonQuery),
+        ("insert into dim_region values ('west', 'amer')", SqlConstruct::NonQuery),
+        ("set datafusion.execution.batch_size = 1", SqlConstruct::NonQuery),
+        ("explain select region from dim_region", SqlConstruct::NonQuery),
+        ("describe dim_region", SqlConstruct::NonQuery),
+        ("select 1", SqlConstruct::SelectWithoutTable),
+        (
+            "select region from dim_region fetch first 1 rows only",
+            SqlConstruct::FetchFirst,
+        ),
+        ("select from", SqlConstruct::Query),
     ] {
         let mut legs = Engines::new(None);
         let answer = asked(statement, true, UNBOUNDED, &mut legs);
         assert!(
-            matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+            matches!(answer, Some(Err(StatementStopped::UnsupportedSyntax(actual))) if actual == construct),
             "{statement}: {answer:?}"
         );
         assert!(legs.opened.is_empty(), "{statement} opened {:?}", legs.opened);
+    }
+}
+
+#[test]
+fn unknown_tables_and_columns_are_distinct_and_open_nothing() {
+    for (statement, table) in [
+        ("select region from dim_nowhere", true),
+        (
+            "with dim_region as (select region from dim_nowhere) select * from dim_region",
+            true,
+        ),
+        ("select absent_column from dim_region", false),
+        ("select r.absent_column from dim_region r", false),
+    ] {
+        let mut legs = Engines::new(None);
+        let answer = asked(statement, true, UNBOUNDED, &mut legs);
+        assert!(
+            matches!(
+                (&answer, table),
+                (Some(Err(StatementStopped::UnknownTable)), true) | (Some(Err(StatementStopped::UnknownColumn)), false)
+            ),
+            "{statement}: {answer:?}"
+        );
+        assert!(legs.opened.is_empty(), "{statement} opened {:?}", legs.opened);
+        assert_eq!(legs.ran.len(), 0);
     }
 }
 
@@ -338,7 +368,10 @@ fn a_table_function_does_not_exist_in_the_session() {
             let mut legs = Engines::new(None);
             let answer = asked(statement, federation_allowed, UNBOUNDED, &mut legs);
             assert!(
-                matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+                matches!(
+                    answer,
+                    Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::TableFunction)))
+                ),
                 "{statement}: {answer:?}"
             );
             assert!(legs.opened.is_empty(), "{statement} opened {:?}", legs.opened);

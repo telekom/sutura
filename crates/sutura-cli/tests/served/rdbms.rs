@@ -468,6 +468,99 @@ mod tests {
             }
         }
 
+        #[cfg(feature = "agent")]
+        #[test]
+        fn planned_refusals_hide_scoped_tables_and_excluded_columns_in_both_transports() {
+            use crate::harness::{accepted_by, an_issuer};
+            use sutura_dev::issuer::PublishedKeySet;
+
+            let Some(tier) = discover_tier() else { return };
+            let mut fixture = Native::new("native-safe-refusals", &tier);
+            fixture
+                .admin
+                .run(&format!(
+                    "CREATE TABLE {}.hidden_events (id bigint); INSERT INTO {}.hidden_events VALUES (9)",
+                    fixture.schema, fixture.schema
+                ))
+                .unwrap();
+            let issuer = an_issuer();
+            let keys = PublishedKeySet::of(&issuer, "native-safe-refusals").unwrap();
+            let security = format!(
+                "  inbound:\n    mode: direct\n    resource: {}\n    authorization_server: {}\n    key_set_file: {}\n    algorithms: [ES256]\n  audience_mapping:\n    finance-team: [finance]\n",
+                issuer.audience(),
+                issuer.issuer(),
+                keys.path().display(),
+            );
+            let base = fixture
+                .native_settings(&tier, "")
+                .replace("table: events", "table: '*'")
+                .replace("server:\n", "server:\n  agent_surface:\n    enabled: true\n")
+                .replace(&format!("  access_token: \"{TOKEN}\"\n"), &security);
+            let settings = fixture.compose(&base, Some("id"));
+            let alias = fixture.data.0.join("catalog/alias.md");
+            let text = std::fs::read_to_string(&alias).unwrap();
+            std::fs::write(&alias, text.replace("name: alias\n", "name: alias\naudience: open\n")).unwrap();
+            std::fs::write(fixture.data.0.join("catalog/hidden.md"), format!("---\nkind: model\nname: hidden_alias\nsource: warehouse\ntable: {}.hidden_events\naudience: {{restricted: [finance]}}\ncolumns:\n  - {{name: id, type: bigint}}\n---\n", fixture.schema)).unwrap();
+            let served = start_configured("native-safe-refusals", &settings);
+            let narrow = issuer.mint(&accepted_by("user@example.com")).unwrap();
+            let broad = issuer
+                .mint(&accepted_by("user@example.com").claiming("groups", serde_json::json!(["finance-team"])))
+                .unwrap();
+            let http = |token: &str, statement: &str| {
+                served.post(
+                    &v1(sutura_http::constants::base_paths::RUN_SQL),
+                    Some(token),
+                    &serde_json::json!({"statement": statement}).to_string(),
+                )
+            };
+            let visible = http(&narrow, &format!("select id from {}.events", fixture.schema));
+            assert_eq!(visible.status, 200, "{}", visible.body);
+            assert_eq!(visible.json()["rows"], serde_json::json!([["7"]]));
+            let admitted = http(&broad, &format!("select id from {}.hidden_events", fixture.schema));
+            assert_eq!(admitted.status, 200, "{}", admitted.body);
+            assert_eq!(admitted.json()["rows"], serde_json::json!([["9"]]));
+            let initialized = served.mcp(Some(&narrow), &serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "sutura-refusal-fixture", "version": "0.0.0"}}
+            }).to_string());
+            assert_eq!(initialized.status, 200, "{}", initialized.body);
+            let mcp = |statement: &str| {
+                served.mcp(
+                    Some(&narrow),
+                    &serde_json::json!({
+                        "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                        "params": {"name": "run_sql", "arguments": {"statement": statement}}
+                    })
+                    .to_string(),
+                )
+            };
+            for (denied, absent, code) in [
+                (
+                    format!("select id from {}.hidden_events", fixture.schema),
+                    format!("select id from {}.absent_events", fixture.schema),
+                    "unknown_table",
+                ),
+                (
+                    format!("select secret from {}.events", fixture.schema),
+                    format!("select absent_column from {}.events", fixture.schema),
+                    "unknown_column",
+                ),
+            ] {
+                let denied_http = http(&narrow, &denied);
+                let absent_http = http(&narrow, &absent);
+                assert_eq!(denied_http.status, 422, "{}", denied_http.body);
+                assert_eq!(absent_http.status, denied_http.status);
+                assert_eq!(denied_http.json()["code"], code);
+                assert_eq!(denied_http.body.as_bytes(), absent_http.body.as_bytes());
+                let denied_mcp = mcp(&denied);
+                let absent_mcp = mcp(&absent);
+                assert_eq!(denied_mcp.status, 200, "{}", denied_mcp.body);
+                assert_eq!(absent_mcp.status, denied_mcp.status);
+                assert_eq!(denied_mcp.json()["result"]["structuredContent"]["code"], code);
+                assert_eq!(denied_mcp.body.as_bytes(), absent_mcp.body.as_bytes());
+            }
+        }
+
         #[test]
         fn a_served_native_dictionary_limits_real_planned_sql_and_composes_markdown_metrics() {
             let Some(tier) = discover_tier() else { return };
@@ -493,7 +586,7 @@ mod tests {
                 let reply = ran(&served, &statement);
                 assert_eq!(reply.status, 422, "{statement}: {}", reply.body);
                 assert_eq!(reply.json()["outcome"], "raw_refusal", "{}", reply.body);
-                assert_eq!(reply.json()["code"], "statement_failed", "{}", reply.body);
+                assert_eq!(reply.json()["code"], "unknown_column", "{}", reply.body);
                 assert!(!reply.body.contains("private value"));
             }
             let certified = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN),
