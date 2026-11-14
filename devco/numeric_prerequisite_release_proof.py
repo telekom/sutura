@@ -1,4 +1,4 @@
-"""Hosted release-base lock/check/lint and ten scoped claim cycles."""
+"""Hosted retained-lock check/lint and ten scoped claim cycles."""
 
 import base64
 import copy
@@ -14,18 +14,22 @@ from pathlib import Path
 
 import tomllib
 
-BASE = "1a30b5783bbc0e987927fdbbed9503cf51477f13"
-BASE_TREE = "2d7e0f6c06ff5b696fccc376f592ef82905d4eda"
-PREPARED_TREE = "c8716684c2d89dcfc3b80e9b830f8dc0e0166eb3"
-PATCH_SHA256 = "66cc44202d074a19a4ba99fb3b8a3e2133592f81177e61750ef26ee438153c8b"
-REQUEST_ID = "2f7eae3d-a59d-43b3-9b10-2cf4c0f2fd65"
+BASE = "b8bce349b79fc16891f8bfd466ba7187cafdf019"
+BASE_TREE = "2191984dba94ae674e39f101b48d07a619d72255"
+PREPARED_TREE = "ef25185218ea0ac728ea9903abbdffd091e830a9"
+PATCH_SHA256 = "66e9374f267ead8454c43b081d5388478fda7035b37f80782e0a24dfb88d66c6"
+REQUEST_ID = "a019a000-7847-400d-b819-2ab1e70b72ae"
 REF = "refs/heads/ci/numeric-prerequisite-release-proof"
 PAYLOAD_HASHES = {
-    "source-manifest.json": "2f684d92c9270df23591f088ffe0172a128f9a4568a97200892bdbb0780a4966",
+    "source-manifest.json": "f5c8aa0331ce3db86aef63701b37ab4309499f0dd7775cd1893c5214223032fd",
     "claims.json": "bf46193691ec1aecaea518abe79df6de73bcce9a72e3e3b1f5bd572c36be7bb3",
-    "numeric-followup-plan.json": "72d387e69d840f5c9c0b2caee2cf72a714baa95b2ff39524172370e99960565e",
-    "input-bindings.json": "82aab794e7043a9f2d01a2521cfc74f97e1cd4afbf3682c0811f4428dd278941",
+    "numeric-followup-plan.json": "e254f3794b744ad14a4fc5c9d441e3a832ae879f86eff653c38e2d6dfde1a584",
+    "input-bindings.json": "cf7401dc294fad442648075bb07b10a2a5b11b0925f970333b84d090504e87d7",
 }
+RETAINED_LOCK_SHA256 = (
+    "506947e68501e0afb6c8dc83b6cbaed0c1645630d7cb0526e8dae81bba9d6596"
+)
+REVIEW_SHA256 = "10a2b0f6c23696b55f9e1981766a917552bbe8adc92e452b166b435fa029fec5"
 EDGES = ("sutura-exec-node", "sutura-http", "sutura-mcp", "tonic")
 TEST_FILE = "crates/sutura-app/src/federated/tests/split_test.rs"
 TEST_PREFIX = "federated::tests::split_test::"
@@ -141,7 +145,7 @@ def normalized_lock(data: dict) -> dict:
 
 
 def lock_delta(before: bytes, after: bytes) -> dict:
-    require(before != after, "generator made no root-lock change")
+    require(before != after, "retained root lock has no release delta")
     expected = tomllib.loads(before.decode())
     apps = [
         package for package in expected["package"] if package["name"] == "sutura-app"
@@ -549,7 +553,7 @@ def main() -> None:
     for name in PAYLOAD_HASHES:
         shutil.copyfile(payload / name, out / name)
     inputs = json.loads((payload / "input-bindings.json").read_text(encoding="utf-8"))
-    for name, binding in inputs["locks"].items():
+    for name, binding in inputs["release_locks"].items():
         require(
             digest((root / name).read_bytes()) == binding["sha256"],
             "wrong release lock input",
@@ -599,7 +603,7 @@ def main() -> None:
         for name, expected in inputs["locks"].items():
             require(
                 prepared[name]["sha256"] == expected["sha256"],
-                "source patch changed release lock",
+                "prepared lock differs from accepted binding",
             )
         for key in tuple(os.environ):
             if key.startswith(("CARGO_", "RUSTUP_")) or key in (
@@ -623,43 +627,27 @@ def main() -> None:
         os.environ["NO_COLOR"] = "1"
         Path(os.environ["CARGO_HOME"]).mkdir(exist_ok=False)
         Path(os.environ["CARGO_TARGET_DIR"]).mkdir(exist_ok=False)
-        cargo = ["nix", "run", "--no-write-lock-file", str(tools) + "#cargo", "--"]
         require(
-            execute(root, out, "generator-version", [*cargo, "--version"])[0] == 0,
-            "pinned Cargo unavailable",
+            digest((root / "Cargo.lock").read_bytes()) == RETAINED_LOCK_SHA256,
+            "wrong accepted retained root lock",
         )
-        immutable(tools, out)
-        status, _ = execute(
-            root, out, "lock-generator", [*cargo, "update", "--workspace"]
+        require(
+            inputs["retained_lock_review_sha256"] == REVIEW_SHA256,
+            "wrong retained-lock review binding",
         )
-        after = manifest(root)
-        write(out, "after-generator-manifest.json", after)
         shutil.copyfile(root / "Cargo.lock", out / "generated-Cargo.lock")
-        require(status == 0, "root generation failed; no compilation")
-        require(
-            {name: row for name, row in after.items() if name != "Cargo.lock"}
-            == {name: row for name, row in prepared.items() if name != "Cargo.lock"},
-            "generator changed source or another lock",
-        )
-        require(
-            git(root, "write-tree").decode().strip() == PREPARED_TREE,
-            "generator changed index",
-        )
-        require(
-            git(root, "diff", "--name-only").decode().splitlines() == ["Cargo.lock"],
-            "wrong generated path set",
-        )
-        require(
-            not git(root, "ls-files", "--others", "--exclude-standard"),
-            "generator added source",
-        )
+        write(out, "retained-lock-manifest.json", prepared)
         write(
             out,
             "lock-semantic-delta.json",
             lock_delta(original_lock, (root / "Cargo.lock").read_bytes()),
         )
         immutable(tools, out)
-        git(root, "add", "--", "Cargo.lock")
+        git(root, "diff", "--exit-code")
+        require(
+            git(root, "write-tree").decode().strip() == PREPARED_TREE,
+            "retained source index drift",
+        )
         generated_tree = git(root, "write-tree").decode().strip()
         generated = manifest(root)
         generated_index = index(root)
@@ -676,6 +664,8 @@ def main() -> None:
                 "base": BASE,
                 "prepared_tree": PREPARED_TREE,
                 "generated_tree": generated_tree,
+                "lock_origin": "accepted retained generation; no generator run",
+                "retained_lock_review_sha256": REVIEW_SHA256,
                 "root_lock_sha256": digest((root / "Cargo.lock").read_bytes()),
                 "fuzz_lock_sha256": digest((root / "fuzz/Cargo.lock").read_bytes()),
                 "patch_sha256": digest(generated_patch),
@@ -733,7 +723,7 @@ def main() -> None:
             out,
             "verdict.json",
             {
-                "status": "SCOPED_RELEASE_LOCK_CHECK_LINT_TEN_CLAIMS_PASS"
+                "status": "SCOPED_RETAINED_LOCK_CHECK_LINT_TEN_CLAIMS_PASS"
                 if success and intact
                 else "FAILED",
                 "source_and_index_intact": intact,

@@ -1,108 +1,326 @@
 {
-  "scope": "Source-owned plan ONLY; numeric source edits not applied. Bound to corrected release-base seed; rebind after actual generated-lock P and final main-union review.",
-  "reviewed_design_manifest_sha256": "a3558be2e19d0de68d15012d78b9148e7004dabce58cc3448500c09ca85b37e9",
-  "prerequisite_snapshot_tree": "c8716684c2d89dcfc3b80e9b830f8dc0e0166eb3",
-  "prerequisite_commit": null,
-  "upstream_numeric_source": "90bbbff804d40c64c01cce36a04bca3e4aae2a62",
-  "upstream_numeric_tree": "69db6f7820e47b1f9ad1b60ec76562797a274257",
+  "Oracle": {
+    "live_venue": "Required and held; exact cap assertion preserved in protected S.",
+    "ordinary_causal_credit": 0,
+    "predicted_reconstructed_P_comparison": "Some(Unknown) vs Some(StreamRows { limit: 1000000 }) only if live branch executes.",
+    "retain_S_flashback_blob": "06e0c674b8662e9ef0264fed4fd9302031a20f8a"
+  },
+  "all_source_dispositions": [
+    {
+      "A_blob": "5a98973817e31711b77573807bbbea81c4eb27df",
+      "S_blob": "3f54d3357c667c7833043be34313bc0f0266059e",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-app/src/federated/leg.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "dae9035c29815a8040f0a4ba1b6fcd03cfd6ef58",
+      "S_blob": "bc65f0fca8dec43085126b3315b999bf5f4dc360",
+      "edit": "Carry only S numeric split-capacity assertion; update seven P numeric cells exactly per matrix; keep opaque controls, old tests, fields/builders. Do not carry S fake modes or combined-loop cell.",
+      "mutation_template": "",
+      "path": "crates/sutura-app/src/federated/tests/split_test.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "4ed927ca8453b58d73307b8fd95f18ea4b227e41",
+      "S_blob": "061925cc8b3ede281c15f8b5fd3b8a75b2332938",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-app/src/lib.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "e03759c944eaf4db00380daee9203932299d4687",
+      "S_blob": "5fa5fe7495ed7bf33c44f1396443d339c859deae",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-cli/src/serve/kind.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "ABSENT",
+      "S_blob": "073a11a963a0ccea59d2bf569491228874301328",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-cli/src/serve/kind/tests/result_limit_fixture.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "1315c168f920d14db05f6c0545c5defc32b6a2f9",
+      "S_blob": "8bedb05f0a9af42963f9fa299222b25656e75b6f",
+      "edit": "Carry no S addition: P original examples stay byte-identical; new fake and its new test are replaced by app cells.",
+      "mutation_template": "",
+      "path": "crates/sutura-cli/tests/example.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "bbcde8492d840bc3764686340c9a8e296c7ce42a",
+      "S_blob": "e7955d7256435c18e2b2b599118bb67549bb8d3c",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-domain/src/query/limits.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "aed38f97ff5dac3a3fe589bc959112e865efb652",
+      "S_blob": "f88b1a1bd75068c2916e9334651556d815ad2b0c",
+      "edit": "NO numeric-followup delta: exact S file already in P through api-slice.patch; stable API survives reconstruction.",
+      "mutation_template": "",
+      "path": "crates/sutura-domain/src/warehouse.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "332fd7cc97948cd3a23792ea08fe0d81fe559e51",
+      "S_blob": "84629058f67cb75a3a4237171fb267a9bdbfeb4b",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-domain/src/warehouse/arrow.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "ABSENT",
+      "S_blob": "a7e0bee756e6627d1589bdf9e9b8edf97558795f",
+      "edit": "NO numeric-followup delta: exact S file already in P through api-slice.patch; stable API survives reconstruction.",
+      "mutation_template": "",
+      "path": "crates/sutura-domain/src/warehouse/limits.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "1d1476d48c0e515c01f187e88edca7a236d97047",
+      "S_blob": "b19f8c9d59333c331c06c70e8722ceccca23f41f",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-bigquery/src/adbc.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "fc43c299d1a2ddca14320d1e07f66b231f7af801",
+      "S_blob": "a83ff768f78dfbabcad19aeffe14aacc53cde409",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-bigquery/src/lib.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "7a215591128cb093c3edfb55eeb69dd747d48748",
+      "S_blob": "754d467dcf0016c91d60c309422e3f67c9223b6e",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-bigquery/src/transport.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "b6153b172ee5a72c0632d758c0b45c1b5b479a1f",
+      "S_blob": "ab967c9d57292904c7056f25d26a6c2890af60b2",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-clickhouse/src/adbc.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "144bef3158fbce638eb0c74e5c42479f6e69230d",
+      "S_blob": "29258ca5100178b115b2ed382aaa3b4d8a36923b",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-datafusion/src/warehouse.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "817459c41a5d76122b93e47d553d51681f0747e7",
+      "S_blob": "a1a17ac780a926bc1dbe0c4de9eb09733ce64049",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-duckdb/src/lib.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "12d2ab8ffea6b97df6a9382e799ea0c88d76e47e",
+      "S_blob": "0375e97c27bbf0f4c4e4508a22afefeafb222c21",
+      "edit": "Carry S production classifier changes while retaining P test_support export.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-node/src/lib.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "4b46c07e6f536f503061ceb2a9a6747a7a72bbcb",
+      "S_blob": "8fb136f6a08029dc560bcf92538b6b6579f2a098",
+      "edit": "Keep original P tests unchanged; carry schema-negative Width/Mislabelled cell with only old boolean assertions. Do not carry S synthetic numeric cell or new-hook assertion.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-node/src/tests.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "41113de8ec0acf2d4af9bf3c169dd6e90fe68219",
+      "S_blob": "aa547d78db59a76f5d762516be79e7e5e33d274d",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-oracle/src/lib.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "bb832f368e48437a7f05402c5895084437c20ea4",
+      "S_blob": "06e0c674b8662e9ef0264fed4fd9302031a20f8a",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-oracle/tests/flashback.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "27626405c1efc434ae9c3189843dbd1bea57fe9f",
+      "S_blob": "8760745f9645b1b981a7cb0b38869f71920d0fda",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-postgres/src/adbc.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "f5ab5317f55050b589539d500594bda76b520a2b",
+      "S_blob": "cc54e9b6cea23b9a87a2d38f4182b3156d575d9e",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-exec-postgres/src/adbc/session.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "18ef86ad3ef93476443155dd91d62792c0ac9329",
+      "S_blob": "c8d9aa2e7757824dfea9dd7149f386af783384fb",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-http/src/wire/refusal.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "55f919e7bff89ec34996646ad1c0379fcf8360a5",
+      "S_blob": "234dcae5d6077b7411aab613fcae53fb9c8e65de",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "crates/sutura-mcp/src/refusal.rs",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "dccbdf2f621c16bb12bfecc4d90ff4f4fbc3510e",
+      "S_blob": "c26c04a96339b41ee96ca584a935e932533052c2",
+      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
+      "mutation_template": "",
+      "path": "devco/claim-mutations/a_lookup_leg_no_partition_count_fits_is_refused_as_the_volume_bound.patch",
+      "phase": "numeric-followup"
+    },
+    {
+      "A_blob": "ABSENT",
+      "S_blob": "ABSENT",
+      "edit": "Add only typed ResultLimit override shown in proposal; all P fields/builders/script/old bool stable. Trait API already in P; UnannouncedBatch typed helper stays numeric follow-up.",
+      "mutation_template": "",
+      "path": "crates/sutura-app/src/federated/tests/split_test/warehouse.rs",
+      "phase": "numeric-followup"
+    }
+  ],
+  "execution_status": "All release-base generation/check/lint/own claim cycles and full gates UNRUN; corrected assertion locations are static preparation only.",
+  "fixture_override": {
+    "add_only": "    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {\n        match error {\n            AdapterFailure::Unannounced { cause } => cause.result_limit(),\n            AdapterFailure::TooMuchData => Some(sutura_domain::warehouse::ResultLimit::Unknown),\n            _ => None,\n        }\n    }\n",
+    "constructor_script_and_old_boolean": "unchanged",
+    "path": "crates/sutura-app/src/federated/tests/split_test/warehouse.rs",
+    "prerequisite_blob": "67d07ba299318ab6fcd56639cbc844bc3f9efa83"
+  },
+  "no_publication_or_helper_authority": true,
   "numeric_cells": [
     {
-      "test_fn": "whole_leg_row_bound_reaches_the_outputs",
+      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
+      "known_detail": "17 rows",
+      "new_domain_bound": {
+        "SourceRows": {
+          "limit": 17
+        }
+      },
+      "old_domain_bound": "Volume",
       "path": "crates/sutura-app/src/federated/tests/split_test.rs",
       "prerequisite_body_sha256": "61b4c9987496f19d16bb29d715ebefb002761466bb88c132b503f2af2f367931",
-      "old_domain_bound": "Volume",
+      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption.",
+      "test_fn": "whole_leg_row_bound_reaches_the_outputs"
+    },
+    {
+      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
+      "known_detail": "17 rows",
       "new_domain_bound": {
         "SourceRows": {
           "limit": 17
         }
       },
-      "known_detail": "17 rows",
-      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
-      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption."
-    },
-    {
-      "test_fn": "local_partition_row_bound_reaches_the_outputs",
+      "old_domain_bound": "Volume",
       "path": "crates/sutura-app/src/federated/tests/split_test.rs",
       "prerequisite_body_sha256": "6f55a123753d2591ad6e05c6f42e085d1d249b142d0abf0e258e6af292a4d228",
-      "old_domain_bound": "Volume",
-      "new_domain_bound": {
-        "SourceRows": {
-          "limit": 17
-        }
-      },
-      "known_detail": "17 rows",
-      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
-      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption."
+      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption.",
+      "test_fn": "local_partition_row_bound_reaches_the_outputs"
     },
     {
-      "test_fn": "whole_leg_byte_bound_reaches_the_outputs",
+      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
+      "known_detail": "31 bytes",
+      "new_domain_bound": {
+        "Materialization": {
+          "limit_bytes": 31
+        }
+      },
+      "old_domain_bound": "Volume",
       "path": "crates/sutura-app/src/federated/tests/split_test.rs",
       "prerequisite_body_sha256": "baa68bbf6689c8482ca69c93c56d50a333012d52a0c105eadc7a1dec18a8e8b2",
-      "old_domain_bound": "Volume",
+      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption.",
+      "test_fn": "whole_leg_byte_bound_reaches_the_outputs"
+    },
+    {
+      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
+      "known_detail": "31 bytes",
       "new_domain_bound": {
         "Materialization": {
           "limit_bytes": 31
         }
       },
-      "known_detail": "31 bytes",
-      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
-      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption."
-    },
-    {
-      "test_fn": "local_partition_byte_bound_reaches_the_outputs",
+      "old_domain_bound": "Volume",
       "path": "crates/sutura-app/src/federated/tests/split_test.rs",
       "prerequisite_body_sha256": "e75d79b90d68573c9a2669d4ce86ec09415e494731cf486698261d749d2ee25b",
-      "old_domain_bound": "Volume",
-      "new_domain_bound": {
-        "Materialization": {
-          "limit_bytes": 31
-        }
-      },
-      "known_detail": "31 bytes",
-      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
-      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption."
+      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption.",
+      "test_fn": "local_partition_byte_bound_reaches_the_outputs"
     },
     {
-      "test_fn": "a_mono_row_bound_reaches_both_transport_outputs",
-      "path": "crates/sutura-app/src/federated/tests/split_test.rs",
-      "prerequisite_body_sha256": "cc9abd159f2b063e5b7f7ce55460b80f2f9aeaa305081960d5b8c7c11497a048",
-      "old_domain_bound": "Volume",
+      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
+      "known_detail": "17 rows",
       "new_domain_bound": {
         "SourceRows": {
           "limit": 17
         }
       },
-      "known_detail": "17 rows",
-      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
-      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption."
+      "old_domain_bound": "Volume",
+      "path": "crates/sutura-app/src/federated/tests/split_test.rs",
+      "prerequisite_body_sha256": "cc9abd159f2b063e5b7f7ce55460b80f2f9aeaa305081960d5b8c7c11497a048",
+      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption.",
+      "test_fn": "a_mono_row_bound_reaches_both_transport_outputs"
     },
     {
-      "test_fn": "a_mono_byte_bound_reaches_both_transport_outputs",
+      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
+      "known_detail": "31 bytes",
+      "new_domain_bound": {
+        "Materialization": {
+          "limit_bytes": 31
+        }
+      },
+      "old_domain_bound": "Volume",
       "path": "crates/sutura-app/src/federated/tests/split_test.rs",
       "prerequisite_body_sha256": "51e0adf79ac4efd056ed05c673e35ac467b492b08772a6ccff8d3da004105312",
-      "old_domain_bound": "Volume",
-      "new_domain_bound": {
-        "Materialization": {
-          "limit_bytes": 31
-        }
-      },
-      "known_detail": "31 bytes",
-      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
-      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption."
+      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption.",
+      "test_fn": "a_mono_byte_bound_reaches_both_transport_outputs"
     },
     {
-      "test_fn": "a_local_node_decode_bound_reaches_the_application",
-      "path": "crates/sutura-app/src/federated/tests/split_test.rs",
-      "prerequisite_body_sha256": "a3558e8da26c060980f33303ce1bdc98d4d3873389a95539e05e1a048be53282",
-      "old_domain_bound": "Volume",
+      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
+      "known_detail": "31 bytes",
       "new_domain_bound": {
         "Materialization": {
           "limit_bytes": 31
         }
       },
-      "known_detail": "31 bytes",
-      "change": "Change this own assert_eq JSON literal and its later transport helper None -> Some(known_detail), keeping outcome/serialization/fixture/counters otherwise intact.",
-      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption."
+      "old_domain_bound": "Volume",
+      "path": "crates/sutura-app/src/federated/tests/split_test.rs",
+      "prerequisite_body_sha256": "a3558e8da26c060980f33303ce1bdc98d4d3873389a95539e05e1a048be53282",
+      "proof": "Own assertion red on actual landed P and scoped HEAD green; no Claim-Cell/Live-Cell/exemption.",
+      "test_fn": "a_local_node_decode_bound_reaches_the_application"
     }
   ],
   "opaque_controls": [
@@ -110,233 +328,14 @@
     "a_mono_opaque_bound_stays_numberless",
     "a_remote_node_size_code_stays_numberless_in_the_application"
   ],
-  "fixture_override": {
-    "path": "crates/sutura-app/src/federated/tests/split_test/warehouse.rs",
-    "prerequisite_blob": "67d07ba299318ab6fcd56639cbc844bc3f9efa83",
-    "add_only": "    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {\n        match error {\n            AdapterFailure::Unannounced { cause } => cause.result_limit(),\n            AdapterFailure::TooMuchData => Some(sutura_domain::warehouse::ResultLimit::Unknown),\n            _ => None,\n        }\n    }\n",
-    "constructor_script_and_old_boolean": "unchanged"
-  },
-  "all_source_dispositions": [
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-app/src/federated/leg.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "5a98973817e31711b77573807bbbea81c4eb27df",
-      "S_blob": "3f54d3357c667c7833043be34313bc0f0266059e",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-app/src/federated/tests/split_test.rs",
-      "edit": "Carry only S numeric split-capacity assertion; update seven P numeric cells exactly per matrix; keep opaque controls, old tests, fields/builders. Do not carry S fake modes or combined-loop cell.",
-      "A_blob": "dae9035c29815a8040f0a4ba1b6fcd03cfd6ef58",
-      "S_blob": "bc65f0fca8dec43085126b3315b999bf5f4dc360",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-app/src/lib.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "4ed927ca8453b58d73307b8fd95f18ea4b227e41",
-      "S_blob": "061925cc8b3ede281c15f8b5fd3b8a75b2332938",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-cli/src/serve/kind.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "e03759c944eaf4db00380daee9203932299d4687",
-      "S_blob": "5fa5fe7495ed7bf33c44f1396443d339c859deae",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-cli/src/serve/kind/tests/result_limit_fixture.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "ABSENT",
-      "S_blob": "073a11a963a0ccea59d2bf569491228874301328",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-cli/tests/example.rs",
-      "edit": "Carry no S addition: P original examples stay byte-identical; new fake and its new test are replaced by app cells.",
-      "A_blob": "1315c168f920d14db05f6c0545c5defc32b6a2f9",
-      "S_blob": "8bedb05f0a9af42963f9fa299222b25656e75b6f",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-domain/src/query/limits.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "bbcde8492d840bc3764686340c9a8e296c7ce42a",
-      "S_blob": "e7955d7256435c18e2b2b599118bb67549bb8d3c",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-domain/src/warehouse.rs",
-      "edit": "NO numeric-followup delta: exact S file already in P through api-slice.patch; stable API survives reconstruction.",
-      "A_blob": "aed38f97ff5dac3a3fe589bc959112e865efb652",
-      "S_blob": "f88b1a1bd75068c2916e9334651556d815ad2b0c",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-domain/src/warehouse/arrow.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "332fd7cc97948cd3a23792ea08fe0d81fe559e51",
-      "S_blob": "84629058f67cb75a3a4237171fb267a9bdbfeb4b",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-domain/src/warehouse/limits.rs",
-      "edit": "NO numeric-followup delta: exact S file already in P through api-slice.patch; stable API survives reconstruction.",
-      "A_blob": "ABSENT",
-      "S_blob": "a7e0bee756e6627d1589bdf9e9b8edf97558795f",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-bigquery/src/adbc.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "1d1476d48c0e515c01f187e88edca7a236d97047",
-      "S_blob": "b19f8c9d59333c331c06c70e8722ceccca23f41f",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-bigquery/src/lib.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "fc43c299d1a2ddca14320d1e07f66b231f7af801",
-      "S_blob": "a83ff768f78dfbabcad19aeffe14aacc53cde409",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-bigquery/src/transport.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "7a215591128cb093c3edfb55eeb69dd747d48748",
-      "S_blob": "754d467dcf0016c91d60c309422e3f67c9223b6e",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-clickhouse/src/adbc.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "b6153b172ee5a72c0632d758c0b45c1b5b479a1f",
-      "S_blob": "ab967c9d57292904c7056f25d26a6c2890af60b2",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-datafusion/src/warehouse.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "144bef3158fbce638eb0c74e5c42479f6e69230d",
-      "S_blob": "29258ca5100178b115b2ed382aaa3b4d8a36923b",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-duckdb/src/lib.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "817459c41a5d76122b93e47d553d51681f0747e7",
-      "S_blob": "a1a17ac780a926bc1dbe0c4de9eb09733ce64049",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-node/src/lib.rs",
-      "edit": "Carry S production classifier changes while retaining P test_support export.",
-      "A_blob": "12d2ab8ffea6b97df6a9382e799ea0c88d76e47e",
-      "S_blob": "0375e97c27bbf0f4c4e4508a22afefeafb222c21",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-node/src/tests.rs",
-      "edit": "Keep original P tests unchanged; carry schema-negative Width/Mislabelled cell with only old boolean assertions. Do not carry S synthetic numeric cell or new-hook assertion.",
-      "A_blob": "4b46c07e6f536f503061ceb2a9a6747a7a72bbcb",
-      "S_blob": "8fb136f6a08029dc560bcf92538b6b6579f2a098",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-oracle/src/lib.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "41113de8ec0acf2d4af9bf3c169dd6e90fe68219",
-      "S_blob": "aa547d78db59a76f5d762516be79e7e5e33d274d",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-oracle/tests/flashback.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "bb832f368e48437a7f05402c5895084437c20ea4",
-      "S_blob": "06e0c674b8662e9ef0264fed4fd9302031a20f8a",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-postgres/src/adbc.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "27626405c1efc434ae9c3189843dbd1bea57fe9f",
-      "S_blob": "8760745f9645b1b981a7cb0b38869f71920d0fda",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-exec-postgres/src/adbc/session.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "f5ab5317f55050b589539d500594bda76b520a2b",
-      "S_blob": "cc54e9b6cea23b9a87a2d38f4182b3156d575d9e",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-http/src/wire/refusal.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "18ef86ad3ef93476443155dd91d62792c0ac9329",
-      "S_blob": "c8d9aa2e7757824dfea9dd7149f386af783384fb",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-mcp/src/refusal.rs",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "55f919e7bff89ec34996646ad1c0379fcf8360a5",
-      "S_blob": "234dcae5d6077b7411aab613fcae53fb9c8e65de",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "devco/claim-mutations/a_lookup_leg_no_partition_count_fits_is_refused_as_the_volume_bound.patch",
-      "edit": "Carry S diff onto P unchanged; reassess if landed P contains any overlap beyond this design.",
-      "A_blob": "dccbdf2f621c16bb12bfecc4d90ff4f4fbc3510e",
-      "S_blob": "c26c04a96339b41ee96ca584a935e932533052c2",
-      "mutation_template": ""
-    },
-    {
-      "phase": "numeric-followup",
-      "path": "crates/sutura-app/src/federated/tests/split_test/warehouse.rs",
-      "edit": "Add only typed ResultLimit override shown in proposal; all P fields/builders/script/old bool stable. Trait API already in P; UnannouncedBatch typed helper stays numeric follow-up.",
-      "A_blob": "ABSENT",
-      "S_blob": "ABSENT",
-      "mutation_template": ""
-    }
-  ],
-  "Oracle": {
-    "retain_S_flashback_blob": "06e0c674b8662e9ef0264fed4fd9302031a20f8a",
-    "ordinary_causal_credit": 0,
-    "live_venue": "Required and held; exact cap assertion preserved in protected S.",
-    "predicted_reconstructed_P_comparison": "Some(Unknown) vs Some(StreamRows { limit: 1000000 }) only if live branch executes."
-  },
   "other_preserved_cells": [
     "node_schema_failures_are_not_result_size_refusals: Width and Mislabelled, old boolean assertions only",
     "a_lookup_leg_no_partition_count_fits_is_refused_as_the_volume_bound: numeric split2/1/1 plus no whole fallback, S killing patch",
     "the_composed_warehouse_preserves_known_source_rows_and_materialization_bytes: retain S with same-file non-verdict limit"
   ],
+  "predecessor_snapshot_tree": "31e0ff052788422fc4e6514cee55b727c790a244",
+  "prerequisite_commit": null,
+  "prerequisite_snapshot_tree": "ef25185218ea0ac728ea9903abbdffd091e830a9",
   "required_order": [
     "Root exact successor source review, including a freshly generated and accepted CI root lock from the actual release base and unchanged dependency manifests; fresh compile/lint proof required for this successor.",
     "CI each of ten claim own kills/restored controls, causality, validate, ship-check and required hosted gates",
@@ -344,7 +343,8 @@
     "Bind numeric follow-up to actual landed P; preserve complete source-owned matrix; run seven own assertion-red obligations, schema/split controls and HEAD green",
     "Separate Oracle focused live venue required; prior held proof packets need fresh source bindings and independent review"
   ],
-  "no_publication_or_helper_authority": true,
-  "execution_status": "All release-base generation/check/lint/own claim cycles and full gates UNRUN; corrected assertion locations are static preparation only.",
-  "predecessor_snapshot_tree": "31e0ff052788422fc4e6514cee55b727c790a244"
+  "reviewed_design_manifest_sha256": "a3558be2e19d0de68d15012d78b9148e7004dabce58cc3448500c09ca85b37e9",
+  "scope": "Source-owned plan ONLY; numeric source edits not applied. Bound to corrected release-base seed; rebind after actual generated-lock P and final main-union review.",
+  "upstream_numeric_source": "90bbbff804d40c64c01cce36a04bca3e4aae2a62",
+  "upstream_numeric_tree": "69db6f7820e47b1f9ad1b60ec76562797a274257"
 }

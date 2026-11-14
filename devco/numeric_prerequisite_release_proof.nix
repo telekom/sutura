@@ -1,7 +1,7 @@
 { base }:
 let
   src = builtins.toPath base;
-  flake = builtins.getFlake ("git+file://" + base + "?rev=1a30b5783bbc0e987927fdbbed9503cf51477f13");
+  flake = builtins.getFlake ("git+file://" + base + "?rev=b8bce349b79fc16891f8bfd466ba7187cafdf019");
   system = "x86_64-linux";
   frozen = import flake.inputs.nixpkgs {
     inherit system;

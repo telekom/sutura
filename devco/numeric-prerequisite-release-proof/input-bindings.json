@@ -1,38 +1,6 @@
 {
-  "base": "1a30b5783bbc0e987927fdbbed9503cf51477f13",
-  "base_tree": "2d7e0f6c06ff5b696fccc376f592ef82905d4eda",
-  "prepared_tree": "c8716684c2d89dcfc3b80e9b830f8dc0e0166eb3",
-  "source_packet_manifest_sha256": "5c7addb5b9281cdd4a90e6ab849ff82998e70a1cbb73bb86ba5683541a61fdbb",
-  "locks": {
-    "Cargo.lock": {
-      "blob": "318c425ffe47aabbf31900ace31c700fdbe582c7",
-      "sha256": "ce1b8b44f20456691a73b88fa95e405b9c26fab081a23ab1483f0323424ed0b8"
-    },
-    "fuzz/Cargo.lock": {
-      "blob": "c4dc6650c0382a6fb3855608f17f3daa0958a89d",
-      "sha256": "310110a25d992a2b045e9aac8952f70b8feb0d09be5a17d3aa40bd3fc8f2d3d0"
-    },
-    "flake.lock": {
-      "blob": "847be79dcd9cdc8d761742558375f59e65326adf",
-      "sha256": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f"
-    },
-    "pixi.lock": {
-      "blob": "384904098591615d556910beeb21309a7e7eecd1",
-      "sha256": "5ea24abb02a30090aa846075b52ca5d568566adf289779f8f743fbba0752efb9"
-    },
-    "devenv.lock": {
-      "blob": "55373d29c1f9ba48e3b119243fa79be8d3927eb0",
-      "sha256": "c2e2c27454f343619d83539a70ebbc8a28114e000609154b469453ba55d03324"
-    },
-    "nix/clickhouse-adbc.Cargo.lock": {
-      "blob": "273e9439f7d7946dbca5a8e6cded67c42a02a787",
-      "sha256": "82b5b1335a6c97749025e662535d2f2a68f9f602d70d004c9fb796ac215af264"
-    },
-    "slides/2026-introducing-sutura/package-lock.json": {
-      "blob": "fff14009010f6968dd09d61d73e46450e5b8ad37",
-      "sha256": "7b8e1e47a66f7d0069c6f7104de0c26ee6a2ab14b4f8eead1cea8fab0c8e7bc0"
-    }
-  },
+  "base": "b8bce349b79fc16891f8bfd466ba7187cafdf019",
+  "base_tree": "2191984dba94ae674e39f101b48d07a619d72255",
   "cargo_manifests": {
     "Cargo.toml": {
       "blob": "33e1aacf691da371f876fb45e95d1c2453838c9a",
@@ -230,5 +198,70 @@
       "blob": "fdb4d4a36ad40e2590a21f8d3474b97b5ef41d45",
       "sha256": "3d9b316b3e8fe61ae264425f59c33392ea1d35eac600e71e8ca314ffe55b1751"
     }
-  }
+  },
+  "locks": {
+    "Cargo.lock": {
+      "blob": "be0e33d68c0eac0ba811cb3a3f1d7c03e7d0bd19",
+      "sha256": "506947e68501e0afb6c8dc83b6cbaed0c1645630d7cb0526e8dae81bba9d6596"
+    },
+    "devenv.lock": {
+      "blob": "55373d29c1f9ba48e3b119243fa79be8d3927eb0",
+      "sha256": "c2e2c27454f343619d83539a70ebbc8a28114e000609154b469453ba55d03324"
+    },
+    "flake.lock": {
+      "blob": "847be79dcd9cdc8d761742558375f59e65326adf",
+      "sha256": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f"
+    },
+    "fuzz/Cargo.lock": {
+      "blob": "c4dc6650c0382a6fb3855608f17f3daa0958a89d",
+      "sha256": "310110a25d992a2b045e9aac8952f70b8feb0d09be5a17d3aa40bd3fc8f2d3d0"
+    },
+    "nix/clickhouse-adbc.Cargo.lock": {
+      "blob": "273e9439f7d7946dbca5a8e6cded67c42a02a787",
+      "sha256": "82b5b1335a6c97749025e662535d2f2a68f9f602d70d004c9fb796ac215af264"
+    },
+    "pixi.lock": {
+      "blob": "384904098591615d556910beeb21309a7e7eecd1",
+      "sha256": "5ea24abb02a30090aa846075b52ca5d568566adf289779f8f743fbba0752efb9"
+    },
+    "slides/2026-introducing-sutura/package-lock.json": {
+      "blob": "fff14009010f6968dd09d61d73e46450e5b8ad37",
+      "sha256": "7b8e1e47a66f7d0069c6f7104de0c26ee6a2ab14b4f8eead1cea8fab0c8e7bc0"
+    }
+  },
+  "prepared_tree": "ef25185218ea0ac728ea9903abbdffd091e830a9",
+  "release_locks": {
+    "Cargo.lock": {
+      "blob": "318c425ffe47aabbf31900ace31c700fdbe582c7",
+      "sha256": "ce1b8b44f20456691a73b88fa95e405b9c26fab081a23ab1483f0323424ed0b8"
+    },
+    "devenv.lock": {
+      "blob": "55373d29c1f9ba48e3b119243fa79be8d3927eb0",
+      "sha256": "c2e2c27454f343619d83539a70ebbc8a28114e000609154b469453ba55d03324"
+    },
+    "flake.lock": {
+      "blob": "847be79dcd9cdc8d761742558375f59e65326adf",
+      "sha256": "07d94f3d1cae3feeedc80c0d70e8df964d7135a938aab8e94cc59b425354223f"
+    },
+    "fuzz/Cargo.lock": {
+      "blob": "c4dc6650c0382a6fb3855608f17f3daa0958a89d",
+      "sha256": "310110a25d992a2b045e9aac8952f70b8feb0d09be5a17d3aa40bd3fc8f2d3d0"
+    },
+    "nix/clickhouse-adbc.Cargo.lock": {
+      "blob": "273e9439f7d7946dbca5a8e6cded67c42a02a787",
+      "sha256": "82b5b1335a6c97749025e662535d2f2a68f9f602d70d004c9fb796ac215af264"
+    },
+    "pixi.lock": {
+      "blob": "384904098591615d556910beeb21309a7e7eecd1",
+      "sha256": "5ea24abb02a30090aa846075b52ca5d568566adf289779f8f743fbba0752efb9"
+    },
+    "slides/2026-introducing-sutura/package-lock.json": {
+      "blob": "fff14009010f6968dd09d61d73e46450e5b8ad37",
+      "sha256": "7b8e1e47a66f7d0069c6f7104de0c26ee6a2ab14b4f8eead1cea8fab0c8e7bc0"
+    }
+  },
+  "retained_generation_tree": "e78ab126fdb58a3c034e323ab2d4f79e63460052",
+  "retained_lock_review_sha256": "10a2b0f6c23696b55f9e1981766a917552bbe8adc92e452b166b435fa029fec5",
+  "retained_lock_run": 43534236603,
+  "source_packet_manifest_sha256": "36c268f30f265bdc5948a1de9d9fc0d1228ac420091b989839dfba4f0aa2c68a"
 }
