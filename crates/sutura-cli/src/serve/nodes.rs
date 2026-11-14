@@ -141,7 +141,7 @@ where
 }
 
 /// Whether a peer `server.nodes` declares reads one of `engines`' sources.
-#[cfg(any(feature = "postgres", feature = "oracle"))]
+#[cfg(any(feature = "postgres", feature = "oracle", feature = "clickhouse"))]
 pub(super) fn read_by_a_peer<W>(engines: &Warehouses<W>, tls: Option<&TlsMaterial>) -> bool
 where
     W: Warehouse,

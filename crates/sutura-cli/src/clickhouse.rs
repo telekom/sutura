@@ -94,7 +94,7 @@ pub(crate) fn build(
     let password = crate::password_file::read(source, password_file)?;
     let driver = sutura_exec_clickhouse::adbc::driver_location().map_err(|cause| cause.to_string())?;
     let (endpoint, tls) = open_channel(source, host, port, transport)?;
-    Ok(AdbcClickHouseWarehouse::new(
+    let opened = AdbcClickHouseWarehouse::new(
         source.clone(),
         identity.posture().clone(),
         driver,
@@ -103,7 +103,11 @@ pub(crate) fn build(
         password,
         tls,
         working_set.result_budget(),
-    ))
+    );
+    Ok(match configured.hash_buckets() {
+        Some(declared) => opened.with_hash_buckets(declared),
+        None => opened,
+    })
 }
 
 /// The hops a `clickhouse` source exchanges each caller's token through before that caller signs
