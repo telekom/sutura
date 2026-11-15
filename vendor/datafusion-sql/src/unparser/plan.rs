@@ -520,15 +520,7 @@ impl Unparser<'_> {
     ) -> Result<()> {
         // A wrapper must export the bare qualifier its parent expressions use.
         let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
-        let mut carries_alias = false;
-        plan.apply(|node| {
-            if let LogicalPlan::SubqueryAlias(alias) = node {
-                carries_alias |= Some(&alias.alias) == qualifier;
-            }
-            Ok(TreeNodeRecursion::Continue)
-        })?;
         if let Some(TableReference::Bare { table }) = qualifier
-            && carries_alias
             && plan.schema().iter().all(|(name, _)| name == qualifier)
         {
             return self.derive(

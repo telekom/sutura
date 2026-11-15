@@ -281,7 +281,7 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
         let source = provider_as_source(Arc::new(
             MemTable::try_new(batch.schema(), vec![vec![batch]]).expect("a source table"),
         ));
-        let scan = LogicalPlanBuilder::scan("dim_region", source, Some(vec![0, 1]))
+        let scan = LogicalPlanBuilder::scan("dim_region", Arc::clone(&source), Some(vec![0, 1]))
             .expect("a projected scan")
             .build()
             .expect("a scan plan");
@@ -311,6 +311,26 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             rows,
             legs.engines
                 .as_one(r#"select "region", "sales_area" from "dim_region" where "region" like '%' limit 1"#),
+            "{dialect:?}: {sql}"
+        );
+        let sorted = LogicalPlanBuilder::scan("dim_region", source, None)
+            .expect("a scan")
+            .project(vec![col("dim_region.region"), col("dim_region.sales_area")])
+            .expect("an inner projection")
+            .sort(vec![col("dim_region.sales_area").sort(true, true)])
+            .expect("a sort below the output projection")
+            .project(vec![col("dim_region.region").alias("c0")])
+            .expect("a labelled output")
+            .build()
+            .expect("a sorted source plan");
+        let sql = super::super::unparsed(&sorted, dialect).expect("the sorted plan unparses");
+        let rows = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("a source statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        assert_eq!(
+            rows,
+            legs.engines
+                .as_one(r#"select "region" as c0 from "dim_region" order by "sales_area""#),
             "{dialect:?}: {sql}"
         );
         let tables = [StatementTable::new(
