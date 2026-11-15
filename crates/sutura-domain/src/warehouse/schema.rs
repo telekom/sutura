@@ -71,6 +71,21 @@ impl PinnedSchemas {
         dialects: &BTreeMap<SourceName, TypeDialect>,
         numbers: &BTreeSet<SourceName>,
     ) -> Result<Self, NotValidated> {
+        let mut policies = BTreeMap::new();
+        for model in definitions.models().values() {
+            for column in model.columns() {
+                let key = (model.source(), model.table(), column.name());
+                if policies
+                    .insert(key, column.text_policy())
+                    .is_some_and(|previous| previous != column.text_policy())
+                    || (!column.text_policy().is_empty() && !dialects.contains_key(model.source()))
+                {
+                    return Err(NotValidated::TextPolicy {
+                        model: model.name().clone(),
+                    });
+                }
+            }
+        }
         let federated: BTreeSet<&ModelName> = definitions
             .relationships()
             .values()
@@ -119,6 +134,17 @@ impl PinnedSchemas {
                         String::from("sutura:unbounded_number"),
                         String::from("utf8"),
                     )]));
+                }
+                if !column.text_policy().is_empty() {
+                    if field.data_type() != &DataType::Utf8 || !definitions.metrics().is_empty() {
+                        return Err(NotValidated::TextPolicy {
+                            model: model.name().clone(),
+                        });
+                    }
+                    let encoded = serde_json::to_string(column.text_policy()).map_err(|_cause| NotValidated::TextPolicy {
+                        model: model.name().clone(),
+                    })?;
+                    field.metadata_mut().insert(String::from("sutura:text_policy"), encoded);
                 }
                 fields.push(field);
             }
@@ -177,6 +203,10 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
         for field in schema.fields() {
             part(&mut hash, field.name());
             part(&mut hash, &field.data_type().to_string());
+            if let Some(policy) = field.metadata().get("sutura:text_policy") {
+                part(&mut hash, "sutura:text_policy");
+                part(&mut hash, policy);
+            }
             hash.update([
                 u8::from(field.is_nullable()),
                 u8::from(

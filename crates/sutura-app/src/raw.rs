@@ -212,7 +212,14 @@ where
     let tables = tables(pinned, context, warehouses, listed);
     let question = StatementQuestion::new(statement, &tables, scope.federation_allowed, working_set_bytes, deadline);
     let mut legs = RawLegs::new(context, broker, warehouses, listed, deadline);
+    let protected = pinned
+        .get()
+        .definitions()
+        .models()
+        .values()
+        .any(|model| model.columns().any(|column| !column.text_policy().is_empty()));
     let outcome = match combiner.answer_statement(question, &mut legs) {
+        Some(Err(StatementStopped::NotPlanned)) | None if protected => Ok(refusal(RawRefusalReason::StatementFailed)),
         Some(Ok(rows)) => Ok(answer(
             rows,
             scope.federation_allowed.then(|| executed_as(warehouses, &legs.ran)).flatten(),

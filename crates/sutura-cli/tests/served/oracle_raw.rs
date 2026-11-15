@@ -4,6 +4,8 @@ use serde_json::json;
 use sutura_http::constants::base_paths::RUN_SQL;
 
 use super::{FixtureSource, Tier};
+#[cfg(feature = "sql")]
+use crate::harness::{LOOPBACK, SINGLE_USER};
 use crate::harness::{Reply, Served, TOKEN, start_configured, v1};
 
 fn settings(tier: &Tier, case: &str, enabled: bool, federation: bool) -> String {
@@ -214,5 +216,94 @@ fn oracle_raw_federation_reads_two_registered_sources_only_when_listed_and_allow
                 reply.body
             );
         }
+    }
+}
+
+#[cfg(feature = "sql")]
+#[test]
+#[ignore = "requires just oracle-native-acceptance"]
+fn bounded_lobs_are_redacted_before_projection_predicates_order_and_min() {
+    use crate::harness::{config_path, derived_beside, refused_to_start};
+    use sutura_config::Environment;
+
+    let tier = Tier::here();
+    let root = derived_beside(&config_path("oracle-text-policy"));
+    std::fs::create_dir_all(&root).unwrap();
+    let password = root.join("password");
+    std::fs::write(&password, &tier.legacy_password).unwrap();
+    let connection = tier.connection(&tier.legacy_user, &password, true);
+    let rules = "    column_rules:\n      - column: SCRIPT*\n        max_text_bytes: 256\n        redact:\n          - {pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}\n";
+    let native = format!(
+        "  - name: dictionary\n    kind: rdbms\n    version: text-1\n    source_alias: local\n    dictionary_source: native_dictionary\n    include: [{{schema: {}, table: TEXT_EVENTS}}]\n{rules}    connection:\n      dialect: oracle\n      {}\n",
+        tier.legacy_user,
+        connection.replace('\n', "\n  ")
+    );
+    let configured = |catalog: &str| {
+        format!(
+            "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\ntelemetry:\n  format: bunyan\ncatalogs:\n{catalog}sources:\n  local:\n    kind: oracle\n    {connection}\n    posture: shared-service-user\ntools:\n  run_sql:\n    enabled: true\n    sources: [local]\n"
+        )
+    };
+    let refused = refused_to_start(
+        Environment::Development,
+        crate::harness::written("oracle-text-no-bound", &configured(&native.replace(rules, ""))),
+        &[],
+    )
+    .join("\n");
+    assert!(refused.contains("no exact supported mapping"), "{refused}");
+
+    let catalog = root.join("models");
+    std::fs::create_dir_all(&catalog).unwrap();
+    std::fs::write(
+        catalog.join("declaration.md"),
+        "---\nkind: declaration\ndefinitions: [structure, descriptions, column_types]\nknowledge: []\n---\n",
+    )
+    .unwrap();
+    std::fs::write(catalog.join("model.md"), "---\nkind: model\nname: text_events\nsource: local\ntable: TEXT_EVENTS\ncolumns:\n  - {name: ID, type: 'NUMBER(10)'}\n  - name: SCRIPT\n    type: CLOB\n    max_text_bytes: 256\n    redact: [{pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}]\n  - name: SCRIPT_N\n    type: NCLOB\n    max_text_bytes: 256\n    redact: [{pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}]\n---\nBounded fixture text.\n").unwrap();
+    let markdown = format!(
+        "  - name: text\n    kind: markdown\n    version: text-1\n    dir: {}\n    data_dir: {}\n",
+        catalog.display(),
+        root.display()
+    );
+    for (name, catalog) in [("native", native), ("markdown", markdown)] {
+        let served = start_configured(&format!("oracle-text-{name}"), &configured(&catalog));
+        let path = if name == "native" {
+            format!("\"{}\".\"TEXT_EVENTS\"", tier.legacy_user)
+        } else {
+            String::from("\"TEXT_EVENTS\"")
+        };
+        let query = |sql: String| {
+            let reply = ran(&served, &sql);
+            assert_eq!(reply.status, 200, "{sql}: {}\n{:?}", reply.body, served.log());
+            reply.json()["rows"].clone()
+        };
+        assert_eq!(
+            query(format!("select SCRIPT, SCRIPT_N from {path} where ID = 1")),
+            json!([["IDENTIFIED BY ***", "IDENTIFIED BY ***"]])
+        );
+        for prefix in ["s", "se", "sec", "secr", "secre", "secret"] {
+            assert_eq!(
+                query(format!("select ID from {path} where SCRIPT like '%IDENTIFIED BY {prefix}%'")),
+                json!([])
+            );
+        }
+        assert_eq!(
+            query(format!("select min(SCRIPT) from {path} where ID < 3")),
+            json!([["IDENTIFIED BY ***"]])
+        );
+        assert_eq!(
+            query(format!(
+                "select ID from {path} where SCRIPT = 'IDENTIFIED BY ***' order by SCRIPT, ID"
+            )),
+            json!([["1"], ["2"]])
+        );
+        let cut = query(format!("select SCRIPT, SCRIPT_N from {path} where ID IN (3, 5)"));
+        for value in cut.as_array().unwrap().iter().flat_map(|row| row.as_array().unwrap()) {
+            let text = value.as_str().unwrap();
+            assert!(text.len() <= 256 && text.ends_with("...[truncated]"), "{text}");
+        }
+        assert_eq!(
+            query(format!("select SCRIPT, SCRIPT_N from {path} where ID = 4")),
+            json!([[null, null]])
+        );
     }
 }

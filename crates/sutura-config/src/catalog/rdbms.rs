@@ -20,10 +20,12 @@ use crate::sources::oracle_transport::{NoOracleChannel, RawOracleOptions, RawOra
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
-use sutura_domain::catalog::{
-    Audience, DictionaryInclude, DictionaryPattern, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection,
-};
+use sutura_domain::catalog::{Audience, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection};
 use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
+
+mod selection;
+pub(crate) use selection::RawColumnRule;
+use selection::native_selection;
 
 use crate::raw::{RawCatalog, RawCatalogConnection, RawLiveRowPredicate};
 use crate::sources::SourceRegistry;
@@ -64,6 +66,7 @@ impl RdbmsSettings {
                     || raw.exclude_tables.is_some()
                     || raw.exclude_columns.is_some()
                     || raw.exclude_types.is_some()
+                    || raw.column_rules.is_some()
                 {
                     return Err(InvalidRdbmsCatalog::NativeKeysOnView);
                 }
@@ -195,32 +198,6 @@ impl RdbmsSettings {
     pub const fn dictionary_source(&self) -> DictionarySource {
         self.dictionary_source
     }
-}
-
-fn native_selection(raw: &RawCatalog) -> Result<DictionarySelection, InvalidRdbmsCatalog> {
-    let pattern = |text: &str| DictionaryPattern::parse(text).map_err(|cause| InvalidRdbmsCatalog::Pattern { cause });
-    let include = raw
-        .include
-        .as_deref()
-        .unwrap_or_default()
-        .iter()
-        .map(|pair| Ok(DictionaryInclude::new(pattern(&pair.schema)?, pattern(&pair.table)?)))
-        .collect::<Result<Vec<_>, InvalidRdbmsCatalog>>()?;
-    let patterns = |written: &Option<Vec<String>>| {
-        written
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|text| pattern(text))
-            .collect::<Result<Vec<_>, _>>()
-    };
-    DictionarySelection::parse(
-        include,
-        patterns(&raw.exclude_tables)?,
-        patterns(&raw.exclude_columns)?,
-        patterns(&raw.exclude_types)?,
-    )
-    .map_err(|cause| InvalidRdbmsCatalog::Selection { cause })
 }
 
 /// A written zero is refused rather than stored: it would refuse every read rather than bound one,
@@ -724,6 +701,10 @@ fn absolute(key: &'static str, written: &str) -> Result<PathBuf, InvalidConnecti
 /// Why an rdbms catalog's own keys are not usable.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidRdbmsCatalog {
+    #[error("invalid column text policy: {cause}")]
+    TextPolicy {
+        cause: sutura_domain::catalog::InvalidTextPolicy,
+    },
     #[error("the inferred models' audience is invalid")]
     Audience {
         #[source]

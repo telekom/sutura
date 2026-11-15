@@ -4820,6 +4820,7 @@ dependencies = [
  "prost",
  "rcgen",
  "ring",
+ "serde_json",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",

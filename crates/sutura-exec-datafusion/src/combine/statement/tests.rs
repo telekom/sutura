@@ -26,6 +26,7 @@ mod oracle;
 #[cfg(test)]
 mod registration;
 mod resolution;
+mod text;
 
 #[test]
 fn cube_unsigned_results_are_refused_before_open_and_signed_results_still_run() {

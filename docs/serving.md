@@ -207,6 +207,57 @@ where the deployment has one source. The row cap of a certified answer applies, 
 The page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
 [DuckDB](integrations/data-systems/duckdb.md), [Oracle](integrations/data-systems/oracle.md#raw-sql).
 
+**Database permissions are the first defense against secret disclosure.** The asking user's
+database identity, and any shared account that executes for them, must never have permission to
+read secrets they are not authorized to see. Grant access to restricted views that omit sensitive
+columns or redact them in the database; deny access to their underlying tables and to functions
+that expose the original values. This applies to every supported data system. Catalog exclusions
+and text redaction are a second layer of defense, never a reason to grant access to secrets.
+
+Masking returned text alone does not protect search: predicates, ordering and aggregates can reveal
+information about the original value. A redacted view must apply its transformation before those
+operations. Pattern rules can miss a secret or fail to match a new format; exercise them against
+representative data and keep the underlying permissions restricted even when those checks pass.
+
+Text policies require a build with SQL planning. In a Markdown physical model, declare them on a
+text column:
+
+```yaml
+columns:
+  - name: SCRIPT
+    type: CLOB
+    max_text_bytes: 8192
+    redact:
+      - pattern: "(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+"
+        replace: "IDENTIFIED BY ***"
+```
+
+For a native `rdbms` dictionary, put the same settings in `column_rules` on its catalog entry,
+with `column: SCRIPT*` selecting column names by dictionary pattern. This admits Oracle CLOB and
+NCLOB columns only when a bound is present. Without a bound, native dictionaries still refuse
+those columns and the Oracle row reader still refuses raw LOB values.
+
+The planned source statement wraps each protected table with a projection that redacts text,
+then bounds it, before the caller's projection, predicates, ordering, joins or aggregates.
+DuckDB, DataFusion, PostgreSQL, Cube, ClickHouse, BigQuery and Oracle use their native regex
+functions. An unplannable statement over a catalog with a policy is refused, including in a build
+without SQL planning; it cannot fall back to unmodified pass-through. Policies currently require
+mapped text columns in a physical-schema catalog without certified metrics. Conflicting policies
+for the same physical column, including an unprotected alias, refuse catalog validation.
+
+Rules run in declaration order, using the source engine's regex syntax. Only a leading `(?i)`
+flag is portable here; other `(?` constructs are refused. Replacements are literal: `$` and
+backslash are refused, so capture substitution is unavailable. There are at most eight rules per
+column, and patterns and replacements are at most 512 bytes. An invalid source regex fails the
+query; there is no retry against unredacted text. Matching remains the operator's responsibility:
+this example does not recognize every possible secret format.
+
+`max_text_bytes` ranges from 32 to 1048576. Truncation reserves four UTF-8 bytes per retained
+character and 14 bytes for the visible `...[truncated]` suffix. It can cut ASCII text well before
+the declared byte limit. Oracle additionally caps the effective bound at 4000 bytes and uses
+`DBMS_LOB.SUBSTR` to return scalar text. Null stays null; search and aggregates see the same cut
+text as a read. A redaction-only policy leaves text unbounded and does not enable Oracle LOB reads.
+
 `tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,
 or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
 on or off, over the tables that the catalog declares on the listed sources and the caller's view holds. It cuts the plan

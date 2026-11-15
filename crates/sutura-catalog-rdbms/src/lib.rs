@@ -422,7 +422,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     cause,
                 }
             })?;
-            columns.push(column);
+            columns.push(column.with_text_policy(metadata.map_or_default(|metadata| metadata.text.clone())));
         }
         let description = table
             .description()
@@ -721,11 +721,16 @@ impl core::fmt::Display for TableAddress {
 pub struct ColumnMetadata {
     data_type: Option<String>,
     description: Option<String>,
+    text: sutura_domain::catalog::TextPolicy,
 }
 
 impl ColumnMetadata {
     pub const fn new(data_type: Option<String>, description: Option<String>) -> Self {
-        Self { data_type, description }
+        Self {
+            data_type,
+            description,
+            text: sutura_domain::catalog::TextPolicy::empty(),
+        }
     }
 
     #[inline]

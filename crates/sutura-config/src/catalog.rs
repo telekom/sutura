@@ -20,6 +20,7 @@ pub use crate::catalog::rdbms::{
     InvalidDocumentationSchema, InvalidRdbmsCatalog, LiveRowPredicate, OracleCatalogConnection, PostgresCatalogConnection,
     PredicateOperator, RdbmsSettings,
 };
+pub(crate) use rdbms::RawColumnRule;
 
 /// Which adapter the catalog configuration names, and therefore which one opens it.
 ///

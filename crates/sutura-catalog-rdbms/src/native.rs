@@ -1,7 +1,7 @@
 //! Native selection and the physical allowlist used by composed catalogs.
 
 use crate::{Dictionary, RdbmsCatalog, RdbmsError};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use sutura_domain::catalog::{ColumnType, DictionarySelection, Model};
 use sutura_domain::model::{ColumnName, QualifiedTable, SourceName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, PinnedDefinitions, SemanticCatalog};
@@ -12,6 +12,8 @@ pub(crate) mod sql;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NativeSelectionError {
+    #[error("column {column} matches conflicting text policies")]
+    ConflictingTextPolicy { column: String },
     #[error("native include {index} ({schema}, {table}) matches no visible table")]
     UnmatchedInclude { index: usize, schema: String, table: String },
     #[error("native table {table} has no included column")]
@@ -36,11 +38,13 @@ pub enum NativeSelectionError {
     },
 }
 
+type ColumnPolicies = BTreeMap<ColumnName, sutura_domain::catalog::TextPolicy>;
+
 /// Effective physical columns from one successful native read; semantic aliases cannot widen it.
 #[derive(Debug)]
 pub struct NativeAllowlist {
     source: SourceName,
-    tables: BTreeMap<QualifiedTable, BTreeSet<ColumnName>>,
+    tables: BTreeMap<QualifiedTable, ColumnPolicies>,
 }
 
 impl NativeAllowlist {
@@ -61,7 +65,7 @@ impl NativeAllowlist {
                 table: Box::new(model.table().clone()),
             })?;
         for column in model.columns() {
-            if !allowed.contains(column.name()) {
+            if allowed.get(column.name()) != Some(column.text_policy()) {
                 return Err(NativeSelectionError::ColumnExcluded {
                     model: model.name().as_str().to_owned(),
                     table: Box::new(model.table().clone()),
@@ -101,6 +105,16 @@ pub(crate) fn select(
             if selection.excludes_column(column) || selection.excludes_type(native) {
                 continue;
             }
+            let mut policy = None;
+            for (pattern, rule) in selection.text_rules() {
+                if pattern.matches(column) {
+                    if policy.is_some_and(|previous| previous != rule) {
+                        return Err(NativeSelectionError::ConflictingTextPolicy { column: column.clone() }.into());
+                    }
+                    policy = Some(rule);
+                }
+            }
+            let bounded = policy.is_some_and(|rule| rule.max_text_bytes().is_some());
             let precise = ColumnType::parse(native)
                 .ok()
                 .and_then(|declared| dialect.arrow_with_unbounded_number(&declared, unbounded_number))
@@ -110,7 +124,9 @@ pub(crate) fn select(
             let lower = native.to_ascii_lowercase();
             let name = lower.split('(').next().unwrap_or("").trim_end();
             let unreadable = match dialect {
-                TypeDialect::Oracle => matches!(name, "float" | "binary_float" | "raw" | "blob"),
+                TypeDialect::Oracle => {
+                    matches!(name, "float" | "binary_float" | "raw" | "blob") || (matches!(name, "clob" | "nclob") && !bounded)
+                }
                 TypeDialect::Postgres => matches!(
                     name,
                     "real"
@@ -136,6 +152,9 @@ pub(crate) fn select(
                     data_type: native.to_owned(),
                 }
                 .into());
+            }
+            if let Some(policy) = policy {
+                table.column_metadata.entry(column.clone()).or_default().text = policy.clone();
             }
             columns.push(column.clone());
         }
@@ -183,7 +202,10 @@ where
             .map(|model| {
                 (
                     model.table().clone(),
-                    model.columns().map(|column| column.name().clone()).collect(),
+                    model
+                        .columns()
+                        .map(|column| (column.name().clone(), column.text_policy().clone()))
+                        .collect(),
                 )
             })
             .collect(),

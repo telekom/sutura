@@ -78,6 +78,7 @@ use crate::pool::{self, WorkingSet};
 
 mod oracle;
 mod resolve;
+mod text;
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
@@ -113,7 +114,7 @@ where
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
-        .map(|part| Ok((part.statement(whole)?, part.scan_tables(&tables)?)))
+        .map(|part| Ok((part.statement(whole, &tables)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources).map_err(StatementStopped::Leg)?;
@@ -335,12 +336,13 @@ impl Part {
 
     /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
     /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
-    fn statement(&self, whole: bool) -> Planned<RawStatement> {
+    fn statement(&self, whole: bool, tables: &[StatementTable]) -> Planned<RawStatement> {
         let text = if whole {
             unparsed(&self.plan, self.dialect)?
         } else {
             unparsed(&labelled(&self.plan)?, self.dialect)?
         };
+        let text = text::apply(text, tables, self.dialect)?;
         RawStatement::parse(text).map_err(|cause| plan_datafusion_err!("{cause}"))
     }
 }
@@ -412,6 +414,17 @@ fn registered_tables(tables: &[StatementTable]) -> Planned<Vec<StatementTable>> 
         let visible = || tables.iter().filter(|other| other.table() == table.table());
         if visible().any(|other| other.dialect() != table.dialect()) {
             return plan_err!("models of one physical table disagree on its dialect");
+        }
+        for first in visible() {
+            for second in visible() {
+                for field in first.schema().fields() {
+                    if let Ok(other) = second.schema().field_with_name(field.name())
+                        && field.metadata().get("sutura:text_policy") != other.metadata().get("sutura:text_policy")
+                    {
+                        return plan_err!("models disagree on a physical column's text policy");
+                    }
+                }
+            }
         }
         let columns = Schema::try_merge(visible().map(|other| other.schema().as_ref().clone()))?;
         admitted.push(StatementTable::new(
