@@ -36,10 +36,10 @@ extract_year
 SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE (("fct_usage_daily"."usage_date" >= CAST('2026-01-01' AS DATE)) AND ("fct_usage_daily"."usage_date" < CAST('2027-01-01' AS DATE)))
 
 count_star_filter
-SELECT count(1) AS "n" FROM (SELECT FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "fct_usage_daily"
+SELECT count(1) AS "n" FROM (SELECT FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "derived_projection"
 
 count_one_filter
-SELECT count(1) AS "n" FROM (SELECT FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "fct_usage_daily"
+SELECT count(1) AS "n" FROM (SELECT FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "derived_projection"
 
 filter_limit
 SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002) LIMIT 2
