@@ -252,7 +252,7 @@ impl FederationPlanner for Fetched {
 
 /// The rule a source's sub-plan is handed to: it makes the sub-plan a leaf, planned over its leg's rows.
 #[derive(Debug)]
-struct Cutter(Arc<Fetched>);
+struct Cutter(Arc<Fetched>, TypeDialect);
 
 fn number_text(schema: &SchemaRef) -> bool {
     schema
@@ -278,9 +278,10 @@ fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
         expression.apply(|part| {
             if let Expr::Column(column) = part {
                 for input in plan.inputs() {
-                    if let Ok(field) = input.schema().field_from_column(column) {
-                        safe &= field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8");
-                    }
+                    safe &= input.schema().field_from_column(column).map_or_else(
+                        |_| !number_text(input.schema().inner()),
+                        |field| field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8"),
+                    );
                 }
             }
             Ok(TreeNodeRecursion::Continue)
@@ -316,6 +317,19 @@ impl OptimizerRule for Cutter {
             node.apply_with_subqueries(|input| {
                 scans |= matches!(input, LogicalPlan::TableScan(_));
                 safe &= number_text_safe(input)?;
+                // Cube's SQL planner cannot execute correlated EXISTS. Keep semi/anti/mark
+                // joins here while the same cut still pushes their supported children down.
+                if self.1 == TypeDialect::Cube
+                    && let LogicalPlan::Join(join) = input
+                {
+                    safe &= matches!(
+                        join.join_type,
+                        datafusion::logical_expr::JoinType::Inner
+                            | datafusion::logical_expr::JoinType::Left
+                            | datafusion::logical_expr::JoinType::Right
+                            | datafusion::logical_expr::JoinType::Full
+                    );
+                }
                 Ok(if safe {
                     TreeNodeRecursion::Continue
                 } else {
@@ -478,7 +492,6 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         .with_query_planner(Arc::new(FederatedQueryPlanner::new()))
         .build();
     let context = SessionContext::new_with_state(state);
-    let cut = Arc::new(Optimizer::with_rules(vec![Arc::new(Cutter(Arc::clone(fetched)))]));
     for table in tables {
         let (catalog, schema) = table.table().qualifier().map_or(("", ""), |qualifier| {
             (
@@ -500,7 +513,10 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         };
         let source = Arc::new(Source {
             name: table.source().clone(),
-            cut: Arc::clone(&cut),
+            cut: Arc::new(Optimizer::with_rules(vec![Arc::new(Cutter(
+                Arc::clone(fetched),
+                table.dialect(),
+            ))])),
         });
         let provider = FederatedTableProviderAdaptor::new(Arc::new(Table {
             source,

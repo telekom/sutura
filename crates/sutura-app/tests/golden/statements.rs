@@ -24,7 +24,7 @@ use corpus::{CASES, Expected, FixtureRow};
 
 const WORKING_SET: u64 = 1 << 30;
 
-/// A renderer instrument: a successful whole-source plan hands its SQL to this port once.
+/// A renderer instrument: records source parts and returns empty, position-labelled rows.
 #[derive(Default)]
 struct Recorded {
     statements: Vec<String>,
@@ -42,8 +42,21 @@ impl StatementLegs for Recorded {
     }
 
     fn run(&mut self, _source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        use ::datafusion::sql::sqlparser::{
+            ast::{SetExpr, Statement},
+            dialect::GenericDialect,
+            parser::Parser,
+        };
         self.statements.push(statement.as_str().to_owned());
-        Ok(RawRows::of(Vec::new(), Vec::new()))
+        let mut parsed = Parser::parse_sql(&GenericDialect, statement.as_str()).map_err(|_cause| ())?;
+        let Some(Statement::Query(query)) = parsed.pop() else {
+            return Err(());
+        };
+        let SetExpr::Select(select) = *query.body else {
+            return Err(());
+        };
+        let columns = (0..select.projection.len()).map(|index| format!("c{index}")).collect();
+        Ok(RawRows::of(columns, Vec::new()))
     }
 }
 
@@ -102,12 +115,14 @@ fn pins_planned_statements_over(name: &str, dialect: TypeDialect, tables: &[Stat
             &mut recorded,
         );
         assert!(matches!(answer, Some(Ok(_))), "{} at {dialect:?}: {answer:?}", case.name);
-        let [sql] = recorded.statements.as_slice() else {
-            panic!("{} must produce one source statement: {:?}", case.name, recorded.statements);
-        };
+        assert!(
+            !recorded.statements.is_empty(),
+            "{} must produce source statements",
+            case.name
+        );
         corpus.push_str(case.name);
         corpus.push('\n');
-        corpus.push_str(sql);
+        corpus.push_str(&recorded.statements.join("\n"));
         corpus.push_str("\n\n");
     }
     settings(name).bind(|| insta::assert_snapshot!("planned_statement_shapes", corpus));
