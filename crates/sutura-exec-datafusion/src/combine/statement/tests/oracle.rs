@@ -308,6 +308,10 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 &["JOIN", "WHERE"][..],
             ),
             (
+                r#"select "sales_area" from "dim_region" order by "region""#,
+                &["ORDER BY"][..],
+            ),
+            (
                 r#"select "sales_area" from "dim_region" where "region" = 'north' order by "sales_area""#,
                 &["WHERE"][..],
             ),
@@ -345,9 +349,9 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 };
                 assert!(part.contains(operator), "{dialect:?}: missing {operator}: {part}");
             }
-            if sql.contains("sales_area") {
+            if sql.contains(r#"order by "sales_area""#) {
                 assert!(!part.contains("ORDER BY"), "text ordering must stay local: {part}");
-            } else {
+            } else if !sql.contains("sales_area") {
                 assert!(!part.contains("sales_area"), "unused mapped column was fetched: {part}");
             }
         }
