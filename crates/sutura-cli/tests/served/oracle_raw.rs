@@ -162,7 +162,7 @@ fn oracle_raw_planned_quoted_aliases_and_offset_execute_at_the_source() {
     );
     let refused = ran(&served, "SELECT e.\"UNDECLARED_COLUMN\" FROM \"EVENTS\" e");
     assert_eq!(refused.status, 422, "{}", refused.body);
-    assert_eq!(refused.json()["code"], "statement_failed", "{}", refused.body);
+    assert_eq!(refused.json()["code"], "unknown_column", "{}", refused.body);
     assert!(!refused.body.contains("UNDECLARED_COLUMN"), "{}", refused.body);
 }
 
