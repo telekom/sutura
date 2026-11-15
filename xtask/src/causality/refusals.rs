@@ -16,7 +16,7 @@
 //! offering a reader a list to pick from.
 
 use crate::Verdict;
-use crate::causality::base::{names_no_tests, tail};
+use crate::causality::base::names_no_tests;
 use crate::causality::features::{Because, Enabled, Unread};
 use crate::causality::place::AddedTest;
 use crate::causality::weakens::Waived;
