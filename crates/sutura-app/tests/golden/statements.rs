@@ -88,13 +88,17 @@ fn quoted(path: &QualifiedTable) -> String {
 fn pins_planned_source_statements(name: &str, dialect: TypeDialect) {
     let path = QualifiedTable::parse("fct_usage_daily").expect("a fixture table");
     let tables = [table(path, dialect)];
+    pins_planned_statements_over(name, dialect, &tables);
+}
+
+fn pins_planned_statements_over(name: &str, dialect: TypeDialect, tables: &[StatementTable]) {
     let combiner = DataFusionCombiner::new().expect("a statement combiner starts");
     let mut corpus = String::new();
     for case in CASES {
         let statement = RawStatement::parse(case.sql("\"fct_usage_daily\"")).expect("a corpus query");
         let mut recorded = Recorded::default();
         let answer = combiner.answer_statement(
-            StatementQuestion::new(&statement, &tables, false, WORKING_SET, deadline()),
+            StatementQuestion::new(&statement, tables, false, WORKING_SET, deadline()),
             &mut recorded,
         );
         assert!(matches!(answer, Some(Ok(_))), "{} at {dialect:?}: {answer:?}", case.name);
@@ -109,6 +113,17 @@ fn pins_planned_source_statements(name: &str, dialect: TypeDialect) {
     settings(name).bind(|| insta::assert_snapshot!("planned_statement_shapes", corpus));
 }
 
+fn pins_pushdown_with_an_unread_mapped_number(name: &str, dialect: TypeDialect) {
+    let path = QualifiedTable::parse("fct_usage_daily").expect("a fixture table");
+    let admitted = table(path.clone(), dialect);
+    let mut fields = admitted.schema().fields().iter().cloned().collect::<Vec<_>>();
+    fields.push(Arc::new(Field::new("unread_number", DataType::Utf8, true).with_metadata(
+        std::collections::HashMap::from([(String::from("sutura:unbounded_number"), String::from("utf8"))]),
+    )));
+    let tables = [StatementTable::new(source(), path, dialect, Arc::new(Schema::new(fields)))];
+    pins_planned_statements_over(name, dialect, &tables);
+}
+
 macro_rules! dialect {
     ($name:ident, $dialect:expr) => {
         mod $name {
@@ -117,6 +132,11 @@ macro_rules! dialect {
             #[test]
             fn pins_planned_source_statements() {
                 super::pins_planned_source_statements(stringify!($name), DIALECT);
+            }
+
+            #[test]
+            fn an_unread_mapped_number_preserves_every_planned_source_golden() {
+                super::pins_pushdown_with_an_unread_mapped_number(stringify!($name), DIALECT);
             }
         }
     };
