@@ -42,20 +42,12 @@ impl StatementLegs for Recorded {
     }
 
     fn run(&mut self, _source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-        use ::datafusion::sql::sqlparser::{
-            ast::{SetExpr, Statement},
-            dialect::GenericDialect,
-            parser::Parser,
-        };
         self.statements.push(statement.as_str().to_owned());
-        let mut parsed = Parser::parse_sql(&GenericDialect, statement.as_str()).map_err(|_cause| ())?;
-        let Some(Statement::Query(query)) = parsed.pop() else {
+        let parsed = polyglot_sql::parse_one(statement.as_str(), polyglot_sql::DialectType::Generic).map_err(|_cause| ())?;
+        let polyglot_sql::expressions::Expression::Select(select) = parsed else {
             return Err(());
         };
-        let SetExpr::Select(select) = *query.body else {
-            return Err(());
-        };
-        let columns = (0..select.projection.len()).map(|index| format!("c{index}")).collect();
+        let columns = (0..select.expressions.len()).map(|index| format!("c{index}")).collect();
         Ok(RawRows::of(columns, Vec::new()))
     }
 }
@@ -105,6 +97,12 @@ fn pins_planned_source_statements(name: &str, dialect: TypeDialect) {
 }
 
 fn pins_planned_statements_over(name: &str, dialect: TypeDialect, tables: &[StatementTable]) {
+    let _logging = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_test_writer()
+            .finish(),
+    );
     let combiner = DataFusionCombiner::new().expect("a statement combiner starts");
     let mut corpus = String::new();
     for case in CASES {

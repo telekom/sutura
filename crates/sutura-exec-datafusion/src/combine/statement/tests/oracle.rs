@@ -365,6 +365,12 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
 
 #[test]
 fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect() {
+    let _logging = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_test_writer()
+            .finish(),
+    );
     for dialect in [
         TypeDialect::DuckDb,
         TypeDialect::DataFusion,

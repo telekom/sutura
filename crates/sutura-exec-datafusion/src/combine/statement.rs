@@ -25,6 +25,7 @@
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
 //! | an explicit Oracle NUMBER-to-Utf8 mapping keeps operators over mapped values local | unrelated operators still run at the source; NUMBER ordering is not Utf8 ordering. This can transfer more rows and exhaust the existing working set or deadline sooner |
+//! | Cube semi/anti/mark joins run locally because its SQL planner rejects correlated EXISTS | supported child plans still run at Cube; extra source rows can exhaust the existing row cap, working set or deadline |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
 //! | unquoted identifiers fold per source | Oracle names fold up, other sources down; quoted metadata and SQL aliases remain exact |
@@ -278,10 +279,14 @@ fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
         expression.apply(|part| {
             if let Expr::Column(column) = part {
                 for input in plan.inputs() {
-                    safe &= input.schema().field_from_column(column).map_or_else(
-                        |_| !number_text(input.schema().inner()),
-                        |field| field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8"),
-                    );
+                    safe &= input
+                        .schema()
+                        .field_from_column(column)
+                        .or_else(|_| input.schema().field_with_unqualified_name(&column.name))
+                        .map_or_else(
+                            |_| !number_text(input.schema().inner()),
+                            |field| field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8"),
+                        );
                 }
             }
             Ok(TreeNodeRecursion::Continue)
