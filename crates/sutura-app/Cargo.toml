@@ -119,7 +119,6 @@ sutura-config = { workspace = true }
 # How a network adapter's tests reach the docker tier: the discovery file a harness reads, and the
 # skip-or-fail decision that keeps the corpus green in CI where there is no socket.
 sutura-dev = { workspace = true }
-datafusion = { workspace = true }
 insta = { workspace = true }
 # Rendering, and a DEV dependency here rather than a shipped one, which is the whole point of the
 # split. This crate compiles a question into a plan and hands the plan to a port; the SQL goldens

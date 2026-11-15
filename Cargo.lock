@@ -4469,7 +4469,6 @@ version = "0.14.2"
 dependencies = [
  "arrow-array",
  "arrow-schema",
- "datafusion",
  "divan",
  "insta",
  "polyglot-sql",
@@ -4832,6 +4831,7 @@ dependencies = [
  "tonic",
  "tower",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 
