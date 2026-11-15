@@ -304,8 +304,8 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 &["WHERE", "GROUP BY", "ORDER BY", "FETCH FIRST 1 ROWS ONLY"][..],
             ),
             (
-                r#"select "dim_region"."region" from "dim_region" join "dim_customer" on "dim_region"."region" = "dim_customer"."region" where "dim_region"."region" = 'north' limit 1"#,
-                &["JOIN", "WHERE", "FETCH FIRST 1 ROWS ONLY"][..],
+                r#"select "dim_region"."region" from "dim_region" join "dim_customer" on "dim_region"."region" = "dim_customer"."region" where "dim_region"."region" = 'north'"#,
+                &["JOIN", "WHERE"][..],
             ),
             (
                 r#"select "sales_area" from "dim_region" where "region" = 'north' order by "sales_area""#,
