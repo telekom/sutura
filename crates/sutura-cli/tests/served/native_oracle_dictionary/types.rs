@@ -49,24 +49,7 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
             .execute(&format!("GRANT SELECT ON {table} TO {}", fixture.reader), &[])
             .unwrap();
     }
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        fixture.owner.rollback().unwrap();
-        fixture.owner.execute("SET TRANSACTION READ ONLY", &[]).unwrap();
-        match fixture.owner.query_row("SELECT ID FROM TYPE_EVENTS WHERE ID = 0", &[]) {
-            Ok(_) => {
-                fixture.owner.rollback().unwrap();
-                break;
-            }
-            Err(cause) => {
-                assert!(
-                    cause.to_string().contains("ORA-01466") && Instant::now() < deadline,
-                    "{cause}"
-                );
-                std::thread::sleep(Duration::from_millis(200));
-            }
-        }
-    }
+    readable_snapshot(fixture, "SELECT ID FROM TYPE_EVENTS WHERE ID = 0");
     let absent = fixture.settings("").replace("table: EVENTS", "table: TYPE_EVENTS");
     let log = refused_to_start(Environment::Development, written("oracle-number-policy-absent", &absent), &[]).join("\n");
     assert!(
@@ -262,6 +245,7 @@ fn mapped_table_above_scan_cap(fixture: &Fixture, settings: &str) {
         .owner
         .execute(&format!("GRANT SELECT ON LARGE_EVENTS TO {}", fixture.reader), &[])
         .unwrap();
+    readable_snapshot(fixture, "SELECT ID FROM LARGE_EVENTS WHERE ID = 1");
     let settings = settings.replace("table: TYPE_EVENTS", "table: LARGE_EVENTS");
     let served = start_configured("oracle-mapped-pushdown", &settings);
     let reply = run(
@@ -293,8 +277,15 @@ pub(super) fn alias_scope(fixture: &Fixture) {
         .owner
         .execute(&format!("GRANT SELECT ON SCOPED_EVENTS TO {}", fixture.reader), &[])
         .unwrap();
+    readable_snapshot(fixture, "SELECT CODE FROM SCOPED_EVENTS WHERE CODE = 'north'");
     let settings = fixture.settings("").replace("table: EVENTS", "table: SCOPED_EVENTS");
-    let served = start_configured("oracle-alias-scope", &settings);
+    let served = start_configured_with_environment(
+        "oracle-alias-scope",
+        &settings,
+        None,
+        &[("RUST_LOG", "info,sutura_exec_datafusion::combine::statement=debug")],
+        &[],
+    );
     let table = format!("\"{}\".\"SCOPED_EVENTS\"", fixture.schema);
     for sql in [
         format!("select c.CODE, c.DESCRIPTION from {table} c where c.CODE like '%north%' limit 1"),
@@ -313,7 +304,7 @@ pub(super) fn alias_scope(fixture: &Fixture) {
         ),
     ] {
         let reply = run(&served, &sql);
-        assert_eq!(reply.status, 200, "{sql}: {}", reply.body);
+        assert_eq!(reply.status, 200, "{sql}: {}\n{:?}", reply.body, served.log());
         assert_eq!(reply.json()["rows"], serde_json::json!([["north", "description"]]), "{sql}");
     }
     let reply = run(
@@ -322,4 +313,26 @@ pub(super) fn alias_scope(fixture: &Fixture) {
     );
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.json()["rows"], serde_json::json!([["north", "interface"]]));
+}
+
+fn readable_snapshot(fixture: &Fixture, statement: &str) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        fixture.owner.rollback().unwrap();
+        fixture.owner.execute("SET TRANSACTION READ ONLY", &[]).unwrap();
+        match fixture.owner.query_row(statement, &[]) {
+            Ok(_) => {
+                fixture.owner.rollback().unwrap();
+                break;
+            }
+            Err(cause) => {
+                eprintln!("Oracle snapshot readiness: {cause}");
+                assert!(
+                    cause.to_string().contains("ORA-01466") && Instant::now() < deadline,
+                    "{cause}"
+                );
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+    }
 }
