@@ -274,3 +274,52 @@ fn mapped_table_above_scan_cap(fixture: &Fixture, settings: &str) {
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.json()["rows"], serde_json::json!([["1"]]));
 }
+
+pub(super) fn alias_scope(fixture: &Fixture) {
+    fixture.owner.execute(
+        "CREATE TABLE SCOPED_EVENTS (CODE VARCHAR2(64), DESCRIPTION VARCHAR2(64), INTERFACE_ID VARCHAR2(64), UNSELECTED VARCHAR2(64))", &[],
+    ).unwrap();
+    for code in ["north", "south"] {
+        fixture
+            .owner
+            .execute(
+                &format!("INSERT INTO SCOPED_EVENTS VALUES ('{code}', 'description', 'interface', 'unused')"),
+                &[],
+            )
+            .unwrap();
+    }
+    fixture.owner.commit().unwrap();
+    fixture
+        .owner
+        .execute(&format!("GRANT SELECT ON SCOPED_EVENTS TO {}", fixture.reader), &[])
+        .unwrap();
+    let settings = fixture.settings("").replace("table: EVENTS", "table: SCOPED_EVENTS");
+    let served = start_configured("oracle-alias-scope", &settings);
+    let table = format!("\"{}\".\"SCOPED_EVENTS\"", fixture.schema);
+    for sql in [
+        format!("select c.CODE, c.DESCRIPTION from {table} c where c.CODE like '%north%' limit 1"),
+        format!("select c.CODE, c.DESCRIPTION from {table} c where upper(c.CODE) like '%NORTH%' limit 1"),
+        format!("select CODE, DESCRIPTION from {table} where CODE like '%north%' limit 1"),
+        format!("select c.CODE, c.DESCRIPTION from {table} c where c.CODE like '%north%'"),
+        format!("select c.CODE, c.DESCRIPTION from {table} c where c.CODE like '%north%' order by c.CODE limit 1"),
+        format!(
+            "select c.CODE, c.DESCRIPTION from {table} c where exists (select 1 from {table} x where x.CODE = c.CODE and x.CODE = 'north')"
+        ),
+        format!(
+            "select c.CODE, c.DESCRIPTION from {table} c where c.CODE in (select x.CODE from {table} x where x.CODE = 'north')"
+        ),
+        format!(
+            "select c.CODE, c.DESCRIPTION from {table} c where c.CODE in (select x.CODE from {table} x where x.CODE = 'north') limit 1"
+        ),
+    ] {
+        let reply = run(&served, &sql);
+        assert_eq!(reply.status, 200, "{sql}: {}", reply.body);
+        assert_eq!(reply.json()["rows"], serde_json::json!([["north", "description"]]), "{sql}");
+    }
+    let reply = run(
+        &served,
+        &format!("select c.CODE, c.INTERFACE_ID from {table} c where c.CODE like '%north%' limit 1"),
+    );
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.json()["rows"], serde_json::json!([["north", "interface"]]));
+}
