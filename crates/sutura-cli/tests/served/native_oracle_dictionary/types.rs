@@ -92,7 +92,7 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
             fixture.schema
         ),
     );
-    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.status, 200, "{}\n{:?}", reply.body, served.log());
     let mut expected: Vec<serde_json::Value> = cases
         .iter()
         .map(|(number, _, utc)| serde_json::json!([number, format!("{utc}Z"), format!("{utc}Z")]))
