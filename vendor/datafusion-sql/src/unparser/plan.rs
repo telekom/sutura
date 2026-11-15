@@ -1515,7 +1515,12 @@ impl Unparser<'_> {
                                 select.selection(Some(exists_expr));
                             }
                         }
-                        if let Some(projection) = left_projection {
+                        if let Some(mut projection) = left_projection {
+                            if projection.is_empty() {
+                                projection = left_plan.schema().columns().into_iter()
+                                    .map(|column| self.select_item_to_sql(&Expr::Column(column)))
+                                    .collect::<Result<Vec<_>>>()?;
+                            }
                             select.projection(projection);
                         }
                     }
@@ -1563,6 +1568,18 @@ impl Unparser<'_> {
                     Some(plan_alias.alias.clone()),
                     select.already_projected(),
                 )?;
+
+                // A scan fetch is an inner row window, not a replacement for the caller's limit.
+                if let Some(unparsed) = &unparsed_table_scan
+                    && matches!(unparsed, LogicalPlan::Limit(_))
+                {
+                    return self.derive(
+                        unparsed,
+                        relation,
+                        Some(self.new_table_alias(plan_alias.alias.table().to_string(), columns)),
+                        false,
+                    );
+                }
 
                 // If the (possibly rewritten) inner plan builds its own
                 // SELECT clauses (e.g. Aggregate adds GROUP BY, Window adds

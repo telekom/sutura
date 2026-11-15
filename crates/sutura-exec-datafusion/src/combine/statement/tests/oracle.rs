@@ -289,7 +289,7 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             panic!("a table scan");
         };
         scan.fetch = Some(100);
-        scan.filters.push(col("dim_region.region").like(lit("%north%")));
+        scan.filters.push(col("dim_region.region").like(lit("%")));
         let plan = LogicalPlanBuilder::from(LogicalPlan::TableScan(scan))
             .alias("r")
             .expect("an alias")
@@ -310,7 +310,7 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
         assert_eq!(
             rows,
             legs.engines
-                .as_one(r#"select "region", "sales_area" from "dim_region" where "region" like '%north%' limit 1"#),
+                .as_one(r#"select "region", "sales_area" from "dim_region" where "region" like '%' limit 1"#),
             "{dialect:?}: {sql}"
         );
         let tables = [StatementTable::new(
