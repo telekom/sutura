@@ -48,7 +48,9 @@ pub(super) fn pins(name: &str, dialect: TypeDialect) {
         assert_eq!(recorded.statements.len(), 1);
         writeln!(output, "{}\n", recorded.statements[0]).expect("a String accepts SQL");
     }
-    settings(name).bind(|| insta::assert_snapshot!("bounded_redacted_text_sql", output));
+    let mut snapshot_settings = settings(name);
+    snapshot_settings.set_snapshot_path("../../snapshots");
+    snapshot_settings.bind(|| insta::assert_snapshot!("bounded_redacted_text_sql", output));
 }
 
 pub(super) fn executes<W>(warehouse: &W, pinned: &sutura_domain::pinned::PinnedDefinitions, dialect: TypeDialect)

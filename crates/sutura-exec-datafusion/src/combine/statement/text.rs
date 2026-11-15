@@ -173,7 +173,10 @@ fn expression(column: &str, policy: &TextPolicy, dialect: TypeDialect) -> String
         };
         let chars = (bytes - 14).div_euclid(4);
         let (length, prefix) = match dialect {
-            TypeDialect::Oracle => (format!("LENGTH({value})"), format!("DBMS_LOB.SUBSTR({value}, {chars}, 1)")),
+            TypeDialect::Oracle => (
+                format!("LENGTH({value})"),
+                format!("DBMS_LOB.\"SUBSTR\"({value}, {chars}, 1)"),
+            ),
             TypeDialect::ClickHouse => (format!("lengthUTF8({value})"), format!("substringUTF8({value}, 1, {chars})")),
             _ => (format!("CHAR_LENGTH({value})"), format!("SUBSTR({value}, 1, {chars})")),
         };
