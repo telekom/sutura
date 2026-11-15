@@ -275,13 +275,16 @@ fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
         {
             return Ok(TreeNodeRecursion::Continue);
         }
-        for column in expression.column_refs() {
-            for input in plan.inputs() {
-                if let Ok(field) = input.schema().field_from_column(column) {
-                    safe &= field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8");
+        expression.apply(|part| {
+            if let Expr::Column(column) = part {
+                for input in plan.inputs() {
+                    if let Ok(field) = input.schema().field_from_column(column) {
+                        safe &= field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8");
+                    }
                 }
             }
-        }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
         Ok(TreeNodeRecursion::Continue)
     })?;
     Ok(safe)
