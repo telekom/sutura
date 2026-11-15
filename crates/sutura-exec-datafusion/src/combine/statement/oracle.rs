@@ -6,8 +6,8 @@ use datafusion::common::plan_datafusion_err;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::sql::sqlparser::ast::{
-    CastKind, DataType, Expr, Fetch, LimitClause, OffsetRows, Query, TableFactor, TimezoneInfo, TypedString, Value,
-    VisitMut as _, VisitorMut,
+    CastKind, DataType, Expr, Fetch, LimitClause, OffsetRows, OrderByKind, Query, SelectItem, SetExpr, TableFactor, TimezoneInfo,
+    TypedString, Value, VisitMut as _, VisitorMut,
 };
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle};
@@ -64,6 +64,33 @@ impl VisitorMut for Oracle {
     }
 
     fn post_visit_query(&mut self, query: &mut Query) -> ControlFlow<Self::Break> {
+        let aliases = match query.body.as_ref() {
+            SetExpr::Select(select) => select
+                .projection
+                .iter()
+                .filter_map(|item| match item {
+                    SelectItem::ExprWithAlias { alias, .. } => Some(alias.value.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        if let Some(order_by) = &mut query.order_by
+            && let OrderByKind::Expressions(expressions) = &mut order_by.kind
+        {
+            for item in expressions {
+                let Expr::CompoundIdentifier(path) = &item.expr else {
+                    continue;
+                };
+                let Some((ident, _)) = path.split_last() else {
+                    continue;
+                };
+                // A flattened CTE can leave its qualifier on an output alias; ORDER BY binds that alias first.
+                if aliases.contains(&ident.value) {
+                    item.expr = Expr::Identifier(ident.clone());
+                }
+            }
+        }
         let Some(clause) = query.limit_clause.take() else {
             return ControlFlow::Continue(());
         };
