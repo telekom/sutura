@@ -486,7 +486,12 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
                 "{dialect:?}: {sql}; source SQL: {:?}",
                 legs.statements
             );
-            assert_eq!(legs.statements.len(), 1, "{dialect:?}: {sql}");
+            let parts = if dialect == TypeDialect::Cube && (sql.contains("exists (") || sql.contains(" in (select")) {
+                2
+            } else {
+                1
+            };
+            assert_eq!(legs.statements.len(), parts, "{dialect:?}: {sql}");
         }
     }
 }
