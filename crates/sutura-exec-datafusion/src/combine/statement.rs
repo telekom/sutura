@@ -39,7 +39,7 @@ use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{DataFusionError, SchemaError, plan_datafusion_err, plan_err};
+use datafusion::common::{DataFusionError, ExprSchema as _, SchemaError, plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
