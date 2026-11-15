@@ -273,6 +273,45 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
         TypeDialect::BigQuery,
         TypeDialect::Oracle,
     ] {
+        use datafusion::datasource::{MemTable, provider_as_source};
+        use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder, col, lit};
+
+        let batch = regions();
+        let source = provider_as_source(Arc::new(
+            MemTable::try_new(batch.schema(), vec![vec![batch]]).expect("a source table"),
+        ));
+        let scan = LogicalPlanBuilder::scan("dim_region", source, Some(vec![0, 1]))
+            .expect("a projected scan")
+            .build()
+            .expect("a scan plan");
+        let LogicalPlan::TableScan(mut scan) = scan else {
+            panic!("a table scan");
+        };
+        scan.fetch = Some(100);
+        scan.filters.push(col("dim_region.region").like(lit("%north%")));
+        let plan = LogicalPlanBuilder::from(LogicalPlan::TableScan(scan))
+            .alias("r")
+            .expect("an alias")
+            .limit(0, Some(1))
+            .expect("a wrapper limit")
+            .project(vec![col("r.region"), col("r.sales_area")])
+            .expect("an outer projection")
+            .build()
+            .expect("a bounded source plan");
+        let sql = super::super::unparsed(&plan, dialect).expect("the source plan unparses");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let rows = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("a source statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        assert_eq!(
+            rows,
+            legs.engines
+                .as_one(r#"select "region", "sales_area" from "dim_region" where "region" like '%north%' limit 1"#),
+            "{dialect:?}: {sql}"
+        );
         let tables = [StatementTable::new(
             named("geo"),
             QualifiedTable::parse("dim_region").expect("a fixture table"),
@@ -280,6 +319,7 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             regions().schema(),
         )];
         for sql in [
+            r#"select r."region" from "dim_region" r where r."region" = 'north' and not exists (select 1 from "dim_region" x where x."region" = r."region" and x."sales_area" = 'missing')"#,
             r#"select r."region", r."sales_area" from "dim_region" r where r."region" like '%north%' limit 1"#,
             r#"select r."region", r."sales_area" from "dim_region" r where upper(r."region") like '%NORTH%' limit 1"#,
             r#"select "region", "sales_area" from "dim_region" where "region" like '%north%' limit 1"#,

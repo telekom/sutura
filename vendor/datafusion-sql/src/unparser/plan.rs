@@ -518,6 +518,26 @@ impl Unparser<'_> {
         lateral: bool,
         columns: Vec<Ident>,
     ) -> Result<()> {
+        // A wrapper must export the bare qualifier its parent expressions use.
+        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
+        let mut carries_alias = false;
+        plan.apply(|node| {
+            if let LogicalPlan::SubqueryAlias(alias) = node {
+                carries_alias |= Some(&alias.alias) == qualifier;
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        if let Some(TableReference::Bare { table }) = qualifier
+            && carries_alias
+            && plan.schema().iter().all(|(name, _)| name == qualifier)
+        {
+            return self.derive(
+                plan,
+                relation,
+                Some(self.new_table_alias(table.to_string(), columns)),
+                lateral,
+            );
+        }
         if self.dialect.requires_derived_table_alias() || !columns.is_empty() {
             self.derive(
                 plan,
@@ -1329,6 +1349,11 @@ impl Unparser<'_> {
                 self.select_to_sql_recursively(input, query, select, relation)
             }
             LogicalPlan::Join(join) => {
+                let is_exists = matches!(
+                    join.join_type,
+                    JoinType::LeftSemi | JoinType::LeftAnti | JoinType::LeftMark
+                        | JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark
+                );
                 let mut table_scan_filters = vec![];
                 let (left_plan, right_plan) = match join.join_type {
                     JoinType::RightSemi | JoinType::RightAnti => {
@@ -1358,6 +1383,13 @@ impl Unparser<'_> {
                     relation,
                 )?;
 
+                // Preserved-side scan filters belong outside EXISTS, including for anti joins.
+                if is_exists {
+                    for filter in table_scan_filters.drain(..) {
+                        select.selection(Some(self.expr_to_sql(&filter)?));
+                    }
+                }
+
                 let left_projection: Option<Vec<ast::SelectItem>> = if !already_projected
                 {
                     Some(select.pop_projections())
@@ -1370,8 +1402,19 @@ impl Unparser<'_> {
                     &mut table_scan_filters,
                 )?;
 
+                // The inner query owns its predicates and row window; neither may leak outward.
+                let mut exists_select = SelectBuilder::default();
+                exists_select.push_from(TableWithJoinsBuilder::default());
+                let mut exists_query = Some(QueryBuilder::default());
                 let mut right_relation = RelationBuilder::default();
-                if already_projected
+                if is_exists {
+                    self.select_to_sql_recursively(
+                        right_plan.as_ref(),
+                        &mut exists_query,
+                        &mut exists_select,
+                        &mut right_relation,
+                    )?;
+                } else if already_projected
                     && let Some(nested_relation) = self
                         .qualified_passthrough_join_projection_to_nested_relation(
                             right_plan.as_ref(),
@@ -1418,12 +1461,13 @@ impl Unparser<'_> {
                     | JoinType::RightSemi
                     | JoinType::RightAnti
                     | JoinType::RightMark => {
-                        let mut query_builder = QueryBuilder::default();
-                        let mut from = TableWithJoinsBuilder::default();
-                        let mut exists_select: SelectBuilder = SelectBuilder::default();
+                        let Some(mut query_builder) = exists_query else {
+                            return internal_err!("EXISTS requires a query context");
+                        };
+                        let mut from = exists_select.pop_from().unwrap_or_default();
                         from.relation(right_relation);
                         exists_select.push_from(from);
-                        if let Some(filter) = &join.filter {
+                        if let Some(filter) = &join_filters {
                             exists_select.selection(Some(self.expr_to_sql(filter)?));
                         }
                         for (left, right) in &join.on {
