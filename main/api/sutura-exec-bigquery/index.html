@@ -2638,12 +2638,10 @@ replayable - and Google would accept it, because it is the caller's real documen
 signing-key age bound excludes a failing refresh, which only <code>key_set_max_stale_seconds</code> bounds. Neither is
 this crate's to fix; both are cited here because <em>the limit belongs beside the claim</em>.</p>
 <h1 id="two-things-this-adapter-deliberately-does-not-offer">Two things this adapter deliberately does not offer<a class="headerlink" href="#two-things-this-adapter-deliberately-does-not-offer" title="Permanent link">&para;</a></h1>
-<p><strong>No arbitrary SQL entry point.</strong> <code>BigQueryWarehouse::execute</code> takes an <code>Executable</code> and
-renders the statement itself; <code>transport::JobRequest::new</code> is <code>pub(crate)</code>, so there is no way to
-hand a statement to a transport from outside this crate. <strong>The <code>fixtures</code> feature does not open
-one:</strong> <code>load_fixture</code> takes a table name and a path, and <code>crate::importer</code> renders the statement
-from names that parsed and cells that parsed - refusing, rather than escaping, a cell that could
-close a literal.</p>
+<p><strong>No unplanned SQL passthrough.</strong> Metrics take an <code>Executable</code>; the SQL tool uses
+<code>Warehouse::execute_planned_statement</code> only after query-only planning over scoped pinned
+tables and columns. That method's library caller must uphold this trust contract; this adapter
+does not parse its SQL. <code>Warehouse::execute_raw</code> remains unavailable.</p>
 <p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and this
 is the first adapter where there would be row-level security to leak through.</p>
 <h2 id="enum-bigqueryerror"><code>enum BigQueryError</code><a class="headerlink" href="#enum-bigqueryerror" title="Permanent link">&para;</a></h2>
@@ -2709,8 +2707,7 @@ composition, and a generic keeps the transport's own error type visible in <code
 <code>crate::importer</code> header states the guarantee half - every <code>CREATE</code> also carries a 24-hour
 expiration, because <code>panic = "abort"</code> means a cancelled runner never reaches this method and
 the expiration is what still cleans up after it.</p>
-<p>It takes a table name and never a statement, for the same reason <code>load_fixture</code> does: the
-statement is rendered from a name that parsed, and <em>no arbitrary SQL entry point</em> stays true.</p>
+<p>It takes a table name; the statement is rendered from that parsed name.</p>
 <p>Behind the same <code>fixtures</code> feature and in the same impl block, for <code>load_fixture</code>'s reasons.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dry_run_estimate_agrees_with_its_declaration</span><span class="p">(</span><span class="n">estimated_bytes</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">EstimatedBytes</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
@@ -2752,9 +2749,7 @@ every cell is re-rendered from a parsed value.</p>
 <p><strong>Behind the <code>fixtures</code> feature, so no shipped build holds it.</strong> <code>Cargo.toml</code> carries that
 argument. What it buys over a <code>#[cfg(test)]</code> helper is that the acceptance leg is an
 INTEGRATION target - a separate crate - which cannot reach a test-gated item here.</p>
-<p>It takes a table name and a path and never a statement, which is what keeps <em>no arbitrary SQL
-entry point</em> true of this crate: the statement is rendered from names that parsed and cells
-that parsed.</p>
+<p>It takes a table name and a path; the statement is rendered from parsed names and cells.</p>
 <p><strong>In THIS impl block rather than in the module that renders the statement</strong>, because
 <code>clippy::multiple_inherent_impl</code> is denied here and it is right to be: a type whose inherent
 methods are spread over files is one whose surface nobody can read in one place.</p>

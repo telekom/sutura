@@ -2543,6 +2543,10 @@ measure. Every filter of the plan - the range, each required filter and each req
 a Cube filter whose values are JSON values, never query text. <code>query</code> holds the mapping.</p>
 <p>Before a query is sent, every member it names is looked up in Cube's <code>/cubejs-api/v1/meta</code>
 answer, read with the same credential: a member Cube does not serve refuses the question.</p>
+<p>Planned SQL instead uses <code>/cubejs-api/v1/cubesql</code>, whose native planner reads metadata with the
+request's same bearer. The served planner supplies the query and scanned tables; the port's
+<code>RawStatement</code> does not itself prove that origin. Unplanned raw SQL stays disabled. The transport
+caps response bytes, and this adapter refuses more than <code>MAX_ROWS</code> and any trailing stream error.</p>
 <h1 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h1>
 <p>A <code>shared-service-user</code> source sends the deployment's declared Cube token on every request. An
 <code>impersonation-at-source</code> source sends each question's own token - the one the credential broker
@@ -2565,7 +2569,7 @@ Each token is a <code>Secret</code>: no error of this crate carries it, or Cube'
 <h2 id="trait-cubetransport"><code>trait CubeTransport</code><a class="headerlink" href="#trait-cubetransport" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">CubeTransport</span>
 </span></code></pre></div>
-<p>The two round trips this adapter makes, as a seam: <code>http::HttpCube</code> for a running Cube, and a
+<p>The round trips this adapter makes, as a seam: <code>http::HttpCube</code> for a running Cube, and a
 scripted implementor for the unit cells.</p>
 <h2 id="enum-cubeerror"><code>enum CubeError</code><a class="headerlink" href="#enum-cubeerror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CubeError</span><span class="o">&lt;</span><span class="n">E</span><span class="o">&gt;</span>
@@ -2585,6 +2589,11 @@ scripted implementor for the unit cells.</p>
 <li><code>NotANumber</code></li>
 <li><code>InexactInteger</code></li>
 <li><code>MalformedAnswer</code></li>
+<li><code>StatementFailed</code></li>
+<li><code>NoPlannedTables</code></li>
+<li><code>DeadlineSpent</code></li>
+<li><code>TooManyRows</code></li>
+<li><code>NotAnInteger</code></li>
 <li><code>Shape</code></li>
 </ul>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
@@ -2672,6 +2681,8 @@ replaces them with exactly the declared certificates.</p>
 <p>The metadata API's path under a Cube server's root.</p>
 <h3 id="constant-load_path"><code>constant LOAD_PATH</code><a class="headerlink" href="#constant-load_path" title="Permanent link">&para;</a></h3>
 <p>The query API's path under a Cube server's root.</p>
+<h3 id="constant-sql_path"><code>constant SQL_PATH</code><a class="headerlink" href="#constant-sql_path" title="Permanent link">&para;</a></h3>
+<p>Cube's PostgreSQL-shaped SQL API, authenticated by the REST request's bearer.</p>
 <h2 id="module-query">Module <code>query</code><a class="headerlink" href="#module-query" title="Permanent link">&para;</a></h2>
 <p>A <code>QueryPlan</code> as a Cube JSON query: which members it names, and what each filter becomes.</p>
 <table>
