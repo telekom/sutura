@@ -144,4 +144,30 @@ mod tests {
         let rule = serde_json::json!({"pattern": "(?i)secret", "replace": "masked"});
         serde_json::from_value::<TextPolicy>(serde_json::json!({"redact": vec![rule; 9]})).expect_err("too many rules");
     }
+
+    #[test]
+    fn text_policies_round_trip_through_their_pinned_shape() {
+        fn round_trip<T>(value: &T)
+        where
+            T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + core::fmt::Debug,
+        {
+            let encoded = serde_json::to_string(value).expect("a serialized policy value");
+            let reread: T = serde_json::from_str(&encoded).expect("the same input shape");
+            assert_eq!(&reread, value);
+            assert_eq!(serde_json::to_string(&reread).expect("a serialized value"), encoded);
+        }
+        for bound in [32, 8192, 0x0010_0000] {
+            let policy: TextPolicy = serde_json::from_value(serde_json::json!({
+                "max_text_bytes": bound,
+                "redact": [{"pattern": "(?i)IDENTIFIED[[:space:]]+BY.*", "replace": "'masked'"}]
+            }))
+            .expect("a valid text policy");
+            round_trip(&policy);
+            round_trip(&policy.max_text_bytes().expect("a bound"));
+            for rule in policy.redactions() {
+                round_trip(rule);
+            }
+        }
+        round_trip(&TextPolicy::empty());
+    }
 }
