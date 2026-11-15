@@ -648,22 +648,21 @@ fn field_not_found(cause: &DataFusionError) -> bool {
     }
 }
 
-/// `part` with its projection's columns renamed `c0..cn`. The federation rule roots every part it
-/// cuts from a larger plan at a projection.
+/// `part` with output columns labelled `c0..cn`, adding a projection when the cut owns an alias or filter.
 fn labelled(part: &LogicalPlan) -> Planned<LogicalPlan> {
-    let LogicalPlan::Projection(projection) = part else {
-        return plan_err!("a part of the plan is not rooted at a projection");
+    let (expressions, input) = match part {
+        LogicalPlan::Projection(projection) => (projection.expr.clone(), Arc::clone(&projection.input)),
+        _ => (
+            part.schema().columns().into_iter().map(Expr::Column).collect(),
+            Arc::new(part.clone()),
+        ),
     };
-    let columns = projection
-        .expr
-        .iter()
+    let columns = expressions
+        .into_iter()
         .enumerate()
-        .map(|(index, column)| column.clone().unalias().alias(label(index)))
+        .map(|(index, column)| column.unalias().alias(label(index)))
         .collect();
-    Ok(LogicalPlan::Projection(Projection::try_new(
-        columns,
-        Arc::clone(&projection.input),
-    )?))
+    Ok(LogicalPlan::Projection(Projection::try_new(columns, input)?))
 }
 
 fn label(index: usize) -> String {
