@@ -25,6 +25,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }
 # `Asked`'s `compile_fail` doctest needs a crate to try deserializing from - the same house pattern
 # `sutura-domain::identity` and `sutura-http::inbound` pin their own no-`Deserialize` types with.
 # Dev-only: nothing in `src/` names it, so a build that never runs this doctest links no JSON crate.

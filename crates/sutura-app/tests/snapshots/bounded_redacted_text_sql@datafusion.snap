@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/statements/text.rs
+expression: output
+---
+SELECT "dim_region".sales_area FROM (SELECT "region", CASE WHEN REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g') IS NULL THEN NULL WHEN CHAR_LENGTH(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g')) > 28 THEN SUBSTR(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g'), 1, 28) || '...[truncated]' ELSE SUBSTR(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g'), 1, 28) END AS "sales_area" FROM dim_region) AS "dim_region" WHERE "dim_region".sales_area LIKE 'n%' ORDER BY "dim_region".sales_area ASC NULLS LAST
+
+SELECT min("dim_region".sales_area) FROM (SELECT "region", CASE WHEN REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g') IS NULL THEN NULL WHEN CHAR_LENGTH(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g')) > 28 THEN SUBSTR(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g'), 1, 28) || '...[truncated]' ELSE SUBSTR(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g'), 1, 28) END AS "sales_area" FROM dim_region) AS "dim_region"
+
+SELECT * FROM (SELECT "dim_region".sales_area FROM (SELECT "region", CASE WHEN REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g') IS NULL THEN NULL WHEN CHAR_LENGTH(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g')) > 28 THEN SUBSTR(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g'), 1, 28) || '...[truncated]' ELSE SUBSTR(REGEXP_REPLACE("sales_area", '(?i)north(_east)?', 'masked', 'g'), 1, 28) END AS "sales_area" FROM dim_region) AS "dim_region" WHERE ("dim_region".sales_area = 'masked')) AS r ORDER BY r.sales_area ASC NULLS LAST LIMIT 1

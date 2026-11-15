@@ -23,6 +23,12 @@ fn protected(path: QualifiedTable, dialect: TypeDialect, bytes: u32) -> Statemen
 }
 
 pub(super) fn pins(name: &str, dialect: TypeDialect) {
+    let _logging = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_test_writer()
+            .finish(),
+    );
     let path = QualifiedTable::parse("dim_region").expect("a fixture table");
     let tables = [protected(path, dialect, 128)];
     let combiner = DataFusionCombiner::new().expect("a combiner");
@@ -38,7 +44,7 @@ pub(super) fn pins(name: &str, dialect: TypeDialect) {
             StatementQuestion::new(&statement, &tables, false, WORKING_SET, deadline()),
             &mut recorded,
         );
-        assert!(matches!(answer, Some(Ok(_))), "{dialect:?}: {answer:?}");
+        assert!(matches!(answer, Some(Ok(_))), "{dialect:?}: {sql}: {answer:?}");
         assert_eq!(recorded.statements.len(), 1);
         writeln!(output, "{}\n", recorded.statements[0]).expect("a String accepts SQL");
     }
