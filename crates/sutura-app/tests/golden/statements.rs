@@ -24,7 +24,7 @@ use corpus::{CASES, Expected, FixtureRow};
 
 const WORKING_SET: u64 = 1 << 30;
 
-/// A renderer instrument: a successful whole-source plan hands its SQL to this port once.
+/// A renderer instrument: records source parts and returns empty, position-labelled rows.
 #[derive(Default)]
 struct Recorded {
     statements: Vec<String>,
@@ -43,7 +43,12 @@ impl StatementLegs for Recorded {
 
     fn run(&mut self, _source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
         self.statements.push(statement.as_str().to_owned());
-        Ok(RawRows::of(Vec::new(), Vec::new()))
+        let parsed = polyglot_sql::parse_one(statement.as_str(), polyglot_sql::DialectType::Generic).map_err(|_cause| ())?;
+        let polyglot_sql::expressions::Expression::Select(select) = parsed else {
+            return Err(());
+        };
+        let columns = (0..select.expressions.len()).map(|index| format!("c{index}")).collect();
+        Ok(RawRows::of(columns, Vec::new()))
     }
 }
 
@@ -88,25 +93,48 @@ fn quoted(path: &QualifiedTable) -> String {
 fn pins_planned_source_statements(name: &str, dialect: TypeDialect) {
     let path = QualifiedTable::parse("fct_usage_daily").expect("a fixture table");
     let tables = [table(path, dialect)];
+    pins_planned_statements_over(name, dialect, &tables);
+}
+
+fn pins_planned_statements_over(name: &str, dialect: TypeDialect, tables: &[StatementTable]) {
+    let _logging = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_test_writer()
+            .finish(),
+    );
     let combiner = DataFusionCombiner::new().expect("a statement combiner starts");
     let mut corpus = String::new();
     for case in CASES {
         let statement = RawStatement::parse(case.sql("\"fct_usage_daily\"")).expect("a corpus query");
         let mut recorded = Recorded::default();
         let answer = combiner.answer_statement(
-            StatementQuestion::new(&statement, &tables, false, WORKING_SET, deadline()),
+            StatementQuestion::new(&statement, tables, false, WORKING_SET, deadline()),
             &mut recorded,
         );
         assert!(matches!(answer, Some(Ok(_))), "{} at {dialect:?}: {answer:?}", case.name);
-        let [sql] = recorded.statements.as_slice() else {
-            panic!("{} must produce one source statement: {:?}", case.name, recorded.statements);
-        };
+        assert!(
+            !recorded.statements.is_empty(),
+            "{} must produce source statements",
+            case.name
+        );
         corpus.push_str(case.name);
         corpus.push('\n');
-        corpus.push_str(sql);
+        corpus.push_str(&recorded.statements.join("\n"));
         corpus.push_str("\n\n");
     }
     settings(name).bind(|| insta::assert_snapshot!("planned_statement_shapes", corpus));
+}
+
+fn pins_pushdown_with_an_unread_mapped_number(name: &str, dialect: TypeDialect) {
+    let path = QualifiedTable::parse("fct_usage_daily").expect("a fixture table");
+    let admitted = table(path.clone(), dialect);
+    let mut fields = admitted.schema().fields().iter().cloned().collect::<Vec<_>>();
+    fields.push(Arc::new(Field::new("unread_number", DataType::Utf8, true).with_metadata(
+        std::collections::HashMap::from([(String::from("sutura:unbounded_number"), String::from("utf8"))]),
+    )));
+    let tables = [StatementTable::new(source(), path, dialect, Arc::new(Schema::new(fields)))];
+    pins_planned_statements_over(name, dialect, &tables);
 }
 
 macro_rules! dialect {
@@ -117,6 +145,11 @@ macro_rules! dialect {
             #[test]
             fn pins_planned_source_statements() {
                 super::pins_planned_source_statements(stringify!($name), DIALECT);
+            }
+
+            #[test]
+            fn an_unread_mapped_number_preserves_every_planned_source_golden() {
+                super::pins_pushdown_with_an_unread_mapped_number(stringify!($name), DIALECT);
             }
         }
     };

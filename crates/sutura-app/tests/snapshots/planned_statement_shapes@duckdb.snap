@@ -12,7 +12,7 @@ not_null_and_filter
 SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."usage_date" IS NOT NULL AND ("fct_usage_daily"."subscription_key" = 1002))
 
 count_column_filter
-SELECT count("subscription_key") AS "n" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0))
+SELECT count("subscription_key") AS "n" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "fct_usage_daily"
 
 ordered_filter_limit
 SELECT "key" FROM (SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002) ORDER BY "fct_usage_daily"."subscription_key" ASC NULLS LAST LIMIT 2)
@@ -49,3 +49,27 @@ SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key", CAST("fct_
 
 count_star
 SELECT count(1) AS "n" FROM "fct_usage_daily"
+
+aliased_filter_limit
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key" FROM (SELECT * FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) AS "k" LIMIT 2 OFFSET 0) AS "k"
+
+aliased_filter_wide_limit
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key", CAST("k"."voice_min" AS BIGINT) AS "voice" FROM (SELECT * FROM (SELECT "fct_usage_daily"."subscription_key", "fct_usage_daily"."voice_min" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) AS "k" LIMIT 2 OFFSET 0) AS "k"
+
+aliased_ordered_filter_limit
+SELECT "key" FROM (SELECT CAST("k"."subscription_key" AS BIGINT) AS "key", "k"."subscription_key" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) AS "k" ORDER BY "k"."subscription_key" ASC NULLS LAST LIMIT 2)
+
+correlated_exists
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" AS "k" WHERE EXISTS (SELECT 1 FROM (SELECT "x"."subscription_key" FROM "fct_usage_daily" AS "x") AS "__correlated_sq_1" WHERE ("k"."subscription_key" = "__correlated_sq_1"."subscription_key"))
+
+correlated_exists_filter
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" AS "k" WHERE EXISTS (SELECT 1 FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) AS "__correlated_sq_1" WHERE ("k"."subscription_key" = "__correlated_sq_1"."subscription_key"))
+
+self_in_filter
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" AS "k" WHERE EXISTS (SELECT 1 FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) AS "__correlated_sq_1" WHERE ("k"."subscription_key" = "__correlated_sq_1"."subscription_key"))
+
+self_in_filter_wide_limit
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key", CAST("k"."voice_min" AS BIGINT) AS "voice" FROM (SELECT "k"."subscription_key", "k"."voice_min" FROM "fct_usage_daily" AS "k" WHERE EXISTS (SELECT 1 FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) AS "__correlated_sq_1" WHERE ("k"."subscription_key" = "__correlated_sq_1"."subscription_key")) LIMIT 2 OFFSET 0) AS "k"
+
+correlated_not_exists_preserves_outer_filter
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) AS "k" WHERE NOT EXISTS (SELECT 1 FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE (("fct_usage_daily"."voice_min" < 0.0) AND ("fct_usage_daily"."subscription_key" = 1002))) AS "__correlated_sq_1" WHERE ("k"."subscription_key" = "__correlated_sq_1"."subscription_key"))
