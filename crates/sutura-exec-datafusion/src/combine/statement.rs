@@ -24,6 +24,7 @@
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
+//! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
 //! | unquoted identifiers are lowercased | the engine's own normalization, before the source sees the text |
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
@@ -34,7 +35,7 @@ use std::time::Instant;
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::compute::{CastOptions, cast_with_options};
-use datafusion::arrow::datatypes::{Schema, SchemaRef};
+use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
 use datafusion::common::{plan_datafusion_err, plan_err};
@@ -52,12 +53,15 @@ use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
 use datafusion::sql::unparser::Unparser;
-use datafusion::sql::unparser::dialect::{Dialect, DuckDBDialect, PostgreSqlDialect};
+use datafusion::sql::unparser::dialect::{
+    BigQueryDialect, CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle, DefaultDialect, Dialect, DuckDBDialect,
+    PostgreSqlDialect,
+};
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
     FederationPlanner, FederationProvider, get_table_source,
 };
-use sutura_domain::model::{ProjectName, SourceName};
+use sutura_domain::model::{ProjectName, QualifiedTable, SourceName};
 use sutura_domain::plan::{StatementLegs, StatementQuestion, StatementStopped, StatementTable};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::RawRows;
@@ -91,13 +95,16 @@ where
     let whole = part_of(&plan).is_some();
     let statements = parts
         .iter()
-        .map(|part| part.statement(whole))
+        .map(|part| Ok((part.statement(whole)?, part.scan_tables(question.tables())?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources).map_err(StatementStopped::Leg)?;
     let mut leaves = Vec::with_capacity(parts.len());
-    for (part, statement) in parts.into_iter().zip(&statements) {
-        let rows = legs.run(&part.source, statement).map_err(StatementStopped::Leg)?;
+    for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
+        let rows = legs.run_planned(&part.source, statement, tables).map_err(|cause| {
+            tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
+            StatementStopped::Leg(cause)
+        })?;
         if whole {
             return Ok(rows);
         }
@@ -253,6 +260,31 @@ struct Part {
 }
 
 impl Part {
+    fn scan_tables(&self, admitted: &[StatementTable]) -> Planned<BTreeSet<QualifiedTable>> {
+        let mut tables = BTreeSet::new();
+        self.plan.apply_with_subqueries(|node| {
+            if let LogicalPlan::TableScan(scan) = node {
+                let Some(table) = admitted.iter().find(|table| {
+                    let (catalog, schema) = table.table().qualifier().map_or(("", ""), |qualifier| {
+                        (
+                            qualifier.project().map_or("", ProjectName::as_str),
+                            qualifier.dataset().as_str(),
+                        )
+                    });
+                    table.source() == &self.source
+                        && table.table().name().as_str() == scan.table_name.table()
+                        && schema == scan.table_name.schema().unwrap_or("")
+                        && catalog == scan.table_name.catalog().unwrap_or("")
+                }) else {
+                    return plan_err!("a part scans a table outside its admitted source");
+                };
+                tables.insert(table.table().clone());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        Ok(tables)
+    }
+
     /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
     /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
     fn statement(&self, whole: bool) -> Planned<RawStatement> {
@@ -481,6 +513,15 @@ fn label(index: usize) -> String {
 }
 
 fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+    if dialect == TypeDialect::Cube
+        && plan
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| matches!(field.data_type(), DataType::UInt16 | DataType::UInt32 | DataType::UInt64))
+    {
+        return plan_err!("Cube cannot preserve this unsigned result type");
+    }
     let text = |spelling: &dyn Dialect| {
         Unparser::new(spelling)
             .plan_to_sql(plan)
@@ -488,11 +529,19 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
     };
     match dialect {
         TypeDialect::DuckDb => text(&DuckDBDialect::new()),
-        TypeDialect::Postgres => text(&PostgreSqlDialect {}),
+        TypeDialect::DataFusion => text(&DefaultDialect {}),
+        TypeDialect::Postgres | TypeDialect::Cube => text(&PostgreSqlDialect {}),
         TypeDialect::Oracle => oracle::unparsed(plan),
-        TypeDialect::BigQuery | TypeDialect::ClickHouse | TypeDialect::DataFusion | TypeDialect::Cube => {
-            plan_err!("only a source that takes raw statements has a part")
-        }
+        TypeDialect::BigQuery => text(&BigQueryDialect {}),
+        TypeDialect::ClickHouse => text(
+            &CustomDialectBuilder::new()
+                .with_identifier_quote_style('`')
+                .with_use_timestamp_for_date64(true)
+                .with_supports_column_alias_in_table_alias(false)
+                .with_date_field_extract_style(DateFieldExtractStyle::Extract)
+                .with_character_length_style(CharacterLengthStyle::Length)
+                .build(),
+        ),
     }
 }
 

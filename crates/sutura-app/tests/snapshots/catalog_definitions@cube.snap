@@ -116,6 +116,11 @@ models:
         data_type: time
         description: The day this row of usage was recorded on.
         nullable: ~
+      voice_min:
+        name: voice_min
+        data_type: number
+        description: Voice minutes recorded on this usage row.
+        nullable: ~
     primary_key:
       - subscription_key
       - usage_date

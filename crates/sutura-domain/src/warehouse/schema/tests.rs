@@ -127,10 +127,18 @@ fn a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_n
 
 #[test]
 fn each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread() {
-    use TypeDialect::{BigQuery, ClickHouse, DuckDb, Oracle, Postgres};
+    use TypeDialect::{BigQuery, ClickHouse, Cube, DataFusion, DuckDb, Oracle, Postgres};
     let micros = |zone: Option<&str>| DataType::Timestamp(TimeUnit::Microsecond, zone.map(Into::into));
     let seconds = DataType::Timestamp(TimeUnit::Second, None);
     let cases = [
+        (DataFusion, "BIGINT", Some(DataType::Int64)),
+        (DataFusion, "integer", Some(DataType::Int32)),
+        (DataFusion, "date", Some(DataType::Date32)),
+        (DataFusion, "timestamp", Some(micros(None))),
+        (Cube, "number", Some(DataType::Float64)),
+        (Cube, "time", Some(micros(None))),
+        (Cube, "string", Some(DataType::Utf8)),
+        (Cube, "geography", None),
         (Postgres, "BIGINT", Some(DataType::Int64)),
         (Postgres, "integer", Some(DataType::Int32)),
         (DuckDb, "int2", Some(DataType::Int16)),

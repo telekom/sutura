@@ -72,3 +72,31 @@ fn the_engines_words_are_logged_at_debug_only() {
         "the engine's words are written above debug"
     );
 }
+
+/// The source can refuse a valid plan without returning its statement in the cause.
+#[test]
+fn a_failed_source_part_logs_its_own_statement_at_debug_only() {
+    let named = Arc::new(Named::default());
+    let mut legs = Engines::new(Some("crm"));
+    let answer = tracing::subscriber::with_default(Listening(Arc::clone(&named)), || {
+        asked(
+            &format!("select customer_id from dim_customer where region = '{COLUMN}'"),
+            false,
+            UNBOUNDED,
+            &mut legs,
+        )
+    });
+    assert!(
+        matches!(answer, Some(Err(StatementStopped::Leg(ref source))) if source.as_str() == "crm"),
+        "{answer:?}"
+    );
+    assert_eq!(legs.ran.len(), 1, "the source was reached");
+    assert!(
+        named.anywhere.load(Ordering::SeqCst),
+        "the source statement is written at debug"
+    );
+    assert!(
+        !named.loudly.load(Ordering::SeqCst),
+        "the source statement is written above debug"
+    );
+}

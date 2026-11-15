@@ -80,18 +80,20 @@ pub(super) fn provision(
     #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
     let admin = oracledb::connect(dialled.0.set_credentials(ADMINISTRATOR, password))
         .map_err(|cause| FixtureError::Admin(connect_err(cause)))?;
-    let refused = |cause: DriverError| FixtureError::Statement {
-        subject: format!("user {cell}"),
+    let refused = |action: &str, cause: DriverError| FixtureError::Statement {
+        subject: format!("{action} user {cell}"),
         cause,
     };
-    if let Err(cause) = admin.execute(&drop_user(cell), &[]) {
-        let cause = DriverError::from(cause);
-        if !cause.has_ora_code(NO_SUCH_USER) {
-            return Err(refused(cause));
-        }
-    }
-    for statement in [create, grant(cell)] {
-        admin.execute(&statement, &[]).map_err(|cause| refused(cause.into()))?;
+    let drop = format!(
+        "BEGIN EXECUTE IMMEDIATE '{}'; \
+         EXCEPTION WHEN OTHERS THEN IF SQLCODE != -{NO_SUCH_USER} THEN RAISE; END IF; END;",
+        drop_user(cell)
+    );
+    admin.execute(&drop, &[]).map_err(|cause| refused("drop", cause.into()))?;
+    for (action, statement) in [("create", create), ("grant", grant(cell))] {
+        admin
+            .execute(&statement, &[])
+            .map_err(|cause| refused(action, cause.into()))?;
     }
     Ok(FixtureCredential {
         user: String::from(cell.as_str()),

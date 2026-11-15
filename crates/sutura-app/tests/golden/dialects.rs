@@ -405,8 +405,12 @@ enum Family {
     Sql,
     /// The values bound to that statement. Render evidence, for the same reason.
     Params,
+    /// Planned source statements recorded without executing them.
+    PlannedShapes,
     /// Rows a venue returned, from `crate::data_systems::runs_the_corpus_and_pins_the_rows`.
     Rows,
+    /// Planned statement rows expected from the native matrix; file presence alone proves no run.
+    PlannedRows,
     /// A refusal a venue's answer produced, from the same cell.
     Refused,
     /// An error a venue produced, from the same cell.
@@ -418,11 +422,11 @@ enum Family {
 
 impl Family {
     /// The families only a venue that RAN the corpus can produce. [`Evidence::Executed`] claims
-    /// all four of them, which is what makes it a registry rather than a floor.
-    const EXECUTION: [Self; 4] = [Self::Rows, Self::Refused, Self::Error, Self::AnchorReport];
+    /// all of them, which is what makes it a registry rather than a floor.
+    const EXECUTION: [Self; 5] = [Self::Rows, Self::Refused, Self::Error, Self::AnchorReport, Self::PlannedRows];
 
-    /// The families a dialect has whatever executes it, because `sutura-sql` renders for it.
-    const RENDER: [Self; 2] = [Self::Sql, Self::Params];
+    /// The families pinning emitted statements or parameters, without engine execution.
+    const RENDER: [Self; 3] = [Self::Sql, Self::Params, Self::PlannedShapes];
 
     /// The family a snapshot stem - the file name with its `@{dialect}.snap` suffix already
     /// stripped - belongs to, or `None` if this census cannot name it.
@@ -432,6 +436,12 @@ impl Family {
     fn of(stem: &str) -> Option<Self> {
         if stem == "anchor_report" {
             return Some(Self::AnchorReport);
+        }
+        if stem == "planned_statement_shapes" {
+            return Some(Self::PlannedShapes);
+        }
+        if stem == "planned_statement_rows" {
+            return Some(Self::PlannedRows);
         }
         let (_case, family) = stem.rsplit_once("__")?;
         match family {
@@ -542,6 +552,8 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// shape and re-accepting the render goldens left this test and
 /// `dialects::clickhouse::every_generated_statement_parses_here` both green, because the ceiling of
 /// a render golden is that it pins what the generator emitted.
+/// `DataFusion` and Cube are outside `sutura_sql::dialect::ALL`; this census measures neither's file presence.
+/// Their render and native matrices use the separate `statement_dialects` and `data_systems` registry axes.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
     for &dialect in dialect::ALL {
@@ -563,7 +575,7 @@ fn every_dialect_declares_what_backs_its_goldens() {
             empty.is_empty(),
             "{name} declares `Evidence::Executed` but {empty:?} hold no goldens - either a \
              venue stopped producing them, or the declaration is wrong. A count over all \
-             four would have passed this on the {} that remain",
+             families would have passed this on the {} that remain",
             Family::EXECUTION.len().saturating_sub(empty.len())
         );
     }

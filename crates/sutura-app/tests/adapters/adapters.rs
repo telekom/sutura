@@ -417,6 +417,9 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
 
 #[path = "bigquery.rs"]
 pub(crate) mod bigquery;
+#[path = "oracle_fixture.rs"]
+mod oracle_fixture;
+use oracle_fixture::here as oracle_tier;
 #[path = "exemptions.rs"]
 pub(crate) mod exemptions;
 pub(crate) use exemptions::runs_here;
@@ -602,7 +605,8 @@ fn set(name: &str) -> Option<String> {
 ///
 /// **What it executes as:** the cell's own user, one per open and created by the tier's
 /// administrator, under the `shared-service-user` posture every entry here is opened with, over TLS
-/// verified against the tier's own certificate authority. Never a caller's identity.
+/// verified against the tier's own certificate authority by default, or over native encryption
+/// when the native venue explicitly selects it. Never a caller's identity.
 impl DataSystemUnderTest for sutura_exec_oracle::OracleWarehouse {
     const NAME: &'static str = "oracle";
 
@@ -612,8 +616,7 @@ impl DataSystemUnderTest for sutura_exec_oracle::OracleWarehouse {
 
     fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
         let endpoint = oracle_tier().expect("`available()` guards the Open of every oracle cell");
-        let tier =
-            sutura_exec_oracle::fixture::FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let tier = endpoint.credential().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
         // One PRIVATE user per open, so parallel corpus cells sharing one tier cannot clobber one
         // another's tables: `postgres`'s per-open schema, in the namespace Oracle has.
         let cell = sutura_exec_oracle::fixture::CellName::of(std::process::id(), schema_counter());
@@ -627,6 +630,8 @@ impl DataSystemUnderTest for sutura_exec_oracle::OracleWarehouse {
                 .load_csv(&table, &csv)
                 .unwrap_or_else(|e| panic!("oracle could not load {}: {e}", csv.display()));
         }
+        // ponytail: reuse the flashback fixture's DDL settling delay; it does not guarantee readiness.
+        std::thread::sleep(std::time::Duration::from_secs(8));
         warehouse
     }
 }
@@ -686,27 +691,6 @@ fn cube_tier() -> Option<&'static Endpoint> {
             match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "cube") {
                 Provisioned::At(endpoint) => Some(endpoint),
                 Provisioned::Skipped(_) => None,
-            }
-        })
-        .as_ref()
-}
-
-/// This worktree's provisioned Oracle endpoint, where `SUTURA_ORACLE_TIER` names the Oracle venue.
-///
-/// [`cube_tier`]'s opt-in, and for its reason: every gate that sets `SUTURA_DEV_REQUIRE_TIER`
-/// provisions Postgres and `ClickHouse` and not Oracle. **Unlike `cube_tier`, a variable that is set
-/// and a tier that does not answer is a PANIC, not a skip**: the `oracle-tier` job sets it to say an
-/// Oracle is up, so a skipped oracle cell there would be a green run that executed nothing.
-fn oracle_tier() -> Option<&'static Endpoint> {
-    static CACHED: OnceLock<Option<Endpoint>> = OnceLock::new();
-    CACHED
-        .get_or_init(|| {
-            set("SUTURA_ORACLE_TIER")?;
-            match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "oracle") {
-                Provisioned::At(endpoint) => Some(endpoint),
-                Provisioned::Skipped(absent) => {
-                    panic!("`SUTURA_ORACLE_TIER` is set and no Oracle tier answered discovery: {absent}")
-                }
             }
         })
         .as_ref()
@@ -937,6 +921,8 @@ macro_rules! registered {
         $cell!(cube, sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::HttpCube>);
     };
 
+    // The planned-SQL unparser also serves the in-process engine and the Cube SQL surface.
+    // These are source statement dialects, separate from sutura-sql's certified metric renderer.
     (statement_dialects: $cell:ident) => {
         $cell!(datafusion, sutura_domain::warehouse::schema::TypeDialect::DataFusion);
         $cell!(duckdb, sutura_domain::warehouse::schema::TypeDialect::DuckDb);

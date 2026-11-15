@@ -10,9 +10,9 @@ publish = false
 description = "The service: generic over the ports, holding no framework types."
 
 [features]
-# Does the binary link DataFusion's SQL frontend? No dependency: it chooses only the raw tool's
-# summary, which says the statement is planned. `sutura-cli`'s `sql` turns it on.
-sql = []
+# The service chooses the planned tool's summary. Its golden tests also need the frontend;
+# that adapter is a dev-dependency, so this forwards no production dependency edge.
+sql = ["sutura-exec-datafusion/sql"]
 
 [dependencies]
 sutura-domain = { workspace = true }
