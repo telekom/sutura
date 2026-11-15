@@ -518,6 +518,18 @@ impl Unparser<'_> {
         lateral: bool,
         columns: Vec<Ident>,
     ) -> Result<()> {
+        // A wrapper must export the bare qualifier its parent expressions use.
+        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
+        if let Some(TableReference::Bare { table }) = qualifier
+            && plan.schema().iter().all(|(name, _)| name == qualifier)
+        {
+            return self.derive(
+                plan,
+                relation,
+                Some(self.new_table_alias(table.to_string(), columns)),
+                lateral,
+            );
+        }
         if self.dialect.requires_derived_table_alias() || !columns.is_empty() {
             self.derive(
                 plan,
@@ -1329,6 +1341,11 @@ impl Unparser<'_> {
                 self.select_to_sql_recursively(input, query, select, relation)
             }
             LogicalPlan::Join(join) => {
+                let is_exists = matches!(
+                    join.join_type,
+                    JoinType::LeftSemi | JoinType::LeftAnti | JoinType::LeftMark
+                        | JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark
+                );
                 let mut table_scan_filters = vec![];
                 let (left_plan, right_plan) = match join.join_type {
                     JoinType::RightSemi | JoinType::RightAnti => {
@@ -1341,10 +1358,14 @@ impl Unparser<'_> {
                 // The outer projection plan will handle projecting the correct columns.
                 let already_projected = select.already_projected();
 
-                let left_plan = Self::extract_join_input_table_scan_filters(
-                    left_plan,
-                    &mut table_scan_filters,
-                )?;
+                let left_plan = if is_exists {
+                    Arc::clone(left_plan)
+                } else {
+                    Self::extract_join_input_table_scan_filters(
+                        left_plan,
+                        &mut table_scan_filters,
+                    )?
+                };
                 let left_plan = if already_projected {
                     Self::unwrap_qualified_passthrough_join_projection(left_plan)
                 } else {
@@ -1365,13 +1386,28 @@ impl Unparser<'_> {
                     None
                 };
 
-                let right_plan = Self::extract_join_input_table_scan_filters(
-                    right_plan,
-                    &mut table_scan_filters,
-                )?;
+                let right_plan = if is_exists {
+                    Arc::clone(right_plan)
+                } else {
+                    Self::extract_join_input_table_scan_filters(
+                        right_plan,
+                        &mut table_scan_filters,
+                    )?
+                };
 
+                // The inner query owns its predicates and row window; neither may leak outward.
+                let mut exists_select = SelectBuilder::default();
+                exists_select.push_from(TableWithJoinsBuilder::default());
+                let mut exists_query = Some(QueryBuilder::default());
                 let mut right_relation = RelationBuilder::default();
-                if already_projected
+                if is_exists {
+                    self.select_to_sql_recursively(
+                        right_plan.as_ref(),
+                        &mut exists_query,
+                        &mut exists_select,
+                        &mut right_relation,
+                    )?;
+                } else if already_projected
                     && let Some(nested_relation) = self
                         .qualified_passthrough_join_projection_to_nested_relation(
                             right_plan.as_ref(),
@@ -1418,12 +1454,13 @@ impl Unparser<'_> {
                     | JoinType::RightSemi
                     | JoinType::RightAnti
                     | JoinType::RightMark => {
-                        let mut query_builder = QueryBuilder::default();
-                        let mut from = TableWithJoinsBuilder::default();
-                        let mut exists_select: SelectBuilder = SelectBuilder::default();
+                        let Some(mut query_builder) = exists_query else {
+                            return internal_err!("EXISTS requires a query context");
+                        };
+                        let mut from = exists_select.pop_from().unwrap_or_default();
                         from.relation(right_relation);
                         exists_select.push_from(from);
-                        if let Some(filter) = &join.filter {
+                        if let Some(filter) = &join_filters {
                             exists_select.selection(Some(self.expr_to_sql(filter)?));
                         }
                         for (left, right) in &join.on {
@@ -1470,7 +1507,12 @@ impl Unparser<'_> {
                                 select.selection(Some(exists_expr));
                             }
                         }
-                        if let Some(projection) = left_projection {
+                        if let Some(mut projection) = left_projection {
+                            if projection.is_empty() {
+                                projection = left_plan.schema().columns().into_iter()
+                                    .map(|column| self.select_item_to_sql(&Expr::Column(column)))
+                                    .collect::<Result<Vec<_>>>()?;
+                            }
                             select.projection(projection);
                         }
                     }
@@ -1518,6 +1560,18 @@ impl Unparser<'_> {
                     Some(plan_alias.alias.clone()),
                     select.already_projected(),
                 )?;
+
+                // A scan fetch is an inner row window, not a replacement for the caller's limit.
+                if let Some(unparsed) = &unparsed_table_scan
+                    && matches!(unparsed, LogicalPlan::Limit(_))
+                {
+                    return self.derive(
+                        unparsed,
+                        relation,
+                        Some(self.new_table_alias(plan_alias.alias.table().to_string(), columns)),
+                        false,
+                    );
+                }
 
                 // If the (possibly rewritten) inner plan builds its own
                 // SELECT clauses (e.g. Aggregate adds GROUP BY, Window adds

@@ -53,6 +53,7 @@ impl StatementLegs for OracleLegs {
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
         if *source == named("geo") {
             self.statements.push(String::from(statement.as_str()));
+            eprintln!("source SQL: {}", statement.as_str());
             // ponytail: only the fake normalizes FETCH; the live venue executes Oracle spelling.
             let mut parsed = Parser::parse_sql(&GenericDialect, statement.as_str()).map_err(|_cause| source.clone())?;
             let [sql] = parsed.as_mut_slice() else {
@@ -258,6 +259,219 @@ fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_an
             for operator in ["ORDER BY", "MIN(", "WHERE"] {
                 assert!(!statement.contains(operator), "{operator} was pushed: {statement}");
             }
+        }
+    }
+}
+
+#[test]
+fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dialect() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("sales_area", DataType::Utf8, false).with_metadata(std::collections::HashMap::from([(
+            String::from("sutura:unbounded_number"),
+            String::from("utf8"),
+        )])),
+    ]));
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [
+            StatementTable::new(
+                named("geo"),
+                QualifiedTable::parse("dim_region").expect("a fixture table"),
+                dialect,
+                Arc::clone(&schema),
+            ),
+            StatementTable::new(
+                named("geo"),
+                QualifiedTable::parse("dim_customer").expect("a fixture table"),
+                dialect,
+                customers().schema(),
+            ),
+        ];
+        for (sql, pushed) in [
+            (
+                r#"select "region" from "dim_region" where "region" = 'north' order by "region" limit 1"#,
+                &["WHERE", "ORDER BY", "FETCH FIRST 1 ROWS ONLY"][..],
+            ),
+            (
+                r#"select "region", count(*) as n from "dim_region" where "region" = 'north' group by "region" order by n limit 1"#,
+                &["WHERE", "GROUP BY", "ORDER BY", "FETCH FIRST 1 ROWS ONLY"][..],
+            ),
+            (
+                r#"select "dim_region"."region" from "dim_region" join "dim_customer" on "dim_region"."region" = "dim_customer"."region" where "dim_region"."region" = 'north'"#,
+                &["JOIN", "WHERE"][..],
+            ),
+            (
+                r#"select "sales_area" from "dim_region" order by "region""#,
+                &["ORDER BY"][..],
+            ),
+            (
+                r#"select "sales_area" from "dim_region" where "region" = 'north' order by "sales_area""#,
+                &["WHERE"][..],
+            ),
+        ] {
+            let mut legs = OracleLegs {
+                engines: Engines::new(None),
+                statements: Vec::new(),
+            };
+            drop(legs.engines.at.insert(
+                named("geo"),
+                holding(&[("dim_region", regions()), ("dim_customer", customers())]),
+            ));
+            let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    true,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut legs,
+            );
+            let Some(Ok(rows)) = answer else {
+                panic!("the mapped table must run: {answer:?}");
+            };
+            assert_eq!(rows, legs.engines.as_one(sql), "{sql}: {:?}", legs.statements);
+            assert_eq!(legs.statements.len(), 1, "{sql}");
+            let part = &legs.statements[0];
+            for operator in pushed {
+                let operator = if *operator == "FETCH FIRST 1 ROWS ONLY" && dialect != TypeDialect::Oracle {
+                    "LIMIT 1"
+                } else {
+                    operator
+                };
+                assert!(part.contains(operator), "{dialect:?}: missing {operator}: {part}");
+            }
+            if sql.contains(r#"order by "sales_area""#) {
+                assert!(!part.contains("ORDER BY"), "text ordering must stay local: {part}");
+            } else if !sql.contains("sales_area") {
+                assert!(!part.contains("sales_area"), "unused mapped column was fetched: {part}");
+            }
+        }
+    }
+}
+
+#[test]
+fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect() {
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        use datafusion::datasource::{MemTable, provider_as_source};
+        use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder, col, lit};
+
+        let batch = regions();
+        let source = provider_as_source(Arc::new(
+            MemTable::try_new(batch.schema(), vec![vec![batch]]).expect("a source table"),
+        ));
+        let scan = LogicalPlanBuilder::scan("dim_region", Arc::clone(&source), Some(vec![0, 1]))
+            .expect("a projected scan")
+            .build()
+            .expect("a scan plan");
+        let LogicalPlan::TableScan(mut scan) = scan else {
+            panic!("a table scan");
+        };
+        scan.fetch = Some(100);
+        scan.filters.push(col("dim_region.region").like(lit("%")));
+        let plan = LogicalPlanBuilder::from(LogicalPlan::TableScan(scan))
+            .alias("r")
+            .expect("an alias")
+            .limit(0, Some(1))
+            .expect("a wrapper limit")
+            .project(vec![col("r.region"), col("r.sales_area")])
+            .expect("an outer projection")
+            .build()
+            .expect("a bounded source plan");
+        let sql = super::super::unparsed(&plan, dialect).expect("the source plan unparses");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let rows = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("a source statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        assert_eq!(
+            rows,
+            legs.engines
+                .as_one(r#"select "region", "sales_area" from "dim_region" where "region" like '%' limit 1"#),
+            "{dialect:?}: {sql}"
+        );
+        let sorted = LogicalPlanBuilder::scan("dim_region", source, None)
+            .expect("a scan")
+            .project(vec![col("dim_region.region"), col("dim_region.sales_area")])
+            .expect("an inner projection")
+            .sort(vec![col("dim_region.sales_area").sort(true, true)])
+            .expect("a sort below the output projection")
+            .project(vec![col("dim_region.region").alias("c0")])
+            .expect("a labelled output")
+            .build()
+            .expect("a sorted source plan");
+        let sql = super::super::unparsed(&sorted, dialect).expect("the sorted plan unparses");
+        let rows = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("a source statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        assert_eq!(
+            rows,
+            legs.engines
+                .as_one(r#"select "region" as c0 from "dim_region" order by "sales_area""#),
+            "{dialect:?}: {sql}"
+        );
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        for sql in [
+            r#"select r."region" from "dim_region" r where r."region" = 'north' and not exists (select 1 from "dim_region" x where x."region" = r."region" and x."sales_area" = 'missing')"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" like '%north%' limit 1"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where upper(r."region") like '%NORTH%' limit 1"#,
+            r#"select "region", "sales_area" from "dim_region" where "region" like '%north%' limit 1"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" like '%north%'"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" like '%north%' order by r."region" limit 1"#,
+            r#"select r."region" from "dim_region" r where r."region" like '%north%' limit 1"#,
+            r#"select r."region" from "dim_region" r where exists (select 1 from "dim_region" x where x."region" = r."region" and x."region" = 'north')"#,
+            r#"select r."region" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north')"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north') limit 1"#,
+        ] {
+            let mut legs = OracleLegs {
+                engines: Engines::new(None),
+                statements: Vec::new(),
+            };
+            let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    false,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut legs,
+            );
+            let Some(Ok(rows)) = answer else {
+                panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
+            };
+            assert_eq!(
+                rows,
+                legs.engines.as_one(sql),
+                "{dialect:?}: {sql}; source SQL: {:?}",
+                legs.statements
+            );
+            assert_eq!(legs.statements.len(), 1, "{dialect:?}: {sql}");
         }
     }
 }

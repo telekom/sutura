@@ -58,7 +58,11 @@ pub(super) struct Case {
 
 impl Case {
     pub(super) fn sql(&self, table: &str) -> String {
-        format!("SELECT {} FROM {table} {}", self.projection, self.after_table)
+        format!(
+            "SELECT {} FROM {table} {}",
+            self.projection,
+            self.after_table.replace("%TABLE%", table)
+        )
     }
 }
 
@@ -161,5 +165,53 @@ pub(super) const CASES: &[Case] = &[
         projection: COUNT,
         after_table: "",
         expected: Expected::Count(Predicate::All),
+    },
+    Case {
+        name: "aliased_filter_limit",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\"",
+        after_table: "\"k\" WHERE \"k\".\"subscription_key\" = 1002 LIMIT 2",
+        expected: Expected::Limited { wide: false },
+    },
+    Case {
+        name: "aliased_filter_wide_limit",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\", CAST(\"k\".\"voice_min\" AS BIGINT) AS \"voice\"",
+        after_table: "\"k\" WHERE \"k\".\"subscription_key\" = 1002 LIMIT 2",
+        expected: Expected::Limited { wide: true },
+    },
+    Case {
+        name: "aliased_ordered_filter_limit",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\"",
+        after_table: "\"k\" WHERE \"k\".\"subscription_key\" = 1002 ORDER BY \"k\".\"subscription_key\" LIMIT 2",
+        expected: Expected::Limited { wide: false },
+    },
+    Case {
+        name: "correlated_exists",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\"",
+        after_table: "\"k\" WHERE EXISTS (SELECT 1 FROM %TABLE% \"x\" WHERE \"x\".\"subscription_key\" = \"k\".\"subscription_key\")",
+        expected: Expected::Keys(Predicate::All),
+    },
+    Case {
+        name: "correlated_exists_filter",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\"",
+        after_table: "\"k\" WHERE EXISTS (SELECT 1 FROM %TABLE% \"x\" WHERE \"x\".\"subscription_key\" = \"k\".\"subscription_key\" AND \"x\".\"subscription_key\" = 1002)",
+        expected: Expected::Keys(Predicate::Key),
+    },
+    Case {
+        name: "self_in_filter",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\"",
+        after_table: "\"k\" WHERE \"k\".\"subscription_key\" IN (SELECT \"x\".\"subscription_key\" FROM %TABLE% \"x\" WHERE \"x\".\"subscription_key\" = 1002)",
+        expected: Expected::Keys(Predicate::Key),
+    },
+    Case {
+        name: "self_in_filter_wide_limit",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\", CAST(\"k\".\"voice_min\" AS BIGINT) AS \"voice\"",
+        after_table: "\"k\" WHERE \"k\".\"subscription_key\" IN (SELECT \"x\".\"subscription_key\" FROM %TABLE% \"x\" WHERE \"x\".\"subscription_key\" = 1002) LIMIT 2",
+        expected: Expected::Limited { wide: true },
+    },
+    Case {
+        name: "correlated_not_exists_preserves_outer_filter",
+        projection: "CAST(\"k\".\"subscription_key\" AS BIGINT) AS \"key\"",
+        after_table: "\"k\" WHERE \"k\".\"subscription_key\" = 1002 AND NOT EXISTS (SELECT 1 FROM %TABLE% \"x\" WHERE \"x\".\"subscription_key\" = \"k\".\"subscription_key\" AND \"x\".\"voice_min\" < 0)",
+        expected: Expected::Keys(Predicate::Key),
     },
 ];

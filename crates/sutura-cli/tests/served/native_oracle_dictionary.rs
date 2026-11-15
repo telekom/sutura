@@ -320,5 +320,6 @@ fn a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_col
         422
     );
     drop(served);
+    types::alias_scope(&fixture);
     types::number_and_zone_types(&fixture);
 }

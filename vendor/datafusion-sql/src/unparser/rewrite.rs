@@ -220,7 +220,18 @@ pub(super) fn rewrite_plan_for_sort_on_non_projected_fields(
         })
         .collect::<Vec<_>>();
 
-    let mut collects = p.expr.clone();
+    // Output labels do not change which input expressions the projection needs.
+    let mut collects = p
+        .expr
+        .iter()
+        .map(|expr| {
+            let mut expr = expr.clone();
+            while let Expr::Alias(alias) = expr {
+                expr = *alias.expr;
+            }
+            expr
+        })
+        .collect::<Vec<_>>();
     for sort in &sort.expr {
         // Strip aliases from sort expressions so the comparison matches
         // the inner Projection's raw expressions. The optimizer may add
