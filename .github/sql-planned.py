@@ -183,7 +183,8 @@ def apply_source(which):
 
 
 def planned(engine):
-    return f"statements::engines::{engine}::every_planned_shape_answers_at_the_native_engine"
+    suffix = "native" if engine in ENGINES[:4] else engine
+    return f"statements::engines::{engine}::every_planned_shape_answers_at_the_{suffix}_engine"
 
 
 def passed(log, name, runner):
