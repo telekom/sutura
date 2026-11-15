@@ -6,8 +6,7 @@
       "tests": [
         "native_datafusion",
         "native_duckdb",
-        "native_postgres",
-        "native_clickhouse"
+        "native_postgres"
       ],
       "preimage_sha256": "5c77ad469737532f2c7d73028f11e5eff2a5ebcbc339dd3f3cb521a8c7a886e1",
       "mutated_sha256": "df5c388e9b1062a2999a48f2335be36ee8045a15221da79ffc2a2cc78f72b1d2",
@@ -20,14 +19,13 @@
         }
       ],
       "mechanism": "Remove derived-subquery routing for an aliased filter while retaining its new native-engine corpus case.",
-      "limit": "Base-production rollback must fail inside each native execution helper, not at a snapshot assertion or a skipped venue."
+      "limit": "Base-production rollback must fail inside the DataFusion, DuckDB and PostgreSQL native execution helpers, not at a snapshot assertion or a skipped venue. ClickHouse accepts the original qualifier and is not a red witness."
     }
   ],
   "test_files": {
     "native_datafusion": "crates/sutura-app/tests/golden/statements.rs",
     "native_duckdb": "crates/sutura-app/tests/golden/statements.rs",
-    "native_postgres": "crates/sutura-app/tests/golden/statements.rs",
-    "native_clickhouse": "crates/sutura-app/tests/golden/statements.rs"
+    "native_postgres": "crates/sutura-app/tests/golden/statements.rs"
   },
   "test_identities": {
     "native_datafusion": [
@@ -41,10 +39,6 @@
     "native_postgres": [
       "sutura-app::golden",
       "statements::engines::postgres::every_planned_shape_answers_at_the_native_engine"
-    ],
-    "native_clickhouse": [
-      "sutura-app::golden",
-      "statements::engines::clickhouse::every_planned_shape_answers_at_the_native_engine"
     ]
   },
   "test_functions": {
@@ -57,10 +51,6 @@
       "indent": ""
     },
     "native_postgres": {
-      "name": "every_planned_shape_answers_at_the_native_engine",
-      "indent": ""
-    },
-    "native_clickhouse": {
       "name": "every_planned_shape_answers_at_the_native_engine",
       "indent": ""
     }
