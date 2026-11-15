@@ -22,7 +22,7 @@ use arrow_array::{Array as _, ArrayRef, RecordBatch, StringArray};
 use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef, TimeUnit};
 use sutura_domain::warehouse::{Accumulating, ResultBudget, RowSet, UnannouncedBatch, UnreadableCell, Value};
 
-use crate::datetime::{date_text, local_zone_refused};
+use crate::datetime::{date_text, local_zone_refused, utc_text};
 use crate::{OracleError, execute_err_mapped};
 
 /// Runs `sql` on `connection` and reads its answer - see the module header.
@@ -218,10 +218,15 @@ fn texts<T>(column: &ArrayRef, to_micros: fn(i64) -> i64) -> Result<StringArray,
 where
     T: ArrowPrimitiveType<Native = i64>,
 {
+    let render = if matches!(column.data_type(), DataType::Timestamp(_, Some(zone)) if zone.as_ref() == "UTC") {
+        utc_text
+    } else {
+        date_text
+    };
     column
         .as_primitive::<T>()
         .iter()
-        .map(|value| value.map(|value| date_text(to_micros(value))).transpose())
+        .map(|value| value.map(|value| render(to_micros(value))).transpose())
         .collect()
 }
 
