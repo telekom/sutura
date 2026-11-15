@@ -5,6 +5,9 @@ expression: output
 plain_filter: 14 rows
   columns: ["key"]
   14 x [Integer(1002)]
+aliased_filter: 14 rows
+  columns: ["key"]
+  14 x [Integer(1002)]
 not_null_and_filter: 14 rows
   columns: ["key"]
   14 x [Integer(1002)]

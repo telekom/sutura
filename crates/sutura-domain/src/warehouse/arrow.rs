@@ -39,7 +39,7 @@
 
 use arrow_array::cast::AsArray as _;
 use arrow_array::{Array, RecordBatch};
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::{DataType, SchemaRef, TimeUnit};
 
 use crate::calendar::Date;
 use crate::warehouse::cell::{Real, Value};
@@ -450,6 +450,9 @@ impl ResultBatches {
 /// `every_mapped_type_passes_the_schema_pass_and_float32_does_not` is what holds the two together,
 /// and it reads the mapping table rather than a list of its own.
 fn mapped(label: &str, kind: &DataType) -> Result<(), UnreadableCell> {
+    if matches!(kind, DataType::Timestamp(TimeUnit::Microsecond, Some(zone)) if zone.as_ref() == "UTC") {
+        return Ok(());
+    }
     match *kind {
         DataType::Int8
         | DataType::Int16
@@ -499,6 +502,18 @@ fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, UnreadableC
         return Ok(Value::Null);
     }
     match *array.data_type() {
+        // UTC microseconds are the zoned Oracle mapping; other zones and units remain refused.
+        DataType::Timestamp(TimeUnit::Microsecond, ref zone) if zone.as_deref() == Some("UTC") => array
+            .as_primitive::<arrow_array::types::TimestampMicrosecondType>()
+            .value_as_datetime(row)
+            .map(|instant| {
+                let text = instant.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                Value::Text(format!("{}Z", text.trim_end_matches('0').trim_end_matches('.')))
+            })
+            .ok_or_else(|| UnreadableCell::UnsupportedType {
+                column: String::from(label),
+                arrow_type: String::from("UTC timestamp outside the supported calendar range"),
+            }),
         DataType::Int64 => Ok(Value::Integer(
             array.as_primitive::<arrow_array::types::Int64Type>().value(row),
         )),

@@ -73,11 +73,7 @@ use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_ke
 /// is a separate question, answered by that binary's features rather than here - [`Self::BigQuery`]
 /// says why the word is in the vocabulary either way.
 ///
-/// **It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
-/// rather than the enum. The composition root used to refuse any source not called `local`, on the
-/// argument that the engine has its own identity and does not borrow the catalog's. That argument was
-/// right while the catalog was the only signal - a catalog naming `production_warehouse` said nothing
-/// about what the deployment held - and it stops being right once the DEPLOYMENT declares each source:
+/// The deployment declares each source independently of its catalog:
 /// an operator who writes `sources.production_warehouse.kind: files` with a directory beside it has
 /// stated that this source is a directory of files, which is the statement the name comparison was
 /// standing in for. Under the old rule that deployment could not be served at all, and it is a
@@ -214,6 +210,7 @@ impl SourceKind {
 /// `Settings::parse` is reachable from this crate's own tests without the refusal having run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfiguredSource {
+    unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
     admitted_by: Option<std::collections::BTreeSet<sutura_domain::identity::VerifierId>>,
     placement: SourcePlacement,
     identity: Option<SourceIdentity>,
@@ -224,6 +221,11 @@ pub struct ConfiguredSource {
 }
 
 impl ConfiguredSource {
+    #[must_use]
+    pub const fn unbounded_number(&self) -> Option<sutura_domain::warehouse::schema::UnboundedNumber> {
+        self.unbounded_number
+    }
+
     /// Resolved names. `None` admits deployment-local contexts only; an empty set admits nobody.
     #[must_use]
     pub const fn admitted_by(&self) -> Option<&BTreeSet<VerifierId>> {
@@ -476,6 +478,8 @@ pub enum InvalidSourceRegistry {
         kind: SourceKind,
         key: &'static str,
     },
+    #[error("`sources.{alias}.unbounded_number` must be utf8, got {value}")]
+    UnboundedNumber { alias: SourceName, value: String },
     /// A declared cloud resource name is not usable.
     #[error("`sources.{alias}.{key}` is not a usable name")]
     ResourceName {
@@ -940,6 +944,7 @@ fn parse_entry(
         blocks,
     )?;
     Ok(ConfiguredSource {
+        unbounded_number: None,
         admitted_by: None,
         placement,
         identity,
@@ -987,3 +992,5 @@ fn parse_workload_identity(
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) mod type_mapping;

@@ -976,3 +976,8 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(unix, feature = "duckdb", feature = "sql"))]
+#[cfg(test)]
+#[path = "served/type_warnings.rs"]
+mod type_warnings;

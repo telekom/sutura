@@ -104,6 +104,27 @@ fn two_pins_that_differ_only_in_a_fallback_have_different_digests() {
 }
 
 #[test]
+fn operator_markers_change_the_schema_digest_without_changing_column_types() {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use arrow_schema::{Field, Schema};
+
+    let name = ModelName::parse("orders").unwrap();
+    let field = Field::new("amount", DataType::Utf8, true);
+    let plain = BTreeMap::from([(name.clone(), Arc::new(Schema::new(vec![field.clone()])))]);
+    let marked = field.with_metadata(HashMap::from([(
+        String::from("sutura:unbounded_number"),
+        String::from("utf8"),
+    )]));
+    let marked = BTreeMap::from([(name, Arc::new(Schema::new(vec![marked])))]);
+    assert_ne!(
+        super::digest_of(&plain, &BTreeMap::new()),
+        super::digest_of(&marked, &BTreeMap::new())
+    );
+}
+
+#[test]
 fn a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_not() {
     let untyped = || vec![column("id", None)];
     let orders = || vec![column("customer_id", Some("bigint"))];
@@ -191,6 +212,15 @@ fn each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread() {
         (Oracle, "DATE", Some(seconds)),
         (Oracle, "TIMESTAMP(6)", Some(micros(None))),
         (Oracle, "TIMESTAMP", Some(micros(None))),
+        (Oracle, "TIMESTAMP WITH TIME ZONE", Some(micros(Some("UTC")))),
+        (Oracle, "timestamp(3) with time zone", Some(micros(Some("UTC")))),
+        (Oracle, "TIMESTAMP(6) WITH LOCAL TIME ZONE", Some(micros(Some("UTC")))),
+        (Oracle, "TIMESTAMP WITH LOCAL TIME ZONE", Some(micros(Some("UTC")))),
+        (Oracle, "TIMESTAMP(9)", None),
+        (Oracle, "TIMESTAMP(7) WITH TIME ZONE", None),
+        (Oracle, "TIMESTAMP(9) WITH LOCAL TIME ZONE", None),
+        (Oracle, "TIMESTAMP(6) WITH TIME ZONE EXTRA", None),
+        (Oracle, "TIMESTAMP(bad) WITH TIME ZONE", None),
         (Oracle, "RAW(16)", Some(DataType::Binary)),
         (Oracle, "BLOB", Some(DataType::Binary)),
         (Oracle, "XMLTYPE", None),

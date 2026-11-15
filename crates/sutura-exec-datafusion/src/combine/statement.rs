@@ -24,6 +24,7 @@
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
+//! | an explicit Oracle NUMBER-to-Utf8 mapping keeps value-dependent operators local | source NUMBER operations are numeric; scans may retain a safe fetch and projection. This can transfer more rows and exhaust the existing working set or deadline sooner |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
 //! | unquoted identifiers are lowercased | the engine's own normalization, before the source sees the text |
@@ -43,7 +44,7 @@ use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
 use datafusion::execution::{SessionStateBuilder, SessionStateDefaults};
-use datafusion::logical_expr::{Extension, LogicalPlan, Projection, ScalarUDF, TableSource};
+use datafusion::logical_expr::{Expr, Extension, LogicalPlan, Projection, ScalarUDF, TableSource};
 use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
@@ -92,7 +93,8 @@ where
     if sources.len() > 1 && !question.federation_allowed() {
         return Err(StatementStopped::SpansMoreThanOneSource);
     }
-    let whole = part_of(&plan).is_some();
+    // A bare marked scan still needs fitting to its declared text representation.
+    let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
         .map(|part| Ok((part.statement(whole)?, part.scan_tables(question.tables())?)))
@@ -236,19 +238,49 @@ impl FederationPlanner for Fetched {
 #[derive(Debug)]
 struct Cutter(Arc<Fetched>);
 
+fn number_text(schema: &SchemaRef) -> bool {
+    schema
+        .fields()
+        .iter()
+        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
+}
+
 impl OptimizerRule for Cutter {
     fn name(&self) -> &'static str {
         "sutura_statement_cut"
     }
 
     fn rewrite(&self, plan: LogicalPlan, _: &dyn OptimizerConfig) -> Planned<Transformed<LogicalPlan>> {
-        if part_of(&plan).is_some() {
+        let mut already_cut = false;
+        let mut scan_only = false;
+        plan.apply_with_subqueries(|node| {
+            already_cut |= part_of(node).is_some();
+            if let LogicalPlan::TableScan(scan) = node {
+                scan_only |= number_text(&scan.source.schema());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        if already_cut {
             return Ok(Transformed::no(plan));
         }
-        let planner: Arc<dyn FederationPlanner> = Arc::<Fetched>::clone(&self.0);
-        Ok(Transformed::yes(LogicalPlan::Extension(Extension {
-            node: Arc::new(FederatedPlanNode::new(plan, planner)),
-        })))
+        let leaf = |plan| {
+            let planner: Arc<dyn FederationPlanner> = Arc::<Fetched>::clone(&self.0);
+            Transformed::yes(LogicalPlan::Extension(Extension {
+                node: Arc::new(FederatedPlanNode::new(plan, planner)),
+            }))
+        };
+        if scan_only {
+            // ponytail: one marked scan keeps value-dependent operators local; narrow by expression
+            // only if the extra transfer matters. Physical NUMBER ordering is not Utf8 ordering.
+            return plan.transform_up_with_subqueries(|node| {
+                if !matches!(&node, LogicalPlan::TableScan(_)) {
+                    return Ok(Transformed::no(node));
+                }
+                let columns = node.schema().columns().into_iter().map(Expr::Column).collect();
+                Ok(leaf(LogicalPlan::Projection(Projection::try_new(columns, Arc::new(node))?)))
+            });
+        }
+        Ok(leaf(plan))
     }
 }
 
