@@ -219,7 +219,12 @@ where
         )),
         Some(Err(StatementStopped::Leg(stop))) => settled(Err(stop)),
         Some(Err(StatementStopped::SpansMoreThanOneSource)) => Ok(refusal(RawRefusalReason::PlanSpansMoreThanOneSource)),
-        Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
+        Some(Err(
+            StatementStopped::NotPlanned
+            | StatementStopped::UnknownTable
+            | StatementStopped::UnknownColumn
+            | StatementStopped::UnsupportedSyntax(_),
+        )) => Ok(refusal(RawRefusalReason::StatementFailed)),
         Some(Err(StatementStopped::AnswerTooLarge)) => Ok(refusal(RawRefusalReason::ResultTooLarge)),
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
