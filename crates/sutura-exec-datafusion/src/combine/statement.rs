@@ -24,7 +24,7 @@
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
-//! | an explicit Oracle NUMBER-to-Utf8 mapping keeps value-dependent operators local | source NUMBER operations are numeric; scans may retain a safe fetch and projection. This can transfer more rows and exhaust the existing working set or deadline sooner |
+//! | an explicit Oracle NUMBER-to-Utf8 mapping keeps operators over mapped values local | unrelated operators still run at the source; NUMBER ordering is not Utf8 ordering. This can transfer more rows and exhaust the existing working set or deadline sooner |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
 //! | unquoted identifiers fold per source | Oracle names fold up, other sources down; quoted metadata and SQL aliases remain exact |
@@ -39,7 +39,7 @@ use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{DataFusionError, SchemaError, plan_datafusion_err, plan_err};
+use datafusion::common::{DataFusionError, ExprSchema as _, SchemaError, plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
@@ -261,6 +261,35 @@ fn number_text(schema: &SchemaRef) -> bool {
         .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
 }
 
+/// Passthrough projections preserve the mapped representation; every value-dependent use stays
+/// local. Inspect inputs, since a filter or aggregate can consume a column absent from its output.
+fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
+    if let LogicalPlan::Distinct(datafusion::logical_expr::Distinct::All(input)) = plan {
+        return Ok(!number_text(input.schema().inner()));
+    }
+    let mut safe = true;
+    plan.apply_expressions(|expression| {
+        if matches!(plan, LogicalPlan::Projection(_))
+            && (matches!(expression, Expr::Column(_))
+                || matches!(expression, Expr::Alias(alias) if matches!(alias.expr.as_ref(), Expr::Column(_))))
+        {
+            return Ok(TreeNodeRecursion::Continue);
+        }
+        expression.apply(|part| {
+            if let Expr::Column(column) = part {
+                for input in plan.inputs() {
+                    if let Ok(field) = input.schema().field_from_column(column) {
+                        safe &= field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8");
+                    }
+                }
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok(safe)
+}
+
 impl OptimizerRule for Cutter {
     fn name(&self) -> &'static str {
         "sutura_statement_cut"
@@ -268,12 +297,8 @@ impl OptimizerRule for Cutter {
 
     fn rewrite(&self, plan: LogicalPlan, _: &dyn OptimizerConfig) -> Planned<Transformed<LogicalPlan>> {
         let mut already_cut = false;
-        let mut scan_only = false;
         plan.apply_with_subqueries(|node| {
             already_cut |= part_of(node).is_some();
-            if let LogicalPlan::TableScan(scan) = node {
-                scan_only |= number_text(&scan.source.schema());
-            }
             Ok(TreeNodeRecursion::Continue)
         })?;
         if already_cut {
@@ -285,18 +310,30 @@ impl OptimizerRule for Cutter {
                 node: Arc::new(FederatedPlanNode::new(plan, planner)),
             }))
         };
-        if scan_only {
-            // ponytail: one marked scan keeps value-dependent operators local; narrow by expression
-            // only if the extra transfer matters. Physical NUMBER ordering is not Utf8 ordering.
-            return plan.transform_up_with_subqueries(|node| {
-                if !matches!(&node, LogicalPlan::TableScan(_)) {
-                    return Ok(Transformed::no(node));
-                }
+        plan.transform_down_with_subqueries(|node| {
+            let mut safe = true;
+            let mut scans = false;
+            node.apply_with_subqueries(|input| {
+                scans |= matches!(input, LogicalPlan::TableScan(_));
+                safe &= number_text_safe(input)?;
+                Ok(if safe {
+                    TreeNodeRecursion::Continue
+                } else {
+                    TreeNodeRecursion::Stop
+                })
+            })?;
+            if !safe || !scans {
+                return Ok(Transformed::no(node));
+            }
+            let node = if matches!(&node, LogicalPlan::TableScan(_)) {
                 let columns = node.schema().columns().into_iter().map(Expr::Column).collect();
-                Ok(leaf(LogicalPlan::Projection(Projection::try_new(columns, Arc::new(node))?)))
-            });
-        }
-        Ok(leaf(plan))
+                LogicalPlan::Projection(Projection::try_new(columns, Arc::new(node))?)
+            } else {
+                node
+            };
+            let cut = leaf(node);
+            Ok(Transformed::new(cut.data, true, TreeNodeRecursion::Jump))
+        })
     }
 }
 

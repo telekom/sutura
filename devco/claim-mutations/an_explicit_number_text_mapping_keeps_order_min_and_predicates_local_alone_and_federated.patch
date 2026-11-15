@@ -1,12 +1,7 @@
-diff --git a/crates/sutura-exec-datafusion/src/combine/statement.rs b/crates/sutura-exec-datafusion/src/combine/statement.rs
 --- a/crates/sutura-exec-datafusion/src/combine/statement.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/statement.rs
-@@ -258,7 +258,7 @@ fn number_text(schema: &SchemaRef) -> bool {
-     schema
-         .fields()
+@@ -260,3 +260,3 @@
          .iter()
 -        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
 +        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("never"))
  }
-
- impl OptimizerRule for Cutter {
