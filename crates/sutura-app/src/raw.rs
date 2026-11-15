@@ -227,7 +227,10 @@ where
             Ok(refusal(RawRefusalReason::UnsupportedSyntax { construct }))
         }
         Some(Err(StatementStopped::SpansMoreThanOneSource)) => Ok(refusal(RawRefusalReason::PlanSpansMoreThanOneSource)),
-        Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
+        Some(Err(StatementStopped::NotPlanned)) => only(listed, warehouses).map_or_else(
+            || Ok(refusal(RawRefusalReason::StatementFailed)),
+            |source| pass_through(&mut legs, statement, source),
+        ),
         Some(Err(StatementStopped::AnswerTooLarge)) => Ok(refusal(RawRefusalReason::ResultTooLarge)),
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
