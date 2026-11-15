@@ -261,7 +261,16 @@ pub(super) fn rewrite_plan_for_sort_on_non_projected_fields(
         let new_exprs = p
             .expr
             .iter()
-            .map(|e| map.get(e).unwrap_or(e).clone())
+            .map(|e| match e {
+                Expr::Alias(alias) => {
+                    let mut alias = alias.clone();
+                    if let Some(inner) = map.get(alias.expr.as_ref()) {
+                        alias.expr = Box::new(inner.clone().unalias());
+                    }
+                    Expr::Alias(alias)
+                }
+                _ => map.get(e).unwrap_or(e).clone(),
+            })
             .collect::<Vec<_>>();
 
         // The inner Projection may define aliases that the Sort references
