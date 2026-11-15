@@ -443,3 +443,6 @@ a_redirect_is_refused_and_never_followed # in crates/sutura-catalog-openapi/test
 an_answer_over_the_cap_is_refused_rather_than_read # in crates/sutura-catalog-openapi/tests/http_reader.rs, new in the HTTP child; the base catalog branch has no http_reader integration test binary
 one_deadline_covers_every_request_of_a_load # in crates/sutura-catalog-openapi/tests/http_reader.rs, new in the HTTP child; the base catalog branch has no http_reader integration test binary
 a_final_response_body_past_the_deadline_is_refused # in crates/sutura-catalog-openapi/tests/http_reader.rs, new in the HTTP child; the base catalog branch has no http_reader integration test binary
+hidden_and_absent_tables_have_byte_identical_details_and_open_nothing # new planned_refusals module is removed with the production change; 16 sibling tests still prove base red
+excluded_and_absent_columns_have_byte_identical_details_and_open_nothing # new planned_refusals module is removed with the production change; 16 sibling tests still prove base red
+planned_source_failure_and_unsupported_syntax_have_safe_discovery_details # new planned_refusals module is removed with the production change; 16 sibling tests still prove base red

@@ -175,7 +175,7 @@ fn oracle_raw_federation_reads_two_registered_sources_only_when_listed_and_allow
     let tier = Tier::here();
     let statement = "SELECT a.\"ID\", b.\"ID\" AS \"other_id\" FROM \"EVENTS\" a JOIN \"EVENTS_MORE\" b ON a.\"ID\" = b.\"ID\" ORDER BY a.\"ID\" LIMIT 2";
     for (case, listed, federation, expected_code) in [
-        ("oracle-raw-unlisted", "local", true, Some("statement_failed")),
+        ("oracle-raw-unlisted", "local", true, Some("unknown_table")),
         (
             "oracle-raw-no-federation",
             "local, other",
