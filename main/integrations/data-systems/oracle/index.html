@@ -1751,6 +1751,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#column-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Column types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#example" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2737,6 +2748,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#column-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Column types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#example" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2979,6 +3001,31 @@ measure protected startup and catalog reads; that fixture has no measures. This 
 establish 10G native interoperability: 16-byte native authentication-key folding has unit and
 source evidence only. Other allowed AES/SHA-2 combinations have vector and unit coverage, not
 live interoperability evidence. No Oracle per-caller identity claim follows from this run.</p>
+<h2 id="column-types">Column types<a class="headerlink" href="#column-types" title="Permanent link">&para;</a></h2>
+<p>An unbounded <code>NUMBER</code> has no implicit approximation. To include it in a native dictionary and
+planned <code>run_sql</code>, declare <code>unbounded_number: utf8</code> on its <code>sources:</code> entry. The dictionary keeps
+the physical <code>NUMBER</code> declaration; the planner uses UTF-8 and the adapter fetches the exact full
+decimal text, including values wider than 38 integer digits. A table with an explicitly mapped
+<code>NUMBER</code> is scanned without operator pushdown; filtering, ordering and aggregation run locally
+against UTF-8, including in a single-source query. Ordering and <code>MIN</code> are lexical; arithmetic does
+not acquire decimal semantics. This may read more rows and reach the existing scan row, memory
+or deadline limits sooner than a pushed-down query. No decimal policy is available.
+Without the declaration, native dictionary loading refuses the column. Other catalogs keep the
+model out of planned SQL and startup logs a <code>WARN</code> naming the model, column and declared type;
+undeclared types are named as <code>&lt;undeclared&gt;</code>.</p>
+<p><code>TIMESTAMP WITH TIME ZONE</code> and <code>TIMESTAMP WITH LOCAL TIME ZONE</code>, with optional precision up to 6,
+map to UTC microseconds. Every execution session sets <code>TIME_ZONE = '+00:00'</code> and verifies
+<code>SESSIONTIMEZONE</code> before querying, including fresh raw and caller-token sessions. A failure to
+set or confirm UTC refuses the session. Values retain their UTC instant, including offset and
+DST changes, rather than the original zone spelling. Precision above 6 is refused instead of
+truncated. The pinned driver's LTZ conversion supports numeric database time-zone offsets;
+a named database time zone is refused by that driver.</p>
+<p>Whole Oracle queries and federated UTC timestamp projections return ISO date-time text with <code>Z</code>,
+preserving microseconds and nulls. Naive <code>DATE</code> and <code>TIMESTAMP</code> retain their existing zone-free
+rendering, including a date alone at midnight. The shared Arrow decoder admits only the UTC
+microsecond timestamp type; other zones and units remain refused. Caller-token UTC setup is built,
+but these type fixtures use shared-service-user sessions and do not prove caller impersonation.
+The live cases are part of <code>just oracle-acceptance</code>; they have not yet been run for this change.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <p>One database user for every caller:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">sources</span><span class="p">:</span>
