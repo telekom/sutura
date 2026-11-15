@@ -271,6 +271,12 @@ fn bounded_lobs_are_redacted_before_projection_predicates_order_and_min() {
         } else {
             String::from("\"TEXT_EVENTS\"")
         };
+        let unplanned_probe = ran(
+            &served,
+            &format!("select ID from {path} where DBMS_LOB.INSTR(SCRIPT, 'secret') > 0"),
+        );
+        assert_eq!(unplanned_probe.status, 422, "{}", unplanned_probe.body);
+        assert_eq!(unplanned_probe.json()["code"], "statement_failed", "{}", unplanned_probe.body);
         let query = |sql: String| {
             let reply = ran(&served, &sql);
             assert_eq!(reply.status, 200, "{sql}: {}\n{:?}", reply.body, served.log());
