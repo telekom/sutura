@@ -261,3 +261,68 @@ fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_an
         }
     }
 }
+
+#[test]
+fn mapped_number_tables_push_unrelated_operators_and_safe_children_to_oracle() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("sales_area", DataType::Utf8, false).with_metadata(std::collections::HashMap::from([(
+            String::from("sutura:unbounded_number"),
+            String::from("utf8"),
+        )])),
+    ]));
+    let tables = [StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("dim_region").expect("a fixture table"),
+        TypeDialect::Oracle,
+        schema,
+    )];
+    for (sql, pushed) in [
+        (
+            r#"select "region" from "dim_region" where "region" = 'north' order by "region" limit 1"#,
+            &["WHERE", "ORDER BY", "FETCH FIRST 1 ROWS ONLY"][..],
+        ),
+        (
+            r#"select "region", count(*) as n from "dim_region" where "region" = 'north' group by "region" order by n limit 1"#,
+            &["WHERE", "GROUP BY", "ORDER BY", "FETCH FIRST 1 ROWS ONLY"][..],
+        ),
+        (
+            r#"select a."region" from "dim_region" a join "dim_region" b on a."region" = b."region" where a."region" = 'north' limit 1"#,
+            &["JOIN", "WHERE", "FETCH FIRST 1 ROWS ONLY"][..],
+        ),
+        (
+            r#"select "sales_area" from "dim_region" where "region" = 'north' order by "sales_area""#,
+            &["WHERE"][..],
+        ),
+    ] {
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!("the mapped table must run: {answer:?}");
+        };
+        assert_eq!(rows, legs.engines.as_one(sql), "{sql}: {:?}", legs.statements);
+        assert_eq!(legs.statements.len(), 1, "{sql}");
+        let part = &legs.statements[0];
+        for operator in pushed {
+            assert!(part.contains(operator), "missing {operator}: {part}");
+        }
+        if sql.contains("sales_area") {
+            assert!(!part.contains("ORDER BY"), "text ordering must stay local: {part}");
+        } else {
+            assert!(!part.contains("sales_area"), "unused mapped column was fetched: {part}");
+        }
+    }
+}
