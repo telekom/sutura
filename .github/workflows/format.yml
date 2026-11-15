@@ -106,7 +106,7 @@ jobs:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
-        with: &nix-config
+        with:
           extra_nix_config: |
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
