@@ -280,12 +280,20 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
         TypeDialect::BigQuery,
         TypeDialect::Oracle,
     ] {
-        let tables = [StatementTable::new(
-            named("geo"),
-            QualifiedTable::parse("dim_region").expect("a fixture table"),
-            dialect,
-            Arc::clone(&schema),
-        )];
+        let tables = [
+            StatementTable::new(
+                named("geo"),
+                QualifiedTable::parse("dim_region").expect("a fixture table"),
+                dialect,
+                Arc::clone(&schema),
+            ),
+            StatementTable::new(
+                named("geo"),
+                QualifiedTable::parse("dim_customer").expect("a fixture table"),
+                dialect,
+                customers().schema(),
+            ),
+        ];
         for (sql, pushed) in [
             (
                 r#"select "region" from "dim_region" where "region" = 'north' order by "region" limit 1"#,
@@ -296,7 +304,7 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 &["WHERE", "GROUP BY", "ORDER BY", "FETCH FIRST 1 ROWS ONLY"][..],
             ),
             (
-                r#"select a."region" from "dim_region" a join "dim_region" b on a."region" = b."region" where a."region" = 'north' limit 1"#,
+                r#"select "dim_region"."region" from "dim_region" join "dim_customer" on "dim_region"."region" = "dim_customer"."region" where "dim_region"."region" = 'north' limit 1"#,
                 &["JOIN", "WHERE", "FETCH FIRST 1 ROWS ONLY"][..],
             ),
             (
@@ -308,6 +316,10 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 engines: Engines::new(None),
                 statements: Vec::new(),
             };
+            drop(legs.engines.at.insert(
+                named("geo"),
+                holding(&[("dim_region", regions()), ("dim_customer", customers())]),
+            ));
             let statement = RawStatement::parse(sql).expect("a bounded fixture query");
             let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
                 StatementQuestion::new(
