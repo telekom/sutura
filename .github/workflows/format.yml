@@ -279,7 +279,7 @@ jobs:
           hook_dir="$(git rev-parse --git-path hooks)"
           for stage in pre-commit commit-msg pre-push; do test -x "$hook_dir/$stage"; done
           test "$(cargo deny --version)" = 'cargo-deny 0.20.2'
-          git -c color.ui=false commit -m 'refactor(sql): declare planned execution ports and dialects' 2>&1 | tee "$parent_log"
+          git -c color.ui=false commit -m 'fix(sql): keep aliased filter predicates in their source scope' 2>&1 | tee "$parent_log"
           PARENT
           python3 "$helper" prepare behavior
           python3 "$helper" collect "$RUNNER_TEMP/sql-planned-incoming" "$evidence"
