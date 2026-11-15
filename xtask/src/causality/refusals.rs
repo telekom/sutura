@@ -240,7 +240,7 @@ pub(super) fn report_head_failure(output: &str, only: &str) -> Verdict {
     } else {
         eprintln!("xtask test-causality: FAILED - the tests this diff added are not green on HEAD");
     }
-    eprintln!("{}", tail(output, 30));
+    eprintln!("{output}");
     Verdict::Fail
 }
 
