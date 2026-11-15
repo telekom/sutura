@@ -261,3 +261,60 @@ fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_an
         }
     }
 }
+
+#[test]
+fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect() {
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        for sql in [
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" like '%north%' limit 1"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where upper(r."region") like '%NORTH%' limit 1"#,
+            r#"select "region", "sales_area" from "dim_region" where "region" like '%north%' limit 1"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" like '%north%'"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" like '%north%' order by r."region" limit 1"#,
+            r#"select r."region" from "dim_region" r where r."region" like '%north%' limit 1"#,
+            r#"select r."region" from "dim_region" r where exists (select 1 from "dim_region" x where x."region" = r."region" and x."region" = 'north')"#,
+            r#"select r."region" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north')"#,
+            r#"select r."region", r."sales_area" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north') limit 1"#,
+        ] {
+            let mut legs = OracleLegs {
+                engines: Engines::new(None),
+                statements: Vec::new(),
+            };
+            let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    false,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut legs,
+            );
+            let Some(Ok(rows)) = answer else {
+                panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
+            };
+            assert_eq!(
+                rows,
+                legs.engines.as_one(sql),
+                "{dialect:?}: {sql}; source SQL: {:?}",
+                legs.statements
+            );
+            assert_eq!(legs.statements.len(), 1, "{dialect:?}: {sql}");
+        }
+    }
+}
