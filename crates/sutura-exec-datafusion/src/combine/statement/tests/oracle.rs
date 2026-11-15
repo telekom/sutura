@@ -206,10 +206,14 @@ fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_an
             schema,
         ),
     ];
-    let cases: [TextCase<'_>; 8] = [
+    let cases: [TextCase<'_>; 9] = [
         (r#"select "sales_area" from "dim_region""#, &["2", "10"]),
         (r#"select * from "dim_region""#, &["2", "10"]),
         (r#"select "sales_area" from "dim_region" order by "sales_area""#, &["10", "2"]),
+        (
+            r#"select r."sales_area" from "dim_region" r order by r."sales_area""#,
+            &["10", "2"],
+        ),
         (
             r#"select distinct r."sales_area" from dim_customer c join "dim_region" r on c.region = r."region" order by r."sales_area""#,
             &["10", "2"],
