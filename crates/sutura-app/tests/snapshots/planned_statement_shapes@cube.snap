@@ -5,6 +5,9 @@ expression: corpus
 plain_filter
 SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002.0)
 
+aliased_filter
+SELECT CAST("k"."subscription_key" AS BIGINT) AS "key" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002.0)) AS "k"
+
 not_null_and_filter
 SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."usage_date" IS NOT NULL AND ("fct_usage_daily"."subscription_key" = 1002.0))
 
