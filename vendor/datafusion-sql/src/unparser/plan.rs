@@ -1366,10 +1366,14 @@ impl Unparser<'_> {
                 // The outer projection plan will handle projecting the correct columns.
                 let already_projected = select.already_projected();
 
-                let left_plan = Self::extract_join_input_table_scan_filters(
-                    left_plan,
-                    &mut table_scan_filters,
-                )?;
+                let left_plan = if is_exists {
+                    Arc::clone(left_plan)
+                } else {
+                    Self::extract_join_input_table_scan_filters(
+                        left_plan,
+                        &mut table_scan_filters,
+                    )?
+                };
                 let left_plan = if already_projected {
                     Self::unwrap_qualified_passthrough_join_projection(left_plan)
                 } else {
@@ -1383,13 +1387,6 @@ impl Unparser<'_> {
                     relation,
                 )?;
 
-                // Preserved-side scan filters belong outside EXISTS, including for anti joins.
-                if is_exists {
-                    for filter in table_scan_filters.drain(..) {
-                        select.selection(Some(self.expr_to_sql(&filter)?));
-                    }
-                }
-
                 let left_projection: Option<Vec<ast::SelectItem>> = if !already_projected
                 {
                     Some(select.pop_projections())
@@ -1397,10 +1394,14 @@ impl Unparser<'_> {
                     None
                 };
 
-                let right_plan = Self::extract_join_input_table_scan_filters(
-                    right_plan,
-                    &mut table_scan_filters,
-                )?;
+                let right_plan = if is_exists {
+                    Arc::clone(right_plan)
+                } else {
+                    Self::extract_join_input_table_scan_filters(
+                        right_plan,
+                        &mut table_scan_filters,
+                    )?
+                };
 
                 // The inner query owns its predicates and row window; neither may leak outward.
                 let mut exists_select = SelectBuilder::default();

@@ -53,7 +53,7 @@ impl StatementLegs for OracleLegs {
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
         if *source == named("geo") {
             self.statements.push(String::from(statement.as_str()));
-            eprintln!("source SQL: {statement}");
+            eprintln!("source SQL: {}", statement.as_str());
             // ponytail: only the fake normalizes FETCH; the live venue executes Oracle spelling.
             let mut parsed = Parser::parse_sql(&GenericDialect, statement.as_str()).map_err(|_cause| source.clone())?;
             let [sql] = parsed.as_mut_slice() else {
