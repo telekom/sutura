@@ -211,7 +211,23 @@ The page of the data system says what bounds a statement: [Postgres](integration
 or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
 on or off, over the tables that the catalog declares on the listed sources and the caller's view holds. It cuts the plan
 into one part for each source that the statement reads, and runs each part at its source under that source's posture.
-Anything but one query over such tables is refused with `statement_failed`, and that includes `select 1`. With the switch
+Input uses DataFusion SQL, including `LIMIT` instead of `FETCH FIRST`. Double quotes select an exact
+identifier. Unquoted physical table and column names fold to uppercase at an Oracle source and
+lowercase at other sources; SQL aliases follow the planner's lowercase folding unless quoted.
+Physical metadata is preserved, so an Oracle table or column declared with mixed or lowercase names
+needs its exact quoted name. A name that resolves to different sources is refused.
+
+An unresolved admitted table is `unknown_table`, and an unresolved admitted column is `unknown_column`.
+Hidden tables have the same detail as absent tables; excluded columns have the same detail as absent
+columns. Recognized unsupported input is `unsupported_syntax` with a fixed construct description,
+including `select 1`, table functions and `FETCH FIRST`. A planned source part that fails without a
+more specific safe refusal is `source_failed`; other planning or local execution failures remain
+`statement_failed`. These details contain no engine or source error text. `describe_catalog` helps
+discover the admitted catalog; the operator can enable `prompt.list_physical_schema` to list physical
+names. These categories describe the planned path; a build without `sql` retains its source's generic
+`statement_failed` refusal.
+
+With the switch
 off, a statement that reads more than one source is refused with `plan_spans_more_than_one_source`. With it on, the join or
 aggregate over the parts runs in this deployment, and the answer names each source that it read and the posture that ran
 there. Planning and that local part stop at the request's deadline. What this does not bound:
