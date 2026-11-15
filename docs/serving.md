@@ -219,6 +219,11 @@ information about the original value. A redacted view must apply its transformat
 operations. Pattern rules can miss a secret or fail to match a new format; exercise them against
 representative data and keep the underlying permissions restricted even when those checks pass.
 
+Cube's SQL planner cannot execute regex replacement. For Cube, the runtime fetches bounded source
+rows and applies the policy locally before query predicates, ordering, joins and aggregates. Raw
+values therefore enter the process; source row caps, memory limits or deadlines can refuse queries
+that would otherwise push down. Other data systems apply their policies in source-side views.
+
 Text policies require a build with SQL planning. In a Markdown physical model, declare them on a
 text column:
 

@@ -34,6 +34,9 @@ truncated text. No raw LOB reader is widened.
 
 Planner regressions cover secret prefix probes, projections, ordering, minimum, aliases, correlated
 uses, nulls and multibyte truncation. SQL snapshots cover every dialect. The existing native source
-matrix executes the text policy at each engine. Served Oracle cells cover CLOB and NCLOB through
+matrix executes each engine's query path. Cube lacks regex-replacement SQL support, so its scans
+run at the source and its policy and query operators run locally. Raw values enter the runtime;
+row, memory and deadline limits can refuse these queries sooner. Caller functions are validated
+before the policy-only regex function is registered. Served Oracle cells cover CLOB and NCLOB through
 both native encryption and verified TLS, with Markdown and native dictionary declarations. These
 cells measure their fixtures, not arbitrary regex coverage or deployment grants.

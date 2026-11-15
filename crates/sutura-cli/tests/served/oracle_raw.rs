@@ -309,7 +309,11 @@ fn bounded_lobs_are_redacted_before_projection_predicates_order_and_min() {
         }
         assert_eq!(
             query(format!("select SCRIPT, SCRIPT_N from {path} where ID = 4")),
-            json!([[null, null]])
+            json!([["null", "null"]])
+        );
+        assert_eq!(
+            query(format!("select ID from {path} where SCRIPT IS NULL AND SCRIPT_N IS NULL")),
+            json!([["4"]])
         );
     }
 }
