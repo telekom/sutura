@@ -969,9 +969,7 @@ impl Relationship {
 
 /// What one dictionary read may spend: a row cap and a byte cap.
 ///
-/// Each cap is non-zero BY TYPE - a zero cap would refuse every read rather than bound one - and
-/// `sutura-config` refuses a written zero at load with the same type, so a declared bound arrives
-/// here with nothing left to check. Which default an absent bound takes is the reader's to say.
+/// Both caps are non-zero by type, including at config load; the reader chooses absent defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DictionaryBounds {
     max_rows: NonZeroU64,
