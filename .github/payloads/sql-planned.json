@@ -2,16 +2,24 @@
   "status": "READY_FOR_EXACT_REVIEW",
   "main": "dc895769bd7463f059c191ac190d4052d4383a51",
   "base": "dc895769bd7463f059c191ac190d4052d4383a51",
-  "parent_tree": "71c3b7cebe97df4dc039eecd08ddacf65aa5981e",
-  "source_tree": "081bbc8a755ef240792ce77da15a94e76f71800d",
-  "parent_patch_sha256": "a479d65da7ddd0a1fdc8049db08d2414a1353ab01b75b6b3e7a56d533f31a047",
+  "parent_tree": "c3d5de62da3416dd773bdbb539b251181c72eb14",
+  "source_tree": "209827d680f25f06be0a64b68a14b98d2786dee1",
+  "parent_patch_sha256": "2ceb16a52baa090851cb607c85905fbd493a627b4fc0ee546b3f391a120f7eb8",
   "behavior_patch_sha256": "c7407e79ed2303c7cb6c3046346ffad6f42b78bcc8007e25054bdb1a8da480e7",
-  "helper_ref": "ci/sql-joined-fixture-diagnostics-1943-20261116",
-  "request_id": "185fd074-5473-495d-ad80-df71b04c96c4",
+  "helper_ref": "ci/cube-joined-fixture-contrasts-1943-20261116",
+  "request_id": "1356a8d7-09a0-448f-9288-5b3bf9042c06",
   "api_branch": "ci/oracle-join-limit-implementation-layer-20261116",
   "behavior_branch": "ci/oracle-join-limit-test-layer-20261116",
-  "diagnostic_patch_sha256": "c618c34a246cd5ab7fa5bb3a2b574d7cedff4e45376c9cac8e8ed235cc991d70",
-  "diagnostic_source_path": "crates/sutura-app/tests/golden/statements.rs",
-  "diagnostic_preimage_sha256": "a428fead48eb038a18f2cd136561438e989b8d3b7dedc4fcbe8a272c1e80c066",
-  "diagnostic_postimage_sha256": "bad6c82031eeac545cd568d93afa59664ab09fe7d43189575a1dbf81d672919b"
+  "diagnostic_patch_sha256": "3cd48878115de61965bcd9318ca13c189964374f06392502a683610529752095",
+  "contrasts_sha256": "e4ee42c8c1c330a2b5e1069aca636e43870bf0f5a634b3a343e4cb10a1638089",
+  "diagnostic_sources": {
+    "crates/sutura-app/tests/golden/statements.rs": {
+      "before": "a428fead48eb038a18f2cd136561438e989b8d3b7dedc4fcbe8a272c1e80c066",
+      "after": "a507a141e4837651759baee5b18d8db6119c996c60fae14c0ff2730e3b2481fb"
+    },
+    "crates/sutura-exec-datafusion/src/combine/statement.rs": {
+      "before": "9e9df99123002333784079f5a60c5d83413ee0751f364048ceecc208f71c2e9f",
+      "after": "555b3e1c6d9ee7e81885fb4db21736fa8eda1b84a32601ede9c4a29a1ea847bd"
+    }
+  }
 }
