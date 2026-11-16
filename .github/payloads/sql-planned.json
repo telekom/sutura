@@ -2,12 +2,16 @@
   "status": "READY_FOR_EXACT_REVIEW",
   "main": "dc895769bd7463f059c191ac190d4052d4383a51",
   "base": "dc895769bd7463f059c191ac190d4052d4383a51",
-  "parent_tree": "47a6da43ddc0a06eb6e76a5aa0446383c71bb105",
-  "source_tree": "fd08187ad19a2abc5f3092df70378903144c1f3b",
-  "parent_patch_sha256": "1d55a933c14af4cd30b2bb50127dafc57ef0113e6c0efba00a51532896f8d362",
+  "parent_tree": "71c3b7cebe97df4dc039eecd08ddacf65aa5981e",
+  "source_tree": "081bbc8a755ef240792ce77da15a94e76f71800d",
+  "parent_patch_sha256": "a479d65da7ddd0a1fdc8049db08d2414a1353ab01b75b6b3e7a56d533f31a047",
   "behavior_patch_sha256": "c7407e79ed2303c7cb6c3046346ffad6f42b78bcc8007e25054bdb1a8da480e7",
-  "helper_ref": "ci/oracle-join-limit-goldens-20261116",
-  "request_id": "343488fe-4233-4e58-afc1-b04d8f993d84",
+  "helper_ref": "ci/sql-joined-fixture-diagnostics-1943-20261116",
+  "request_id": "185fd074-5473-495d-ad80-df71b04c96c4",
   "api_branch": "ci/oracle-join-limit-implementation-layer-20261116",
-  "behavior_branch": "ci/oracle-join-limit-test-layer-20261116"
+  "behavior_branch": "ci/oracle-join-limit-test-layer-20261116",
+  "diagnostic_patch_sha256": "c618c34a246cd5ab7fa5bb3a2b574d7cedff4e45376c9cac8e8ed235cc991d70",
+  "diagnostic_source_path": "crates/sutura-app/tests/golden/statements.rs",
+  "diagnostic_preimage_sha256": "a428fead48eb038a18f2cd136561438e989b8d3b7dedc4fcbe8a272c1e80c066",
+  "diagnostic_postimage_sha256": "bad6c82031eeac545cd568d93afa59664ab09fe7d43189575a1dbf81d672919b"
 }

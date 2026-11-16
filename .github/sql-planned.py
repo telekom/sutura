@@ -1,4 +1,4 @@
-"""One-off planned-statement generation and allowlisted collection; Python stdlib only."""
+"""One-off planned-statement fixture diagnostics; no acceptance verdict."""
 
 import base64
 import gzip
@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -105,7 +106,7 @@ def guard():
     value = binding()
     require(os.environ["GITHUB_REPOSITORY"] == "telekom/sutura", "Wrong repository")
     require(os.environ["GITHUB_RUN_ATTEMPT"] == "1", "Reruns are refused")
-    require(os.environ["CONSUMER"] == "sql-planned-native", "Wrong consumer")
+    require(os.environ["CONSUMER"] == "sql-planned-diagnostic", "Wrong consumer")
     require(
         os.environ["GITHUB_REF"] == "refs/heads/" + value["helper_ref"],
         "Wrong helper ref",
@@ -249,7 +250,20 @@ def check_results(lane, log):
     return names
 
 
-def run(command, path, env):
+def scrub(data, env):
+    pairs = [
+        (env.get("SUTURA_BQ_PROJECT", "").encode(), b"fixture-project"),
+        (env.get("SUTURA_BQ_DATASET", "").encode(), b"fixture_dataset"),
+    ]
+    for value, replacement in sorted(
+        pairs, key=lambda pair: len(pair[0]), reverse=True
+    ):
+        if value:
+            data = data.replace(value, replacement)
+    return data
+
+
+def run(command, path, env, allow_failure=False):
     with path.open("xb") as output:
         process = subprocess.Popen(
             command,
@@ -259,10 +273,15 @@ def run(command, path, env):
             stderr=subprocess.STDOUT,
         )
         for line in iter(process.stdout.readline, b""):
+            line = scrub(line, env)
             output.write(line)
             sys.stdout.buffer.write(line)
             sys.stdout.buffer.flush()
-        require(process.wait() == 0, "Venue failed; see " + path.name)
+        status = process.wait()
+        if allow_failure:
+            dump(path.with_suffix(".status.json"), {"exit": status})
+        else:
+            require(status == 0, "Venue failed; see " + path.name)
     return path.read_text(errors="replace")
 
 
@@ -310,7 +329,8 @@ def read_artifact(directory):
     return manifest
 
 
-def cube_meta(out, update, env):
+def cube_fixture_request(path, env, query=None):
+    require(path in ("meta", "cubesql"), "Unknown fixture API")
     endpoint = (
         subprocess.check_output(
             ["nix", "run", ".#just", "--", "dev-endpoint", "cube"], cwd=SOURCE, env=env
@@ -342,7 +362,13 @@ def cube_meta(out, update, env):
         encode(b'{"alg":"HS256","typ":"JWT"}')
         + b"."
         + encode(
-            json.dumps({"sub": "sutura-catalog", "iat": now, "exp": now + 600}).encode()
+            json.dumps(
+                {
+                    "sub": "sutura-matrix" if query is not None else "sutura-catalog",
+                    "iat": now,
+                    "exp": now + 3600,
+                }
+            ).encode()
         )
     )
     token = (
@@ -353,8 +379,14 @@ def cube_meta(out, update, env):
         )
     ).decode()
     request = urllib.request.Request(
-        "http://" + endpoint + "/cubejs-api/v1/meta",
-        headers={"Authorization": "Bearer " + token},
+        "http://" + endpoint + "/cubejs-api/v1/" + path,
+        data=json.dumps({"query": query, "timezone": "UTC"}).encode()
+        if query is not None
+        else None,
+        headers={
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json",
+        },
     )
 
     class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -362,9 +394,21 @@ def cube_meta(out, update, env):
             return None
 
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-    with opener.open(request, timeout=30) as response:
+    try:
+        response = opener.open(request, timeout=30)
+    except urllib.error.HTTPError as cause:
+        response = cause
+    with response:
+        status = response.status
         raw = response.read((1 << 20) + 1)
     require(len(raw) <= 1 << 20, "Cube metadata exceeds 1 MiB")
+    require(status < 300 or status >= 400, "Fixture redirect refused")
+    return status, raw
+
+
+def cube_meta(out, update, env):
+    status, raw = cube_fixture_request("meta", env)
+    require(status == 200, "Fixture metadata request failed")
     (out / "cube-meta.raw.json").write_bytes(raw)
     actual = json.loads(raw)
     require(
@@ -380,6 +424,160 @@ def cube_meta(out, update, env):
             actual == json.loads((SOURCE / META).read_bytes()),
             "Live Cube metadata differs from collected fixture",
         )
+
+
+def diagnose(name, out):
+    require(name in ("cube", "bigquery"), "Unknown diagnostic lane")
+    value = binding()
+    require(
+        git("write-tree") == value["source_tree"] and not changed_paths(),
+        "Wrong diagnostic source",
+    )
+    out.mkdir(parents=True, exist_ok=False)
+    env = dict(
+        os.environ,
+        INSTA_UPDATE="always",
+        NO_COLOR="1",
+        CLICOLOR="0",
+        CARGO_TERM_COLOR="never",
+        NEXTEST_SUCCESS_OUTPUT="immediate",
+        NEXTEST_FAILURE_OUTPUT="immediate",
+    )
+    for key in (
+        "SUTURA_ONLY_SYSTEMS",
+        "SUTURA_DEV_REQUIRE_TIER",
+        "SUTURA_ORACLE_FIXTURE_TRANSPORT",
+    ):
+        env.pop(key, None)
+    if name == "bigquery":
+        env["GOOGLE_APPLICATION_CREDENTIALS"] = str(
+            Path(os.environ["RUNNER_TEMP"]) / "bq-key.json"
+        )
+        require(
+            all(env.get(key) for key in ("SUTURA_BQ_PROJECT", "SUTURA_BQ_DATASET")),
+            "Missing resource redaction binding",
+        )
+        require(
+            json.loads(Path(env["GOOGLE_APPLICATION_CREDENTIALS"]).read_bytes())[
+                "project_id"
+            ]
+            == env["SUTURA_BQ_PROJECT"],
+            "Project binding mismatch",
+        )
+        run(
+            ["nix", "run", ".#bigquery-provision", "--", "--no-capture"],
+            out / "provision.log",
+            env,
+        )
+    else:
+        run(["nix", "run", ".#just", "--", "dev-up-cube"], out / "provision.log", env)
+        cube_meta(out, True, env)
+    source_path = "crates/sutura-app/tests/golden/statements.rs"
+    require(
+        value["diagnostic_source_path"] == source_path,
+        "Unexpected instrumentation path",
+    )
+    source = SOURCE / source_path
+    original = source.read_bytes()
+    require(
+        sha(original) == value["diagnostic_preimage_sha256"],
+        "Instrumentation preimage mismatch",
+    )
+    patch = gzip.decompress(
+        base64.b64decode(
+            b"".join(
+                (ROOT / ".github/payloads/sql-planned-diagnostic.patch.b64")
+                .read_bytes()
+                .split()
+            ),
+            validate=True,
+        )
+    )
+    require(
+        sha(patch) == value["diagnostic_patch_sha256"], "Instrumentation patch mismatch"
+    )
+    require(
+        re.findall(rb"^\+\+\+ b/(.+)$", patch, re.MULTILINE) == [source_path.encode()],
+        "Unexpected instrumentation scope",
+    )
+    (out / "instrumentation.patch").write_bytes(patch)
+    index = git("ls-files", "--stage")
+    try:
+        subprocess.run(
+            ["git", "apply", "--check", "-"], input=patch, cwd=SOURCE, check=True
+        )
+        subprocess.run(["git", "apply", "-"], input=patch, cwd=SOURCE, check=True)
+        require(
+            sha(source.read_bytes()) == value["diagnostic_postimage_sha256"],
+            "Instrumentation postimage mismatch",
+        )
+        command = (
+            ["nix", "run", ".#bigquery-conformance", "--", "--no-capture"]
+            if name == "bigquery"
+            else ["nix", "run", ".#just", "--", "ci-cube-tier"]
+        )
+        log = run(command, out / "venue.log", env, allow_failure=True)
+        current = None
+        queries = []
+        for line in log.splitlines():
+            if line.startswith("SUTURA_FIXTURE_DIAGNOSTIC_CASE "):
+                event = json.loads(line.split(" ", 1)[1])
+                require(event["engine"] == name, "Unexpected diagnostic engine")
+                current = event["case"]
+            elif current and line.startswith("SUTURA_FIXTURE_DIAGNOSTIC_SQL "):
+                event = json.loads(line.split(" ", 1)[1])
+                require(event["engine"] == name, "Unexpected diagnostic engine")
+                queries.append({"case": current, "statement": event["statement"]})
+        target = (
+            "join_unaliased_filter_limit"
+            if name == "bigquery"
+            else "join_left_filter_limit"
+        )
+        selected = [query for query in queries if query["case"] == target]
+        require(len(selected) == 1, "Missing exactly-once failed-case statement")
+        dump(out / "queries.json", queries)
+        if name == "cube":
+            status, raw = cube_fixture_request("cubesql", env, selected[0]["statement"])
+            (out / "cube-response.log").write_bytes(scrub(raw, env))
+            dump(
+                out / "cube-response.json",
+                {
+                    "status": status,
+                    "query_sha256": sha(selected[0]["statement"].encode()),
+                    "body_sha256": sha(scrub(raw, env)),
+                    "subject": "sutura-matrix",
+                    "timezone": "UTC",
+                    "limit": 1 << 20,
+                },
+            )
+    finally:
+        source.write_bytes(original)
+        require(
+            git("ls-files", "--stage") == index
+            and git("write-tree") == value["source_tree"],
+            "Diagnostic changed index/source tree",
+        )
+        require(
+            sha(source.read_bytes()) == value["diagnostic_preimage_sha256"],
+            "Instrumentation not restored",
+        )
+    for path in out.rglob("*"):
+        if path.is_file():
+            require(
+                scrub(path.read_bytes(), env) == path.read_bytes(),
+                "Resource identifier reached diagnostic evidence",
+            )
+    dump(
+        out / "manifest.json",
+        {
+            "context": context(),
+            "lane": name,
+            "instrumentation_sha256": value["diagnostic_patch_sha256"],
+            "restored_source_sha256": value["diagnostic_preimage_sha256"],
+            "purpose": "fixture diagnosis only; no product, native acceptance or causal credit",
+            "files": files(out),
+        },
+    )
 
 
 def changed_paths():
@@ -729,6 +927,8 @@ if __name__ == "__main__":
         apply_source(args[0])
     elif task == "lane":
         lane(args[0], Path(args[1]).resolve())
+    elif task == "diagnose":
+        diagnose(args[0], Path(args[1]).resolve())
     elif task == "collect":
         collect(Path(args[0]).resolve(), Path(args[1]).resolve())
     elif task == "receipt":

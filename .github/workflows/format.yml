@@ -37,10 +37,10 @@ on:
   workflow_dispatch:
     inputs:
       consumer:
-        description: Reviewed source to commit and export
+        description: Reviewed fixture SQL diagnostics
         type: choice
         required: true
-        options: [sql-planned-native]
+        options: [sql-planned-diagnostic]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [core, cube, oracle-verified, oracle-native]
+        lane: [cube]
     env: &helper-env
       CONSUMER: ${{ inputs.consumer }}
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
@@ -151,7 +151,7 @@ jobs:
           fi
           printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
           printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-      - name: Update then repeat the identical venue without updates
+      - name: Capture the failed native statement and fixture response
         env:
           LANE: ${{ matrix.lane }}
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
@@ -166,10 +166,10 @@ jobs:
           case "$LANE" in
             core|cube)
               nix develop .#checks.x86_64-linux.nextest --command \
-                python3 "$helper" lane "$LANE" "$out"
+                python3 "$helper" diagnose "$LANE" "$out"
               ;;
             oracle-verified|oracle-native|bigquery)
-              python3 "$helper" lane "$LANE" "$out"
+              python3 "$helper" diagnose "$LANE" "$out"
               ;;
             *) exit 1 ;;
           esac
@@ -180,7 +180,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sql-planned-${{ matrix.lane }}
+          name: sql-planned-diagnostic-${{ matrix.lane }}
           path: ${{ runner.temp }}/sql-planned-${{ matrix.lane }}
           if-no-files-found: error
           retention-days: 7
@@ -188,10 +188,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sql-planned-failure-${{ matrix.lane }}
-          path: |
-            ${{ runner.temp }}/sql-planned-${{ matrix.lane }}/**/*.log
-            ${{ runner.temp }}/sql-planned-${{ matrix.lane }}/**/cube-meta.raw.json
+          name: sql-planned-diagnostic-failure-${{ matrix.lane }}
+          path: ${{ runner.temp }}/sql-planned-${{ matrix.lane }}
           if-no-files-found: ignore
           retention-days: 7
 
