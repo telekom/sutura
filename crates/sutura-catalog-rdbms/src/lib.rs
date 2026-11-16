@@ -422,7 +422,7 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     cause,
                 }
             })?;
-            columns.push(column);
+            columns.push(column.with_text_policy(metadata.map_or_default(|metadata| metadata.text.clone())));
         }
         let description = table
             .description()
@@ -721,11 +721,16 @@ impl core::fmt::Display for TableAddress {
 pub struct ColumnMetadata {
     data_type: Option<String>,
     description: Option<String>,
+    text: sutura_domain::catalog::TextPolicy,
 }
 
 impl ColumnMetadata {
     pub const fn new(data_type: Option<String>, description: Option<String>) -> Self {
-        Self { data_type, description }
+        Self {
+            data_type,
+            description,
+            text: sutura_domain::catalog::TextPolicy::empty(),
+        }
     }
 
     #[inline]
@@ -964,9 +969,7 @@ impl Relationship {
 
 /// What one dictionary read may spend: a row cap and a byte cap.
 ///
-/// Each cap is non-zero BY TYPE - a zero cap would refuse every read rather than bound one - and
-/// `sutura-config` refuses a written zero at load with the same type, so a declared bound arrives
-/// here with nothing left to check. Which default an absent bound takes is the reader's to say.
+/// Both caps are non-zero by type, including at config load; the reader chooses absent defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DictionaryBounds {
     max_rows: NonZeroU64,

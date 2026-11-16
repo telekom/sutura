@@ -25,6 +25,7 @@
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
 //! | an explicit Oracle NUMBER-to-Utf8 mapping keeps operators over mapped values local | unrelated operators still run at the source; NUMBER ordering is not Utf8 ordering. This can transfer more rows and exhaust the existing working set or deadline sooner |
+//! | Cube text policies run locally before query operators because its SQL planner lacks regex replacement | scans still run at Cube; raw values enter this process and existing row, memory and deadline caps apply |
 //! | Cube semi/anti/mark joins run locally because its SQL planner rejects correlated EXISTS | supported child plans still run at Cube; extra source rows can exhaust the existing row cap, working set or deadline |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
@@ -79,6 +80,7 @@ use crate::pool::{self, WorkingSet};
 
 mod oracle;
 mod resolve;
+mod text;
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
@@ -114,7 +116,7 @@ where
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
-        .map(|part| Ok((part.statement(whole)?, part.scan_tables(&tables)?)))
+        .map(|part| Ok((part.statement(whole, &tables)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources).map_err(StatementStopped::Leg)?;
@@ -253,7 +255,7 @@ impl FederationPlanner for Fetched {
 
 /// The rule a source's sub-plan is handed to: it makes the sub-plan a leaf, planned over its leg's rows.
 #[derive(Debug)]
-struct Cutter(Arc<Fetched>, TypeDialect);
+struct Cutter(Arc<Fetched>, TypeDialect, bool);
 
 fn number_text(schema: &SchemaRef) -> bool {
     schema
@@ -317,6 +319,9 @@ impl OptimizerRule for Cutter {
             }))
         };
         plan.transform_down_with_subqueries(|node| {
+            if self.2 && !matches!(node, LogicalPlan::TableScan(_)) {
+                return Ok(Transformed::no(node));
+            }
             let mut safe = true;
             let mut scans = false;
             node.apply_with_subqueries(|input| {
@@ -391,11 +396,16 @@ impl Part {
 
     /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
     /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
-    fn statement(&self, whole: bool) -> Planned<RawStatement> {
+    fn statement(&self, whole: bool, tables: &[StatementTable]) -> Planned<RawStatement> {
         let text = if whole {
             unparsed(&self.plan, self.dialect)?
         } else {
             unparsed(&labelled(&self.plan)?, self.dialect)?
+        };
+        let text = if self.dialect == TypeDialect::Cube {
+            text
+        } else {
+            text::apply(text, tables, self.dialect)?
         };
         RawStatement::parse(text).map_err(|cause| plan_datafusion_err!("{cause}"))
     }
@@ -469,6 +479,17 @@ fn registered_tables(tables: &[StatementTable]) -> Planned<Vec<StatementTable>> 
         if visible().any(|other| other.dialect() != table.dialect()) {
             return plan_err!("models of one physical table disagree on its dialect");
         }
+        for first in visible() {
+            for second in visible() {
+                for field in first.schema().fields() {
+                    if let Ok(other) = second.schema().field_with_name(field.name())
+                        && field.metadata().get("sutura:text_policy") != other.metadata().get("sutura:text_policy")
+                    {
+                        return plan_err!("models disagree on a physical column's text policy");
+                    }
+                }
+            }
+        }
         let columns = Schema::try_merge(visible().map(|other| other.schema().as_ref().clone()))?;
         admitted.push(StatementTable::new(
             table.source().clone(),
@@ -521,6 +542,9 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
             cut: Arc::new(Optimizer::with_rules(vec![Arc::new(Cutter(
                 Arc::clone(fetched),
                 table.dialect(),
+                tables.iter().any(|other| {
+                    other.source() == table.source() && other.dialect() == TypeDialect::Cube && text::protected(other)
+                }),
             ))])),
         });
         let provider = FederatedTableProviderAdaptor::new(Arc::new(Table {
@@ -621,11 +645,36 @@ async fn planned(
         .with_allow_ddl(false)
         .with_allow_dml(false)
         .with_allow_statements(false);
+    let policy_sql = statement.to_string();
     let plan = context
         .state()
         .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
         .await?;
     options.verify_plan(&plan)?;
+    // Validate caller functions before registering the policy-only regex replacement.
+    let local: Vec<_> = tables
+        .iter()
+        .filter(|table| table.dialect() == TypeDialect::Cube && text::protected(table))
+        .cloned()
+        .collect();
+    let plan = if local.is_empty() {
+        plan
+    } else {
+        let replace = SessionStateDefaults::default_scalar_functions()
+            .into_iter()
+            .find(|function| function.name() == "regexp_replace")
+            .ok_or_else(|| plan_datafusion_err!("the text policy function is unavailable"))?;
+        context.register_udf(replace.as_ref().clone());
+        let sql = text::apply(policy_sql, &local, TypeDialect::DataFusion)?;
+        let mut rewritten = Parser::parse_sql(&GenericDialect, &sql).map_err(DataFusionError::from)?;
+        let statement = rewritten
+            .pop()
+            .ok_or_else(|| plan_datafusion_err!("the text policy query is absent"))?;
+        context
+            .state()
+            .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
+            .await?
+    };
     let frame = context.execute_logical_plan(plan).await?;
     Ok(frame.into_optimized_plan()?)
 }

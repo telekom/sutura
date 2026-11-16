@@ -26,7 +26,9 @@ mod calendar;
 mod consistency;
 mod metric;
 mod pattern;
+mod text;
 mod unlinked;
+pub use text::{InvalidTextPolicy, MaxTextBytes, Redaction, TextPolicy};
 
 pub use audience::{Audience, AudienceGrant, GrantedAudiences, InvalidAudienceGrant};
 pub use authored::{
@@ -135,6 +137,8 @@ pub struct Column {
     data_type: Option<ColumnType>,
     description: Description,
     nullable: Option<bool>,
+    #[serde(skip_serializing_if = "TextPolicy::is_empty")]
+    text: TextPolicy,
 }
 
 /// A column [`Column::from_metadata`] refused: the name it was handed, returned beside the
@@ -164,7 +168,18 @@ impl Column {
             data_type,
             description,
             nullable,
+            text: TextPolicy::empty(),
         }
+    }
+
+    #[must_use]
+    pub fn with_text_policy(mut self, text: TextPolicy) -> Self {
+        self.text = text;
+        self
+    }
+
+    pub const fn text_policy(&self) -> &TextPolicy {
+        &self.text
     }
 
     #[inline]

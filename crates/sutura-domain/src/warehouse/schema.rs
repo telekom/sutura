@@ -71,6 +71,21 @@ impl PinnedSchemas {
         dialects: &BTreeMap<SourceName, TypeDialect>,
         numbers: &BTreeSet<SourceName>,
     ) -> Result<Self, NotValidated> {
+        let mut policies = BTreeMap::new();
+        for model in definitions.models().values() {
+            for column in model.columns() {
+                let key = (model.source(), model.table(), column.name());
+                if policies
+                    .insert(key, column.text_policy())
+                    .is_some_and(|previous| previous != column.text_policy())
+                    || (!column.text_policy().is_empty() && !dialects.contains_key(model.source()))
+                {
+                    return Err(NotValidated::TextPolicy {
+                        model: model.name().clone(),
+                    });
+                }
+            }
+        }
         let federated: BTreeSet<&ModelName> = definitions
             .relationships()
             .values()
@@ -104,6 +119,7 @@ impl PinnedSchemas {
                         .or_insert_with(BTreeSet::new)
                         .insert(column.name().clone());
                 }
+                let mapped_text = mapped.as_ref() == Some(&DataType::Utf8);
                 let mut field = Field::new(
                     column.name().as_str(),
                     mapped.unwrap_or(DataType::Utf8),
@@ -119,6 +135,20 @@ impl PinnedSchemas {
                         String::from("sutura:unbounded_number"),
                         String::from("utf8"),
                     )]));
+                }
+                if !column.text_policy().is_empty() {
+                    if !mapped_text
+                        || field.metadata().contains_key("sutura:unbounded_number")
+                        || !definitions.metrics().is_empty()
+                    {
+                        return Err(NotValidated::TextPolicy {
+                            model: model.name().clone(),
+                        });
+                    }
+                    let encoded = serde_json::to_string(column.text_policy()).map_err(|_cause| NotValidated::TextPolicy {
+                        model: model.name().clone(),
+                    })?;
+                    field.metadata_mut().insert(String::from("sutura:text_policy"), encoded);
                 }
                 fields.push(field);
             }
@@ -177,6 +207,10 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
         for field in schema.fields() {
             part(&mut hash, field.name());
             part(&mut hash, &field.data_type().to_string());
+            if let Some(policy) = field.metadata().get("sutura:text_policy") {
+                part(&mut hash, "sutura:text_policy");
+                part(&mut hash, policy);
+            }
             hash.update([
                 u8::from(field.is_nullable()),
                 u8::from(
@@ -203,3 +237,46 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod text_policy_tests {
+    use super::{PinnedSchemas, TypeDialect};
+    use crate::catalog::{Column, Definitions, Description, Model, TextPolicy};
+    use crate::model::{ColumnName, ModelName, SourceName, TableName};
+    use crate::pinned::NotValidated;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn a_text_policy_refuses_nontext_columns_and_unprotected_physical_aliases() {
+        let source = SourceName::parse("data").expect("a source");
+        let policy: TextPolicy = serde_json::from_value(serde_json::json!({"max_text_bytes": 128})).expect("a bounded policy");
+        let model = |name: &str, declared: &str, policy: TextPolicy| {
+            Model::new(
+                ModelName::parse(name).expect("a model"),
+                source.clone(),
+                TableName::parse("events").expect("a table"),
+                [
+                    Column::from_metadata(ColumnName::parse("body").expect("a column"), Some(declared), None, None)
+                        .expect("a declared column")
+                        .with_text_policy(policy),
+                ],
+                Description::default(),
+            )
+        };
+        let pin = |models| {
+            let definitions = Definitions::assemble(models, vec![], vec![]).expect("physical models");
+            PinnedSchemas::pin(&definitions, &BTreeMap::from([(source.clone(), TypeDialect::Postgres)]))
+        };
+        for models in [
+            vec![model("events", "BIGINT", policy.clone())],
+            vec![model("events", "GEOGRAPHY", policy.clone())],
+            vec![
+                model("events", "TEXT", policy.clone()),
+                model("alias", "TEXT", TextPolicy::empty()),
+            ],
+        ] {
+            assert!(matches!(pin(models), Err(NotValidated::TextPolicy { .. })));
+        }
+        pin(vec![model("events", "TEXT", policy)]).expect("a mapped text column accepts the policy");
+    }
+}

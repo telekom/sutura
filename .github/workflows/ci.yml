@@ -2570,7 +2570,7 @@ jobs:
           for service in cube cube-metrics cube-keycloak cube-clickhouse; do
             name=$(docker ps -a --format '{{.Names}}' | grep -E -- "-${service}-1\$") || { echo "::warning::no container for ${service}"; continue; }
             echo "::group::docker logs $name"
-            docker logs --tail 60 "$name" 2>&1 || true
+            docker logs --tail 500 "$name" 2>&1 || true
             echo "::endgroup::"
           done
 

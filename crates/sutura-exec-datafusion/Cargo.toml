@@ -10,6 +10,7 @@ publish = false
 description = "A Warehouse adapter that executes a plan in process with DataFusion, generating no SQL."
 
 [dependencies]
+serde_json = { workspace = true }
 sutura-domain = { workspace = true }
 # NOT `sutura-semantic`, and that absence is the whole crate. The sibling DuckDB adapter depends on
 # the compiler for its last stage because it speaks SQL; this one executes the plan directly, so
@@ -140,8 +141,11 @@ distributed = [
 # `recursive_protection` grows the stack where the parser, planner and optimizer recurse over a
 # caller's expression; a `Display`, `Clone` or `Drop` of one is not reached, so `run_sql` also
 # bounds the statement's operators.
+# Local text policies need these even when no distributed adapter enables them transitively.
 sql = [
   "datafusion/sql",
+  "datafusion/unicode_expressions",
+  "datafusion/regex_expressions",
   "datafusion/recursive_protection",
   "datafusion-distributed?/sql",
   "dep:async-trait",

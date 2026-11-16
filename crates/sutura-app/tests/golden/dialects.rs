@@ -407,6 +407,8 @@ enum Family {
     Params,
     /// Planned source statements recorded without executing them.
     PlannedShapes,
+    /// Protected-text source statements recorded without executing them.
+    TextPolicyShapes,
     /// Rows a venue returned, from `crate::data_systems::runs_the_corpus_and_pins_the_rows`.
     Rows,
     /// Planned statement rows expected from the native matrix; file presence alone proves no run.
@@ -426,7 +428,7 @@ impl Family {
     const EXECUTION: [Self; 5] = [Self::Rows, Self::Refused, Self::Error, Self::AnchorReport, Self::PlannedRows];
 
     /// The families pinning emitted statements or parameters, without engine execution.
-    const RENDER: [Self; 3] = [Self::Sql, Self::Params, Self::PlannedShapes];
+    const RENDER: [Self; 4] = [Self::Sql, Self::Params, Self::PlannedShapes, Self::TextPolicyShapes];
 
     /// The family a snapshot stem - the file name with its `@{dialect}.snap` suffix already
     /// stripped - belongs to, or `None` if this census cannot name it.
@@ -439,6 +441,9 @@ impl Family {
         }
         if stem == "planned_statement_shapes" {
             return Some(Self::PlannedShapes);
+        }
+        if stem == "bounded_redacted_text_sql" {
+            return Some(Self::TextPolicyShapes);
         }
         if stem == "planned_statement_rows" {
             return Some(Self::PlannedRows);

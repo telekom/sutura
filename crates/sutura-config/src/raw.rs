@@ -1,9 +1,8 @@
 //! The shapes the configuration sources are read into, before anything is parsed.
 //!
 //! Private to this crate, and deliberately dull: every field is a primitive, nothing is
-//! validated here, and no type in this module is re-exported. It exists so the layering can be
-//! done by the `config` crate - which speaks in strings, numbers and booleans - and the parsing
-//! can be done once, afterwards, by [`crate::Settings::parse`].
+//! validated by the settings parser or its checked field types. No raw shape is re-exported.
+//! The `config` crate layers the sources before [`crate::Settings::parse`].
 //!
 //! **No `Debug` derive on a shape holding a secret.** [`RawSource`] holds the credential, password
 //! and key *file paths* as plain `String`s, so a `{:?}` on it would print them; a shape that
@@ -854,6 +853,8 @@ pub(crate) struct RawCatalog {
     pub(crate) exclude_columns: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) exclude_types: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) column_rules: Option<Vec<crate::catalog::RawColumnRule>>,
     /// The catalog's OWN read-only connection - never borrowed from a `sources:` entry, because a
     /// catalog read has no caller to run as.
     #[serde(default)]

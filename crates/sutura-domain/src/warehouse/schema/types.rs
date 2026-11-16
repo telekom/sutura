@@ -114,7 +114,7 @@ fn bigquery(name: &str, parameters: Option<&str>) -> Option<DataType> {
 
 fn oracle(name: &str, parameters: Option<&str>) -> Option<DataType> {
     match name {
-        "varchar2" | "nvarchar2" | "clob" => Some(DataType::Utf8),
+        "varchar2" | "nvarchar2" | "clob" | "nclob" => Some(DataType::Utf8),
         "number" => parameters.and_then(decimal),
         "integer" | "int" | "smallint" => Some(DataType::Decimal128(38, 0)),
         "binary_float" => Some(DataType::Float32),

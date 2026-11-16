@@ -19,6 +19,8 @@ use crate::shared::settings;
 
 #[path = "statements/corpus.rs"]
 mod corpus;
+#[path = "statements/text.rs"]
+mod text;
 
 use corpus::{CASES, Expected, FixtureRow};
 
@@ -141,6 +143,11 @@ macro_rules! dialect {
     ($name:ident, $dialect:expr) => {
         mod $name {
             pub(super) const DIALECT: sutura_domain::warehouse::schema::TypeDialect = $dialect;
+
+            #[test]
+            fn pins_bounded_redacted_text_sql() {
+                super::text::pins(stringify!($name), DIALECT);
+            }
 
             #[test]
             fn pins_planned_source_statements() {
@@ -284,6 +291,7 @@ where
         .definitions()
         .model(&ModelName::parse("daily_usage").expect("a fixture model"))
         .expect("the corpus declares daily usage");
+    text::executes(&warehouse, &pinned, dialect);
     let path = quoted(model.table());
     let tables = [table(model.table().clone(), dialect)];
     let fixture = fixture_rows();

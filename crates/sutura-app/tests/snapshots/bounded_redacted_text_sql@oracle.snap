@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/statements/text.rs
+expression: output
+---
+SELECT "dim_region"."sales_area" FROM (SELECT "region", CASE WHEN REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i') IS NULL THEN NULL WHEN LENGTH(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i')) > 28 THEN DBMS_LOB."SUBSTR"(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i'), 28, 1) || '...[truncated]' ELSE DBMS_LOB."SUBSTR"(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i'), 28, 1) END AS "sales_area" FROM "dim_region") "dim_region" WHERE "dim_region"."sales_area" LIKE 'n%' ORDER BY "dim_region"."sales_area" ASC NULLS LAST
+
+SELECT min("dim_region"."sales_area") FROM (SELECT "region", CASE WHEN REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i') IS NULL THEN NULL WHEN LENGTH(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i')) > 28 THEN DBMS_LOB."SUBSTR"(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i'), 28, 1) || '...[truncated]' ELSE DBMS_LOB."SUBSTR"(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i'), 28, 1) END AS "sales_area" FROM "dim_region") "dim_region"
+
+SELECT * FROM (SELECT "dim_region"."sales_area" FROM (SELECT "region", CASE WHEN REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i') IS NULL THEN NULL WHEN LENGTH(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i')) > 28 THEN DBMS_LOB."SUBSTR"(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i'), 28, 1) || '...[truncated]' ELSE DBMS_LOB."SUBSTR"(REGEXP_REPLACE("sales_area", 'north(_east)?', 'masked', 1, 0, 'i'), 28, 1) END AS "sales_area" FROM "dim_region") "dim_region" WHERE ("dim_region"."sales_area" = 'masked')) "r" ORDER BY "r"."sales_area" ASC NULLS LAST FETCH FIRST 1 ROWS ONLY
