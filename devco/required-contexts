@@ -253,6 +253,10 @@ ci.yml:multi-node
 # reason: gated on `run_all`, `nix`, `data_source_postgres` or `identity`. `ci-aggregate` holds run-or-fail for it.
 ci.yml:multi-node-postgres
 
+# Five NixOS VMs granting a split Oracle lookup leg to reading workers, selected by the
+# Oracle, identity or Nix area. `ci-aggregate` holds run-or-fail for the selected venue.
+ci.yml:multi-node-oracle
+
 # The chart scaled by its autoscaler in a k3s VM, advisory for `oracle-tier`'s reason: gated on the
 # `chart` area. `ci-aggregate` holds run-or-fail for it.
 ci.yml:k3s-autoscaling
