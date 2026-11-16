@@ -140,8 +140,8 @@ jobs:
           case "$CONSUMER" in
                 oracle-join-limit)
                     parent=dc895769bd7463f059c191ac190d4052d4383a51
-                    expected_tree=e88582f48850ddd59acafa1bf35e0e430bca985d
-                    patch_sha=ccca18d99325d0ee2b7b9ffaa340396a3dde41ca0b3937abe81d6240fe81863b
+                    expected_tree=f05a4e48976d70c2d75157ffd6708b9a5e6bab14
+                    patch_sha=76912326e256a50680a31c23ad4b0eb2f20bf26c829a717ef40b4b6af24de25d
                     message_sha=e7ccb8ce3b774ae75b602c7fae776d34f434a9cce333b96068c7a216fb6da675
                     branch='fix/oracle-join-limit-scope-1943-20261116'
                     subject='fix(sql): preserve joined row-window scopes'
