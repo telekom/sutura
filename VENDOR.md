@@ -163,8 +163,9 @@ Seven source-level adaptations, recorded here so nothing is silent:
   scope no job can be (the driver logs the failed cancel); `jobs.query` is sent once, without the
   client library's retry. The patch adds `jobs_query_test.go`, which the build's check phase runs
   on a host that can run its target, and `jobs_query_labels_test.go`, which holds that the job's
-  labels reach `jobs.query` exactly. sutura sets the option only for a `domain_delegation` source,
-  beside the read-only scope. Its tests also need the caller-credentials patch's access-token
+  labels reach `jobs.query` exactly. sutura sets the option for a `domain_delegation` source,
+  beside the read-only scope, and for a `google_login` source, beside the caller's own access
+  token; a pool's token never gets it. Its tests also need the caller-credentials patch's access-token
   option, and `jobs_query_labels_test.go` needs the job-labels patch's `OptionQueryLabels`, so it
   compiles only with that patch applied too. Upstream issue: [`adbc-drivers/bigquery#373`](https://github.com/adbc-drivers/bigquery/issues/373). `go/v1.14.1` starts a query
   with `jobs.query` itself under `bigquery.query.job_creation_mode=optional`, through the client
