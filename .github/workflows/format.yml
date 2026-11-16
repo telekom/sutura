@@ -40,7 +40,7 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [oracle-topology, clickhouse-https]
+        options: [clickhouse-https, result-limit-behavior, worker-pool-calibration]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -105,11 +105,11 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          case "$CONSUMER" in oracle-topology | clickhouse-https) ;; *) exit 1 ;; esac
+          case "$CONSUMER" in clickhouse-https | result-limit-behavior | worker-pool-calibration) ;; *) exit 1 ;; esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: dc895769bd7463f059c191ac190d4052d4383a51
+          ref: ${{ inputs.consumer == 'result-limit-behavior' && '48b3c3c077bb3388f46fee6d63eb55730ae492b5' || 'dc895769bd7463f059c191ac190d4052d4383a51' }}
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -136,43 +136,12 @@ jobs:
           mkdir "$evidence"
           nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
           just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
-          parent=dc895769bd7463f059c191ac190d4052d4383a51
           main=dc895769bd7463f059c191ac190d4052d4383a51
           case "$CONSUMER" in
-                oracle-topology)
-                    expected_tree=7c38820904463f171a5bca753d576ea53568a407
-                    patch_sha=c447d237e34190a5ea9307e92306c063ef769e06639cf56494afdc60c8cb74ad
-                    branch='test/oracle-topology-main-20261116'
-                    subject='test(oracle): exercise reads across dedicated workers'
-                    paths=(
-                        '.github/workflows/ci.yml'
-                        'devco/required-contexts'
-                        'flake.nix'
-                        'justfile'
-                        'nix/multi-node-oracle-seed.py'
-                        'nix/multi-node-oracle.nix'
-                        'nix/multi-node-oracle.py'
-                        'xtask/src/affected/aggregate_shell.rs'
-                        'xtask/src/affected/oracle_aggregate.rs'
-                        'xtask/src/workflows/aggregate_inputs.rs'
-                        'xtask/src/workflows/aggregate_inputs/queue_validated.rs'
-                    )
-                    hooks=(
-                        'cargo fmt'
-                        'cargo clippy (-D warnings, all features)'
-                        'structural gates'
-                        'cargo check (changed packages only)'
-                        'copy/paste detection (jscpd)'
-                        'markdown/yaml/toml (dprint), python (ruff)'
-                        'detect hardcoded secrets (CI is authoritative)'
-                        'Helm chart (lint, render, goldens, kubeconform)'
-                        'GitHub Actions static analysis'
-                        'conventional commit subject'
-                    )
-                    ;;
                 clickhouse-https)
-                    expected_tree=6f05d6b248e86542a7aed3e2baa66e5fb27bb253
-                    patch_sha=95cba826d8b47c659284c298ae27e984d0ef2d6485b9711e9215d336ed6332db
+                    parent=dc895769bd7463f059c191ac190d4052d4383a51
+                    expected_tree=c73160bf83611074da776f946c67a0dffe39e0c0
+                    patch_sha=defe42c3154576672a53d294d0a0fa29e6d578347e1a2bafbae5febcd24a36e8
                     branch='fix/clickhouse-https-transport-20261116'
                     subject='fix(clickhouse): enable HTTPS and idle connection eviction'
                     paths=(
@@ -187,6 +156,57 @@ jobs:
                         'cargo check (changed packages only)'
                         'copy/paste detection (jscpd)'
                         'markdown/yaml/toml (dprint), python (ruff)'
+                        'detect hardcoded secrets (CI is authoritative)'
+                        'conventional commit subject'
+                    )
+                    ;;
+                result-limit-behavior)
+                    parent=48b3c3c077bb3388f46fee6d63eb55730ae492b5
+                    expected_tree=f970e9c797bf03eba479e0e537e6e87f22760111
+                    patch_sha=91b97a894188632b6ee2ceeb2a4ba3086829a5d6f057ec9429cf0e2b5bca4f86
+                    branch='2026-11-16-fix/result-limit-provenance-main-20261116'
+                    subject='fix(exec): preserve local result-limit provenance'
+                    paths=(
+                        'crates/sutura-app/src/federated/leg.rs'
+                        'crates/sutura-app/src/federated/tests/split_test.rs'
+                        'crates/sutura-app/src/lib.rs'
+                        'crates/sutura-cli/src/serve/kind.rs'
+                        'crates/sutura-cli/src/serve/kind/tests/result_limit_fixture.rs'
+                        'crates/sutura-cli/tests/example.rs'
+                        'crates/sutura-exec-node/src/lib.rs'
+                        'crates/sutura-exec-node/src/tests.rs'
+                        'crates/sutura-exec-oracle/src/lib.rs'
+                        'crates/sutura-exec-oracle/tests/flashback.rs'
+                        'devco/claim-mutations/a_lookup_leg_no_partition_count_fits_is_refused_as_the_volume_bound.patch'
+                    )
+                    hooks=(
+                        'cargo fmt'
+                        'cargo clippy (-D warnings, all features)'
+                        'structural gates'
+                        'cargo check (changed packages only)'
+                        'copy/paste detection (jscpd)'
+                        'detect hardcoded secrets (CI is authoritative)'
+                        'conventional commit subject'
+                    )
+                    ;;
+                worker-pool-calibration)
+                    parent=dc895769bd7463f059c191ac190d4052d4383a51
+                    expected_tree=1b348e415d5524e87da5835e2414781ba8a29b1c
+                    patch_sha=90f5df7cebf184bd80753da467b738e687d7c6f1f6dd420ffc7d0ae4c482b3dc
+                    branch='test/worker-pool-calibration-20261116'
+                    subject='test: calibrate worker-pool acceptance on typed fixtures'
+                    paths=(
+                        'charts/sutura/templates/networkpolicy.yaml'
+                        'charts/sutura/testdata/golden/pool/reading-workers-network-policy.yaml'
+                        'charts/sutura/testdata/golden/pool/worker-pool-network-policy.yaml'
+                        'flake.nix'
+                        'nix/k3s-worker-pool.nix'
+                    )
+                    hooks=(
+                        'structural gates'
+                        'copy/paste detection (jscpd)'
+                        'markdown/yaml/toml (dprint), python (ruff)'
+                        'Helm chart (lint, render, goldens, kubeconform)'
                         'detect hardcoded secrets (CI is authoritative)'
                         'conventional commit subject'
                     )
