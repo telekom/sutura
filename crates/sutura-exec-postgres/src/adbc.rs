@@ -430,7 +430,11 @@ impl Warehouse for AdbcPostgres {
     /// The limit: both ceilings are read as the stream arrives, so a result refused here was never
     /// measured whole - the caller learns it did not fit, not by how much.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        error.did_not_fit()
+        self.result_limit(error).is_some()
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        error.result_limit()
     }
 }
 
@@ -440,7 +444,17 @@ impl PostgresError {
     /// whose granted partition is read under the same bound.
     #[must_use]
     pub const fn did_not_fit(&self) -> bool {
-        matches!(*self, Self::Adbc { ref cause } if session::result_did_not_fit(cause))
+        self.result_limit().is_some()
+    }
+
+    /// The known source-stream limit, without mistaking the rejected threshold for total size.
+    #[must_use]
+    pub const fn result_limit(&self) -> Option<sutura_domain::warehouse::ResultLimit> {
+        if let Self::Adbc { ref cause } = *self {
+            session::result_limit(cause)
+        } else {
+            None
+        }
     }
 }
 
