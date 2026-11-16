@@ -40,7 +40,7 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [clickhouse-https, result-limit-behavior, worker-pool-calibration]
+        options: [oracle-join-limit]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -105,11 +105,11 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          case "$CONSUMER" in clickhouse-https | result-limit-behavior | worker-pool-calibration) ;; *) exit 1 ;; esac
+          case "$CONSUMER" in oracle-join-limit) ;; *) exit 1 ;; esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.consumer == 'result-limit-behavior' && '48b3c3c077bb3388f46fee6d63eb55730ae492b5' || 'dc895769bd7463f059c191ac190d4052d4383a51' }}
+          ref: dc895769bd7463f059c191ac190d4052d4383a51
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -138,16 +138,38 @@ jobs:
           just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
           main=dc895769bd7463f059c191ac190d4052d4383a51
           case "$CONSUMER" in
-                clickhouse-https)
+                oracle-join-limit)
                     parent=dc895769bd7463f059c191ac190d4052d4383a51
-                    expected_tree=c73160bf83611074da776f946c67a0dffe39e0c0
-                    patch_sha=defe42c3154576672a53d294d0a0fa29e6d578347e1a2bafbae5febcd24a36e8
-                    branch='fix/clickhouse-https-transport-20261116'
-                    subject='fix(clickhouse): enable HTTPS and idle connection eviction'
+                    expected_tree=e88582f48850ddd59acafa1bf35e0e430bca985d
+                    patch_sha=ccca18d99325d0ee2b7b9ffaa340396a3dde41ca0b3937abe81d6240fe81863b
+                    message_sha=e7ccb8ce3b774ae75b602c7fae776d34f434a9cce333b96068c7a216fb6da675
+                    branch='fix/oracle-join-limit-scope-1943-20261116'
+                    subject='fix(sql): preserve joined row-window scopes'
                     paths=(
                         'VENDOR.md'
-                        'vendor/adbc_clickhouse/src/lib.rs'
-                        'vendor/adbc_clickhouse/src/tls.rs'
+                        'crates/sutura-app/tests/golden/statements.rs'
+                        'crates/sutura-app/tests/golden/statements/corpus.rs'
+                        'crates/sutura-app/tests/golden/statements/text.rs'
+                        'crates/sutura-app/tests/snapshots/planned_statement_rows@bigquery.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_rows@clickhouse.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_rows@cube.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_rows@datafusion.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_rows@duckdb.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_rows@oracle.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_rows@postgres.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@bigquery.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@clickhouse.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@cube.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@datafusion.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@duckdb.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@oracle.snap'
+                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@postgres.snap'
+                        'crates/sutura-exec-datafusion/src/combine/statement.rs'
+                        'crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs'
+                        'docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md'
+                        'docs/serving.md'
+                        'vendor/datafusion-sql/src/unparser/plan.rs'
+                        'vendor/datafusion-sql/src/unparser/utils.rs'
                     )
                     hooks=(
                         'cargo fmt'
@@ -156,65 +178,16 @@ jobs:
                         'cargo check (changed packages only)'
                         'copy/paste detection (jscpd)'
                         'markdown/yaml/toml (dprint), python (ruff)'
-                        'detect hardcoded secrets (CI is authoritative)'
-                        'conventional commit subject'
-                    )
-                    ;;
-                result-limit-behavior)
-                    parent=48b3c3c077bb3388f46fee6d63eb55730ae492b5
-                    expected_tree=f970e9c797bf03eba479e0e537e6e87f22760111
-                    patch_sha=91b97a894188632b6ee2ceeb2a4ba3086829a5d6f057ec9429cf0e2b5bca4f86
-                    branch='2026-11-16-fix/result-limit-provenance-main-20261116'
-                    subject='fix(exec): preserve local result-limit provenance'
-                    paths=(
-                        'crates/sutura-app/src/federated/leg.rs'
-                        'crates/sutura-app/src/federated/tests/split_test.rs'
-                        'crates/sutura-app/src/lib.rs'
-                        'crates/sutura-cli/src/serve/kind.rs'
-                        'crates/sutura-cli/src/serve/kind/tests/result_limit_fixture.rs'
-                        'crates/sutura-cli/tests/example.rs'
-                        'crates/sutura-exec-node/src/lib.rs'
-                        'crates/sutura-exec-node/src/tests.rs'
-                        'crates/sutura-exec-oracle/src/lib.rs'
-                        'crates/sutura-exec-oracle/tests/flashback.rs'
-                        'devco/claim-mutations/a_lookup_leg_no_partition_count_fits_is_refused_as_the_volume_bound.patch'
-                    )
-                    hooks=(
-                        'cargo fmt'
-                        'cargo clippy (-D warnings, all features)'
-                        'structural gates'
-                        'cargo check (changed packages only)'
-                        'copy/paste detection (jscpd)'
-                        'detect hardcoded secrets (CI is authoritative)'
-                        'conventional commit subject'
-                    )
-                    ;;
-                worker-pool-calibration)
-                    parent=dc895769bd7463f059c191ac190d4052d4383a51
-                    expected_tree=1b348e415d5524e87da5835e2414781ba8a29b1c
-                    patch_sha=90f5df7cebf184bd80753da467b738e687d7c6f1f6dd420ffc7d0ae4c482b3dc
-                    branch='test/worker-pool-calibration-20261116'
-                    subject='test: calibrate worker-pool acceptance on typed fixtures'
-                    paths=(
-                        'charts/sutura/templates/networkpolicy.yaml'
-                        'charts/sutura/testdata/golden/pool/reading-workers-network-policy.yaml'
-                        'charts/sutura/testdata/golden/pool/worker-pool-network-policy.yaml'
-                        'flake.nix'
-                        'nix/k3s-worker-pool.nix'
-                    )
-                    hooks=(
-                        'structural gates'
-                        'copy/paste detection (jscpd)'
-                        'markdown/yaml/toml (dprint), python (ruff)'
-                        'Helm chart (lint, render, goldens, kubeconform)'
                         'detect hardcoded secrets (CI is authoritative)'
                         'conventional commit subject'
                     )
                     ;;
               *) exit 1 ;;
           esac
+          message="$GITHUB_WORKSPACE/.github/payloads/$CONSUMER-source-message.txt"
+          test "$(sha256sum "$message" | cut -d ' ' -f 1)" = "$message_sha"
           patch="$RUNNER_TEMP/$CONSUMER-source.patch"
-          base64 --decode ".github/payloads/$CONSUMER-source.patch.b64" > "$patch"
+          base64 --decode ".github/payloads/$CONSUMER-source.patch.gz.b64" | gzip --decompress > "$patch"
           test "$(sha256sum "$patch" | cut -d ' ' -f 1)" = "$patch_sha"
           cd source
           test "$(git rev-parse HEAD)" = "$parent"
@@ -233,7 +206,7 @@ jobs:
           git config --local user.name ci
           git config --local user.email user@example.com
           git switch -c "$branch"
-          export expected_tree subject
+          export expected_tree subject message
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           devenv --profile hooks shell bash -euo pipefail <<'COMMIT'
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
@@ -253,7 +226,8 @@ jobs:
               devenv --version
           } > "$evidence/versions.log" 2>&1
           test "$(git write-tree)" = "$expected_tree"
-          git -c color.ui=false commit -m "$subject" 2>&1 | tee "$evidence/commit.log"
+          git -c color.ui=false commit -F "$message" 2>&1 | tee "$evidence/commit.log"
+          git cat-file commit HEAD | python3 -c 'import os,sys;from pathlib import Path;assert sys.stdin.buffer.read().split(b"\n\n",1)[1] == Path(os.environ["message"]).read_bytes()'
           COMMIT
           for hook in "${hooks[@]}"; do
               grep -F "$hook" "$evidence/commit.log" | grep -Eq '\.+Passed$'
@@ -271,9 +245,9 @@ jobs:
           git bundle verify "$evidence/source.bundle"
           test "$(git bundle list-heads "$evidence/source.bundle")" = "$commit $ref"
           bundle_sha="$(sha256sum "$evidence/source.bundle" | cut -d ' ' -f 1)"
-          printf '{"consumer":"%s","helper":"%s","commit":"%s","parent":"%s","tree":"%s","ref":"%s","patch_sha256":"%s","bundle_sha256":"%s","run_id":"%s","attempt":"%s"}\n' \
+          printf '{"consumer":"%s","helper":"%s","commit":"%s","parent":"%s","tree":"%s","ref":"%s","patch_sha256":"%s","message_sha256":"%s","bundle_sha256":"%s","run_id":"%s","attempt":"%s"}\n' \
               "$CONSUMER" "$EXPECTED_HELPER_SHA" "$commit" "$parent" "$expected_tree" "$ref" \
-              "$patch_sha" "$bundle_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$evidence/receipt.json"
+              "$patch_sha" "$message_sha" "$bundle_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$evidence/receipt.json"
           BUILD
 
       - name: Keep the reviewed source commit

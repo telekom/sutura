@@ -1,0 +1,10 @@
+fix(sql): preserve joined row-window scopes
+
+Keep joined predicates and row windows in their logical scope. Combine Cube joins
+locally over supported child reads.
+
+Fixes #1943
+
+Live-Cell: every_planned_shape_answers_at_the_oracle_engine oracle oracle-tier
+Live-Cell: every_planned_shape_answers_at_the_bigquery_engine bigquery bigquery-conformance
+Live-Cell: every_planned_shape_answers_at_the_cube_engine cube ci-cube-tier
