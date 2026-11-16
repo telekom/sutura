@@ -2874,9 +2874,7 @@ cardinality. Without it, loading refuses before a domain relationship is emitted
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DictionaryBounds</span>
 </span></code></pre></div>
 <p>What one dictionary read may spend: a row cap and a byte cap.</p>
-<p>Each cap is non-zero BY TYPE - a zero cap would refuse every read rather than bound one - and
-<code>sutura-config</code> refuses a written zero at load with the same type, so a declared bound arrives
-here with nothing left to check. Which default an absent bound takes is the reader's to say.</p>
+<p>Both caps are non-zero by type, including at config load; the reader chooses absent defaults.</p>
 <h3 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_bytes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU64</span>
 </span></code></pre></div>
