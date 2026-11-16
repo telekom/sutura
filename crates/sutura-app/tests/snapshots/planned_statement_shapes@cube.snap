@@ -2,6 +2,38 @@
 source: crates/sutura-app/tests/golden/statements.rs
 expression: corpus
 ---
+join_left_filter_limit
+SELECT "a"."usage_date" AS "c0", "a"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001.0) AND ("fct_usage_daily"."subscription_key" <= 1002.0)) AND ("fct_usage_daily"."voice_min" = 0.0))) AS "a"
+SELECT "b"."month" AS "c0", "b"."subscription_key" AS "c1" FROM (SELECT "fct_subscription_monthly"."month", "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE (("fct_subscription_monthly"."subscription_key" >= 1001.0) AND ("fct_subscription_monthly"."subscription_key" <= 1002.0))) AS "b"
+
+join_right_filter_limit
+SELECT "a"."usage_date" AS "c0", "a"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE (("fct_usage_daily"."subscription_key" >= 1001.0) AND ("fct_usage_daily"."subscription_key" <= 1002.0))) AS "a"
+SELECT "b"."month" AS "c0", "b"."subscription_key" AS "c1" FROM (SELECT "fct_subscription_monthly"."month", "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE ((("fct_subscription_monthly"."month" >= CAST('2026-04-01 00:00:00' AS TIMESTAMP)) AND ("fct_subscription_monthly"."subscription_key" >= 1001.0)) AND ("fct_subscription_monthly"."subscription_key" <= 1002.0))) AS "b"
+
+join_no_filter_limit
+SELECT "a"."usage_date" AS "c0", "a"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE (("fct_usage_daily"."subscription_key" >= 1001.0) AND ("fct_usage_daily"."subscription_key" <= 1002.0))) AS "a"
+SELECT "b"."month" AS "c0", "b"."subscription_key" AS "c1" FROM (SELECT "fct_subscription_monthly"."month", "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE (("fct_subscription_monthly"."subscription_key" >= 1001.0) AND ("fct_subscription_monthly"."subscription_key" <= 1002.0))) AS "b"
+
+join_unaliased_filter_limit
+SELECT "fct_usage_daily"."usage_date" AS "c0", "fct_usage_daily"."subscription_key" AS "c1" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001.0) AND ("fct_usage_daily"."subscription_key" <= 1002.0)) AND ("fct_usage_daily"."voice_min" = 0.0))
+SELECT "fct_subscription_monthly"."month" AS "c0", "fct_subscription_monthly"."subscription_key" AS "c1" FROM "fct_subscription_monthly" WHERE (("fct_subscription_monthly"."subscription_key" >= 1001.0) AND ("fct_subscription_monthly"."subscription_key" <= 1002.0))
+
+join_ordered_filter_limit
+SELECT "a"."usage_date" AS "c0", "a"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001.0) AND ("fct_usage_daily"."subscription_key" <= 1002.0)) AND ("fct_usage_daily"."voice_min" = 0.0))) AS "a"
+SELECT "b"."month" AS "c0", "b"."subscription_key" AS "c1" FROM (SELECT "fct_subscription_monthly"."month", "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE (("fct_subscription_monthly"."subscription_key" >= 1001.0) AND ("fct_subscription_monthly"."subscription_key" <= 1002.0))) AS "b"
+
+join_filter_without_limit
+SELECT "a"."usage_date" AS "c0", "a"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001.0) AND ("fct_usage_daily"."subscription_key" <= 1002.0)) AND ("fct_usage_daily"."voice_min" = 0.0))) AS "a"
+SELECT "b"."month" AS "c0", "b"."subscription_key" AS "c1" FROM (SELECT "fct_subscription_monthly"."month", "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE (("fct_subscription_monthly"."subscription_key" >= 1001.0) AND ("fct_subscription_monthly"."subscription_key" <= 1002.0))) AS "b"
+
+join_nested_windows
+SELECT "a"."usage_date" AS "c0", "a"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001.0) AND ("fct_usage_daily"."subscription_key" <= 1002.0)) AND ("fct_usage_daily"."voice_min" = 0.0))) AS "a"
+SELECT "b"."month" AS "c0", "b"."subscription_key" AS "c1" FROM "fct_subscription_monthly" AS "b"
+
+join_limited_input
+SELECT "a"."usage_date" AS "c0", "a"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) AS "a"
+SELECT "b"."subscription_key" AS "c0" FROM (SELECT "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE ("fct_subscription_monthly"."subscription_key" = 1003.0) LIMIT 2 OFFSET 0) AS "b"
+
 plain_filter
 SELECT CAST("fct_usage_daily"."subscription_key" AS BIGINT) AS "key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002.0)
 

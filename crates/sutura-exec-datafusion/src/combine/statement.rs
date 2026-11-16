@@ -1,4 +1,4 @@
-//! A `run_sql` statement cut into one part per listed source, each part run through the raw port,
+//! A `run_sql` statement cut into supported source parts, each run through the planned port,
 //! and the rest planned here over the rows that came back: Decision 2 of
 //! `docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md`.
 //!
@@ -16,7 +16,7 @@
 //! | Limit | Why |
 //! | --- | --- |
 //! | `compute_context` is `None`, not per subject | the session is one call's, over one caller's tables, so no two subjects' scans meet in it |
-//! | a leg's rows are not charged against the working set | the raw port capped them by count; the pool charges what the local part builds over them |
+//! | a leg's rows are not charged against the working set | the source port capped them by count; the pool charges what the local part builds over them |
 //! | planning or the local part stops at the first yield past the deadline, not at the instant | every node yields after each batch, so one batch's work, a constant folded while planning and a sort's final in-memory pass run to their end |
 //! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
 //! | a value built outside the working set can still be large: a string doubled through each common table expression, or a `CAST` to a fixed-size list of a length the caller spells | the pool charges only what operators reserve, and a constant is folded while planning; the session leaves out only the functions whose output length the caller spells or multiplies, and neither an operator nor a SQL type is a function |
@@ -26,7 +26,7 @@
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
 //! | an explicit Oracle NUMBER-to-Utf8 mapping keeps operators over mapped values local | unrelated operators still run at the source; NUMBER ordering is not Utf8 ordering. This can transfer more rows and exhaust the existing working set or deadline sooner |
 //! | Cube text policies run locally before query operators because its SQL planner lacks regex replacement | scans still run at Cube; raw values enter this process and existing row, memory and deadline caps apply |
-//! | Cube semi/anti/mark joins run locally because its SQL planner rejects correlated EXISTS | supported child plans still run at Cube; extra source rows can exhaust the existing row cap, working set or deadline |
+//! | Cube joins run locally, including joins over one source | supported child plans still run at Cube; extra source rows can exhaust the existing per-leg row cap, working set or deadline |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
 //! | unquoted identifiers fold per source | Oracle names fold up, other sources down; quoted metadata and SQL aliases remain exact |
@@ -327,18 +327,9 @@ impl OptimizerRule for Cutter {
             node.apply_with_subqueries(|input| {
                 scans |= matches!(input, LogicalPlan::TableScan(_));
                 safe &= number_text_safe(input)?;
-                // Cube's SQL planner cannot execute correlated EXISTS. Keep semi/anti/mark
-                // joins here while the same cut still pushes their supported children down.
-                if self.1 == TypeDialect::Cube
-                    && let LogicalPlan::Join(join) = input
-                {
-                    safe &= matches!(
-                        join.join_type,
-                        datafusion::logical_expr::JoinType::Inner
-                            | datafusion::logical_expr::JoinType::Left
-                            | datafusion::logical_expr::JoinType::Right
-                            | datafusion::logical_expr::JoinType::Full
-                    );
+                // Keep Cube joins local while the same cut pushes their supported children down.
+                if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {
+                    safe = false;
                 }
                 Ok(if safe {
                     TreeNodeRecursion::Continue

@@ -340,20 +340,26 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 panic!("the mapped table must run: {answer:?}");
             };
             assert_eq!(rows, legs.engines.as_one(sql), "{sql}: {:?}", legs.statements);
-            assert_eq!(legs.statements.len(), 1, "{sql}");
-            let part = &legs.statements[0];
-            for operator in pushed {
-                let operator = if *operator == "FETCH FIRST 1 ROWS ONLY" && dialect != TypeDialect::Oracle {
-                    "LIMIT 1"
-                } else {
-                    operator
-                };
-                assert!(part.contains(operator), "{dialect:?}: missing {operator}: {part}");
-            }
-            if sql.contains(r#"order by "sales_area""#) {
-                assert!(!part.contains("ORDER BY"), "text ordering must stay local: {part}");
-            } else if !sql.contains("sales_area") {
-                assert!(!part.contains("sales_area"), "unused mapped column was fetched: {part}");
+            let local_join = dialect == TypeDialect::Cube && pushed.contains(&"JOIN");
+            assert_eq!(legs.statements.len(), if local_join { 2 } else { 1 }, "{dialect:?}: {sql}");
+            for part in &legs.statements {
+                for operator in pushed {
+                    let operator = if *operator == "FETCH FIRST 1 ROWS ONLY" && dialect != TypeDialect::Oracle {
+                        "LIMIT 1"
+                    } else {
+                        operator
+                    };
+                    if local_join && operator == "JOIN" {
+                        assert!(!part.contains(operator), "Cube joins must stay local: {part}");
+                    } else {
+                        assert!(part.contains(operator), "{dialect:?}: missing {operator}: {part}");
+                    }
+                }
+                if sql.contains(r#"order by "sales_area""#) {
+                    assert!(!part.contains("ORDER BY"), "text ordering must stay local: {part}");
+                } else if !sql.contains("sales_area") {
+                    assert!(!part.contains("sales_area"), "unused mapped column was fetched: {part}");
+                }
             }
         }
     }

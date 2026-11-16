@@ -117,7 +117,10 @@ one source. **The default is `false`.**
   the first.
 - **`false`:** DataFusion parses and plans the statement. A plan whose scans name more than one
   source is refused with a typed refusal, a new `RawRefusalReason` variant, before any leg exists.
-  A plan over one source runs as one statement at that source.
+  A plan over one source runs the subtrees selected by the planner's cut at that source, with the
+  remaining operators local. *Clarification, 2026-11-16:* Cube joins remain local over supported child plans even with
+  this switch off. Extra source rows can reach the existing per-part row bounds or local
+  working-set and deadline limits sooner.
 - **`true`:** the statement is federated as this decision describes.
 - `true` in a build without the `sql` cargo feature is a startup refusal. Such a build keeps today's
   `run_sql`: one source, the text passed through unparsed.

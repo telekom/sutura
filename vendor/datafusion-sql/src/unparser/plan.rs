@@ -518,15 +518,17 @@ impl Unparser<'_> {
         lateral: bool,
         columns: Vec<Ident>,
     ) -> Result<()> {
-        // A wrapper must export the bare qualifier its parent expressions use.
+        // A wrapper must export the qualifier its parent expressions render.
         let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
-        if let Some(TableReference::Bare { table }) = qualifier
+        if let Some(table_ref) = qualifier
+            && (matches!(table_ref, TableReference::Bare { .. })
+                || !self.dialect.full_qualified_col())
             && plan.schema().iter().all(|(name, _)| name == qualifier)
         {
             return self.derive(
                 plan,
                 relation,
-                Some(self.new_table_alias(table.to_string(), columns)),
+                Some(self.new_table_alias(table_ref.table().to_string(), columns)),
                 lateral,
             );
         }
@@ -1021,9 +1023,8 @@ impl Unparser<'_> {
                 let found_agg =
                     self.reconstruct_select_statement(plan, p, select, fully_absorbed)?;
 
-                // A complete chain over a filtered scan also belongs in this SELECT;
+                // A complete chain over a scan or join belongs in this SELECT;
                 // wrapping it would leave the projection's table qualifiers out of scope.
-                // Keep other non-aggregate input scopes on their existing recursion path.
                 let agg_below =
                     !fully_absorbed && find_agg_node_within_select(plan, true).is_some();
                 let mut scan = cur;
@@ -1031,7 +1032,8 @@ impl Unparser<'_> {
                     scan = filter.input.as_ref();
                 }
                 let scan_below = fully_absorbed
-                    && matches!(scan, LogicalPlan::TableScan(scan) if scan.fetch.is_none());
+                    && (matches!(scan, LogicalPlan::TableScan(scan) if scan.fetch.is_none())
+                        || matches!(scan, LogicalPlan::Join(_)));
                 if !(found_agg || agg_below || scan_below) {
                     return self.select_to_sql_recursively(
                         p.input.as_ref(),

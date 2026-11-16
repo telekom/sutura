@@ -71,7 +71,8 @@ where
             StatementQuestion::new(&statement, tables, false, WORKING_SET, deadline()),
             &mut Executing {
                 warehouse,
-                table: model.table(),
+                expected_scans: vec![BTreeSet::from([model.table().clone()])],
+                observed_scans: Vec::new(),
             },
         );
         let Some(Ok(rows)) = answer else {
