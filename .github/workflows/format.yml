@@ -40,7 +40,7 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [result-limit-api]
+        options: [oracle-topology, clickhouse-https]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -105,7 +105,7 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          case "$CONSUMER" in result-limit-api) ;; *) exit 1 ;; esac
+          case "$CONSUMER" in oracle-topology | clickhouse-https) ;; *) exit 1 ;; esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -139,27 +139,46 @@ jobs:
           parent=dc895769bd7463f059c191ac190d4052d4383a51
           main=dc895769bd7463f059c191ac190d4052d4383a51
           case "$CONSUMER" in
-                result-limit-api)
-                    expected_tree=266957cbd77a19bf85f7af98c50577e7893cf45e
-                    patch_sha=42082b3f1b857d942c8bcc09531e82be99fc8468b00bd821d6a11e8efc9434d3
-                    branch='refactor/result-limit-facts-20261116'
-                    subject='refactor(exec): declare source result-limit facts'
+                oracle-topology)
+                    expected_tree=7c38820904463f171a5bca753d576ea53568a407
+                    patch_sha=c447d237e34190a5ea9307e92306c063ef769e06639cf56494afdc60c8cb74ad
+                    branch='test/oracle-topology-main-20261116'
+                    subject='test(oracle): exercise reads across dedicated workers'
                     paths=(
-                        '.agents/skills/sutura/invariants/SKILL.md'
-                        'crates/sutura-domain/src/query/limits.rs'
-                        'crates/sutura-domain/src/warehouse.rs'
-                        'crates/sutura-domain/src/warehouse/arrow.rs'
-                        'crates/sutura-domain/src/warehouse/limits.rs'
-                        'crates/sutura-exec-bigquery/src/adbc.rs'
-                        'crates/sutura-exec-bigquery/src/lib.rs'
-                        'crates/sutura-exec-bigquery/src/transport.rs'
-                        'crates/sutura-exec-clickhouse/src/adbc.rs'
-                        'crates/sutura-exec-datafusion/src/warehouse.rs'
-                        'crates/sutura-exec-duckdb/src/lib.rs'
-                        'crates/sutura-exec-postgres/src/adbc.rs'
-                        'crates/sutura-exec-postgres/src/adbc/session.rs'
-                        'crates/sutura-http/src/wire/refusal.rs'
-                        'crates/sutura-mcp/src/refusal.rs'
+                        '.github/workflows/ci.yml'
+                        'devco/required-contexts'
+                        'flake.nix'
+                        'justfile'
+                        'nix/multi-node-oracle-seed.py'
+                        'nix/multi-node-oracle.nix'
+                        'nix/multi-node-oracle.py'
+                        'xtask/src/affected/aggregate_shell.rs'
+                        'xtask/src/affected/oracle_aggregate.rs'
+                        'xtask/src/workflows/aggregate_inputs.rs'
+                        'xtask/src/workflows/aggregate_inputs/queue_validated.rs'
+                    )
+                    hooks=(
+                        'cargo fmt'
+                        'cargo clippy (-D warnings, all features)'
+                        'structural gates'
+                        'cargo check (changed packages only)'
+                        'copy/paste detection (jscpd)'
+                        'markdown/yaml/toml (dprint), python (ruff)'
+                        'detect hardcoded secrets (CI is authoritative)'
+                        'Helm chart (lint, render, goldens, kubeconform)'
+                        'GitHub Actions static analysis'
+                        'conventional commit subject'
+                    )
+                    ;;
+                clickhouse-https)
+                    expected_tree=6f05d6b248e86542a7aed3e2baa66e5fb27bb253
+                    patch_sha=95cba826d8b47c659284c298ae27e984d0ef2d6485b9711e9215d336ed6332db
+                    branch='fix/clickhouse-https-transport-20261116'
+                    subject='fix(clickhouse): enable HTTPS and idle connection eviction'
+                    paths=(
+                        'VENDOR.md'
+                        'vendor/adbc_clickhouse/src/lib.rs'
+                        'vendor/adbc_clickhouse/src/tls.rs'
                     )
                     hooks=(
                         'cargo fmt'
@@ -182,7 +201,7 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           remote_main="$(git ls-remote --refs origin refs/heads/main)"
           test "$remote_main" = "$main"$'\trefs/heads/main'
-          remote_source="$(git ls-remote --refs origin refs/heads/refactor/result-limit-facts-20261116)"
+          remote_source="$(git ls-remote --refs origin "refs/heads/$branch")"
           test -z "$remote_source"
           git apply --index --check "$patch"
           git apply --index "$patch"
