@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use sutura_config::{Environment, Settings, Sources};
-    const GOOGLE: &str = "security:\n  inbound:\n    - id: google\n      path: /google/mcp\n      mode: direct\n      verifier: google_tokeninfo\n      resource: https://sutura.example.com/google/mcp\n      authorization_server: https://accounts.google.com\n      client_id: dedicated.apps.googleusercontent.com\n      hosted_domains: [example.com]\n      required_scopes: [https://www.googleapis.com/auth/bigquery.readonly]\n";
+    const GOOGLE: &str = "security:\n  identity: multi-user\n  inbound:\n    - id: google\n      path: /google/mcp\n      mode: direct\n      verifier: google_tokeninfo\n      resource: https://sutura.example.com/google/mcp\n      authorization_server: https://accounts.google.com\n      client_id: dedicated.apps.googleusercontent.com\n      hosted_domains: [example.com]\n      required_scopes: [https://www.googleapis.com/auth/bigquery.readonly]\n";
     const SOURCE: &str = "sources:\n  warehouse:\n    kind: bigquery\n    posture: impersonation-at-source\n    max_bytes_billed: 1073741824\n    admitted_by: [google]\n    caller_google_token:\n      acknowledged_because: a dedicated client is used only for this deployment\n";
     fn rendered(error: &dyn std::error::Error) -> String {
         let mut message = error.to_string();

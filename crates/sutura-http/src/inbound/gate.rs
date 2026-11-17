@@ -491,7 +491,9 @@ impl InboundGate {
             location: self.header.clone(),
         })?;
         let matching: Vec<_> = eligible().filter(|gate| gate.same_location(location)).collect();
-        if let [gate] = matching.as_slice() {
+        if let [gate] = matching.as_slice()
+            && matches!(gate.verification, Verification::Google(_))
+        {
             return Ok((gate, presented));
         }
         let issuer = unverified_issuer(presented).ok_or(TokenRejected::UnknownIssuer)?;
