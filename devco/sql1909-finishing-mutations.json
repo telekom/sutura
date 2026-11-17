@@ -1,0 +1,957 @@
+{
+  "mutants": [
+    {
+      "label": "google-audience",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_refuses_another_audience"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "a5201e43dae86b38b2bcdbf1bcbc174bf92968c33b4b0d1d39952228ab38f560",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "response.aud != self.policy.client().as_str()",
+          "after": "response.aud.is_empty()",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-authorized-party",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_refuses_another_authorized_party"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "61852a57ace7bd818820b3ad59ac1283199d39d4544540f13d10dc202c9675a8",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "response.azp != self.policy.client().as_str()",
+          "after": "response.azp.is_empty()",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-expiry",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_refuses_an_expired_token"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "f94e0f9a20d10981737af4bb47f33f8d69a7de3509260afd242442ba79ecf91d",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": ".filter(|seconds| *seconds > 0)",
+          "after": ".map(|seconds| seconds.max(60))",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-required-scope",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_refuses_a_missing_scope"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "abfcd18fc8b54aac866dbab95668dce04f995ec23a473fceea2bc41e39e074ed",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": ".any(|scope| !scopes.iter().any(|granted| granted == scope))",
+          "after": ".any(|scope| !scopes.iter().any(|granted| granted == scope)) && false",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-verified-email",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_refuses_an_unverified_email"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "e6ec26e119206a9b53131e013bfb33b208ac26360a4efa85b37807f4cf2b84b2",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "!response.email_verified.is_true()",
+          "after": "!response.email_verified.is_true() && false",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-hosted-domain",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_refuses_an_unlisted_hosted_domain"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "5ea08fbe35f0ec28fe7952af4c9820e7afb7476476a69f6aa6cb54049c51273d",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "if !hosted.as_ref().is_some_and(|hosted| domains.admits(hosted)) {",
+          "after": "if !hosted.as_ref().is_some_and(|hosted| domains.admits(hosted)) && false {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-service-unavailable",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_unavailability_is_not_cached",
+        "tokeninfo_unreachable_answers_503_without_a_challenge_or_token_text"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "89e9b7118daabede0d9f20bd0925a609250f89e3fc310dcfbda6463501c3c5a4",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "TokenInfoFailed::Unavailable => TokenRejected::GoogleUnavailable",
+          "after": "TokenInfoFailed::Unavailable => TokenRejected::GoogleRejected",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-positive-cache",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_caches_a_digest_and_scopes_identity_to_the_verifier"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "1923b7ea0bb65ce4a96a378fe15b2c530b323da2715dfb5315eb0b898557341c",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "positive.get(&digest).cloned()",
+          "after": "positive.get(&digest).cloned().filter(|_| false)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-cache-expiry",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_positive_cache_expires_and_stays_bounded"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "5aff49756173fe5c4847f114ff36175e22a7fe7228db83fa0008ae4e6b7d1a46",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "positive.retain(|_, value| value.until > now && value.expires > wall);",
+          "after": "positive.retain(|_, value| value.until > now && value.expires > wall || true);",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-cache-capacity",
+      "package": "sutura-http",
+      "tests": [
+        "google_tokeninfo_positive_cache_expires_and_stays_bounded"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "c9cdb312cc6f902c242341ee87099b0520ae9755dab6ae4dd144d3de6eee6685",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "if positive.len() >= CACHE_CAPACITY",
+          "after": "if positive.len() >= CACHE_CAPACITY && false",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-read-grant",
+      "package": "sutura-http",
+      "tests": [
+        "a_verified_google_readonly_grant_maps_to_three_surface_reads_and_never_remote_legs"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "2dcf01006e5c4c43722a4fbdef92d0c77be791381119d4a599d267b78dad66fd",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "&[Capability::DescribeCatalog, Capability::AskMetric, Capability::RunSql]",
+          "after": "&[Capability::DescribeCatalog, Capability::AskMetric, Capability::DescribeCatalog]",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-no-remote-grant",
+      "package": "sutura-http",
+      "tests": [
+        "a_verified_google_readonly_grant_maps_to_three_surface_reads_and_never_remote_legs"
+      ],
+      "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
+      "mutated_sha256": "3653280e1893420141487a97bda24b306df574ea943bdd065ed6cf1e8185e4b4",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/google.rs",
+          "before": "&[Capability::DescribeCatalog, Capability::AskMetric, Capability::RunSql]",
+          "after": "&[Capability::DescribeCatalog, Capability::AskMetric, Capability::RunSql, Capability::RunRemoteLeg]",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-metadata-issuer",
+      "package": "sutura-http",
+      "tests": [
+        "google_discovery_names_google_and_the_client_scopes_on_its_mount"
+      ],
+      "preimage_sha256": "d1fc5cb33b47780ec5a27a7604c11218179b3aec23d1f3be6b28c2d93398f003",
+      "mutated_sha256": "5e797a35bca851b51a36c2f7b2027471fe57eba9b0691a23d08b52b66a437e0e",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/routes/protected_resource.rs",
+          "before": "                google.issuer().as_str(),",
+          "after": "                \"https://other.example.com\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-opaque-mount",
+      "package": "sutura-http",
+      "tests": [
+        "an_opaque_google_token_uses_its_mounted_verifier_without_a_jwt_issuer_peek"
+      ],
+      "preimage_sha256": "b59d1c2c33c487bbe18df3bd784b4aa848f7879c83fc125b84bc5f1c0dff5434",
+      "mutated_sha256": "911cb4b5e4c63472060e813ca0c5ee7799544b83bb5cda8e02c410bf7997375b",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "if let [gate] = matching.as_slice()\n            && matches!(gate.verification, Verification::Google(_))",
+          "after": "if let [gate] = matching.as_slice()\n            && matches!(gate.verification, Verification::Google(_))\n            && false",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-direct-configuration",
+      "package": "sutura-config",
+      "tests": [
+        "a_direct_google_verifier_and_acknowledged_caller_token_source_load_together"
+      ],
+      "preimage_sha256": "6ccb14621c6e63b36d563c701ea7d6a09a0d811f2f82b17e02413b067e16cd8f",
+      "mutated_sha256": "a5b4c72b856b18a64bd9b17759ae3f680b0c30b163a99a0270defd182ae68660",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound/google.rs",
+          "before": "raw.mode.as_deref() != Some(\"direct\")",
+          "after": "raw.mode.as_deref() == Some(\"direct\")",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-caller-token-acknowledgement",
+      "package": "sutura-config",
+      "tests": [
+        "a_caller_google_token_without_its_reason_is_refused_at_load"
+      ],
+      "preimage_sha256": "ac794e105708a80375268bc8e781a2ba9c490899e0e2785821e90d151f10e23a",
+      "mutated_sha256": "fa27f020372dcffdb69fff27c3a00b897a34a14a64570e2006518d62f969e4e8",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/sources/caller_identity.rs",
+          "before": "raw.acknowledged_because.as_deref().unwrap_or(\"\")",
+          "after": "raw.acknowledged_because.as_deref().unwrap_or(\"fixture acknowledgement\")",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-caller-token-startup-provenance",
+      "package": "sutura-config",
+      "tests": [
+        "a_caller_google_token_admitted_by_a_jwt_is_refused_as_caller_google_token_verifier"
+      ],
+      "preimage_sha256": "95a2e41cd90fe2ac3ab21a42ee4a69187c5eb33375b047f095a2c51e059c632a",
+      "mutated_sha256": "c4d24508f75dd209d654e908f4b26bb412076df73c29ddc565d2e455ae0352ad",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/admission.rs",
+          "before": "verifier.id() == id && verifier.google().is_some()",
+          "after": "verifier.id() == id && verifier.identity().is_some()",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-subject-equality",
+      "package": "sutura-domain",
+      "tests": [
+        "a_google_email_change_changes_the_masked_record_but_not_subject_identity_or_hash"
+      ],
+      "preimage_sha256": "20e2a7455f144f890cf9045e7dd1bae5847f6555b63d52fae2bc5308583d453b",
+      "mutated_sha256": "a6524953db3959192673745fd9e684a65c0eb355a22e1aa92a177f96ea1a6507",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/identity/principal.rs",
+          "before": "self.verifier == other.verifier && self.signed_sub == other.signed_sub",
+          "after": "self.verifier == other.verifier && self.signed_sub == other.signed_sub && self.id == other.id",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-subject-hash",
+      "package": "sutura-domain",
+      "tests": [
+        "a_google_email_change_changes_the_masked_record_but_not_subject_identity_or_hash"
+      ],
+      "preimage_sha256": "20e2a7455f144f890cf9045e7dd1bae5847f6555b63d52fae2bc5308583d453b",
+      "mutated_sha256": "dfff3058a0eaa72369d1bf050fad59d74ee2bc06cb643177035fea0c5c216569",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/identity/principal.rs",
+          "before": "        std::hash::Hash::hash(&self.signed_sub, state);",
+          "after": "        std::hash::Hash::hash(&self.signed_sub, state);\n        std::hash::Hash::hash(&self.id, state);",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-token-broker-provenance",
+      "package": "sutura-config",
+      "tests": [
+        "a_caller_google_token_source_refuses_jwt_provenance_and_forwards_each_google_callers_own_token"
+      ],
+      "preimage_sha256": "72fa3be1fec61365c64aca3fb4d99b790107c82364013368ae2c9d6fc2b26767",
+      "mutated_sha256": "b9e6b3c468c925d75e7a6efa6e79e75cf5dd16a7b2d227b87cd1aa63548a95d9",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/credentials/declared.rs",
+          "before": "if self.google_tokens.contains(source)\n",
+          "after": "if self.google_tokens.contains(source) && false\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-direct-jobs-query",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "a_direct_google_job_carries_only_its_access_token_and_the_readonly_jobs_query_route"
+      ],
+      "preimage_sha256": "4049414d2f8fd9c53ab3c4e37e88241b621c852e013e1b8f0c6f351d1a0e549a",
+      "mutated_sha256": "39064024a4edaa25766266cf3ab0f6229786c787e2199dfc07a4ebf49f5c8c7d",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
+          "before": "fn caller_google_token_options(token: &Secret) -> DatabaseOptions {\n    let mut options = access_token_options(token);\n    options.push((\n        OptionDatabase::Other(QUERY_THROUGH_JOBS_QUERY.into()),",
+          "after": "fn caller_google_token_options(token: &Secret) -> DatabaseOptions {\n    let mut options = access_token_options(token);\n    options.push((\n        OptionDatabase::Other(format!(\"{QUERY_THROUGH_JOBS_QUERY}.invalid\")),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "google-direct-composition",
+      "package": "sutura-cli",
+      "tests": [
+        "a_caller_google_token_source_is_composed_as_direct_google_jobs_query"
+      ],
+      "preimage_sha256": "6086d9693c48c81af19f09b76a2119b3fdd4935fb0139c74ea3da2eeda2f694a",
+      "mutated_sha256": "7d5a818e545757dea4a9242697b50bc0504a67ac5fbaae4190370a7cf616d029",
+      "edits": [
+        {
+          "path": "crates/sutura-cli/src/serve/bigquery.rs",
+          "before": "            sutura_exec_bigquery::adbc::Impersonation::CallerGoogleToken",
+          "after": "            sutura_exec_bigquery::adbc::Impersonation::GoogleLogin",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "claim-1",
+      "package": "sutura-config",
+      "tests": [
+        "a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve"
+      ],
+      "preimage_sha256": "618bb209c7c24e319872de2c831eec9e8426da7cd585b5ff01348bbef04a8e80",
+      "mutated_sha256": "9f72150029277aa3ffa0543476d11d3e6ea403ec11f12fba3b09d4ccc4e7b1f4",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/delegation.rs",
+          "before": "            .iter()\n            .any(|verifier| verifier.is_direct() && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id())));\n        let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());\n        let delegation = super::admission::delegation_key(source).or_else(|| {\n            (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))\n                && !source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty))\n            .then_some(\"google_login\")\n",
+          "after": "            .iter()\n            .any(|verifier| verifier.is_direct() && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id())));\n        let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());\n        let delegation = super::admission::delegation_key(source)\n            .filter(|key| *key != \"workload_identity.delegation\")\n            .or_else(|| {\n            (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))\n                && !source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty))\n            .then_some(\"google_login\")\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "claim-2",
+      "package": "sutura-cli",
+      "tests": [
+        "a_delegation_on_a_deployment_that_is_not_direct_stops_the_process_naming_the_key"
+      ],
+      "preimage_sha256": "618bb209c7c24e319872de2c831eec9e8426da7cd585b5ff01348bbef04a8e80",
+      "mutated_sha256": "9f72150029277aa3ffa0543476d11d3e6ea403ec11f12fba3b09d4ccc4e7b1f4",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/delegation.rs",
+          "before": "            .iter()\n            .any(|verifier| verifier.is_direct() && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id())));\n        let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());\n        let delegation = super::admission::delegation_key(source).or_else(|| {\n            (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))\n                && !source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty))\n            .then_some(\"google_login\")\n",
+          "after": "            .iter()\n            .any(|verifier| verifier.is_direct() && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id())));\n        let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());\n        let delegation = super::admission::delegation_key(source)\n            .filter(|key| *key != \"workload_identity.delegation\")\n            .or_else(|| {\n            (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))\n                && !source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty))\n            .then_some(\"google_login\")\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "claim-3",
+      "package": "sutura-config",
+      "tests": [
+        "a_delegation_written_as_one_mapping_is_refused_at_load"
+      ],
+      "preimage_sha256": "43338baa9bd8978702ee650095f033b9d863a26e7db29adf63959e4a3a3ccab9",
+      "mutated_sha256": "3af2242a6e62ff33eabef60831766fab491549cef06d0c4c4e1cfe22c6db4889",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/raw.rs",
+          "before": "    pub(crate) expected_audience: Option<String>,\n    /// The delegation hops a `direct` deployment runs before this pool will accept its caller, in\n    /// order - see `crate::sources::workload_identity::DelegationDeclared`.\n    #[serde(default, deserialize_with = \"null_as_empty\")]\n    pub(crate) delegation: Option<Vec<RawDelegation>>,\n}\n\n#[derive(Debug, Clone, serde::Deserialize)]\n",
+          "after": "    pub(crate) expected_audience: Option<String>,\n    /// The delegation hops a `direct` deployment runs before this pool will accept its caller, in\n    /// order - see `crate::sources::workload_identity::DelegationDeclared`.\n    #[serde(default, deserialize_with = \"one_or_many\")]\n    pub(crate) delegation: Option<Vec<RawDelegation>>,\n}\n\nfn one_or_many<'de, D: serde::Deserializer<'de>>(read: D) -> Result<Option<Vec<RawDelegation>>, D::Error> {\n    #[derive(serde::Deserialize)]\n    #[serde(untagged)]\n    enum OneOrMany {\n        One(RawDelegation),\n        Many(Vec<RawDelegation>),\n    }\n    Ok(Some(match serde::Deserialize::deserialize(read)? {\n        OneOrMany::One(one) => vec![one],\n        OneOrMany::Many(many) => many,\n    }))\n}\n\n#[derive(Debug, Clone, serde::Deserialize)]\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "claim-4",
+      "package": "sutura-config",
+      "tests": [
+        "a_direct_audience_that_is_its_own_issuer_does_not_start"
+      ],
+      "preimage_sha256": "95a2e41cd90fe2ac3ab21a42ee4a69187c5eb33375b047f095a2c51e059c632a",
+      "mutated_sha256": "45a8ff1def91a0912342f7b2a65754ae7bbcc38499f6f2c882dfbf2a083a24b0",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/admission.rs",
+          "before": "    for (index, later) in inbound.iter().enumerate() {\n        let requirement = later;\n        let direct = later.is_direct();\n        if direct && requirement.audience().as_str() == requirement.issuer().as_str() {\n            refusals.push(NotFitToServe::InboundAudienceIsTheIssuer);\n        }\n        if let Some(path) = later.metadata_path()\n",
+          "after": "    for (index, later) in inbound.iter().enumerate() {\n        let requirement = later;\n        let direct = later.is_direct();\n        if direct && requirement.audience().as_str() == requirement.issuer().as_str() && false {\n            refusals.push(NotFitToServe::InboundAudienceIsTheIssuer);\n        }\n        if let Some(path) = later.metadata_path()\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "claim-5",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "a_forwarded_token_is_refused_at_a_source_that_federates_at_no_pool"
+      ],
+      "preimage_sha256": "4049414d2f8fd9c53ab3c4e37e88241b621c852e013e1b8f0c6f351d1a0e549a",
+      "mutated_sha256": "3b62cc5b3bb793ec304eaa2176e25c8c88ee6538337771c26748dbea15e3617d",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
+          "before": "/// [`AdbcError::Uncovered`] at a source that federates at no pool.\npub(super) fn forwarded(token: &Secret, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {\n    match *impersonation {\n        Impersonation::ThroughPool(_) => Ok(JobAuthentication {\n            options: access_token_options(token),\n        }),\n        Impersonation::Disabled\n        | Impersonation::GoogleLogin\n        | Impersonation::CallerGoogleToken\n        | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(\n            \"read a forwarded token at a source that federates at no pool\",\n",
+          "after": "/// [`AdbcError::Uncovered`] at a source that federates at no pool.\npub(super) fn forwarded(token: &Secret, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {\n    match *impersonation {\n        Impersonation::ThroughPool(_) | Impersonation::GoogleLogin => Ok(JobAuthentication {\n            options: access_token_options(token),\n        }),\n        Impersonation::Disabled\n        | Impersonation::CallerGoogleToken\n        | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(\n            \"read a forwarded token at a source that federates at no pool\",\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "claim-6",
+      "package": "sutura-http",
+      "tests": [
+        "a_token_over_the_size_bound_is_refused_before_anything_reads_it"
+      ],
+      "preimage_sha256": "b59d1c2c33c487bbe18df3bd784b4aa848f7879c83fc125b84bc5f1c0dff5434",
+      "mutated_sha256": "dbbc1ee4f1601bc6556d8ffe14a6872a6e61b5a95f0d50931bbaae61896d897e",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "        if self.also_accept.is_empty() {\n            // Single-verifier fast path: skip the issuer peek entirely.\n            let presented = self.presented(headers)?;\n            self.verification.check_size(presented)?;\n            return self.establish_token(presented, now).await;\n        }\n        let (gate, presented) = self.select_gate(headers)?;\n",
+          "after": "        if self.also_accept.is_empty() {\n            // Single-verifier fast path: skip the issuer peek entirely.\n            let presented = self.presented(headers)?;\n            return self.establish_token(presented, now).await;\n        }\n        let (gate, presented) = self.select_gate(headers)?;\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-adapted-agent-token-bound",
+      "package": "sutura-cli",
+      "tests": [
+        "the_composed_agent_route_honours_token_bytes_for_both_inbound_modes"
+      ],
+      "preimage_sha256": "b59d1c2c33c487bbe18df3bd784b4aa848f7879c83fc125b84bc5f1c0dff5434",
+      "mutated_sha256": "5b73fb6b64c9743cb11a0805b6619e53281410c78fd1ad4b19434e4065bed774",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "Self::Jwt { validator, .. } => validator.max_token_bytes(),",
+          "after": "Self::Jwt { validator, .. } => validator.max_token_bytes().min(8192),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-key-set-url-storage",
+      "package": "sutura-config",
+      "tests": [
+        "a_key_set_url_is_read_as_the_url_location"
+      ],
+      "preimage_sha256": "f3acb4e008308c35f910e032276d9331adc5852657a7a4f15957550c63a0b436",
+      "mutated_sha256": "de38a965c9b346b5bc4bc4ba36cfac1a3e98f0f803f8a687b9347ffc8d4e0851",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound/key_set.rs",
+          "before": "parse_https_uri(Self::KEY, raw.as_ref()).map(|url| Self {\n            url,",
+          "after": "parse_https_uri(Self::KEY, raw.as_ref()).map(|url| Self {\n            url: format!(\"{url}/changed\"),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-complete-policy-key-path",
+      "package": "sutura-config",
+      "tests": [
+        "a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads"
+      ],
+      "preimage_sha256": "4f1987dd9a935f43c2a4756501e71d54e155512ceb23dcc1c7ac54abcf55bbbf",
+      "mutated_sha256": "d751e551eade6e16a3a01ed78f9bfdb177fcb591271ea658f441b3819c2327e1",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound/primitive.rs",
+          "before": "            });\n        }\n        Ok(Self {\n            path: PathBuf::from(trimmed),\n            max_stale: KeySetMaxStale::default_ceiling(),\n        })\n    }\n",
+          "after": "            });\n        }\n        Ok(Self {\n            path: Path::new(trimmed).parent().map_or_else(PathBuf::new, Path::to_path_buf),\n            max_stale: KeySetMaxStale::default_ceiling(),\n        })\n    }\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-literal-audience",
+      "package": "sutura-config",
+      "tests": [
+        "an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error",
+        "a_transit_audience_may_be_a_path_and_is_never_cleartext",
+        "a_direct_audience_is_its_own_key_and_never_cleartext"
+      ],
+      "preimage_sha256": "adee1f1878fee899c5c33dee20408b5d211815385d07142f0cd3b5fea532d681",
+      "mutated_sha256": "cc3c889b6810be74c2e291a38691386e536996b6568f5c12d86cce41afa4baff",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound/audience.rs",
+          "before": "    pub fn as_str(&self) -> &str {\n        &self.0\n    }",
+          "after": "    pub fn as_str(&self) -> &str {\n        \"different-audience\"\n    }",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-token-class-projection",
+      "package": "sutura-config",
+      "tests": [
+        "direct_token_type_any_does_not_start_without_its_opt_in",
+        "direct_token_type_any_starts_with_its_opt_in"
+      ],
+      "preimage_sha256": "6a1f2854120e8207f65f65fb93352d4c5e963ab7431ba4576107e4522dc669d9",
+      "mutated_sha256": "0957c7322869ec70b2f838690451d9785ff9482bb323ca639492cef7b066cd9f",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound.rs",
+          "before": "matches!(*self.requirement().token_type(), RequiredTokenType::Any)",
+          "after": "!matches!(*self.requirement().token_type(), RequiredTokenType::Any)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-declared-address-acceptance",
+      "package": "sutura-config",
+      "tests": [
+        "a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode"
+      ],
+      "preimage_sha256": "aa99d62dea9366c9ce25bcb7938871fad3ce3b2c220c9788fe2bc9e1d18c540b",
+      "mutated_sha256": "1dd3a7cd7e1c6ebafcdd98c4070d546c2718d7ba53db2249960ca5bd87278f16",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/inbound.rs",
+          "before": "Some(name) if !written.accept_address_claim =>",
+          "after": "Some(name) if !written.accept_address_claim && false =>",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-transit-lifetime-projection",
+      "package": "sutura-config",
+      "tests": [
+        "a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in"
+      ],
+      "preimage_sha256": "4f1987dd9a935f43c2a4756501e71d54e155512ceb23dcc1c7ac54abcf55bbbf",
+      "mutated_sha256": "ddf6d2eec7d2d6ec30bef4dbc74fcc18b3555f0f6a2099327d43be46840ad543",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound/primitive.rs",
+          "before": "                limit: Self::MAX_SECONDS,\n            });\n        }\n        Ok(Self { seconds })\n    }\n\n    /// The default lifetime.\n",
+          "after": "                limit: Self::MAX_SECONDS,\n            });\n        }\n        Ok(Self {\n            seconds: if seconds == Self::MAX_SECONDS {\n                seconds.saturating_sub(1)\n            } else {\n                seconds\n            },\n        })\n    }\n\n    /// The default lifetime.\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-gateway-location-projection",
+      "package": "sutura-config",
+      "tests": [
+        "a_gateway_assertion_in_authorization_is_refused_only_beside_a_deployment_token",
+        "the_values_the_gateway_page_prints_start_a_deployment_that_reads_authorization"
+      ],
+      "preimage_sha256": "6a1f2854120e8207f65f65fb93352d4c5e963ab7431ba4576107e4522dc669d9",
+      "mutated_sha256": "c271bca5c891ff14010a21c6007c99cc613774427fbd20e03fcab74f7d4d8d72",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound.rs",
+          "before": "            },\n            Self::BehindGateway { ref transit } => TokenRequirement {\n                max_token_bytes: transit.max_token_bytes,\n                location: if transit.header.is_authorization() {\n                    TokenLocation::GatewayBearer\n                } else {\n                    TokenLocation::Header { name: &transit.header }\n",
+          "after": "            },\n            Self::BehindGateway { ref transit } => TokenRequirement {\n                max_token_bytes: transit.max_token_bytes,\n                location: if transit.header.is_authorization() && false {\n                    TokenLocation::GatewayBearer\n                } else {\n                    TokenLocation::Header { name: &transit.header }\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-example-gateway-location",
+      "package": "sutura-config",
+      "tests": [
+        "the_tardis_example_loads_once_its_placeholders_are_filled"
+      ],
+      "preimage_sha256": "6a1f2854120e8207f65f65fb93352d4c5e963ab7431ba4576107e4522dc669d9",
+      "mutated_sha256": "c271bca5c891ff14010a21c6007c99cc613774427fbd20e03fcab74f7d4d8d72",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound.rs",
+          "before": "            },\n            Self::BehindGateway { ref transit } => TokenRequirement {\n                max_token_bytes: transit.max_token_bytes,\n                location: if transit.header.is_authorization() {\n                    TokenLocation::GatewayBearer\n                } else {\n                    TokenLocation::Header { name: &transit.header }\n",
+          "after": "            },\n            Self::BehindGateway { ref transit } => TokenRequirement {\n                max_token_bytes: transit.max_token_bytes,\n                location: if transit.header.is_authorization() && false {\n                    TokenLocation::GatewayBearer\n                } else {\n                    TokenLocation::Header { name: &transit.header }\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-named-policy-mode",
+      "package": "sutura-config",
+      "tests": [
+        "named_verifiers_keep_complete_policies_and_legacy_objects_normalize"
+      ],
+      "preimage_sha256": "d3b3d895aab38ce7ec697978d7edcfb938ab682fcfd56fdfee07762a9f982bfc",
+      "mutated_sha256": "822777775749aba6d502a91db4ce38160627cc1cd70a9c033100400c860205db",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/inbound/declaration.rs",
+          "before": "self.identity().map_or(\"direct\", InboundIdentity::mode)",
+          "after": "\"direct\"",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-extra-scope-grant",
+      "package": "sutura-http",
+      "tests": [
+        "an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_declared"
+      ],
+      "preimage_sha256": "13a1bada48634877398bcf10f18c5fcc9685c12b79bdb201ac4b056c42f23333",
+      "mutated_sha256": "9d09bae2c7eb48b2b0d7dd929452eed0a4e0fc0ae810923e3d76f323e4ae6cc2",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/token.rs",
+          "before": "if self.extra_scope_claims.reads_scp() {",
+          "after": "if self.extra_scope_claims.reads_scp() && false {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-resource-discovery-url",
+      "package": "sutura-http",
+      "tests": [
+        "a_direct_audience_leaves_the_published_resource_https"
+      ],
+      "preimage_sha256": "d1fc5cb33b47780ec5a27a7604c11218179b3aec23d1f3be6b28c2d93398f003",
+      "mutated_sha256": "bbe0e8e112732ac1df74125d6c0c517bd227dca9f44dc23131ce6ff395241a07",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/routes/protected_resource.rs",
+          "before": "let mut url = String::from(\"https://\");",
+          "after": "let mut url = String::from(\"https://other.\");",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "jwt-key-ceiling-refusal",
+      "package": "sutura-http",
+      "tests": [
+        "the_ceiling_follows_the_declaration_for_either_source_in_either_mode",
+        "past_the_ceiling_a_caller_gets_503_identity_unavailable_with_no_challenge",
+        "a_source_failing_past_the_default_ceiling_stops_verifying_until_a_look_succeeds",
+        "a_refused_document_past_the_ceiling_stops_verifying_too"
+      ],
+      "preimage_sha256": "9c63f7df03445162c63fb342839e6a713cde20a23a38e6d64d4bfa6ccc8f0978",
+      "mutated_sha256": "52fae128f2a018cc63253881164802d172b2ded3d21d887b71d207946b675293",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/keys.rs",
+          "before": "if unconfirmed >= self.max_stale {",
+          "after": "if unconfirmed >= self.max_stale && false {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "inherited-extra-scope-client-refusals",
+      "package": "sutura-http",
+      "tests": [
+        "a_token_naming_no_client_is_refused_where_extra_scope_claims_are_read",
+        "a_token_whose_client_is_the_api_is_refused_where_extra_scope_claims_are_read",
+        "an_empty_client_is_refused_where_extra_scope_claims_are_read",
+        "the_api_id_in_another_case_is_refused_where_extra_scope_claims_are_read",
+        "the_api_id_with_whitespace_around_it_is_refused_where_extra_scope_claims_are_read"
+      ],
+      "preimage_sha256": "13a1bada48634877398bcf10f18c5fcc9685c12b79bdb201ac4b056c42f23333",
+      "mutated_sha256": "2c9c3400520cc3dface24345fec8c158bc3fdf1b9aecc1c88d43e4792ecaf487",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/token.rs",
+          "before": "if !self.extra_scope_claims.reads_scp() && !self.extra_scope_claims.reads_roles() {",
+          "after": "if self.extra_scope_claims.reads_scp() || self.extra_scope_claims.reads_roles() {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "inherited-agent-ceiling-mismatch",
+      "package": "sutura-cli",
+      "tests": [
+        "an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble"
+      ],
+      "preimage_sha256": "bbd557bd40acb14e9396007cba2ffefeed6b03f055f5e8c972ea53f383ca025b",
+      "mutated_sha256": "7bcdcbf3acb403f28da9d61b841f17e61f75db8102f0e1b0df0ba9383b4e49e0",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/router.rs",
+          "before": "if mount_pushes != state_registered {",
+          "after": "if mount_pushes == state_registered {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "inherited-caller-assertion-cli",
+      "package": "sutura-cli",
+      "tests": [
+        "a_refused_exchange_answers_identity_unavailable_and_reaches_no_source",
+        "a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back"
+      ],
+      "preimage_sha256": "86ca99791f09c211859ea22242d395d6596ad1518dd1c16203f7795d858af582",
+      "mutated_sha256": "dbed75d31b37ec2a27ad287909fbd214b28d21ce1ebf5d5cf9a6b30e0555e7f0",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/principal.rs",
+          "before": "RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone(), caller.expires())",
+          "after": "RequestContext::of(caller.chain().clone())",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "inherited-caller-assertion-http",
+      "package": "sutura-http",
+      "tests": [
+        "two_subjects_drive_two_different_exchanged_credentials"
+      ],
+      "preimage_sha256": "86ca99791f09c211859ea22242d395d6596ad1518dd1c16203f7795d858af582",
+      "mutated_sha256": "dbed75d31b37ec2a27ad287909fbd214b28d21ce1ebf5d5cf9a6b30e0555e7f0",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/principal.rs",
+          "before": "RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone(), caller.expires())",
+          "after": "RequestContext::of(caller.chain().clone())",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "inherited-caller-address-cli",
+      "package": "sutura-cli",
+      "tests": [
+        "an_address_outside_the_delegated_domains_is_refused_before_the_source",
+        "an_entra_shaped_token_runs_as_its_upn_only_where_the_claim_is_declared"
+      ],
+      "preimage_sha256": "86ca99791f09c211859ea22242d395d6596ad1518dd1c16203f7795d858af582",
+      "mutated_sha256": "ed39c90f86d04c230f9c99ac14cdc199ebc194a769a8843482d9a1946663b2dd",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/principal.rs",
+          "before": ".addressed(caller.address().cloned())",
+          "after": ".addressed(None)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "inherited-outbound-credential-log",
+      "package": "sutura-cli",
+      "tests": [
+        "no_outbound_credential_reaches_a_response_or_a_log_line"
+      ],
+      "preimage_sha256": "86ca99791f09c211859ea22242d395d6596ad1518dd1c16203f7795d858af582",
+      "mutated_sha256": "32893b4556d275dc2a2e15c04a1c762eb43856baf92954ba4f65e5ef3892e9ff",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/principal.rs",
+          "before": "pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {\n",
+          "after": "pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {\n    tracing::error!(credential = %caller.assertion().expose_secret());\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "inherited-answer-posture-wire",
+      "package": "sutura-http",
+      "tests": [
+        "an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_file_says"
+      ],
+      "preimage_sha256": "c7c63ccc75b240d00fbd099f17508eb96cc98d495f859508e1d803d1a5bcf8df",
+      "mutated_sha256": "64d17cef8f7c6122dd74edf33aeeaaa0aee0df829c686d978ccbd84d1aed6b42",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/wire.rs",
+          "before": "posture: posture.as_str(),",
+          "after": "posture: posture.as_str().get(..0).unwrap_or_default(),",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "test_files": {
+    "google_tokeninfo_refuses_another_audience": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_refuses_another_authorized_party": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_refuses_an_expired_token": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_refuses_a_missing_scope": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_refuses_an_unverified_email": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_refuses_an_unlisted_hosted_domain": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_unavailability_is_not_cached": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_caches_a_digest_and_scopes_identity_to_the_verifier": "crates/sutura-http/src/inbound/google.rs",
+    "google_tokeninfo_positive_cache_expires_and_stays_bounded": "crates/sutura-http/src/inbound/google.rs",
+    "a_verified_google_readonly_grant_maps_to_three_surface_reads_and_never_remote_legs": "crates/sutura-http/src/inbound/google.rs",
+    "tokeninfo_unreachable_answers_503_without_a_challenge_or_token_text": "crates/sutura-http/src/inbound/google.rs",
+    "google_discovery_names_google_and_the_client_scopes_on_its_mount": "crates/sutura-http/src/inbound/google.rs",
+    "an_opaque_google_token_uses_its_mounted_verifier_without_a_jwt_issuer_peek": "crates/sutura-http/src/inbound/google.rs",
+    "a_direct_google_verifier_and_acknowledged_caller_token_source_load_together": "crates/sutura-config/tests/google_direct.rs",
+    "a_caller_google_token_without_its_reason_is_refused_at_load": "crates/sutura-config/tests/google_direct.rs",
+    "a_caller_google_token_admitted_by_a_jwt_is_refused_as_caller_google_token_verifier": "crates/sutura-config/tests/google_direct.rs",
+    "a_google_email_change_changes_the_masked_record_but_not_subject_identity_or_hash": "crates/sutura-domain/src/identity/principal/google_cells.rs",
+    "a_caller_google_token_source_refuses_jwt_provenance_and_forwards_each_google_callers_own_token": "crates/sutura-config/src/credentials/declared/tests/google_tokens.rs",
+    "a_direct_google_job_carries_only_its_access_token_and_the_readonly_jobs_query_route": "crates/sutura-exec-bigquery/src/adbc/identity/google_token_cells.rs",
+    "a_caller_google_token_source_is_composed_as_direct_google_jobs_query": "crates/sutura-cli/src/serve/bigquery.rs",
+    "a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve": "crates/sutura-config/src/settings/tests/sources.rs",
+    "a_delegation_on_a_deployment_that_is_not_direct_stops_the_process_naming_the_key": "crates/sutura-cli/tests/served/bigquery.rs",
+    "a_delegation_written_as_one_mapping_is_refused_at_load": "crates/sutura-config/src/settings/tests/sources.rs",
+    "a_direct_audience_that_is_its_own_issuer_does_not_start": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "a_forwarded_token_is_refused_at_a_source_that_federates_at_no_pool": "crates/sutura-exec-bigquery/src/adbc/pool_cells.rs",
+    "a_token_over_the_size_bound_is_refused_before_anything_reads_it": "crates/sutura-http/src/inbound/tests.rs",
+    "a_key_set_url_is_read_as_the_url_location": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "a_gateway_assertion_in_authorization_is_refused_only_beside_a_deployment_token": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "direct_token_type_any_does_not_start_without_its_opt_in": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "direct_token_type_any_starts_with_its_opt_in": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "a_transit_audience_may_be_a_path_and_is_never_cleartext": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "a_direct_audience_is_its_own_key_and_never_cleartext": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "the_values_the_gateway_page_prints_start_a_deployment_that_reads_authorization": "crates/sutura-config/src/settings/tests/deployment_pages.rs",
+    "named_verifiers_keep_complete_policies_and_legacy_objects_normalize": "crates/sutura-config/src/settings/admission/tests.rs",
+    "the_tardis_example_loads_once_its_placeholders_are_filled": "crates/sutura-config/tests/tardis_example.rs",
+    "an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_declared": "crates/sutura-http/src/inbound/tests/audience.rs",
+    "a_direct_audience_leaves_the_published_resource_https": "crates/sutura-http/src/inbound/tests/audience.rs",
+    "the_ceiling_follows_the_declaration_for_either_source_in_either_mode": "crates/sutura-http/src/inbound/tests/unconfirmed.rs",
+    "past_the_ceiling_a_caller_gets_503_identity_unavailable_with_no_challenge": "crates/sutura-http/src/inbound/tests/unconfirmed.rs",
+    "the_composed_agent_route_honours_token_bytes_for_both_inbound_modes": "crates/sutura-cli/src/serve/tests/agent_identity.rs",
+    "a_source_failing_past_the_default_ceiling_stops_verifying_until_a_look_succeeds": "crates/sutura-http/src/inbound/tests/unconfirmed.rs",
+    "a_refused_document_past_the_ceiling_stops_verifying_too": "crates/sutura-http/src/inbound/tests/unconfirmed.rs",
+    "a_refused_exchange_answers_identity_unavailable_and_reaches_no_source": "crates/sutura-cli/src/serve/tests/delegation_served.rs",
+    "a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back": "crates/sutura-cli/src/serve/tests/delegation_served.rs",
+    "a_token_naming_no_client_is_refused_where_extra_scope_claims_are_read": "crates/sutura-http/src/inbound/tests/variants.rs",
+    "a_token_whose_client_is_the_api_is_refused_where_extra_scope_claims_are_read": "crates/sutura-http/src/inbound/tests/variants.rs",
+    "an_address_outside_the_delegated_domains_is_refused_before_the_source": "crates/sutura-cli/src/serve/bigquery.rs",
+    "an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble": "crates/sutura-cli/src/serve/tests/agent_identity.rs",
+    "an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_file_says": "crates/sutura-http/src/identity_e2e.rs",
+    "an_empty_client_is_refused_where_extra_scope_claims_are_read": "crates/sutura-http/src/inbound/tests/variants.rs",
+    "an_entra_shaped_token_runs_as_its_upn_only_where_the_claim_is_declared": "crates/sutura-cli/src/serve/bigquery.rs",
+    "no_outbound_credential_reaches_a_response_or_a_log_line": "crates/sutura-cli/src/serve/tests/delegation_served.rs",
+    "the_api_id_in_another_case_is_refused_where_extra_scope_claims_are_read": "crates/sutura-http/src/inbound/tests/variants.rs",
+    "the_api_id_with_whitespace_around_it_is_refused_where_extra_scope_claims_are_read": "crates/sutura-http/src/inbound/tests/variants.rs",
+    "two_subjects_drive_two_different_exchanged_credentials": "crates/sutura-http/src/identity_e2e.rs"
+  },
+  "test_identities": {
+    "google_tokeninfo_refuses_another_audience": ["sutura-http", "inbound::google::tests::google_tokeninfo_refuses_another_audience"],
+    "google_tokeninfo_refuses_another_authorized_party": ["sutura-http", "inbound::google::tests::google_tokeninfo_refuses_another_authorized_party"],
+    "google_tokeninfo_refuses_an_expired_token": ["sutura-http", "inbound::google::tests::google_tokeninfo_refuses_an_expired_token"],
+    "google_tokeninfo_refuses_a_missing_scope": ["sutura-http", "inbound::google::tests::google_tokeninfo_refuses_a_missing_scope"],
+    "google_tokeninfo_refuses_an_unverified_email": ["sutura-http", "inbound::google::tests::google_tokeninfo_refuses_an_unverified_email"],
+    "google_tokeninfo_refuses_an_unlisted_hosted_domain": ["sutura-http", "inbound::google::tests::google_tokeninfo_refuses_an_unlisted_hosted_domain"],
+    "google_tokeninfo_unavailability_is_not_cached": ["sutura-http", "inbound::google::tests::google_tokeninfo_unavailability_is_not_cached"],
+    "google_tokeninfo_caches_a_digest_and_scopes_identity_to_the_verifier": ["sutura-http", "inbound::google::tests::google_tokeninfo_caches_a_digest_and_scopes_identity_to_the_verifier"],
+    "google_tokeninfo_positive_cache_expires_and_stays_bounded": ["sutura-http", "inbound::google::tests::google_tokeninfo_positive_cache_expires_and_stays_bounded"],
+    "a_verified_google_readonly_grant_maps_to_three_surface_reads_and_never_remote_legs": ["sutura-http", "inbound::google::tests::a_verified_google_readonly_grant_maps_to_three_surface_reads_and_never_remote_legs"],
+    "tokeninfo_unreachable_answers_503_without_a_challenge_or_token_text": ["sutura-http", "inbound::google::tests::tokeninfo_unreachable_answers_503_without_a_challenge_or_token_text"],
+    "google_discovery_names_google_and_the_client_scopes_on_its_mount": ["sutura-http", "inbound::google::tests::google_discovery_names_google_and_the_client_scopes_on_its_mount"],
+    "an_opaque_google_token_uses_its_mounted_verifier_without_a_jwt_issuer_peek": ["sutura-http", "inbound::google::tests::an_opaque_google_token_uses_its_mounted_verifier_without_a_jwt_issuer_peek"],
+    "a_direct_google_verifier_and_acknowledged_caller_token_source_load_together": ["sutura-config::google_direct", "tests::a_direct_google_verifier_and_acknowledged_caller_token_source_load_together"],
+    "a_caller_google_token_without_its_reason_is_refused_at_load": ["sutura-config::google_direct", "tests::a_caller_google_token_without_its_reason_is_refused_at_load"],
+    "a_caller_google_token_admitted_by_a_jwt_is_refused_as_caller_google_token_verifier": ["sutura-config::google_direct", "tests::a_caller_google_token_admitted_by_a_jwt_is_refused_as_caller_google_token_verifier"],
+    "a_google_email_change_changes_the_masked_record_but_not_subject_identity_or_hash": ["sutura-domain", "identity::principal::google_cells::a_google_email_change_changes_the_masked_record_but_not_subject_identity_or_hash"],
+    "a_caller_google_token_source_refuses_jwt_provenance_and_forwards_each_google_callers_own_token": ["sutura-config", "credentials::declared::tests::google_tokens::a_caller_google_token_source_refuses_jwt_provenance_and_forwards_each_google_callers_own_token"],
+    "a_direct_google_job_carries_only_its_access_token_and_the_readonly_jobs_query_route": ["sutura-exec-bigquery", "adbc::identity::google_token_cells::a_direct_google_job_carries_only_its_access_token_and_the_readonly_jobs_query_route"],
+    "a_caller_google_token_source_is_composed_as_direct_google_jobs_query": ["sutura-cli::bin/sutura", "serve::bigquery::tests::a_caller_google_token_source_is_composed_as_direct_google_jobs_query"],
+    "a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve": ["sutura-config", "settings::tests::sources::a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve"],
+    "a_delegation_on_a_deployment_that_is_not_direct_stops_the_process_naming_the_key": ["sutura-cli::served", "bigquery::tests::a_delegation_on_a_deployment_that_is_not_direct_stops_the_process_naming_the_key"],
+    "a_delegation_written_as_one_mapping_is_refused_at_load": ["sutura-config", "settings::tests::sources::a_delegation_written_as_one_mapping_is_refused_at_load"],
+    "a_direct_audience_that_is_its_own_issuer_does_not_start": ["sutura-config", "settings::tests::inbound::a_direct_audience_that_is_its_own_issuer_does_not_start"],
+    "a_forwarded_token_is_refused_at_a_source_that_federates_at_no_pool": ["sutura-exec-bigquery", "adbc::pool_cells::a_forwarded_token_is_refused_at_a_source_that_federates_at_no_pool"],
+    "a_token_over_the_size_bound_is_refused_before_anything_reads_it": ["sutura-http", "inbound::tests::a_token_over_the_size_bound_is_refused_before_anything_reads_it"],
+    "a_key_set_url_is_read_as_the_url_location": ["sutura-config", "settings::tests::inbound::a_key_set_url_is_read_as_the_url_location"],
+    "a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads": ["sutura-config", "settings::tests::inbound::a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads"],
+    "a_gateway_assertion_in_authorization_is_refused_only_beside_a_deployment_token": ["sutura-config", "settings::tests::inbound::a_gateway_assertion_in_authorization_is_refused_only_beside_a_deployment_token"],
+    "an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error": ["sutura-config", "settings::tests::inbound::an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error"],
+    "direct_token_type_any_does_not_start_without_its_opt_in": ["sutura-config", "settings::tests::inbound::direct_token_type_any_does_not_start_without_its_opt_in"],
+    "direct_token_type_any_starts_with_its_opt_in": ["sutura-config", "settings::tests::inbound::direct_token_type_any_starts_with_its_opt_in"],
+    "a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode": ["sutura-config", "settings::tests::inbound::a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode"],
+    "a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in": ["sutura-config", "settings::tests::inbound::a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in"],
+    "a_transit_audience_may_be_a_path_and_is_never_cleartext": ["sutura-config", "settings::tests::inbound::a_transit_audience_may_be_a_path_and_is_never_cleartext"],
+    "a_direct_audience_is_its_own_key_and_never_cleartext": ["sutura-config", "settings::tests::inbound::a_direct_audience_is_its_own_key_and_never_cleartext"],
+    "the_values_the_gateway_page_prints_start_a_deployment_that_reads_authorization": ["sutura-config", "settings::tests::deployment_pages::the_values_the_gateway_page_prints_start_a_deployment_that_reads_authorization"],
+    "named_verifiers_keep_complete_policies_and_legacy_objects_normalize": ["sutura-config", "settings::admission::tests::named_verifiers_keep_complete_policies_and_legacy_objects_normalize"],
+    "the_tardis_example_loads_once_its_placeholders_are_filled": ["sutura-config::tardis_example", "tests::the_tardis_example_loads_once_its_placeholders_are_filled"],
+    "an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_declared": ["sutura-http", "inbound::tests::audience::an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_declared"],
+    "a_direct_audience_leaves_the_published_resource_https": ["sutura-http", "inbound::tests::audience::a_direct_audience_leaves_the_published_resource_https"],
+    "the_ceiling_follows_the_declaration_for_either_source_in_either_mode": ["sutura-http", "inbound::tests::unconfirmed::the_ceiling_follows_the_declaration_for_either_source_in_either_mode"],
+    "past_the_ceiling_a_caller_gets_503_identity_unavailable_with_no_challenge": ["sutura-http", "inbound::tests::unconfirmed::past_the_ceiling_a_caller_gets_503_identity_unavailable_with_no_challenge"],
+    "the_composed_agent_route_honours_token_bytes_for_both_inbound_modes": ["sutura-cli::bin/sutura", "serve::tests::agent_identity::the_composed_agent_route_honours_token_bytes_for_both_inbound_modes"],
+    "a_source_failing_past_the_default_ceiling_stops_verifying_until_a_look_succeeds": ["sutura-http", "inbound::tests::unconfirmed::a_source_failing_past_the_default_ceiling_stops_verifying_until_a_look_succeeds"],
+    "a_refused_document_past_the_ceiling_stops_verifying_too": ["sutura-http", "inbound::tests::unconfirmed::a_refused_document_past_the_ceiling_stops_verifying_too"],
+    "a_refused_exchange_answers_identity_unavailable_and_reaches_no_source": ["sutura-cli::bin/sutura", "serve::tests::delegation_served::a_refused_exchange_answers_identity_unavailable_and_reaches_no_source"],
+    "a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back": ["sutura-cli::bin/sutura", "serve::tests::delegation_served::a_served_callers_own_token_is_exchanged_and_the_source_is_handed_what_came_back"],
+    "a_token_naming_no_client_is_refused_where_extra_scope_claims_are_read": ["sutura-http", "inbound::tests::variants::a_token_naming_no_client_is_refused_where_extra_scope_claims_are_read"],
+    "a_token_whose_client_is_the_api_is_refused_where_extra_scope_claims_are_read": ["sutura-http", "inbound::tests::variants::a_token_whose_client_is_the_api_is_refused_where_extra_scope_claims_are_read"],
+    "an_address_outside_the_delegated_domains_is_refused_before_the_source": ["sutura-cli::bin/sutura", "serve::bigquery::tests::domain_delegation::an_address_outside_the_delegated_domains_is_refused_before_the_source"],
+    "an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble": ["sutura-cli::bin/sutura", "serve::tests::agent_identity::an_agent_mount_declaring_no_ceiling_on_a_priced_state_does_not_assemble"],
+    "an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_file_says": ["sutura-http", "identity_e2e::an_answer_records_the_posture_the_adapter_declared_and_not_the_one_a_file_says"],
+    "an_empty_client_is_refused_where_extra_scope_claims_are_read": ["sutura-http", "inbound::tests::variants::an_empty_client_is_refused_where_extra_scope_claims_are_read"],
+    "an_entra_shaped_token_runs_as_its_upn_only_where_the_claim_is_declared": ["sutura-cli::bin/sutura", "serve::bigquery::tests::domain_delegation::an_entra_shaped_token_runs_as_its_upn_only_where_the_claim_is_declared"],
+    "no_outbound_credential_reaches_a_response_or_a_log_line": ["sutura-cli::bin/sutura", "serve::tests::delegation_served::no_outbound_credential_reaches_a_response_or_a_log_line"],
+    "the_api_id_in_another_case_is_refused_where_extra_scope_claims_are_read": ["sutura-http", "inbound::tests::variants::the_api_id_in_another_case_is_refused_where_extra_scope_claims_are_read"],
+    "the_api_id_with_whitespace_around_it_is_refused_where_extra_scope_claims_are_read": ["sutura-http", "inbound::tests::variants::the_api_id_with_whitespace_around_it_is_refused_where_extra_scope_claims_are_read"],
+    "two_subjects_drive_two_different_exchanged_credentials": ["sutura-http", "identity_e2e::two_subjects_drive_two_different_exchanged_credentials"]
+  },
+  "cargo_profile": "ci"
+}
