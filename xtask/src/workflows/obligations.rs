@@ -850,13 +850,13 @@ mod tests {
             ),
             (
                 "oracle-tier reads another leg's output",
-                "needs.queue-validated.outputs.oracle_tier != 'true'\n",
-                "needs.queue-validated.outputs.multi_node != 'true'\n",
+                "needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.oracle_tier != 'true' }}\n",
+                "needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.multi_node != 'true' }}\n",
             ),
             (
                 "ci-cube-tier loses its conjunct",
-                " && needs.queue-validated.outputs.ci_cube_tier != 'true'\n",
-                "\n",
+                "needs.identity-classify.outputs.catalog_cube == 'true' && needs.queue-validated.outputs.ci_cube_tier != 'true' }}\n",
+                "needs.identity-classify.outputs.catalog_cube == 'true' }}\n",
             ),
             (
                 "K3S_SELECTED loses its conjunct",
