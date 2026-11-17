@@ -101,3 +101,32 @@ pub(crate) fn endpoints(
         .transpose()?;
     Ok(endpoints.with_trust(ca, identity))
 }
+
+#[cfg(test)]
+mod endpoint_cells {
+    #[test]
+    #[cfg(all(unix, feature = "bigquery"))]
+    fn native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths() {
+        use std::os::unix::ffi::OsStringExt as _;
+        let invalid = std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', 0xff]));
+        let declarations = [
+            sutura_tls::Declared::new(sutura_tls::Anchors::Bundle(invalid.clone()), None),
+            sutura_tls::Declared::new(
+                sutura_tls::Anchors::System,
+                Some(sutura_tls::Identity::new(invalid.clone(), "/etc/sutura/client.key".into())),
+            ),
+            sutura_tls::Declared::new(
+                sutura_tls::Anchors::System,
+                Some(sutura_tls::Identity::new("/etc/sutura/client.pem".into(), invalid)),
+            ),
+        ];
+        for declaration in declarations {
+            let result = super::endpoints(
+                &sutura_config::google_endpoints::GoogleEndpoints::default(),
+                Some(&declaration),
+            );
+            let error = result.expect_err("native TLS material with an unusable file path is refused before opening a driver");
+            assert_eq!(error, "BigQuery TLS material needs a UTF-8 file path");
+        }
+    }
+}
