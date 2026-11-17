@@ -1,0 +1,7 @@
+build(ci): publish ARM release dependency closures
+
+Publish the GNU and musl ARM release cargoArtifacts through the existing
+trusted dependency publisher. Enroll both roots in the existing cache-only
+workflow contract and keep its fixtures complete.
+
+Release checks, cache trust and publication ordering stay unchanged.
