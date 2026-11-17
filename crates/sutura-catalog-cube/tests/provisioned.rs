@@ -38,7 +38,7 @@ mod tests {
         let signed = jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
             &claims,
-            &jsonwebtoken::EncodingKey::from_secret(key),
+            &jsonwebtoken::EncodingKey::from_secret(key).expect("a nonempty fixture HMAC key"),
         )
         .expect("an HS256 token signs");
         Secret::new(signed)
