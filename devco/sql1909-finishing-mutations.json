@@ -1,0 +1,37 @@
+{
+  "mutants": [
+    {
+      "label": "restore-bare-only-parent-qualifier-export",
+      "package": "sutura-app",
+      "tests": [
+        "native_bigquery_qualifier"
+      ],
+      "preimage_sha256": "c067977d7283637bd4fb5cf2790279b10562cd67f10102f7268e8961d2335873",
+      "mutated_sha256": "5cc4ceaa12815c5f95edb881594c3e337ef7d407c3a693abb738309fa28c1100",
+      "edits": [
+        {
+          "path": "vendor/datafusion-sql/src/unparser/plan.rs",
+          "before": "        // A wrapper must export the qualifier its parent expressions render.\n        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);\n        if let Some(table_ref) = qualifier\n            && (matches!(table_ref, TableReference::Bare { .. })\n                || !self.dialect.full_qualified_col())\n            && plan.schema().iter().all(|(name, _)| name == qualifier)\n        {\n            return self.derive(\n                plan,\n                relation,\n                Some(self.new_table_alias(table_ref.table().to_string(), columns)),",
+          "after": "        // A wrapper must export the bare qualifier its parent expressions use.\n        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);\n        if let Some(TableReference::Bare { table }) = qualifier\n            && plan.schema().iter().all(|(name, _)| name == qualifier)\n        {\n            return self.derive(\n                plan,\n                relation,\n                Some(self.new_table_alias(table.to_string(), columns)),",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "test_files": {
+    "native_bigquery_qualifier": "crates/sutura-app/tests/golden/statements.rs"
+  },
+  "test_identities": {
+    "native_bigquery_qualifier": [
+      "sutura-app::golden",
+      "statements::engines::bigquery::every_planned_shape_answers_at_the_bigquery_engine"
+    ]
+  },
+  "test_functions": {
+    "native_bigquery_qualifier": {
+      "name": "runs_native_statement_corpus",
+      "indent": ""
+    }
+  },
+  "cargo_profile": "ci"
+}
