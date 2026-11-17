@@ -1,7 +1,11 @@
 --- a/crates/sutura-exec-datafusion/src/combine/statement.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/statement.rs
-@@ -260,3 +260,3 @@
-         .iter()
--        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
-+        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("never"))
- }
+@@ -677,7 +677,7 @@
+     options.verify_plan(&plan)?;
+     let mut numeric_operations = false;
+     plan.apply_with_subqueries(|node| {
+-        numeric_operations |= !number_text_safe(node)?;
++        numeric_operations &= !number_text_safe(node)?;
+         Ok(TreeNodeRecursion::Continue)
+     })?;
+     // Validate caller functions before registering the policy-only regex replacement.
