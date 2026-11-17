@@ -232,6 +232,43 @@ fn each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread() {
 }
 
 #[test]
+fn oracle_text_policies_pin_lob_kinds_for_full_search_and_distinct_scalar_capacities() {
+    use crate::catalog::TextPolicy;
+    let policy: TextPolicy = serde_json::from_value(serde_json::json!({"max_text_bytes":4000})).unwrap();
+    let definitions = Definitions::assemble(
+        vec![model(
+            "notes",
+            "lake",
+            vec![
+                column("body", Some("CLOB")).with_text_policy(policy.clone()),
+                column("national", Some("NCLOB")).with_text_policy(policy.clone()),
+                column("title", Some("VARCHAR2(80)")).with_text_policy(policy),
+            ],
+        )],
+        vec![],
+        vec![],
+    )
+    .unwrap();
+    let pinned = PinnedSchemas::pin(
+        &definitions,
+        &BTreeMap::from([(SourceName::parse("lake").unwrap(), TypeDialect::Oracle)]),
+    )
+    .unwrap();
+    let schema = pinned.of(&ModelName::parse("notes").unwrap()).unwrap();
+    for (name, kind) in [("body", Some("clob")), ("national", Some("nclob")), ("title", None)] {
+        assert_eq!(
+            schema
+                .field_with_name(name)
+                .unwrap()
+                .metadata()
+                .get("sutura:oracle_lob")
+                .map(String::as_str),
+            kind
+        );
+    }
+}
+
+#[test]
 fn text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect() {
     use crate::catalog::{Audience, Metric, TextPolicy};
     use crate::measure::{AggregatedColumn, Measure, Term};

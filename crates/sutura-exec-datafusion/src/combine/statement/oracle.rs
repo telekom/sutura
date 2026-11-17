@@ -6,8 +6,8 @@ use datafusion::common::plan_datafusion_err;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::sql::sqlparser::ast::{
-    CastKind, DataType, Expr, Fetch, LimitClause, OffsetRows, OrderByKind, Query, SelectItem, SetExpr, Statement, TableFactor,
-    TimezoneInfo, TypedString, Value, VisitMut as _, VisitorMut,
+    CastKind, DataType, Expr, Fetch, Ident, LimitClause, ObjectName, OffsetRows, OrderByKind, Query, SelectItem, SetExpr,
+    Statement, TableFactor, TimezoneInfo, TypedString, Value, VisitMut as _, VisitorMut,
 };
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle};
@@ -44,6 +44,11 @@ impl VisitorMut for Oracle {
     type Break = DataFusionError;
 
     fn post_visit_expr(&mut self, expression: &mut Expr) -> ControlFlow<Self::Break> {
+        if let Expr::Function(function) = expression
+            && function.name.to_string().eq_ignore_ascii_case("strpos")
+        {
+            function.name = ObjectName::from(vec![Ident::new("INSTR")]);
+        }
         if let Expr::Cast {
             kind: CastKind::Cast,
             expr,

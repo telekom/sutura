@@ -147,6 +147,18 @@ impl PinnedSchemas {
                         model: model.name().clone(),
                     })?;
                     field.metadata_mut().insert(String::from("sutura:text_policy"), encoded);
+                    if *dialect == TypeDialect::Oracle
+                        && column.data_type().is_some_and(|declared| {
+                            declared.as_str().eq_ignore_ascii_case("clob") || declared.as_str().eq_ignore_ascii_case("nclob")
+                        })
+                    {
+                        field.metadata_mut().insert(
+                            String::from("sutura:oracle_lob"),
+                            column
+                                .data_type()
+                                .map_or_else(String::new, |declared| declared.as_str().to_ascii_lowercase()),
+                        );
+                    }
                 }
                 fields.push(field);
             }
@@ -327,6 +339,10 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
         for field in schema.fields() {
             part(&mut hash, field.name());
             part(&mut hash, &field.data_type().to_string());
+            if let Some(lob) = field.metadata().get("sutura:oracle_lob") {
+                part(&mut hash, "sutura:oracle_lob");
+                part(&mut hash, lob);
+            }
             if let Some(policy) = field.metadata().get("sutura:text_policy") {
                 part(&mut hash, "sutura:text_policy");
                 part(&mut hash, policy);

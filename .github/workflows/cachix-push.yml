@@ -222,10 +222,8 @@ jobs:
         # triple built there and not published here is a leg with no second carrier at all.
         # `cargo xtask check-workflows` refuses either drift.
         #
-        # `release.yml`'s `build` still builds all four and this reduction costs it nothing it was
-        # getting: it names no substituter beyond the installer's default, and it builds the
-        # RELEASE-profile packages, which are different derivations from the `-ci` ones realised
-        # below. Read from that file rather than assumed.
+        # Release-profile packages use distinct derivations from these CI-profile packages.
+        # Their dependency closures are published by `downstream-deps` below.
         target:
           - aarch64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
@@ -333,6 +331,8 @@ jobs:
   # `adbcArchiveFor` in `nix/shipped.nix` (which triple links which driver) and with `CACHE_ONLY` in
   # `xtask/src/workflows/reach/cache_publish.rs`, which refuses a literal package build in this
   # file that it does not name for this job, and a name it lists that this job does not build.
+  # Both ARM release closures are included for the four-target release checks; the cross-build
+  # job above publishes CI-profile artifacts, which cannot substitute these release inputs.
   downstream-deps:
     name: push the downstream dependency closures
     runs-on: rust-mcp-16core
@@ -360,6 +360,7 @@ jobs:
           set -eu
           nix build --print-build-logs \
             .#deps-native-ci .#deps-native-release .#deps-musl-release \
+            .#deps-aarch64-gnu-release .#deps-aarch64-musl-release \
             .#deps-postgres-kerberos-ci \
             .#adbc-driver-bigquery-x86_64-unknown-linux-gnu \
             .#adbc-driver-bigquery-x86_64-unknown-linux-musl \
