@@ -251,3 +251,6 @@ extraEnv: []
 # so enabling it is a decision for the operator who knows the cluster, not this chart's default.
 networkPolicy:
   enabled: false
+
+# DNS overrides inherited by serving, combining and reading workers.
+hostAliases: []

@@ -450,6 +450,7 @@ pub(crate) fn run() -> Result<(), String> {
         sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(&service.definitions()), &attached)
             .map_err(|changed| changed.to_string())?;
     }
+    tracing::info!(google_endpoints = ?settings.google_endpoints(), "Google API destinations");
     tracing::info!(
         definition_version = %pinned.version(),
         metrics = pinned.definitions().metrics().len(),

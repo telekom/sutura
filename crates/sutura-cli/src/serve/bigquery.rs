@@ -27,7 +27,7 @@ pub(crate) fn open_bigquery(
     let mut engines: Option<sutura_app::Warehouses<super::BigQuerySource>> = None;
     for source in declared {
         let configured = super::configured_source(source, registry)?;
-        let engine = build_bigquery(source, configured, request_timeout, outbound)?;
+        let engine = build_bigquery(source, configured, registry.google_endpoints(), request_timeout, outbound)?;
         engines = Some(match engines {
             None => sutura_app::Warehouses::of(engine),
             Some(open) => open.and(engine).map_err(super::flatten)?,
@@ -87,10 +87,10 @@ pub(crate) fn open_bigquery(
 fn build_bigquery(
     source: &sutura_domain::model::SourceName,
     configured: &sutura_config::ConfiguredSource,
+    endpoints: &sutura_config::google_endpoints::GoogleEndpoints,
     _request_timeout: sutura_config::RequestTimeout,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<super::BigQuerySource, String> {
-    crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
     let sutura_config::SourcePlacement::BigQuery {
         ref billing,
         max_bytes_billed,
@@ -172,9 +172,10 @@ fn build_bigquery(
     // `sutura_config` refuses the key by name rather than carry a value that reaches nothing.
     let impersonation = impersonation_of(source, configured)?;
     let pooled = matches!(impersonation, sutura_exec_bigquery::adbc::Impersonation::ThroughPool(_));
-    let mut transport = sutura_exec_bigquery::adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed);
+    let mut transport = sutura_exec_bigquery::adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed)
+        .at_endpoints(crate::bigquery_driver::endpoints(endpoints, outbound)?);
     if pooled {
-        transport = transport.exchanging_through(Box::new(super::broker::pool_exchange(outbound)?));
+        transport = transport.exchanging_through(Box::new(super::broker::pool_exchange(outbound, endpoints.sts().as_str())?));
     }
     Ok(sutura_exec_bigquery::BigQueryWarehouse::new(
         source.clone(),
