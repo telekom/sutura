@@ -129,8 +129,19 @@ where
         };
         let scans = resolve::statement(native, &native_tables)
             .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
+        let read: Vec<_> = native_tables
+            .into_iter()
+            .filter(|table| scans.contains(table.table()))
+            .collect();
         let text = oracle::native(native)
-            .and_then(|sql| text::apply(sql, &native_tables, TypeDialect::Oracle))
+            .and_then(|sql| text::apply(sql, &read, TypeDialect::Oracle))
+            .and_then(|sql| {
+                if read.iter().any(text::oracle_lobs) {
+                    text::bounded_native_oracle_rows(&sql, plan.schema().inner(), &read)
+                } else {
+                    Ok(sql)
+                }
+            })
             .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
         legs.open(&sources).map_err(StatementStopped::Leg)?;
@@ -421,7 +432,17 @@ impl Part {
     /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
     /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
     fn statement(&self, whole: bool, tables: &[StatementTable]) -> Planned<RawStatement> {
-        let text = if whole {
+        let scanned = self.scan_tables(tables)?;
+        let read: Vec<_> = tables
+            .iter()
+            .filter(|table| table.source() == &self.source && scanned.contains(table.table()))
+            .cloned()
+            .collect();
+        let full_lobs = read.iter().any(text::oracle_lobs);
+        if full_lobs && !whole {
+            return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
+        }
+        let text = if whole && !full_lobs {
             unparsed(&self.plan, self.dialect)?
         } else {
             unparsed(&labelled(&self.plan)?, self.dialect)?
@@ -429,7 +450,12 @@ impl Part {
         let text = if self.dialect == TypeDialect::Cube {
             text
         } else {
-            text::apply(text, tables, self.dialect)?
+            text::apply(text, &read, self.dialect)?
+        };
+        let text = if full_lobs {
+            text::bounded_oracle_rows(&text, self.plan.schema().inner(), &read)?
+        } else {
+            text
         };
         RawStatement::parse(text).map_err(|cause| plan_datafusion_err!("{cause}"))
     }

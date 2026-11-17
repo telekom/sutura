@@ -91,3 +91,49 @@ fn a_text_policy_replaces_every_use_before_source_operators_and_bounds_utf8() {
         );
     }
 }
+
+#[test]
+fn a_federation_cannot_search_an_oracle_lob_after_a_bounded_leaf() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("sales_area", DataType::Utf8, false).with_metadata(std::collections::HashMap::from([
+            (String::from("sutura:text_policy"), String::from(r#"{"max_text_bytes":4000}"#)),
+            (String::from("sutura:oracle_lob"), String::from("clob")),
+        ])),
+    ]));
+    let tables = [
+        StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").unwrap(),
+            TypeDialect::Oracle,
+            schema,
+        ),
+        StatementTable::new(
+            named("crm"),
+            QualifiedTable::parse("dim_customer").unwrap(),
+            TypeDialect::DataFusion,
+            customers().schema(),
+        ),
+    ];
+    let mut legs = Engines::new(Some("geo"));
+    let statement = RawStatement::parse(
+        "select c.customer_id from dim_customer c join dim_region r on c.region = r.region where r.sales_area like '%late-note%'",
+    )
+    .unwrap();
+    let answer = DataFusionCombiner::new().unwrap().answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            true,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(
+        legs.opened.is_empty(),
+        "a local operator must not consume a clipped LOB: {answer:?}"
+    );
+    assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
+    assert!(legs.ran.is_empty(), "no source should run: {:?}", legs.ran);
+}

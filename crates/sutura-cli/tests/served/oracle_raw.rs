@@ -220,6 +220,29 @@ fn oracle_raw_federation_reads_two_registered_sources_only_when_listed_and_allow
 }
 
 #[cfg(feature = "sql")]
+fn lob_catalogs(tier: &Tier, root: &std::path::Path, connection: &str, rules: &str) -> (String, String) {
+    let native = format!(
+        "  - name: dictionary\n    kind: rdbms\n    version: text-1\n    source_alias: local\n    dictionary_source: native_dictionary\n    include: [{{schema: {}, table: TEXT_EVENTS}}]\n{rules}    connection:\n      dialect: oracle\n      {}\n",
+        tier.legacy_user,
+        connection.replace('\n', "\n  ")
+    );
+    let catalog = root.join("models");
+    std::fs::create_dir_all(&catalog).unwrap();
+    std::fs::write(
+        catalog.join("declaration.md"),
+        "---\nkind: declaration\ndefinitions: [structure, descriptions, column_types]\nknowledge: []\n---\n",
+    )
+    .unwrap();
+    std::fs::write(catalog.join("model.md"), "---\nkind: model\nname: text_events\nsource: local\ntable: TEXT_EVENTS\ncolumns:\n  - {name: ID, type: 'NUMBER(10)'}\n  - {name: NATIVE_NUMBER, type: NUMBER}\n  - name: SCRIPT\n    type: CLOB\n    max_text_bytes: 4000\n    redact: [{pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}]\n  - name: SCRIPT_N\n    type: NCLOB\n    max_text_bytes: 4000\n    redact: [{pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}]\n---\nBounded fixture text.\n").unwrap();
+    let markdown = format!(
+        "  - name: text\n    kind: markdown\n    version: text-1\n    dir: {}\n    data_dir: {}\n",
+        catalog.display(),
+        root.display()
+    );
+    (native, markdown)
+}
+
+#[cfg(feature = "sql")]
 #[test]
 #[ignore = "requires just oracle-native-acceptance"]
 fn bounded_lobs_are_redacted_before_projection_predicates_order_and_min() {
@@ -232,15 +255,11 @@ fn bounded_lobs_are_redacted_before_projection_predicates_order_and_min() {
     let password = root.join("password");
     std::fs::write(&password, &tier.legacy_password).unwrap();
     let connection = tier.connection(&tier.legacy_user, &password, true);
-    let rules = "    column_rules:\n      - column: SCRIPT*\n        max_text_bytes: 256\n        redact:\n          - {pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}\n";
-    let native = format!(
-        "  - name: dictionary\n    kind: rdbms\n    version: text-1\n    source_alias: local\n    dictionary_source: native_dictionary\n    include: [{{schema: {}, table: TEXT_EVENTS}}]\n{rules}    connection:\n      dialect: oracle\n      {}\n",
-        tier.legacy_user,
-        connection.replace('\n', "\n  ")
-    );
+    let rules = "    column_rules:\n      - column: SCRIPT*\n        max_text_bytes: 4000\n        redact:\n          - {pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}\n";
+    let (native, markdown) = lob_catalogs(&tier, &root, &connection, rules);
     let configured = |catalog: &str| {
         format!(
-            "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\ntelemetry:\n  format: bunyan\ncatalogs:\n{catalog}sources:\n  local:\n    kind: oracle\n    {connection}\n    posture: shared-service-user\ntools:\n  run_sql:\n    enabled: true\n    sources: [local]\n"
+            "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\ntelemetry:\n  format: bunyan\ncatalogs:\n{catalog}sources:\n  local:\n    kind: oracle\n    {connection}\n    unbounded_number: utf8\n    posture: shared-service-user\ntools:\n  run_sql:\n    enabled: true\n    sources: [local]\n"
         )
     };
     let refused = refused_to_start(
@@ -251,19 +270,6 @@ fn bounded_lobs_are_redacted_before_projection_predicates_order_and_min() {
     .join("\n");
     assert!(refused.contains("no exact supported mapping"), "{refused}");
 
-    let catalog = root.join("models");
-    std::fs::create_dir_all(&catalog).unwrap();
-    std::fs::write(
-        catalog.join("declaration.md"),
-        "---\nkind: declaration\ndefinitions: [structure, descriptions, column_types]\nknowledge: []\n---\n",
-    )
-    .unwrap();
-    std::fs::write(catalog.join("model.md"), "---\nkind: model\nname: text_events\nsource: local\ntable: TEXT_EVENTS\ncolumns:\n  - {name: ID, type: 'NUMBER(10)'}\n  - name: SCRIPT\n    type: CLOB\n    max_text_bytes: 256\n    redact: [{pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}]\n  - name: SCRIPT_N\n    type: NCLOB\n    max_text_bytes: 256\n    redact: [{pattern: '(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+', replace: 'IDENTIFIED BY ***'}]\n---\nBounded fixture text.\n").unwrap();
-    let markdown = format!(
-        "  - name: text\n    kind: markdown\n    version: text-1\n    dir: {}\n    data_dir: {}\n",
-        catalog.display(),
-        root.display()
-    );
     for (name, catalog) in [("native", native), ("markdown", markdown)] {
         let served = start_configured(&format!("oracle-text-{name}"), &configured(&catalog));
         let path = if name == "native" {
@@ -286,26 +292,117 @@ fn bounded_lobs_are_redacted_before_projection_predicates_order_and_min() {
             query(format!("select SCRIPT, SCRIPT_N from {path} where ID = 1")),
             json!([["IDENTIFIED BY ***", "IDENTIFIED BY ***"]])
         );
-        for prefix in ["s", "se", "sec", "secr", "secre", "secret"] {
-            assert_eq!(
-                query(format!("select ID from {path} where SCRIPT like '%IDENTIFIED BY {prefix}%'")),
-                json!([])
+        for search in [
+            "SCRIPT like '%late-note%'",
+            "instr(SCRIPT, 'late-note') > 0",
+            "SCRIPT_N like '%late-note%'",
+        ] {
+            assert_eq!(query(format!("select ID from {path} where {search}")), json!([["6"]]));
+        }
+        assert_eq!(
+            query(format!(
+                "select ID from {path} where ID in (1, 2, 6) order by ID desc limit 2"
+            )),
+            json!([["6"], ["2"]])
+        );
+        let window = query(format!(
+            "select substr(SCRIPT, 3000, 200), substr(SCRIPT_N, 3000, 200) from {path} where ID = 6"
+        ));
+        for value in window[0].as_array().unwrap() {
+            let text = value.as_str().unwrap();
+            assert!(text.starts_with("late-note IDENTIFIED BY *** "), "{text}");
+            assert!(!text.contains("secret") && text.len() == 200, "{text}");
+        }
+        let ascii = query(format!("select SCRIPT, SCRIPT_N from {path} where ID = 6"));
+        for (index, value) in ascii[0].as_array().unwrap().iter().enumerate() {
+            let text = value.as_str().unwrap();
+            let bytes = if index == 0 { 4000 } else { 2000 };
+            assert_eq!(text.len(), bytes, "ASCII should use the scalar byte window");
+            assert!(text.ends_with("...[truncated]") && !text.contains("secret"), "{text}");
+        }
+        for native in [
+            format!(
+                "select NATIVE_NUMBER, SCRIPT, SCRIPT_N, substr(SCRIPT, 3000, 200) as windowed from {path} where NATIVE_NUMBER > 7 and instr(SCRIPT, 'late-note') > 0 order by NATIVE_NUMBER desc limit 1"
+            ),
+            format!(
+                "with candidate as (select * from {path} where NATIVE_NUMBER > 7) select NATIVE_NUMBER, SCRIPT, SCRIPT_N, substr(SCRIPT, 3000, 200) as windowed from candidate where instr(SCRIPT, 'late-note') > 0 order by NATIVE_NUMBER desc limit 1"
+            ),
+        ] {
+            let row = query(native);
+            assert_eq!(row[0][0], "10", "the predicate must retain native NUMBER semantics");
+            for (index, bytes) in [(1, 4000), (2, 2000)] {
+                let text = row[0][index].as_str().unwrap();
+                assert_eq!(text.len(), bytes, "numeric routing must retain the output bound");
+                assert!(text.ends_with("...[truncated]") && !text.contains("secret"), "{text}");
+            }
+            let window = row[0][3].as_str().unwrap();
+            assert!(
+                window.starts_with("late-note IDENTIFIED BY *** ") && window.len() == 200,
+                "{window}"
             );
         }
         assert_eq!(
-            query(format!("select min(SCRIPT) from {path} where ID < 3")),
-            json!([["IDENTIFIED BY ***"]])
+            query(format!("select min(NATIVE_NUMBER), max(NATIVE_NUMBER) from {path}")),
+            json!([["1", "10"]]),
+            "numeric aggregate output must remain exact on a LOB-bearing table"
         );
-        assert_eq!(
-            query(format!(
-                "select ID from {path} where SCRIPT = 'IDENTIFIED BY ***' order by SCRIPT, ID"
-            )),
-            json!([["1"], ["2"]])
-        );
-        let cut = query(format!("select SCRIPT, SCRIPT_N from {path} where ID IN (3, 5)"));
+        let ordered = query(format!(
+            "select NATIVE_NUMBER, substr(SCRIPT, 3000, 40), substr(SCRIPT_N, 3000, 40) from {path} where NATIVE_NUMBER >= 6 order by NATIVE_NUMBER desc limit 2"
+        ));
+        assert_eq!(ordered.as_array().unwrap().len(), 2);
+        assert_eq!(ordered[0][0], "10", "the native wrapper must preserve numeric order");
+        assert_eq!(ordered[1][0], "7", "the native wrapper must preserve numeric order");
+        for (index, row) in ordered.as_array().unwrap().iter().enumerate() {
+            for value in row.as_array().unwrap().iter().skip(1) {
+                let text = value.as_str().unwrap();
+                assert_eq!(text.len(), 40, "the short native window must survive");
+                assert!(!text.contains("secret"), "{text}");
+                if index == 0 {
+                    assert!(text.starts_with("late-note IDENTIFIED BY *** "), "{text}");
+                } else {
+                    assert!(text.chars().all(|character| character == 'z'), "{text}");
+                }
+            }
+        }
+        // A non-ASCII character after the first thousand still selects the safe reservation.
+        let mixed = query(format!("select SCRIPT, SCRIPT_N from {path} where ID = 7"));
+        for (index, value) in mixed[0].as_array().unwrap().iter().enumerate() {
+            let text = value.as_str().unwrap();
+            let bytes = if index == 0 { 1010 } else { 2000 };
+            assert_eq!(text.len(), bytes, "the full candidate window must be checked: {text}");
+        }
+        for column in ["SCRIPT", "SCRIPT_N"] {
+            for prefix in ["s", "se", "sec", "secr", "secre", "secret"] {
+                assert_eq!(
+                    query(format!(
+                        "select ID from {path} where {column} like '%IDENTIFIED BY {prefix}%'"
+                    )),
+                    json!([])
+                );
+            }
+            assert_eq!(
+                query(format!(
+                    "select ID from {path} where instr({column}, 'IDENTIFIED BY secret') > 0"
+                )),
+                json!([])
+            );
+        }
+        for unsupported in [
+            format!("select min(SCRIPT) from {path} where ID < 3"),
+            format!("select ID from {path} where SCRIPT = 'IDENTIFIED BY ***' order by SCRIPT, ID"),
+        ] {
+            let refused = ran(&served, &unsupported);
+            assert_eq!(
+                refused.status, 422,
+                "a full LOB must never be silently clipped: {}",
+                refused.body
+            );
+            assert_eq!(refused.json()["code"], "statement_failed", "{}", refused.body);
+        }
+        let cut = query(format!("select SCRIPT, SCRIPT_N from {path} where ID IN (5, 6)"));
         for value in cut.as_array().unwrap().iter().flat_map(|row| row.as_array().unwrap()) {
             let text = value.as_str().unwrap();
-            assert!(text.len() <= 256 && text.ends_with("...[truncated]"), "{text}");
+            assert!(text.len() <= 4000 && text.ends_with("...[truncated]"), "{text}");
         }
         assert_eq!(
             query(format!("select SCRIPT, SCRIPT_N from {path} where ID = 4")),
