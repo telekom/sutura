@@ -6,8 +6,8 @@ use datafusion::common::plan_datafusion_err;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::sql::sqlparser::ast::{
-    CastKind, DataType, Expr, Fetch, LimitClause, OffsetRows, OrderByKind, Query, SelectItem, SetExpr, TableFactor, TimezoneInfo,
-    TypedString, Value, VisitMut as _, VisitorMut,
+    CastKind, DataType, Expr, Fetch, LimitClause, OffsetRows, OrderByKind, Query, SelectItem, SetExpr, Statement, TableFactor,
+    TimezoneInfo, TypedString, Value, VisitMut as _, VisitorMut,
 };
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle};
@@ -22,13 +22,23 @@ pub(super) fn unparsed(plan: &LogicalPlan) -> Result<String> {
         .with_character_length_style(CharacterLengthStyle::Length)
         .build();
     let mut statement = Unparser::new(&spelling).plan_to_sql(plan)?;
-    if let ControlFlow::Break(error) = statement.visit(&mut Oracle) {
+    spelled(&mut statement, true)
+}
+
+pub(super) fn native(statement: &mut Statement) -> Result<String> {
+    spelled(statement, false)
+}
+
+fn spelled(statement: &mut Statement, generated: bool) -> Result<String> {
+    if let ControlFlow::Break(error) = statement.visit(&mut Oracle { generated }) {
         return Err(error);
     }
     Ok(statement.to_string())
 }
 
-struct Oracle;
+struct Oracle {
+    generated: bool,
+}
 
 impl VisitorMut for Oracle {
     type Break = DataFusionError;
@@ -75,7 +85,8 @@ impl VisitorMut for Oracle {
                 .collect::<Vec<_>>(),
             _ => Vec::new(),
         };
-        if let Some(order_by) = &mut query.order_by
+        if self.generated
+            && let Some(order_by) = &mut query.order_by
             && let OrderByKind::Expressions(expressions) = &mut order_by.kind
         {
             for item in expressions {
