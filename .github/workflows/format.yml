@@ -58,7 +58,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.operation || 'format' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.operation || 'format' }}-${{ inputs.source_sha || 'format' }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
