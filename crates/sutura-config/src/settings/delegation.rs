@@ -10,7 +10,7 @@
 //! deployment's own token, so it earns its own refusal and message rather than being folded into
 //! [`crate::settings::NotFitToServe::DelegationToTheDeploymentsOwnAudience`].
 
-use crate::inbound::{InboundIdentity, InboundVerifier};
+use crate::inbound::InboundVerifier;
 use crate::settings::NotFitToServe;
 use crate::sources::SourceRegistry;
 use crate::sources::caller_identity::CallerIdentity;
@@ -26,15 +26,12 @@ pub(super) fn hop_refusals(inbound: &[InboundVerifier], sources: &SourceRegistry
     for (alias, source) in sources.each() {
         let own: Vec<_> = inbound
             .iter()
-            .filter_map(|verifier| match verifier.identity() {
-                InboundIdentity::Direct { resource, .. } => Some(resource),
-                InboundIdentity::BehindGateway { .. } => None,
-            })
+            .filter(|verifier| verifier.is_direct())
+            .filter_map(InboundVerifier::resource)
             .collect();
-        let direct = inbound.iter().any(|verifier| {
-            matches!(verifier.identity(), InboundIdentity::Direct { .. })
-                && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id()))
-        });
+        let direct = inbound
+            .iter()
+            .any(|verifier| verifier.is_direct() && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id())));
         let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());
         let delegation = super::admission::delegation_key(source).or_else(|| {
             (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))

@@ -675,14 +675,12 @@ fn inbound_layered(
         return Ok(versioned);
     };
     let Some(gate) = state.inbound_identity() else {
-        return Err(RouterNotBuilt::InboundIdentityNotAttached {
-            mode: declared.identity().mode(),
-        });
+        return Err(RouterNotBuilt::InboundIdentityNotAttached { mode: declared.mode() });
     };
     tracing::info!(
-        inbound_mode = declared.identity().mode(),
+        inbound_mode = declared.mode(),
         header = gate.header(),
-        establishes = declared.identity().who_authenticated(),
+        establishes = declared.who_authenticated(),
         limit = sutura_config::InboundIdentity::what_it_does_not_do(),
         "leg 1 is installed on the {surface} surface"
     );

@@ -396,3 +396,9 @@ pub(super) fn gate_over_named(declaration: &sutura_config::InboundVerifier, docu
     let (cache, _) = cache_over(&[String::from(document)], Duration::from_secs(30), Instant::now());
     InboundGate::over_named(declaration, cache)
 }
+
+/// A JWT neighbour for an opaque-token mount's routing cell.
+pub(in crate::inbound) fn jwt_neighbour() -> (InboundGate, String) {
+    let pair = key_pair();
+    (gate_over(&direct(), &jwks(KID, &pair)), a_token(&pair))
+}

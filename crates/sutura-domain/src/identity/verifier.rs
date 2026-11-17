@@ -1,4 +1,4 @@
-//! The configured verifier that admitted a signed caller.
+//! The configured verifier that admitted a verified caller.
 
 /// A stable, case-sensitive configuration name; never an issuer URL or a subject.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -58,7 +58,7 @@ impl VerifierMode {
     }
 }
 
-/// Admission provenance, copied from configuration after signature verification.
+/// Admission provenance, copied from configuration after the declared verification policy succeeds.
 ///
 /// No wire deserialization. This records admission; it does not prove source impersonation.
 /// One immutable declaration is shared across request contexts without copying issuer text.
@@ -72,14 +72,37 @@ struct VerifierDeclaration {
     id: VerifierId,
     issuer: String,
     mode: VerifierMode,
+    google_tokeninfo: bool,
 }
 
 impl AdmittingVerifier {
     #[must_use]
     pub fn of(id: VerifierId, issuer: String, mode: VerifierMode) -> Self {
         Self {
-            declaration: std::sync::Arc::new(VerifierDeclaration { id, issuer, mode }),
+            declaration: std::sync::Arc::new(VerifierDeclaration {
+                id,
+                issuer,
+                mode,
+                google_tokeninfo: false,
+            }),
         }
+    }
+
+    /// Admission by Google's opaque-token introspection rather than a JWT verifier.
+    #[must_use]
+    pub fn google_tokeninfo(id: VerifierId) -> Self {
+        Self {
+            declaration: std::sync::Arc::new(VerifierDeclaration {
+                id,
+                issuer: String::from("https://accounts.google.com"),
+                mode: VerifierMode::Direct,
+                google_tokeninfo: true,
+            }),
+        }
+    }
+    #[must_use]
+    pub fn is_google_tokeninfo(&self) -> bool {
+        self.declaration.google_tokeninfo
     }
 
     #[must_use]

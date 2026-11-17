@@ -377,3 +377,5 @@ fn a_switching_source_presents_the_verified_subject_and_refuses_the_deployment_u
 
 /// The same broker's `direct`-mode hook, against a fake identity provider.
 mod delegation;
+
+mod google_tokens;

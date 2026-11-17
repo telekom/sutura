@@ -533,11 +533,7 @@ impl Settings {
         }
         // Asked of the requirement rather than of the variant, so a mode added later that also lands
         // in `Authorization` cannot slip past this.
-        if self.security.access_token().is_some()
-            && inbound
-                .iter()
-                .any(|verifier| verifier.identity().reads_the_authorization_header())
-        {
+        if self.security.access_token().is_some() && inbound.iter().any(crate::InboundVerifier::reads_the_authorization_header) {
             refusals.push(NotFitToServe::DeploymentTokenSharesTheHeader);
         }
         // The metrics token is a SECOND credential for a DIFFERENT surface, and the separation

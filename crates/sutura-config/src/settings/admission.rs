@@ -2,14 +2,14 @@
 
 use super::NotFitToServe;
 use crate::SourcePlacement;
-use crate::inbound::{InboundIdentity, InboundVerifier};
+use crate::inbound::InboundVerifier;
 use crate::sources::{ConfiguredSource, SourceRegistry};
 
 pub(super) fn verifier_refusals(inbound: &[InboundVerifier]) -> Vec<NotFitToServe> {
     let mut refusals = Vec::new();
     for (index, later) in inbound.iter().enumerate() {
-        let requirement = later.requirement();
-        let direct = matches!(later.identity(), InboundIdentity::Direct { .. });
+        let requirement = later;
+        let direct = later.is_direct();
         if direct && requirement.audience().as_str() == requirement.issuer().as_str() {
             refusals.push(NotFitToServe::InboundAudienceIsTheIssuer);
         }
@@ -45,7 +45,7 @@ pub(super) fn verifier_refusals(inbound: &[InboundVerifier]) -> Vec<NotFitToServ
             });
         }
         for earlier in inbound.iter().take(index) {
-            let earlier_requirement = earlier.requirement();
+            let earlier_requirement = earlier;
             if later.id() == earlier.id() {
                 refusals.push(NotFitToServe::DuplicateVerifierId { id: later.id().clone() });
             }
@@ -64,7 +64,7 @@ pub(super) fn verifier_refusals(inbound: &[InboundVerifier]) -> Vec<NotFitToServ
                 });
             }
             if later.path() == earlier.path() {
-                if direct && matches!(earlier.identity(), InboundIdentity::Direct { .. }) {
+                if direct && earlier.is_direct() {
                     refusals.push(NotFitToServe::DirectVerifiersSharePath {
                         earlier: earlier.id().clone(),
                         later: later.id().clone(),
@@ -97,6 +97,19 @@ pub(super) fn delegation_key(source: &ConfiguredSource) -> Option<&'static str> 
 pub(super) fn source_refusals(inbound: &[InboundVerifier], sources: &SourceRegistry) -> Vec<NotFitToServe> {
     let mut refusals = Vec::new();
     for (alias, source) in sources.each() {
+        if matches!(
+            source.caller_identity(),
+            Some(crate::sources::caller_identity::CallerIdentity::CallerGoogleToken(_))
+        ) && source.admitted_by().is_none_or(|ids| {
+            ids.is_empty()
+                || ids.iter().any(|id| {
+                    !inbound
+                        .iter()
+                        .any(|verifier| verifier.id() == id && verifier.google().is_some())
+                })
+        }) {
+            refusals.push(NotFitToServe::CallerGoogleTokenVerifier { alias: alias.clone() });
+        }
         if inbound.len() > 1 && source.admitted_by().is_none() {
             refusals.push(NotFitToServe::SourceVerifiersUndeclared { alias: alias.clone() });
         }
@@ -112,7 +125,7 @@ pub(super) fn source_refusals(inbound: &[InboundVerifier], sources: &SourceRegis
                     alias: alias.clone(),
                     verifier: id.clone(),
                 }),
-                Some(verifier) if matches!(verifier.identity(), InboundIdentity::Direct { .. }) => {
+                Some(verifier) if verifier.is_direct() => {
                     direct = direct.saturating_add(1);
                 }
                 Some(_) if caller_run => refusals.push(NotFitToServe::CallerSourceAdmitsGateway {

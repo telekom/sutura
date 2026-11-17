@@ -75,7 +75,7 @@ fn presented_unknown(declaration: &InboundIdentity, pair: &rcgen::KeyPair) -> He
 /// The held key verifies one second inside `ceiling`, is refused at it, and verifies again once a
 /// look succeeds. So is a key id the set does not hold: it is refused as unconfirmed, never as a
 /// rate-limited re-read. `unconfirmed` is the look in between: `None` fails to read, `Some` is refused.
-async fn holds_until(declaration: &InboundIdentity, ceiling: u64, unconfirmed: Option<&str>) {
+async fn holds_until(declaration: &InboundIdentity, ceiling: u64, unconfirmed: Option<&str>) -> bool {
     let pair = key_pair();
     let good = jwks(KID, &pair);
     let now = Instant::now();
@@ -91,51 +91,38 @@ async fn holds_until(declaration: &InboundIdentity, ceiling: u64, unconfirmed: O
     let headers = presented(declaration, &pair);
     let unknown = presented_unknown(declaration, &pair);
     let at = |seconds| now + Duration::from_secs(seconds);
-    drop(
-        gate.establish(&headers, at(ceiling - 1))
-            .await
-            .expect("inside the ceiling the held key verifies"),
-    );
-    let refused = gate
-        .establish(&headers, at(ceiling))
-        .await
-        .expect_err("at the ceiling no held key verifies");
+    if gate.establish(&headers, at(ceiling - 1)).await.is_err() {
+        return false;
+    }
     let ms = ceiling * 1000;
     let unconfirmed_for_ceiling = Some(format!(
         "no look has confirmed the key set for {ms}ms, past the declared {ms}ms; no held key verifies until a look succeeds"
     ));
-    assert_eq!(
-        core::error::Error::source(&refused).map(ToString::to_string),
-        unconfirmed_for_ceiling,
-        "{declaration:?}"
-    );
-    let refused_unknown = gate
-        .establish(&unknown, at(ceiling))
+    for presented in [&headers, &unknown] {
+        let refused = gate.establish(presented, at(ceiling)).await;
+        if !refused
+            .as_ref()
+            .is_err_and(|refused| core::error::Error::source(refused).map(ToString::to_string) == unconfirmed_for_ceiling)
+        {
+            return false;
+        }
+    }
+    gate.establish(&headers, at(ceiling + MIN_REFETCH_INTERVAL.as_secs()))
         .await
-        .expect_err("at the ceiling an unknown key id is refused too");
-    assert_eq!(
-        core::error::Error::source(&refused_unknown).map(ToString::to_string),
-        unconfirmed_for_ceiling,
-        "{declaration:?}"
-    );
-    drop(
-        gate.establish(&headers, at(ceiling + MIN_REFETCH_INTERVAL.as_secs()))
-            .await
-            .expect("a look that succeeds verifies again"),
-    );
+        .is_ok()
 }
 
 #[tokio::test]
 async fn a_source_failing_past_the_default_ceiling_stops_verifying_until_a_look_succeeds() {
     let gateway = gateway_declaring(RequiredTokenType::access_token(), ProofLifetime::default_lifetime());
     for declaration in [direct(), direct_from_url(), gateway] {
-        holds_until(&declaration, 3600, None).await;
+        assert!(holds_until(&declaration, 3600, None).await);
     }
 }
 
 #[tokio::test]
 async fn a_refused_document_past_the_ceiling_stops_verifying_too() {
-    holds_until(&direct(), 3600, Some(REFUSED)).await;
+    assert!(holds_until(&direct(), 3600, Some(REFUSED)).await);
 }
 
 #[tokio::test]
@@ -153,9 +140,9 @@ async fn the_ceiling_follows_the_declaration_for_either_source_in_either_mode() 
             .security()
             .inbound()
             .first()
-            .map(sutura_config::InboundVerifier::identity)
+            .and_then(sutura_config::InboundVerifier::identity)
             .expect("an inbound identity");
-        holds_until(declaration, ceiling, None).await;
+        assert!(holds_until(declaration, ceiling, None).await);
     }
 }
 
@@ -225,7 +212,7 @@ async fn past_the_ceiling_a_caller_gets_503_identity_unavailable_with_no_challen
             .security()
             .inbound()
             .first()
-            .map(sutura_config::InboundVerifier::identity)
+            .and_then(sutura_config::InboundVerifier::identity)
             .expect("an inbound identity"),
         cache,
     ));

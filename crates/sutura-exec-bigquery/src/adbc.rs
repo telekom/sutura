@@ -441,7 +441,10 @@ impl AdbcBigQuery {
     pub const fn federates_at(&self) -> Option<&WorkloadPool> {
         match self.impersonation {
             Impersonation::ThroughPool(ref pool) => Some(pool),
-            Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => None,
+            Impersonation::Disabled
+            | Impersonation::GoogleLogin
+            | Impersonation::CallerGoogleToken
+            | Impersonation::DomainDelegation(_) => None,
         }
     }
 

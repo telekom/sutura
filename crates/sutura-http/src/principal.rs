@@ -16,8 +16,7 @@
 //! contribute to a chain that names no verified caller. [`of_verified`] takes a
 //! [`VerifiedCaller`], which is a different thing from a value read off a request:
 //!
-//! - its one constructor is `pub(crate)` and is called from exactly one place,
-//!   `crate::inbound::token::TokenValidator::verify`, after a signature check;
+//! - its one constructor is `pub(crate)` and the JWT validator and Google-tokeninfo verifier call it, after its configured policy checks;
 //! - it implements no `Deserialize`, with a `compile_fail` doctest and a compiling twin;
 //! - the only thing that puts one into a request is `crate::inbound::require_verified_caller`, which
 //!   runs the verification, and `crate::capability::establish_asked` is what reads it back out and

@@ -99,6 +99,10 @@ const MAX_ACTORS: usize = 8;
 /// and an error is not a place for credential material.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenRejected {
+    #[error("Google access-token verification is temporarily unavailable")]
+    GoogleUnavailable,
+    #[error("the Google access token does not meet this verifier's policy")]
+    GoogleRejected,
     /// No token where this deployment reads one.
     ///
     /// Its own variant rather than folded into a malformed token, because the two mean different
