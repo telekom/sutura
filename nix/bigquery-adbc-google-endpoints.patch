@@ -1,0 +1,809 @@
+--- a/bigquery_database.go
++++ b/bigquery_database.go
+@@ -36,6 +36,7 @@
+ )
+
+ type databaseImpl struct {
++	google googleDestinations
+ 	driverbase.DatabaseImplBase
+
+ 	authType        string
+@@ -72,6 +73,7 @@
+
+ func (d *databaseImpl) Open(ctx context.Context) (adbc.ConnectionWithContext, error) {
+ 	conn := &connectionImpl{
++		google:                     d.google,
+ 		ConnectionImplBase:         driverbase.NewConnectionImplBase(&d.DatabaseImplBase),
+ 		authType:                   d.authType,
+ 		credentialsType:            d.credentialsType,
+@@ -121,6 +123,18 @@
+ 		return value, err
+ 	}
+ 	switch key {
++	case "bigquery.tls.key_file":
++		return d.google.keyFile, nil
++	case "bigquery.tls.cert_file":
++		return d.google.certFile, nil
++	case "bigquery.tls.ca_file":
++		return d.google.caFile, nil
++	case "bigquery.sts_endpoint":
++		return d.google.sts, nil
++	case "bigquery.oauth_token_endpoint":
++		return d.google.oauth, nil
++	case "bigquery.iam_credentials_endpoint":
++		return d.google.iam, nil
+ 	case OptionAuthType:
+ 		return d.authType, nil
+ 	case OptionAuthCredentialsType:
+@@ -205,6 +219,18 @@
+ 		return err
+ 	}
+ 	switch key {
++	case "bigquery.tls.key_file":
++		d.google.keyFile = value
++	case "bigquery.tls.cert_file":
++		d.google.certFile = value
++	case "bigquery.tls.ca_file":
++		d.google.caFile = value
++	case "bigquery.sts_endpoint":
++		d.google.sts = value
++	case "bigquery.oauth_token_endpoint":
++		d.google.oauth = value
++	case "bigquery.iam_credentials_endpoint":
++		d.google.iam = value
+ 	case "uri":
+ 		params, err := ParseBigQueryURIToParams(value)
+ 		if err != nil {
+--- a/connection.go
++++ b/connection.go
+@@ -38,6 +38,7 @@
+ 	"strings"
+ 	"time"
+
++	authcredentials "cloud.google.com/go/auth/credentials"
+ 	"cloud.google.com/go/bigquery"
+ 	"github.com/adbc-drivers/driverbase-go/driverbase"
+ 	"github.com/apache/arrow-adbc/go/adbc"
+@@ -50,10 +51,10 @@
+ 	"google.golang.org/api/iterator"
+ 	"google.golang.org/api/option"
+ 	"google.golang.org/grpc"
+-	"google.golang.org/grpc/credentials/insecure"
+ )
+
+ type connectionImpl struct {
++	google googleDestinations
+ 	driverbase.ConnectionImplBase
+
+ 	authType        string
+@@ -874,6 +875,24 @@
+ 		authOptions = append(authOptions, option.WithQuotaProject(c.quotaProject))
+ 	}
+
++	tlsConfig, err := c.google.tlsConfig()
++	if err != nil {
++		return errToAdbcErr(adbc.StatusInvalidArgument, err, "load Google TLS trust")
++	}
++	baseTransport := c.googleTransport(tlsConfig)
++	if c.google.configured() && (c.hasImpersonationOptions() || c.authType == "" || c.authType == OptionValueAuthTypeDefault || c.authType == OptionValueAuthTypeAppDefaultCredentials) {
++		scopes := []string{bigquery.Scope}
++		if c.hasImpersonationOptions() {
++			authOptions = nil
++			scopes = []string{"https://www.googleapis.com/auth/cloud-platform"}
++		}
++		detected, err := detectGoogleCredentials(&authcredentials.DetectOptions{Client: googleHTTPClient(baseTransport), Scopes: scopes})
++		if err != nil {
++			return errToAdbcErr(adbc.StatusInvalidArgument, err, "detect routed Google credentials")
++		}
++		authOptions = append(authOptions, option.WithAuthCredentials(detected))
++	}
++
+ 	// Then, apply impersonation if configured (as a credential transformation layer)
+ 	if c.hasImpersonationOptions() {
+ 		if c.impersonateTargetPrincipal == "" {
+@@ -896,7 +915,15 @@
+ 			Lifetime:        lifetime,
+ 			Subject:         c.impersonateSubject,
+ 		}
+-		tokenSource, err := newImpersonatedTokenSource(ctx, impCfg)
++		var impersonationOptions []option.ClientOption
++		if c.google.configured() {
++			client, err := googleAuthenticatedClient(ctx, baseTransport, authOptions)
++			if err != nil {
++				return errToAdbcErr(adbc.StatusInvalidArgument, err, "authenticate Google delegation")
++			}
++			impersonationOptions = append(impersonationOptions, option.WithHTTPClient(client))
++		}
++		tokenSource, err := newImpersonatedTokenSource(ctx, impCfg, impersonationOptions...)
+ 		if err != nil {
+ 			return adbc.Error{
+ 				Code: adbc.StatusInvalidArgument,
+@@ -908,7 +935,7 @@
+ 	}
+
+ 	// Add custom endpoint if specified for BigQuery API client
+-	bigQueryAuthOptions := authOptions
++	bigQueryAuthOptions := append([]option.ClientOption{}, authOptions...)
+ 	if c.endpoint != "" {
+ 		bigQueryAuthOptions = append(bigQueryAuthOptions, option.WithEndpoint(c.endpoint))
+ 	}
+@@ -916,6 +943,16 @@
+ 	driverUserAgent := stringToCustomUserAgent(c.customUserAgent)
+ 	bigQueryAuthOptions = append(bigQueryAuthOptions, option.WithUserAgent(driverUserAgent))
+
++	if c.google.configured() {
++		apiClient, err := googleAuthenticatedClient(ctx, baseTransport, authOptions)
++		if err != nil {
++			return errToAdbcErr(adbc.StatusInvalidArgument, err, "authenticate BigQuery API")
++		}
++		bigQueryAuthOptions = []option.ClientOption{option.WithHTTPClient(apiClient), option.WithUserAgent(driverUserAgent)}
++		if c.endpoint != "" {
++			bigQueryAuthOptions = append(bigQueryAuthOptions, option.WithEndpoint(c.endpoint))
++		}
++	}
+ 	client, err := bigquery.NewClient(ctx, c.catalog, bigQueryAuthOptions...)
+ 	if err != nil {
+ 		return errToAdbcErr(adbc.StatusIO, err, "create client")
+@@ -930,9 +967,9 @@
+ 	storageAuthOptions = append(storageAuthOptions, option.WithUserAgent(driverUserAgent))
+ 	if c.storageEndpoint != "" {
+ 		storageAuthOptions = append(storageAuthOptions, option.WithEndpoint(c.storageEndpoint))
+-		// assume insecure since the purpose of this is to use the emulator, which does not use TLS
+-		storageAuthOptions = append(storageAuthOptions, option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
++
+ 	}
++	storageAuthOptions = append(storageAuthOptions, option.WithGRPCDialOption(grpc.WithTransportCredentials(googleStorageCredentials(c.storageEndpoint, tlsConfig))))
+ 	err = client.EnableStorageReadClient(ctx, storageAuthOptions...)
+ 	if err != nil {
+ 		return errToAdbcErr(adbc.StatusIO, err, "enable storage read client")
+--- /dev/null
++++ b/google_endpoints.go
+@@ -0,0 +1,218 @@
++// Copyright (c) 2026 ADBC Drivers Contributors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//         http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package bigquery
++
++import (
++	"bytes"
++	"context"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/pem"
++	"fmt"
++	"io"
++	"net"
++	"net/http"
++	"net/url"
++	"os"
++	"strings"
++
++	authcredentials "cloud.google.com/go/auth/credentials"
++	"google.golang.org/api/option"
++	htransport "google.golang.org/api/transport/http"
++	"google.golang.org/grpc/credentials"
++	"google.golang.org/grpc/credentials/insecure"
++)
++
++// Kept on each connection, never in process globals: two sources may declare different trust.
++type googleDestinations struct {
++	iam, oauth, sts           string
++	caFile, certFile, keyFile string
++}
++
++func (d googleDestinations) configured() bool {
++	return d.iam != "" || d.oauth != "" || d.sts != "" || d.caFile != "" || d.certFile != "" || d.keyFile != ""
++}
++
++// Credential detection and the network transport are ports so tests exercise the real auth flow
++// without either a credential file or a server impersonating Google.
++var detectGoogleCredentials = authcredentials.DetectDefault
++var googleBaseTransport = func(config *tls.Config) http.RoundTripper {
++	base := http.DefaultTransport.(*http.Transport).Clone()
++	base.TLSClientConfig = config
++	return base
++}
++
++func readTLSFile(path string) ([]byte, error) {
++	file, err := os.Open(path)
++	if err != nil {
++		return nil, err
++	}
++	defer file.Close()
++	data, err := io.ReadAll(io.LimitReader(file, (4<<20)+1))
++	if err != nil {
++		return nil, err
++	}
++	if len(data) > 4<<20 {
++		return nil, fmt.Errorf("TLS material exceeds 4 MiB")
++	}
++	return data, nil
++}
++
++func (d googleDestinations) tlsConfig() (*tls.Config, error) {
++	config := &tls.Config{MinVersion: tls.VersionTLS12}
++	if d.caFile != "" {
++		data, err := readTLSFile(d.caFile)
++		if err != nil {
++			return nil, err
++		}
++		certificates, err := googleCertificates(data)
++		if err != nil {
++			return nil, err
++		}
++		config.RootCAs = x509.NewCertPool()
++		for _, certificate := range certificates {
++			config.RootCAs.AddCert(certificate)
++		}
++	}
++	if d.certFile != "" || d.keyFile != "" {
++		cert, err := readTLSFile(d.certFile)
++		if err != nil {
++			return nil, err
++		}
++		key, err := readTLSFile(d.keyFile)
++		if err != nil {
++			return nil, err
++		}
++		if _, err := googleCertificates(cert); err != nil {
++			return nil, err
++		}
++		key = bytes.TrimSpace(key)
++		if !bytes.HasPrefix(key, []byte("-----BEGIN ")) || bytes.Count(key, []byte("-----BEGIN ")) != 1 {
++			return nil, fmt.Errorf("invalid Google TLS private key block")
++		}
++		block, rest := pem.Decode(key)
++		if block == nil || len(bytes.TrimSpace(rest)) != 0 || len(block.Headers) != 0 || (block.Type != "PRIVATE KEY" && block.Type != "RSA PRIVATE KEY" && block.Type != "EC PRIVATE KEY") {
++			return nil, fmt.Errorf("Google TLS key must contain exactly one plaintext private key")
++		}
++		pair, err := tls.X509KeyPair(cert, key)
++		if err != nil {
++			return nil, err
++		}
++		config.Certificates = []tls.Certificate{pair}
++	}
++	return config, nil
++}
++
++// Refuse the entire bundle when any block is malformed, rather than accepting a valid prefix.
++func googleCertificates(data []byte) ([]*x509.Certificate, error) {
++	var certificates []*x509.Certificate
++	for len(bytes.TrimSpace(data)) != 0 {
++		data = bytes.TrimSpace(data)
++		if !bytes.HasPrefix(data, []byte("-----BEGIN CERTIFICATE-----")) {
++			return nil, fmt.Errorf("invalid Google TLS certificate bundle")
++		}
++		endMarker := []byte("-----END CERTIFICATE-----")
++		end := bytes.Index(data, endMarker)
++		if end < 0 {
++			return nil, fmt.Errorf("incomplete Google TLS certificate block")
++		}
++		blockData := data[:end+len(endMarker)]
++		if bytes.Count(blockData, []byte("-----BEGIN")) != 1 {
++			return nil, fmt.Errorf("invalid Google TLS certificate block")
++		}
++		block, remaining := pem.Decode(blockData)
++		rest := data[end+len(endMarker):]
++		if len(bytes.TrimSpace(remaining)) != 0 || block == nil || block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
++			return nil, fmt.Errorf("invalid Google TLS certificate block")
++		}
++		certificate, err := x509.ParseCertificate(block.Bytes)
++		if err != nil {
++			return nil, fmt.Errorf("invalid Google TLS certificate: %w", err)
++		}
++		certificates = append(certificates, certificate)
++		data = rest
++	}
++	if len(certificates) == 0 {
++		return nil, fmt.Errorf("Google TLS certificate bundle is empty")
++	}
++	return certificates, nil
++}
++
++func googleHTTPClient(transport http.RoundTripper) *http.Client {
++	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
++		return fmt.Errorf("Google API redirects are refused")
++	}}
++}
++
++type googleRoutingTransport struct {
++	base         http.RoundTripper
++	destinations googleDestinations
++}
++
++func (t googleRoutingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
++	target := ""
++	keepPath := false
++	switch request.URL.Hostname() {
++	case "iamcredentials.googleapis.com", "iamcredentials.mtls.googleapis.com":
++		target, keepPath = t.destinations.iam, true
++	case "oauth2.googleapis.com", "oauth2.mtls.googleapis.com", "accounts.google.com":
++		if request.URL.Path == "/token" || request.URL.Path == "/o/oauth2/token" {
++			target = t.destinations.oauth
++		}
++	case "sts.googleapis.com", "sts.mtls.googleapis.com":
++		target = t.destinations.sts
++	}
++	if target == "" {
++		return t.base.RoundTrip(request)
++	}
++	endpoint, err := url.Parse(target)
++	if err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".googleapis.com") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
++		return nil, fmt.Errorf("invalid Google API destination")
++	}
++	routed := request.Clone(request.Context())
++	copyURL := *request.URL
++	routed.URL = &copyURL
++	routed.URL.Scheme, routed.URL.Host = endpoint.Scheme, endpoint.Host
++	if !keepPath {
++		routed.URL.Path, routed.URL.RawPath = endpoint.Path, endpoint.RawPath
++	}
++	routed.Host = ""
++	return t.base.RoundTrip(routed)
++}
++
++// ADC refreshes use the same routing and verified TLS as signJwt and the JWT token exchange.
++func (c *connectionImpl) googleTransport(config *tls.Config) http.RoundTripper {
++	return googleRoutingTransport{base: googleBaseTransport(config), destinations: c.google}
++}
++
++func googleAuthenticatedClient(ctx context.Context, base http.RoundTripper, options []option.ClientOption) (*http.Client, error) {
++	transport, err := htransport.NewTransport(ctx, base, options...)
++	if err != nil {
++		return nil, err
++	}
++	return googleHTTPClient(transport), nil
++}
++
++func googleStorageCredentials(endpoint string, config *tls.Config) credentials.TransportCredentials {
++	// Preserve upstream's explicit numeric-loopback emulator venue only. A custom Google host
++	// always uses hostname verification and the selected roots, including the Storage Read API.
++	host, _, err := net.SplitHostPort(endpoint)
++	if err == nil {
++		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
++			return insecure.NewCredentials()
++		}
++	}
++	return credentials.NewTLS(config.Clone())
++}
+--- /dev/null
++++ b/google_endpoints_test.go
+@@ -0,0 +1,427 @@
++// Copyright (c) 2026 ADBC Drivers Contributors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//         http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package bigquery
++
++import (
++	"context"
++	"crypto/ecdsa"
++	"crypto/elliptic"
++	"crypto/rand"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/pem"
++	"fmt"
++	"google.golang.org/api/option"
++	"io"
++	"log"
++	"math/big"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"reflect"
++	"strings"
++	"testing"
++	"time"
++
++	"cloud.google.com/go/auth"
++	authcredentials "cloud.google.com/go/auth/credentials"
++	"cloud.google.com/go/auth/oauth2adapt"
++	"github.com/apache/arrow-adbc/go/adbc"
++	"github.com/apache/arrow-go/v18/arrow/memory"
++	"golang.org/x/oauth2"
++)
++
++type googleEndpointRecorder struct {
++	t         *testing.T
++	hosts     []string
++	delegated bool
++}
++
++func (r *googleEndpointRecorder) RoundTrip(request *http.Request) (*http.Response, error) {
++	r.hosts = append(r.hosts, request.URL.Hostname())
++	body := ""
++	switch request.URL.Hostname() {
++	case "iamcredentials-example.p.googleapis.com":
++		if !strings.HasSuffix(request.URL.Path, ":signJwt") || request.Header.Get("Authorization") != "Bearer deployment-token" {
++			r.t.Fatalf("unexpected signJwt request: %s, auth %q", request.URL, request.Header.Get("Authorization"))
++		}
++		body = `{"signedJwt":"signed-assertion"}`
++	case "oauth2-example.p.googleapis.com":
++		if request.URL.Path != "/token" {
++			r.t.Fatalf("token path %q", request.URL.Path)
++		}
++		payload, _ := io.ReadAll(request.Body)
++		if !strings.Contains(string(payload), "signed-assertion") {
++			r.t.Fatalf("OAuth exchange lost signed JWT: %s", payload)
++		}
++		r.delegated = true
++		body = `{"access_token":"delegated-token","token_type":"Bearer","expires_in":3600}`
++	case "sts-example.p.googleapis.com":
++		if request.URL.Path != "/v1/token" {
++			r.t.Fatalf("STS path %q", request.URL.Path)
++		}
++		body = `{"access_token":"deployment-token","token_type":"Bearer","expires_in":3600,"issued_token_type":"urn:ietf:params:oauth:token-type:access_token"}`
++	case "bigquery-example.p.googleapis.com":
++		want := "Bearer caller-token"
++		if r.delegated {
++			want = "Bearer delegated-token"
++		}
++		if request.Header.Get("Authorization") != want {
++			r.t.Fatalf("query auth %q, want %q", request.Header.Get("Authorization"), want)
++		}
++		body = `{"jobComplete":true,"jobReference":{"projectId":"test-project","jobId":"endpoint-job","location":"US"},"schema":{"fields":[{"name":"n","type":"INTEGER"}]},"totalRows":"1","rows":[{"f":[{"v":"1"}]}]}`
++	default:
++		r.t.Fatalf("default or undeclared Google host dialled: %s", request.URL)
++	}
++	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
++}
++
++func googleTLSFixture(t *testing.T) (string, string, string, *x509.CertPool) {
++	t.Helper()
++	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	template := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
++	certificate, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
++	if err != nil {
++		t.Fatal(err)
++	}
++	pemCertificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate})
++	encodedKey, err := x509.MarshalPKCS8PrivateKey(key)
++	if err != nil {
++		t.Fatal(err)
++	}
++	dir := t.TempDir()
++	ca, cert, privateKey := filepath.Join(dir, "ca.pem"), filepath.Join(dir, "client.pem"), filepath.Join(dir, "client.key")
++	for path, data := range map[string][]byte{ca: pemCertificate, cert: pemCertificate, privateKey: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encodedKey})} {
++		if err := os.WriteFile(path, data, 0600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	roots := x509.NewCertPool()
++	roots.AppendCertsFromPEM(pemCertificate)
++	return ca, cert, privateKey, roots
++}
++
++func TestGooglePrivateEndpointsEveryIdentity(t *testing.T) {
++	ca, cert, key, roots := googleTLSFixture(t)
++	for _, mode := range []string{"workload_identity", "google_login", "domain_delegation"} {
++		t.Run(mode, func(t *testing.T) {
++			recorder := &googleEndpointRecorder{t: t}
++			oldBase, oldDetect := googleBaseTransport, detectGoogleCredentials
++			defer func() { googleBaseTransport, detectGoogleCredentials = oldBase, oldDetect }()
++			googleBaseTransport = func(config *tls.Config) http.RoundTripper {
++				if config.InsecureSkipVerify || config.MinVersion < tls.VersionTLS12 {
++					t.Fatal("Google transport stopped verifying TLS")
++				}
++				if config.RootCAs == nil || !config.RootCAs.Equal(roots) || len(config.Certificates) != 1 {
++					t.Fatal("declared roots must replace system roots, and client identity must reach the transport")
++				}
++				return recorder
++			}
++			detectGoogleCredentials = func(opts *authcredentials.DetectOptions) (*auth.Credentials, error) {
++				// The ADC exchange must share the configured STS routing, not acquire a public transport.
++				request, _ := http.NewRequest("POST", "https://sts.googleapis.com/v1/token", strings.NewReader("subject_token=base-assertion"))
++				response, err := opts.Client.Do(request)
++				if err != nil {
++					return nil, err
++				}
++				response.Body.Close()
++				return auth.NewCredentials(&auth.CredentialsOptions{TokenProvider: oauth2adapt.TokenProviderFromTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "deployment-token", Expiry: time.Now().Add(time.Hour)}))}), nil
++			}
++			opts := map[string]string{
++				"bigquery.tls.ca_file":              ca,
++				"bigquery.tls.cert_file":            cert,
++				"bigquery.tls.key_file":             key,
++				"bigquery.project_id":               "test-project",
++				"bigquery.endpoint":                 "https://bigquery-example.p.googleapis.com/bigquery/v2/",
++				"bigquery.storage_endpoint":         "bigquerystorage-example.p.googleapis.com:443",
++				"bigquery.iam_credentials_endpoint": "https://iamcredentials-example.p.googleapis.com/",
++				"bigquery.oauth_token_endpoint":     "https://oauth2-example.p.googleapis.com/token",
++				"bigquery.sts_endpoint":             "https://sts-example.p.googleapis.com/v1/token",
++				"bigquery.query.through_jobs_query": "true",
++				"bigquery.auth_type":                "access_token",
++				"bigquery.auth.access_token":        "caller-token",
++			}
++			if mode == "domain_delegation" {
++				delete(opts, "bigquery.auth.access_token")
++				opts["bigquery.auth_type"] = "app_default_credentials"
++				opts["bigquery.impersonate.target_principal"] = "delegating@test-project.iam.gserviceaccount.com"
++				opts["bigquery.impersonate.subject"] = "user@example.com"
++				opts["bigquery.impersonate.scopes"] = "https://www.googleapis.com/auth/bigquery.readonly"
++			}
++			ctx := context.Background()
++			db, err := NewDriver(memory.DefaultAllocator).NewDatabaseWithContext(ctx, opts)
++			if err != nil {
++				t.Fatal(err)
++			}
++			conn, err := db.Open(ctx)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer conn.Close(ctx)
++			statement, err := conn.NewStatement(ctx)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer statement.Close(ctx)
++			if err := statement.(adbc.GetSetOptionsWithContext).SetOption(ctx, OptionQueryDryRun, "true"); err != nil {
++				t.Fatal(err)
++			}
++			if err := statement.SetSqlQuery(ctx, "SELECT 1 AS n"); err != nil {
++				t.Fatal(err)
++			}
++			rows, _, err := statement.ExecuteQuery(ctx)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer rows.Release()
++			if len(rows.Schema().Fields()) != 1 {
++				t.Fatalf("dry-run query lost its schema: %v", rows.Schema())
++			}
++			want := []string{"bigquery-example.p.googleapis.com"}
++			if mode == "domain_delegation" {
++				want = []string{"sts-example.p.googleapis.com", "iamcredentials-example.p.googleapis.com", "oauth2-example.p.googleapis.com", "bigquery-example.p.googleapis.com"}
++			}
++			if !reflect.DeepEqual(recorder.hosts, want) {
++				t.Fatalf("hosts %v, want %v", recorder.hosts, want)
++			}
++		})
++	}
++}
++
++func TestGoogleStorageEndpointKeepsTLS(t *testing.T) {
++	config := &tls.Config{MinVersion: tls.VersionTLS12}
++	for _, endpoint := range []string{"", "bigquerystorage.googleapis.com:443", "bigquerystorage-example.p.googleapis.com:443"} {
++		creds := googleStorageCredentials(endpoint, config)
++		if got := creds.Info().SecurityProtocol; got != "tls" {
++			t.Fatalf("%s: got %s instead of verified TLS", endpoint, got)
++		}
++	}
++	if got := googleStorageCredentials("127.0.0.1:12345", config).Info().SecurityProtocol; got != "insecure" {
++		t.Fatalf("loopback emulator protocol: %s", got)
++	}
++}
++
++func TestGooglePrivateEndpointOptionsRoundTrip(t *testing.T) {
++	// Option spelling and values survive the database setter/getter boundary.
++	opts := map[string]string{"bigquery.iam_credentials_endpoint": "https://iamcredentials-example.p.googleapis.com/", "bigquery.oauth_token_endpoint": "https://oauth2-example.p.googleapis.com/token", "bigquery.sts_endpoint": "https://sts-example.p.googleapis.com/v1/token"}
++	db, err := NewDriver(memory.DefaultAllocator).NewDatabaseWithContext(context.Background(), opts)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for key, want := range opts {
++		got, err := db.(adbc.GetSetOptionsWithContext).GetOption(context.Background(), key)
++		if err != nil || got != want {
++			t.Fatal(fmt.Sprintf("%s: %q %v", key, got, err))
++		}
++	}
++}
++
++type googleRedirectTransport struct {
++	calls  int
++	status int
++}
++
++func (r *googleRedirectTransport) RoundTrip(request *http.Request) (*http.Response, error) {
++	r.calls++
++	if r.calls != 1 {
++		return nil, fmt.Errorf("redirect reached undeclared destination")
++	}
++	return &http.Response{StatusCode: r.status, Header: http.Header{"Location": []string{"https://undeclared.example/token"}}, Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
++}
++
++func TestGoogleCredentialRedirectsRefused(t *testing.T) {
++	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
++		for _, authenticated := range []bool{false, true} {
++			recorder := &googleRedirectTransport{status: status}
++			client := googleHTTPClient(recorder)
++			if authenticated {
++				var err error
++				client, err = googleAuthenticatedClient(context.Background(), recorder, []option.ClientOption{option.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "caller-token"}))})
++				if err != nil {
++					t.Fatal(err)
++				}
++			}
++			request, err := http.NewRequest("POST", "https://oauth2-example.p.googleapis.com/token", strings.NewReader("assertion=secret-fixture"))
++			if err != nil {
++				t.Fatal(err)
++			}
++			response, err := client.Do(request)
++			if response != nil {
++				response.Body.Close()
++			}
++			if err == nil || !strings.Contains(err.Error(), "redirects are refused") || recorder.calls != 1 {
++				t.Fatalf("redirect status %d authenticated %v: calls=%d err=%v", status, authenticated, recorder.calls, err)
++			}
++		}
++	}
++}
++
++func TestGoogleTLSMaterialRefusesPartialBundles(t *testing.T) {
++	ca, cert, key, _ := googleTLSFixture(t)
++	valid, err := os.ReadFile(ca)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, suffix := range []string{"not a certificate", "-----BEGIN CERTIFICATE-----\nbroken\n-----END CERTIFICATE-----\n", "-----BEGIN CERTIFICATE-----\nbroken\n"} {
++		for _, before := range []bool{false, true} {
++			data := append(append([]byte{}, valid...), []byte(suffix)...)
++			if before {
++				data = append([]byte(suffix), valid...)
++			}
++			invalid := filepath.Join(t.TempDir(), "invalid.pem")
++			if err := os.WriteFile(invalid, data, 0600); err != nil {
++				t.Fatal(err)
++			}
++			for _, declaration := range []googleDestinations{{caFile: invalid}, {certFile: invalid, keyFile: key}} {
++				if _, err := declaration.tlsConfig(); err == nil {
++					t.Fatalf("partial bundle accepted: suffix %q before %v", suffix, before)
++				}
++			}
++		}
++	}
++	keyData, err := os.ReadFile(key)
++	if err != nil {
++		t.Fatal(err)
++	}
++	badKey := filepath.Join(t.TempDir(), "key.pem")
++	if err := os.WriteFile(badKey, append(keyData, []byte("broken trailing key")...), 0600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := (googleDestinations{certFile: cert, keyFile: badKey}).tlsConfig(); err == nil {
++		t.Fatal("partial key accepted")
++	}
++}
++
++func TestGoogleDeclaredTrustHandshake(t *testing.T) {
++	ca, cert, key, roots := googleTLSFixture(t)
++	caData, err := os.ReadFile(ca)
++	if err != nil {
++		t.Fatal(err)
++	}
++	certificates, err := googleCertificates(caData)
++	if err != nil {
++		t.Fatal(err)
++	}
++	caIdentity, err := tls.LoadX509KeyPair(cert, key)
++	if err != nil {
++		t.Fatal(err)
++	}
++	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	template := &x509.Certificate{SerialNumber: big.NewInt(2), DNSNames: []string{"bigquery-example.p.googleapis.com"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
++	serverDER, err := x509.CreateCertificate(rand.Reader, template, certificates[0], &serverKey.PublicKey, caIdentity.PrivateKey)
++	if err != nil {
++		t.Fatal(err)
++	}
++	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if len(r.TLS.PeerCertificates) != 1 {
++			t.Error("declared client identity absent at server")
++		}
++		w.WriteHeader(http.StatusOK)
++	}))
++	server.Config.ErrorLog = log.New(io.Discard, "", 0)
++	server.TLS = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{{Certificate: [][]byte{serverDER}, PrivateKey: serverKey}}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots}
++	server.StartTLS()
++	defer server.Close()
++	config, err := (googleDestinations{caFile: ca, certFile: cert, keyFile: key}).tlsConfig()
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, venue := range []string{"https", "storage"} {
++		for _, variant := range []string{"declared", "wrong_roots", "wrong_name", "no_client"} {
++			t.Run(venue+"/"+variant, func(t *testing.T) {
++				selected := config.Clone()
++				authority := "bigquery-example.p.googleapis.com:443"
++				if variant == "wrong_roots" {
++					selected.RootCAs = x509.NewCertPool()
++				}
++				if variant == "wrong_name" {
++					authority = "different-example.p.googleapis.com:443"
++				}
++				if variant == "no_client" {
++					selected.Certificates = nil
++				}
++				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++				defer cancel()
++				var got error
++				if venue == "https" {
++					transport := googleBaseTransport(selected).(*http.Transport)
++					transport.Proxy = nil
++					transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
++						return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
++					}
++					defer transport.CloseIdleConnections()
++					request, err := http.NewRequestWithContext(ctx, "GET", "https://"+authority+"/", nil)
++					if err != nil {
++						t.Fatal(err)
++					}
++					response, err := googleHTTPClient(transport).Do(request)
++					got = err
++					if response != nil {
++						response.Body.Close()
++					}
++				} else {
++					listener, err := net.Listen("tcp", "127.0.0.1:0")
++					if err != nil {
++						t.Fatal(err)
++					}
++					defer listener.Close()
++					serverConfig := server.TLS.Clone()
++					serverConfig.NextProtos = []string{"h2"}
++					go func() {
++						raw, err := listener.Accept()
++						if err != nil {
++							return
++						}
++						defer raw.Close()
++						raw.SetDeadline(time.Now().Add(5 * time.Second))
++						secured := tls.Server(raw, serverConfig)
++						var value [1]byte
++						if _, err := io.ReadFull(secured, value[:]); err == nil {
++							secured.Write(value[:])
++						}
++					}()
++					raw, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
++					if err != nil {
++						t.Fatal(err)
++					}
++					defer raw.Close()
++					conn, _, err := googleStorageCredentials(authority, selected).ClientHandshake(ctx, authority, raw)
++					got = err
++					if err == nil {
++						defer conn.Close()
++						// A TLS 1.3 client observes rejected client authentication only on the next read.
++						conn.SetDeadline(time.Now().Add(5 * time.Second))
++						_, got = conn.Write([]byte{1})
++						if got == nil {
++							var value [1]byte
++							_, got = io.ReadFull(conn, value[:])
++						}
++					}
++				}
++				if (got == nil) != (variant == "declared") {
++					t.Fatalf("%s %s: %v", venue, variant, got)
++				}
++			})
++		}
++	}
++}

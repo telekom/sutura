@@ -40,6 +40,13 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 data:
   base.yaml: |
+    google_endpoints:
+      bigquery: https://bigquery-example.p.googleapis.com/bigquery/v2/
+      bigquery_storage: https://bigquerystorage-example.p.googleapis.com/
+      iam_credentials: https://iamcredentials-example.p.googleapis.com/
+      oauth_token: https://oauth2-example.p.googleapis.com/token
+      sts: https://sts-example.p.googleapis.com/v1/token
+      tokeninfo: https://oauth2-example.p.googleapis.com/tokeninfo
     security:
       identity: multi-user
       inbound:
@@ -134,6 +141,13 @@ data:
       kind: markdown
       name: model
       version: "1"
+    google_endpoints:
+      bigquery: https://bigquery-example.p.googleapis.com/bigquery/v2/
+      bigquery_storage: https://bigquerystorage-example.p.googleapis.com/
+      iam_credentials: https://iamcredentials-example.p.googleapis.com/
+      oauth_token: https://oauth2-example.p.googleapis.com/token
+      sts: https://sts-example.p.googleapis.com/v1/token
+      tokeninfo: https://oauth2-example.p.googleapis.com/tokeninfo
     security:
       identity: multi-user
       inbound:
@@ -186,6 +200,13 @@ data:
       kind: markdown
       name: model
       version: "1"
+    google_endpoints:
+      bigquery: https://bigquery-example.p.googleapis.com/bigquery/v2/
+      bigquery_storage: https://bigquerystorage-example.p.googleapis.com/
+      iam_credentials: https://iamcredentials-example.p.googleapis.com/
+      oauth_token: https://oauth2-example.p.googleapis.com/token
+      sts: https://sts-example.p.googleapis.com/v1/token
+      tokeninfo: https://oauth2-example.p.googleapis.com/tokeninfo
     security:
       identity: multi-user
       inbound:
@@ -595,6 +616,14 @@ spec:
         - name: all-source-credentials
           secret:
             secretName: all-source-credentials
+      hostAliases:
+        - hostnames:
+          - bigquery-example.p.googleapis.com
+          - bigquerystorage-example.p.googleapis.com
+          - sts-example.p.googleapis.com
+          - iamcredentials-example.p.googleapis.com
+          - oauth2-example.p.googleapis.com
+          ip: 192.0.2.10
 
 ---
 # Source: sutura/templates/reading-workers.yaml
@@ -622,6 +651,14 @@ spec:
         app.kubernetes.io/instance: test-release
         app.kubernetes.io/component: "finance"
     spec:
+      hostAliases:
+        - hostnames:
+          - bigquery-example.p.googleapis.com
+          - bigquerystorage-example.p.googleapis.com
+          - sts-example.p.googleapis.com
+          - iamcredentials-example.p.googleapis.com
+          - oauth2-example.p.googleapis.com
+          ip: 192.0.2.10
       securityContext:
         fsGroup: 65532
         runAsNonRoot: true
@@ -759,6 +796,14 @@ spec:
         app.kubernetes.io/instance: test-release
         app.kubernetes.io/component: "orders"
     spec:
+      hostAliases:
+        - hostnames:
+          - bigquery-example.p.googleapis.com
+          - bigquerystorage-example.p.googleapis.com
+          - sts-example.p.googleapis.com
+          - iamcredentials-example.p.googleapis.com
+          - oauth2-example.p.googleapis.com
+          ip: 192.0.2.10
       securityContext:
         fsGroup: 65532
         runAsNonRoot: true
@@ -987,6 +1032,14 @@ spec:
         app.kubernetes.io/name: sutura-worker
         app.kubernetes.io/instance: test-release
     spec:
+      hostAliases:
+        - hostnames:
+          - bigquery-example.p.googleapis.com
+          - bigquerystorage-example.p.googleapis.com
+          - sts-example.p.googleapis.com
+          - iamcredentials-example.p.googleapis.com
+          - oauth2-example.p.googleapis.com
+          ip: 192.0.2.10
       securityContext:
         fsGroup: 65532
         runAsNonRoot: true

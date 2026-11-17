@@ -32,7 +32,8 @@ let
   # jobs.query, which a `bigquery.readonly` token may call.
   # `bigquery-adbc-partitions.patch` implements `ExecutePartitions`/`ReadPartition`, both
   # unconditionally `NotImplemented` upstream, so a query's result can be read back as several
-  # Storage Read API streams. All five recorded in VENDOR.md.
+  # Storage Read API streams. The private-endpoint patch applies destination routing and
+  # declared trust to REST, auth and Storage clients. All recorded in VENDOR.md.
   patchedGoSrc = pkgs.runCommand "adbc-driver-bigquery-go-src-relaxed" { } ''
     cp -rL ${bigqueryAdbcGoSource} $out
     chmod -R u+w $out
@@ -42,6 +43,7 @@ let
     patch -p1 -d $out < ${./bigquery-adbc-job-labels.patch}
     patch -p1 -d $out < ${./bigquery-adbc-jobs-query.patch}
     patch -p1 -d $out < ${./bigquery-adbc-partitions.patch}
+    patch -p1 -d $out < ${./bigquery-adbc-google-endpoints.patch}
   '';
   driver = { triple, crossPkgs }:
     {
