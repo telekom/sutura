@@ -117,7 +117,7 @@ fn a_federation_cannot_search_an_oracle_lob_after_a_bounded_leaf() {
     ];
     let mut legs = Engines::new(Some("geo"));
     let statement = RawStatement::parse(
-        "select c.customer_id from dim_customer c join dim_region r on c.region = r.region where r.sales_area like '%late-note%'",
+        r#"select c.customer_id from dim_customer c join "dim_region" r on c.region = r."region" where r."sales_area" like '%late-note%'"#,
     )
     .unwrap();
     let answer = DataFusionCombiner::new().unwrap().answer_statement(
