@@ -1,37 +1,271 @@
 {
   "mutants": [
     {
-      "label": "google-access-token-auth-type",
-      "package": "sutura-exec-bigquery",
+      "label": "disjoint-coexistence-domain",
+      "package": "sutura-domain",
       "tests": [
-        "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path",
-        "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
+        "text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect",
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys",
+        "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links"
       ],
-      "preimage_sha256": "275371a37359cb25760bbe1c829fd9a601a276065a572c3a224f9543cdaf0ced",
-      "mutated_sha256": "81db5a4ed7443326870afdfe93eddf5775504850440f1299c5e4bf689bfa25d1",
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "fa87153b2b68d285089bfc4a13491c34085ef42bf0174c6b1b1cf5c70a103814",
       "edits": [
         {
-          "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-          "before": "            OptionDatabase::Other(AUTH_TYPE.into()),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
-          "after": "            OptionDatabase::Other(format!(\"{AUTH_TYPE}.invalid\")),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "        check_metric_text_policies(definitions)?;",
+          "after": "        check_metric_text_policies(definitions)?;\n        if !definitions.metrics().is_empty()\n            && let Some(model) = definitions.models().values().find(|model| {\n            model.columns().any(|column| !column.text_policy().is_empty())\n        }) {\n            return Err(NotValidated::TextPolicy { model: model.name().clone() });\n        }",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "disjoint-coexistence-served",
+      "package": "sutura-cli",
+      "tests": [
+        "a_served_catalog_keeps_certified_anchors_and_redacted_raw_text_together"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "fa87153b2b68d285089bfc4a13491c34085ef42bf0174c6b1b1cf5c70a103814",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "        check_metric_text_policies(definitions)?;",
+          "after": "        check_metric_text_policies(definitions)?;\n        if !definitions.metrics().is_empty()\n            && let Some(model) = definitions.models().values().find(|model| {\n            model.columns().any(|column| !column.text_policy().is_empty())\n        }) {\n            return Err(NotValidated::TextPolicy { model: model.name().clone() });\n        }",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-measure-read",
+      "package": "sutura-domain",
+      "tests": [
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "6c53972ea6a55dbd8e70f09ba2cd6979bb4bd1d511f68de15c8255340a68f308",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "                reads.insert((model, term.column()));",
+          "after": "                reads.insert((model, metric.time_column()));",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-required-filter-read",
+      "package": "sutura-domain",
+      "tests": [
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "c917b1d5b52629b237aff88b429edcead145a880793e308ca7e5a5b485145f2d",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "                .required_filters()\n                .iter()",
+          "after": "                .required_filters()\n                .iter()\n                .take(0)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-dimension-read",
+      "package": "sutura-domain",
+      "tests": [
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "5ee04a26d87bd2ef055e5157b1da4f5b114bce78966cedaaed74f34bf9cf4b28",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "            reads.insert((model, dimension.column()));",
+          "after": "            reads.insert((model, metric.time_column()));",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-time-read",
+      "package": "sutura-domain",
+      "tests": [
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "71aec9357e67ecb5e191c2a80433526091737fdf744cd8491eeb1c805ce64484",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "            reads.insert((metric.model(), metric.time_column()));",
+          "after": "            reads.remove(&(metric.model(), metric.time_column()));",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-physical-alias-read",
+      "package": "sutura-domain",
+      "tests": [
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "4e849ebf76a54d42255cc5a6daf99a0797534f9fe775508a917cb48277a9e37f",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": ".filter(|other| physical_alias(model, other))",
+          "after": ".filter(|other| other.name() == model.name() && physical_alias(model, other))",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-join-origin-read",
+      "package": "sutura-domain",
+      "tests": [
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "3bb75b1900a5c857aeb073006740c327113dad0ed1c2a7ab9abea1dd5b2fc6b3",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "        reads.insert((relationship.origin_model(), key.origin()));",
+          "after": "        reads.remove(&(relationship.origin_model(), key.origin()));",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-join-target-read",
+      "package": "sutura-domain",
+      "tests": [
+        "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys",
+        "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "82da9e0fb8980a28b25ca658e38056c9e7408c896ff1d2b7b54529a94e4ab993",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "        reads.insert((relationship.target_model(), key.target()));",
+          "after": "        reads.remove(&(relationship.target_model(), key.target()));",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-shared-calendar-time-read",
+      "package": "sutura-domain",
+      "tests": [
+        "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "f5716c86f79ed9ea4033dcc37a1c4a26b0eba48feaacaeabfc375ee8c4fc3980",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "                reads.insert((calendar, metric.time_column()));",
+          "after": "                reads.remove(&(calendar, metric.time_column()));",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-second-fact-calendar-link",
+      "package": "sutura-domain",
+      "tests": [
+        "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "25203463a1b964b503d5ee1ba5377408ac5cf0fcdcf0c5cb7405ab75707caebe",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "                facts.contains(relationship.origin_model()) && targets.contains(relationship.target_model())",
+          "after": "                relationship.origin_model() == metric.model() && targets.contains(relationship.target_model())",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-second-fact-dimension-link",
+      "package": "sutura-domain",
+      "tests": [
+        "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "6cdcd9e564f0af4956e1f817f68ba72e24f27135a4128a12b7865a98b79b3159",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "                facts.contains(relationship.origin_model()) && targets.contains(relationship.target_model())",
+          "after": "                facts.contains(relationship.origin_model()) && calendars.iter().any(|calendar| calendar == relationship.target_model())",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "protected-second-fact-measure-read",
+      "package": "sutura-domain",
+      "tests": [
+        "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links"
+      ],
+      "preimage_sha256": "1bc71cd6f521a9ff0441864cdcb81caa55c083bcb9248df6eb74b5c07bbd007a",
+      "mutated_sha256": "a9e47ddfbe74e2dfc81909e5b4cc021a39cd1d79cc411a4845e64d6d97f7079c",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "                reads.insert((model, term.column()));",
+          "after": "                reads.insert((metric.model(), term.column()));",
           "count": 1
         }
       ]
     }
   ],
   "test_files": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": "crates/sutura-exec-bigquery/src/adbc/identity.rs"
+    "text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+    "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+    "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+    "a_served_catalog_keeps_certified_anchors_and_redacted_raw_text_together": "crates/sutura-cli/tests/served/duckdb.rs"
   },
   "test_identities": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": [
-      "sutura-exec-bigquery",
-      "adbc::identity::tests::a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path"
+    "text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect": [
+      "sutura-domain",
+      "warehouse::schema::tests::text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect"
     ],
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": [
-      "sutura-exec-bigquery",
-      "adbc::identity::tests::the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
+    "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys": [
+      "sutura-domain",
+      "warehouse::schema::tests::certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys"
+    ],
+    "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links": [
+      "sutura-domain",
+      "warehouse::schema::tests::cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links"
+    ],
+    "a_served_catalog_keeps_certified_anchors_and_redacted_raw_text_together": [
+      "sutura-cli::served",
+      "duckdb::tests::a_served_catalog_keeps_certified_anchors_and_redacted_raw_text_together"
     ]
+  },
+  "test_functions": {
+    "text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect": {
+      "name": "text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect",
+      "indent": ""
+    },
+    "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys": {
+      "name": "certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys",
+      "indent": ""
+    },
+    "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links": {
+      "name": "cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links",
+      "indent": ""
+    },
+    "a_served_catalog_keeps_certified_anchors_and_redacted_raw_text_together": {
+      "name": "a_served_catalog_keeps_certified_anchors_and_redacted_raw_text_together",
+      "indent": "    "
+    }
   },
   "cargo_profile": "ci"
 }
