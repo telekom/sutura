@@ -1,23 +1,6 @@
 {
   "mutants": [
     {
-      "label": "google-jobs-query-option",
-      "package": "sutura-exec-bigquery",
-      "tests": [
-        "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path"
-      ],
-      "preimage_sha256": "275371a37359cb25760bbe1c829fd9a601a276065a572c3a224f9543cdaf0ced",
-      "mutated_sha256": "1d766a8f95b2e329fb7f834fdcacfc974da02e6e6b90aca7fe4291741c44fb98",
-      "edits": [
-        {
-          "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-          "before": "        OptionDatabase::Other(QUERY_THROUGH_JOBS_QUERY.into()),\n        OptionValue::String(String::from(\"true\")),",
-          "after": "        OptionDatabase::Other(QUERY_THROUGH_JOBS_QUERY.into()),\n        OptionValue::String(String::from(\"false\")),",
-          "count": 1
-        }
-      ]
-    },
-    {
       "label": "google-access-token-auth-type",
       "package": "sutura-exec-bigquery",
       "tests": [
@@ -25,12 +8,12 @@
         "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
       ],
       "preimage_sha256": "275371a37359cb25760bbe1c829fd9a601a276065a572c3a224f9543cdaf0ced",
-      "mutated_sha256": "8ad094dd154f2bfb066aa6cd4c4b955f4539e604eb047ae275a6193b6ceecfb9",
+      "mutated_sha256": "81db5a4ed7443326870afdfe93eddf5775504850440f1299c5e4bf689bfa25d1",
       "edits": [
         {
           "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
           "before": "            OptionDatabase::Other(AUTH_TYPE.into()),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
-          "after": "            OptionDatabase::Other(IMPERSONATE_TARGET.into()),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
+          "after": "            OptionDatabase::Other(format!(\"{AUTH_TYPE}.invalid\")),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
           "count": 1
         }
       ]
