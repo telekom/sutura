@@ -228,13 +228,13 @@
       "tests": [
         "an_opaque_google_token_uses_its_mounted_verifier_without_a_jwt_issuer_peek"
       ],
-      "preimage_sha256": "fb06eb87711847a239c7d2637c66400e6eac8aba0d9c65cd293e4b6b2f88bb34",
-      "mutated_sha256": "f69a968b8ca49a214c38d3dd04bc2fe70bae63217df9928e3c43d2bc7d6ff44c",
+      "preimage_sha256": "b59d1c2c33c487bbe18df3bd784b4aa848f7879c83fc125b84bc5f1c0dff5434",
+      "mutated_sha256": "911cb4b5e4c63472060e813ca0c5ee7799544b83bb5cda8e02c410bf7997375b",
       "edits": [
         {
           "path": "crates/sutura-http/src/inbound/gate.rs",
-          "before": "if let [gate] = matching.as_slice() {",
-          "after": "if let [gate] = matching.as_slice() && false {",
+          "before": "if let [gate] = matching.as_slice()\n            && matches!(gate.verification, Verification::Google(_))",
+          "after": "if let [gate] = matching.as_slice()\n            && matches!(gate.verification, Verification::Google(_))\n            && false",
           "count": 1
         }
       ]
@@ -364,8 +364,8 @@
       "tests": [
         "a_caller_google_token_source_is_composed_as_direct_google_jobs_query"
       ],
-      "preimage_sha256": "a5081d92ff3cefeccc4473f0eaa395bc4e1917dafb4866c9638a8480c050d034",
-      "mutated_sha256": "4434870c1507db30c3baf532a7fe1748f0de062b935ac4451163190f731d80f5",
+      "preimage_sha256": "6086d9693c48c81af19f09b76a2119b3fdd4935fb0139c74ea3da2eeda2f694a",
+      "mutated_sha256": "7d5a818e545757dea4a9242697b50bc0504a67ac5fbaae4190370a7cf616d029",
       "edits": [
         {
           "path": "crates/sutura-cli/src/serve/bigquery.rs",
@@ -466,8 +466,8 @@
       "tests": [
         "a_token_over_the_size_bound_is_refused_before_anything_reads_it"
       ],
-      "preimage_sha256": "fb06eb87711847a239c7d2637c66400e6eac8aba0d9c65cd293e4b6b2f88bb34",
-      "mutated_sha256": "67d67661a1914df8d864de0f3a8f0e31eee727c3bcb6f855dca5bc13cb8d70a4",
+      "preimage_sha256": "b59d1c2c33c487bbe18df3bd784b4aa848f7879c83fc125b84bc5f1c0dff5434",
+      "mutated_sha256": "dbbc1ee4f1601bc6556d8ffe14a6872a6e61b5a95f0d50931bbaae61896d897e",
       "edits": [
         {
           "path": "crates/sutura-http/src/inbound/gate.rs",
@@ -483,8 +483,8 @@
       "tests": [
         "the_composed_agent_route_honours_token_bytes_for_both_inbound_modes"
       ],
-      "preimage_sha256": "fb06eb87711847a239c7d2637c66400e6eac8aba0d9c65cd293e4b6b2f88bb34",
-      "mutated_sha256": "cc00ff231b1fd8094978245311d774b7e0d7e850f35bffbe91fdfe8ac30f7016",
+      "preimage_sha256": "b59d1c2c33c487bbe18df3bd784b4aa848f7879c83fc125b84bc5f1c0dff5434",
+      "mutated_sha256": "5b73fb6b64c9743cb11a0805b6619e53281410c78fd1ad4b19434e4065bed774",
       "edits": [
         {
           "path": "crates/sutura-http/src/inbound/gate.rs",
