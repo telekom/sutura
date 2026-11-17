@@ -1,0 +1,8 @@
+fix(bigquery): route declared private Google destinations
+
+Carry declared API destinations and outbound trust through serving and
+reading-worker paths. Keep TLS verification and refuse credential redirects.
+
+Fixes #1945
+
+Weakens-Test: a_declared_outbound_bundle_beside_a_bigquery_source_is_refused_rather_than_ignored - replaced the obsolete blanket refusal with declared-trust propagation in bigquery_outbound_trust_reaches_driver_resolution_instead_of_the_old_blanket_refusal; native material and loopback handshake cells retain their own hosted proof requirement.

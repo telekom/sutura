@@ -40,7 +40,7 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [oracle-join-limit]
+        options: [google-endpoints]
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -98,18 +98,18 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/source-commit-bundles-20261114
+          test "$GITHUB_REF" = refs/heads/ci/google-endpoints-source-generation-1945-20261117
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          case "$CONSUMER" in oracle-join-limit) ;; *) exit 1 ;; esac
+          case "$CONSUMER" in google-endpoints) ;; *) exit 1 ;; esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: dc895769bd7463f059c191ac190d4052d4383a51
+          ref: 54a65789609579573a58a4f5feddae793331afbc
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -136,40 +136,51 @@ jobs:
           mkdir "$evidence"
           nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
           just lint-ci 2>&1 | tee "$evidence/workflow-lint.log"
-          main=dc895769bd7463f059c191ac190d4052d4383a51
+          main=1944ad67586bc7dcf19ec9946e9afed5744ac3ca
           case "$CONSUMER" in
-                oracle-join-limit)
-                    parent=dc895769bd7463f059c191ac190d4052d4383a51
-                    expected_tree=f05a4e48976d70c2d75157ffd6708b9a5e6bab14
-                    patch_sha=76912326e256a50680a31c23ad4b0eb2f20bf26c829a717ef40b4b6af24de25d
-                    message_sha=e7ccb8ce3b774ae75b602c7fae776d34f434a9cce333b96068c7a216fb6da675
-                    branch='fix/oracle-join-limit-scope-1943-20261116'
-                    subject='fix(sql): preserve joined row-window scopes'
+                google-endpoints)
+                    parent=54a65789609579573a58a4f5feddae793331afbc
+                    expected_tree=44febacaad139afa8bb9e69bab55df736c9be2ab
+                    patch_sha=36b37de5418de9aa0bff30c5244d30e9b9eacb025017b074448d94ce2089c360
+                    message_sha=83b023039c7bd9b03a971f6760bf0c9f252c13c8cf0663afbe35cb2e00c444e3
+                    branch='fix/google-api-endpoints-1945-20261117'
+                    subject='fix(bigquery): route declared private Google destinations'
                     paths=(
+                        '.agents/skills/sutura/invariants/SKILL.md'
                         'VENDOR.md'
-                        'crates/sutura-app/tests/golden/statements.rs'
-                        'crates/sutura-app/tests/golden/statements/corpus.rs'
-                        'crates/sutura-app/tests/golden/statements/text.rs'
-                        'crates/sutura-app/tests/snapshots/planned_statement_rows@bigquery.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_rows@clickhouse.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_rows@cube.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_rows@datafusion.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_rows@duckdb.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_rows@oracle.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_rows@postgres.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@bigquery.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@clickhouse.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@cube.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@datafusion.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@duckdb.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@oracle.snap'
-                        'crates/sutura-app/tests/snapshots/planned_statement_shapes@postgres.snap'
-                        'crates/sutura-exec-datafusion/src/combine/statement.rs'
-                        'crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs'
-                        'docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md'
+                        'charts/sutura/templates/_helpers.tpl'
+                        'charts/sutura/templates/deployment.yaml'
+                        'charts/sutura/templates/reading-workers.yaml'
+                        'charts/sutura/templates/worker-pool.yaml'
+                        'charts/sutura/testdata/values/pool/reading-workers.yaml'
+                        'charts/sutura/values.yaml'
+                        'crates/sutura-cli/src/bigquery_driver.rs'
+                        'crates/sutura-cli/src/serve.rs'
+                        'crates/sutura-cli/src/serve/bigquery.rs'
+                        'crates/sutura-cli/src/serve/broker.rs'
+                        'crates/sutura-cli/src/serve/worker.rs'
+                        'crates/sutura-cli/src/sources/bigquery.rs'
+                        'crates/sutura-config/src/google_endpoints.rs'
+                        'crates/sutura-config/src/lib.rs'
+                        'crates/sutura-config/src/raw.rs'
+                        'crates/sutura-config/src/raw/google.rs'
+                        'crates/sutura-config/src/raw/operator.rs'
+                        'crates/sutura-config/src/settings.rs'
+                        'crates/sutura-config/src/settings/error.rs'
+                        'crates/sutura-config/src/settings/parse.rs'
+                        'crates/sutura-config/src/sources.rs'
+                        'crates/sutura-config/src/sources/raw.rs'
+                        'crates/sutura-config/tests/google_chart.rs'
+                        'crates/sutura-config/tests/google_endpoints.rs'
+                        'crates/sutura-exec-bigquery/src/adbc.rs'
+                        'crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs'
+                        'crates/sutura-exec-bigquery/src/adbc/endpoints.rs'
+                        'docs/adr/0010-transport-security-for-a-source.md'
+                        'docs/integrations/data-systems/bigquery.md'
                         'docs/serving.md'
-                        'vendor/datafusion-sql/src/unparser/plan.rs'
-                        'vendor/datafusion-sql/src/unparser/utils.rs'
+                        'nix/bigquery-adbc-drivers.nix'
+                        'nix/bigquery-adbc-google-endpoints.patch'
+                        'nix/bigquery-adbc.nix'
                     )
                     hooks=(
                         'cargo fmt'
@@ -178,6 +189,7 @@ jobs:
                         'cargo check (changed packages only)'
                         'copy/paste detection (jscpd)'
                         'markdown/yaml/toml (dprint), python (ruff)'
+                        'Helm chart (lint, render, goldens, kubeconform)'
                         'detect hardcoded secrets (CI is authoritative)'
                         'conventional commit subject'
                     )
@@ -202,6 +214,18 @@ jobs:
           printf '%s\0' "${paths[@]}" | sort -z > "$RUNNER_TEMP/expected-source-paths"
           git diff --cached --name-only -z | sort -z > "$RUNNER_TEMP/actual-source-paths"
           cmp "$RUNNER_TEMP/expected-source-paths" "$RUNNER_TEMP/actual-source-paths"
+          input_tree="$expected_tree"
+          golden=charts/sutura/testdata/golden/pool/reading-workers.yaml
+          nix shell --no-update-lock-file --no-write-lock-file --inputs-from . nixpkgs#kubernetes-helm --command helm template test-release charts/sutura -f charts/sutura/testdata/values/pool/reading-workers.yaml > "$evidence/generated-reading-workers.yaml"
+          cp "$evidence/generated-reading-workers.yaml" "$golden"
+          git add "$golden"
+          printf '%s\0' "$golden" > "$RUNNER_TEMP/expected-generated-paths"
+          git diff --cached --name-only -z "$input_tree" > "$RUNNER_TEMP/actual-generated-paths"
+          cmp "$RUNNER_TEMP/expected-generated-paths" "$RUNNER_TEMP/actual-generated-paths"
+          git diff --cached --binary --full-index "$input_tree" > "$evidence/generated-golden.patch"
+          git diff --cached --binary --full-index "$parent" > "$evidence/final-source.patch"
+          expected_tree="$(git write-tree)"
+          printf '{"input_tree":"%s","generated_tree":"%s","golden":"%s"}\n' "$input_tree" "$expected_tree" "$golden" > "$evidence/generation.json"
           test -z "$(git config --get core.hooksPath || true)"
           git config --local user.name ci
           git config --local user.email user@example.com
@@ -263,6 +287,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: source-commit-failure-${{ inputs.consumer }}
-          path: ${{ runner.temp }}/source-commit-evidence/*.log
+          path: ${{ runner.temp }}/source-commit-evidence/
           if-no-files-found: ignore
           retention-days: 7
