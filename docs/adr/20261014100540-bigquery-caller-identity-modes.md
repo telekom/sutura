@@ -216,3 +216,27 @@ the count of options in the second amendment's third point.
   a token from domain-wide delegation. At a mode c source sutura sends only the queries it renders.
 
 Why: the full `bigquery` scope let the delegating account start any job as any user in the domain.
+
+## Sixth amendment, 2026-11-16: mode b starts with `jobs.query` and needs only `bigquery.readonly`
+
+**Status of the amendment: accepted** (issue #1944). This replaces, for mode b, the first
+amendment's "BigQuery does, at `jobs.insert`", and extends the fifth amendment's `jobs.query`
+decision from mode c to mode b.
+
+- **sutura starts a mode b query with `jobs.query`.** The transport sets
+  `bigquery.query.through_jobs_query` beside the caller's access token, in one function that every
+  mode that hands the driver the caller's own Google token uses. A pool's token does not get it:
+  its scope is the API client's full one, and its job stays cancellable.
+- **The identity provider's Google client asks for `openid email
+  https://www.googleapis.com/auth/bigquery.readonly`.** Unpatched, `jobs.insert` refused that
+  token, so the client had to ask for the full `bigquery` scope, which also allows writes. IAM on
+  the caller's own account still decides what the caller reads. sutura does not read the scope of
+  the token it is given: that is operator configuration at the identity provider.
+- **sutura cannot cancel a mode b job with that token.** The limit is the fifth amendment's third
+  point, unchanged: Google refuses `jobs.cancel` with the read-only scope. A job that outlives the
+  caller's deadline runs to its end or to `jobTimeoutMs`, `maximumBytesBilled` caps its bytes, and
+  nothing in sutura caps its slot time. A token that holds the full scope loses cancellation too
+  for a job cut off before `jobs.query` answers, because that call takes no client-chosen job id.
+
+Limit: nothing here measured a mode b job with a read-only user token at Google. The fifth
+amendment's probes used a service account's own token.

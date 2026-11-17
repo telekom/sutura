@@ -85,6 +85,19 @@ The identity provider keeps the Google token and refreshes it. Its Google provid
 token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
 it is and does not refresh it during a query.
 
+The identity provider's Google client asks the caller for the scopes
+`openid email https://www.googleapis.com/auth/bigquery.readonly`. sutura starts each `google_login`
+query with `jobs.query` and reads the rows through the Storage Read API, and the read-only scope
+allows both. Google refuses it `jobs.insert`, so it cannot start a load, copy or extract job.
+sutura does not read the scope of the token it receives. IAM on the caller's own account still
+decides what the caller reads.
+
+Google also refuses the read-only scope `jobs.cancel`, so sutura cannot cancel a `google_login` job.
+When the caller's deadline ends and sutura stops waiting, the job runs on until it ends or until
+BigQuery stops it at the job timeout sutura sent. `max_bytes_billed` still caps the bytes it bills.
+Nothing caps its slot time. A token that holds the full `bigquery` scope cannot cancel a job that was
+cut off before `jobs.query` answered either, because `jobs.query` takes no job ID from sutura.
+
 With `domain_delegation`, the query runs as the Google account with the caller's verified email
 address. The deployment vouches for the caller: by default sutura takes the address from the `email`
 claim of the caller's verified token, and only when `email_verified` is `true`. sutura uses the
