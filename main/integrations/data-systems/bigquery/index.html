@@ -3009,6 +3009,17 @@ Google account gets <code>403 identity_not_linked</code>. These are its keys:</p
 <p>The identity provider keeps the Google token and refreshes it. Its Google provider must store the
 token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
 it is and does not refresh it during a query.</p>
+<p>The identity provider's Google client asks the caller for the scopes
+<code>openid email https://www.googleapis.com/auth/bigquery.readonly</code>. sutura starts each <code>google_login</code>
+query with <code>jobs.query</code> and reads the rows through the Storage Read API, and the read-only scope
+allows both. Google refuses it <code>jobs.insert</code>, so it cannot start a load, copy or extract job.
+sutura does not read the scope of the token it receives. IAM on the caller's own account still
+decides what the caller reads.</p>
+<p>Google also refuses the read-only scope <code>jobs.cancel</code>, so sutura cannot cancel a <code>google_login</code> job.
+When the caller's deadline ends and sutura stops waiting, the job runs on until it ends or until
+BigQuery stops it at the job timeout sutura sent. <code>max_bytes_billed</code> still caps the bytes it bills.
+Nothing caps its slot time. A token that holds the full <code>bigquery</code> scope cannot cancel a job that was
+cut off before <code>jobs.query</code> answered either, because <code>jobs.query</code> takes no job ID from sutura.</p>
 <p>With <code>domain_delegation</code>, the query runs as the Google account with the caller's verified email
 address. The deployment vouches for the caller: by default sutura takes the address from the <code>email</code>
 claim of the caller's verified token, and only when <code>email_verified</code> is <code>true</code>. sutura uses the
