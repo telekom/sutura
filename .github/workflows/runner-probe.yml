@@ -35,7 +35,6 @@ jobs:
       cancel-in-progress: false
     env:
       GIT_OPTIONAL_LOCKS: "0"
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
       SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
       SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
       INSTA_UPDATE: "no"
@@ -93,6 +92,7 @@ jobs:
           umask 077
           printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
           chmod 600 "$RUNNER_TEMP/bq-key.json"
+          printf 'GOOGLE_APPLICATION_CREDENTIALS=%s\n' "$RUNNER_TEMP/bq-key.json" >> "$GITHUB_ENV"
       # The project comes off the key, masked before it is exported, so it reaches the cells
       # without reaching the log.
       - name: Mask resource names and read the project off the key
