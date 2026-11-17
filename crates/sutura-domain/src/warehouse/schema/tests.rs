@@ -230,3 +230,282 @@ fn each_dialect_reads_a_type_in_its_own_spelling_and_leaves_the_rest_unread() {
         assert_eq!(dialect.arrow(&declared), expected, "{dialect:?} reads {spelling}");
     }
 }
+
+#[test]
+fn text_policies_coexist_with_disjoint_certified_columns_on_every_source_dialect() {
+    use crate::catalog::{Audience, Metric, TextPolicy};
+    use crate::measure::{AggregatedColumn, Measure, Term};
+    use crate::model::{Aggregate, Grain, MetricName};
+    use std::collections::BTreeSet;
+
+    for dialect in [
+        TypeDialect::DataFusion,
+        TypeDialect::DuckDb,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+        TypeDialect::Cube,
+    ] {
+        for placement in ["same_table", "other_table", "other_source"] {
+            let policy: TextPolicy = serde_json::from_value(serde_json::json!({"max_text_bytes": 128})).unwrap();
+            let metric = Metric::new(
+                MetricName::parse("total").unwrap(),
+                ModelName::parse("facts").unwrap(),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+                    Aggregate::Count,
+                    ColumnName::parse("id").unwrap(),
+                ))),
+                vec![],
+                ColumnName::parse("day").unwrap(),
+                BTreeSet::from([Grain::Day]),
+                vec![],
+                None,
+                Description::default(),
+                Audience::Open,
+            )
+            .unwrap();
+            let mut facts = vec![column("id", Some("BIGINT")), column("day", Some("DATE"))];
+            if placement == "same_table" {
+                facts.push(column("body", Some("TEXT")).with_text_policy(policy.clone()));
+            }
+            let mut models = vec![model("facts", "lake", facts)];
+            if placement != "same_table" {
+                models.push(model(
+                    "notes",
+                    if placement == "other_source" { "crm" } else { "lake" },
+                    vec![column("body", Some("TEXT")).with_text_policy(policy)],
+                ));
+            }
+            let definitions = Definitions::assemble(models, vec![], vec![metric]).unwrap();
+            let dialects = ["lake", "crm"]
+                .into_iter()
+                .map(|name| (SourceName::parse(name).unwrap(), dialect))
+                .collect();
+            let pinned = PinnedSchemas::pin(&definitions, &dialects);
+            assert!(pinned.is_ok(), "{dialect:?} {placement}: {pinned:?}");
+        }
+    }
+}
+
+#[test]
+fn certified_column_reads_refuse_text_policies_including_physical_aliases_and_join_keys() {
+    use crate::catalog::{Audience, Dimension, DimensionValue, Metric, TextPolicy, ViaChain};
+    use crate::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
+    use crate::model::{Aggregate, DimensionName, Grain, MetricName, QualifiedTable};
+    use std::collections::BTreeSet;
+
+    let name = |raw: &str| ModelName::parse(raw).unwrap();
+    let col = |raw: &str| ColumnName::parse(raw).unwrap();
+    for read in [
+        "disjoint",
+        "measure",
+        "filter",
+        "dimension",
+        "time",
+        "origin",
+        "target",
+        "alias",
+    ] {
+        let policy: TextPolicy = serde_json::from_value(serde_json::json!({"max_text_bytes": 128})).unwrap();
+        let mut facts = vec![
+            column("id", Some("TEXT")),
+            column("day", Some("TEXT")),
+            column("body", Some("TEXT")),
+            column("lookup_key", Some("TEXT")),
+        ];
+        let protected = match read {
+            "time" => "day",
+            "origin" => "lookup_key",
+            _ => "body",
+        };
+        let mut lookup = vec![column("id", Some("TEXT")), column("body", Some("TEXT"))];
+        if read == "target" {
+            lookup[0] = column("id", Some("TEXT")).with_text_policy(policy);
+        } else {
+            let target = facts.iter().position(|c| c.name().as_str() == protected).unwrap();
+            facts[target] = column(protected, Some("TEXT")).with_text_policy(policy);
+        }
+        let mut models = vec![model("facts", "lake", facts), model("lookup", "crm", lookup)];
+        let metric_model = if read == "alias" {
+            models.push(Model::new(
+                name("alias"),
+                SourceName::parse("lake").unwrap(),
+                QualifiedTable::parse("schema.FACTS").unwrap(),
+                vec![column("BODY", Some("TEXT")), column("day", Some("TEXT"))],
+                Description::default(),
+            ));
+            name("alias")
+        } else {
+            name("facts")
+        };
+        let relationship = Relationship::new(
+            RelationshipName::parse("to_lookup").unwrap(),
+            name("facts"),
+            name("lookup"),
+            JoinType::ManyToOne,
+            JoinKeys::single(JoinKey::Equal {
+                origin: col("lookup_key"),
+                target: col("id"),
+            }),
+        );
+        let dimensions = if matches!(read, "dimension" | "origin" | "target") {
+            vec![Dimension::new(
+                DimensionName::parse("label").unwrap(),
+                col("body"),
+                (read != "dimension").then(|| ViaChain::of(vec![relationship.name().clone()]).unwrap()),
+                None,
+                Description::default(),
+            )]
+        } else {
+            vec![]
+        };
+        let filters = if read == "filter" {
+            vec![RequiredFilter::Equals {
+                column: col("body"),
+                value: DimensionValue::parse("ok").unwrap(),
+            }]
+        } else {
+            vec![]
+        };
+        let measured = match read {
+            "measure" => "body",
+            "alias" => "BODY",
+            _ => "id",
+        };
+        let metric = Metric::new(
+            MetricName::parse("total").unwrap(),
+            metric_model,
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Count, col(measured)))),
+            filters,
+            col("day"),
+            BTreeSet::from([Grain::Day]),
+            dimensions,
+            None,
+            Description::default(),
+            Audience::Open,
+        )
+        .unwrap();
+        let definitions = Definitions::assemble(models, vec![relationship], vec![metric]).unwrap();
+        let pinned = PinnedSchemas::pin(&definitions, &dialects());
+        if read == "disjoint" {
+            assert!(pinned.is_ok(), "disjoint columns must pin: {pinned:?}");
+        } else {
+            let refused = pinned.expect_err("a certified read cannot bypass a text policy");
+            if read == "measure" {
+                assert_eq!(
+                    format!("{refused:?}"),
+                    r#"MetricReadsProtectedText { metric: MetricName("total"), model: ModelName("facts"), column: ColumnName("body") }"#
+                );
+            }
+            let refused = refused.to_string();
+            let protected_model = if read == "target" { "lookup" } else { "facts" };
+            let protected_column = if read == "target" { "id" } else { protected };
+            assert_eq!(
+                refused,
+                format!(
+                    "metric total reads text-policy column {protected_model}.{protected_column}; certified execution cannot apply that policy"
+                ),
+                "{read}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_links() {
+    use crate::catalog::{Audience, Dimension, Metric, TextPolicy, ViaChain};
+    use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
+    use crate::model::{Aggregate, DimensionName, Grain, MetricName};
+    use std::collections::BTreeSet;
+
+    let name = |raw: &str| ModelName::parse(raw).unwrap();
+    let col = |raw: &str| ColumnName::parse(raw).unwrap();
+    for (protected_model, protected_column) in [
+        ("calendar", "unused"),
+        ("calendar", "day"),
+        ("calendar", "key"),
+        ("second", "calendar_key"),
+        ("second", "lookup_key"),
+        ("second", "value"),
+    ] {
+        let policy: TextPolicy = serde_json::from_value(serde_json::json!({"max_text_bytes":128})).unwrap();
+        let declared = |model_name: &str, columns: &[&str]| {
+            model(
+                model_name,
+                "lake",
+                columns
+                    .iter()
+                    .map(|column_name| {
+                        let declared = column(column_name, Some("TEXT"));
+                        if model_name == protected_model && *column_name == protected_column {
+                            declared.with_text_policy(policy.clone())
+                        } else {
+                            declared
+                        }
+                    })
+                    .collect(),
+            )
+        };
+        let models = vec![
+            declared("first", &["value", "calendar_key", "lookup_key", "day"]),
+            declared("second", &["value", "calendar_key", "lookup_key"]),
+            declared("calendar", &["key", "day", "unused"]),
+            declared("lookup", &["key", "label"]),
+        ];
+        let link = |link_name: &str, origin: &str, target: &str, origin_key: &str| {
+            Relationship::new(
+                RelationshipName::parse(link_name).unwrap(),
+                name(origin),
+                name(target),
+                JoinType::ManyToOne,
+                JoinKeys::single(JoinKey::Equal {
+                    origin: col(origin_key),
+                    target: col("key"),
+                }),
+            )
+        };
+        let links = vec![
+            link("first_calendar", "first", "calendar", "calendar_key"),
+            link("second_calendar", "second", "calendar", "calendar_key"),
+            link("first_lookup", "first", "lookup", "lookup_key"),
+            link("second_lookup", "second", "lookup", "lookup_key"),
+        ];
+        let metric = Metric::new(
+            MetricName::parse("ratio").unwrap(),
+            name("first"),
+            Measure::Ratio {
+                numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Count, col("value"))),
+                denominator: Term::Aggregate(AggregatedColumn::on_model(Aggregate::Count, col("value"), name("second"))),
+                zero_denominator: ZeroDenominator::Null,
+            },
+            vec![],
+            col("day"),
+            BTreeSet::from([Grain::Day]),
+            vec![Dimension::new(
+                DimensionName::parse("label").unwrap(),
+                col("label"),
+                Some(ViaChain::of(vec![RelationshipName::parse("first_lookup").unwrap()]).unwrap()),
+                None,
+                Description::default(),
+            )],
+            None,
+            Description::default(),
+            Audience::Open,
+        )
+        .unwrap()
+        .with_shared_calendar(name("calendar"));
+        let definitions = Definitions::assemble(models, links, vec![metric]).unwrap();
+        let pinned = PinnedSchemas::pin(&definitions, &dialects());
+        if protected_column == "unused" {
+            assert!(pinned.is_ok(), "an unused shared-calendar column must coexist: {pinned:?}");
+        } else {
+            assert_eq!(
+                pinned.unwrap_err().to_string(),
+                format!(
+                    "metric ratio reads text-policy column {protected_model}.{protected_column}; certified execution cannot apply that policy"
+                )
+            );
+        }
+    }
+}

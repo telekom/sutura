@@ -14,7 +14,7 @@ use std::sync::Arc;
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use sha2::{Digest as _, Sha256};
 
-use crate::catalog::Definitions;
+use crate::catalog::{Definitions, Metric, Model, Relationship};
 use crate::definitions::nibble;
 use crate::model::{ColumnName, ModelName, SourceName};
 use crate::pinned::NotValidated;
@@ -86,6 +86,7 @@ impl PinnedSchemas {
                 }
             }
         }
+        check_metric_text_policies(definitions)?;
         let federated: BTreeSet<&ModelName> = definitions
             .relationships()
             .values()
@@ -137,10 +138,7 @@ impl PinnedSchemas {
                     )]));
                 }
                 if !column.text_policy().is_empty() {
-                    if !mapped_text
-                        || field.metadata().contains_key("sutura:unbounded_number")
-                        || !definitions.metrics().is_empty()
-                    {
+                    if !mapped_text || field.metadata().contains_key("sutura:unbounded_number") {
                         return Err(NotValidated::TextPolicy {
                             model: model.name().clone(),
                         });
@@ -191,6 +189,128 @@ impl Default for PinnedSchemas {
             digest,
         }
     }
+}
+
+/// Certified execution does not transform protected text. Refuse every column a permitted
+/// question (including its anchor and optional dimensions) can read, before validation executes SQL.
+fn check_metric_text_policies(definitions: &Definitions) -> Result<(), NotValidated> {
+    for metric in definitions.metrics().values() {
+        let mut reads = BTreeSet::new();
+        reads.extend(
+            metric
+                .required_filters()
+                .iter()
+                .map(|filter| (metric.model(), filter.column())),
+        );
+        let mut facts = BTreeSet::from([metric.model()]);
+        if let Some(measure) = metric.measure() {
+            for term in measure.terms() {
+                let model = term.model().unwrap_or_else(|| metric.model());
+                facts.insert(model);
+                reads.insert((model, term.column()));
+            }
+        }
+        let mut targets = BTreeSet::new();
+        for dimension in metric.dimensions().values() {
+            let mut model = metric.model();
+            for relationship in dimension
+                .via()
+                .into_iter()
+                .flatten()
+                .filter_map(|name| definitions.relationship(name))
+            {
+                relationship_reads(relationship, &mut reads);
+                model = relationship.target_model();
+                targets.insert(model);
+            }
+            reads.insert((model, dimension.column()));
+        }
+        if let Some(calendars) = metric.shared_calendars().filter(|_| facts.len() > 1) {
+            for calendar in calendars.iter() {
+                targets.insert(calendar);
+                reads.insert((calendar, metric.time_column()));
+            }
+            // The second fact uses its own links into the shared dimensions and calendars.
+            for relationship in definitions.relationships().values().filter(|relationship| {
+                facts.contains(relationship.origin_model()) && targets.contains(relationship.target_model())
+            }) {
+                relationship_reads(relationship, &mut reads);
+            }
+        } else {
+            reads.insert((metric.model(), metric.time_column()));
+        }
+        for (name, column) in reads {
+            if let Some(model) = definitions.model(name) {
+                refuse_protected_read(definitions, metric, model, column)?;
+            }
+        }
+        // An authored expression has no closed column vocabulary. It cannot establish disjointness.
+        if metric.measure().is_none()
+            && let Some(model) = definitions.model(metric.model())
+            && let Some((protected, column)) = definitions
+                .models()
+                .values()
+                .filter(|other| other.source() == model.source())
+                .find_map(|protected| {
+                    protected
+                        .columns()
+                        .find(|column| !column.text_policy().is_empty())
+                        .map(|column| (protected, column))
+                })
+        {
+            return Err(NotValidated::MetricReadsProtectedText {
+                metric: metric.name().clone(),
+                model: protected.name().clone(),
+                column: column.name().clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn relationship_reads<'a>(relationship: &'a Relationship, reads: &mut BTreeSet<(&'a ModelName, &'a ColumnName)>) {
+    for key in relationship.keys().iter() {
+        reads.insert((relationship.origin_model(), key.origin()));
+        reads.insert((relationship.target_model(), key.target()));
+    }
+}
+
+fn refuse_protected_read(
+    definitions: &Definitions,
+    metric: &Metric,
+    model: &Model,
+    column: &ColumnName,
+) -> Result<(), NotValidated> {
+    for protected in definitions.models().values().filter(|other| physical_alias(model, other)) {
+        if let Some(protected_column) = protected
+            .columns()
+            .find(|other| other.name().as_str().eq_ignore_ascii_case(column.as_str()) && !other.text_policy().is_empty())
+        {
+            return Err(NotValidated::MetricReadsProtectedText {
+                metric: metric.name().clone(),
+                model: protected.name().clone(),
+                column: protected_column.name().clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// An unqualified name may resolve to the qualified table on the same connection. Fold case
+/// conservatively: some engines fold even quoted identifiers, so exact spelling is not a barrier.
+fn physical_alias(left: &Model, right: &Model) -> bool {
+    left.source() == right.source()
+        && left.table_name().as_str().eq_ignore_ascii_case(right.table_name().as_str())
+        && match (left.table().qualifier(), right.table().qualifier()) {
+            (Some(left), Some(right)) => {
+                left.dataset().as_str().eq_ignore_ascii_case(right.dataset().as_str())
+                    && match (left.project(), right.project()) {
+                        (Some(left), Some(right)) => left.as_str().eq_ignore_ascii_case(right.as_str()),
+                        _ => true,
+                    }
+            }
+            _ => true,
+        }
 }
 
 /// Every part is a netstring (`<length>:<bytes>`), so no two sets hash the same bytes.
