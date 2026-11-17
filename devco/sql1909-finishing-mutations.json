@@ -1,37 +1,25 @@
 {
   "mutants": [
     {
-      "label": "google-access-token-auth-type",
-      "package": "sutura-exec-bigquery",
+      "label": "dev-pat-binds-the-supplied-hmac-key",
+      "package": "sutura-dev",
       "tests": [
-        "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path",
-        "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
+        "the_minted_pat_decodes_to_the_documented_claim_set"
       ],
-      "preimage_sha256": "275371a37359cb25760bbe1c829fd9a601a276065a572c3a224f9543cdaf0ced",
-      "mutated_sha256": "81db5a4ed7443326870afdfe93eddf5775504850440f1299c5e4bf689bfa25d1",
+      "preimage_sha256": "942a24bd08afb3b8f2cb77987262d767ed6d797cfd94316d25a80680055a25b7",
+      "mutated_sha256": "58c30e3cac69b8ab021219e95dfa74d2b14c7eae98477a42e67c4fb99d75353f",
       "edits": [
         {
-          "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-          "before": "            OptionDatabase::Other(AUTH_TYPE.into()),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
-          "after": "            OptionDatabase::Other(format!(\"{AUTH_TYPE}.invalid\")),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
+          "path": "dev/src/mint.rs",
+          "before": "jsonwebtoken::EncodingKey::from_secret(key.as_bytes())",
+          "after": "jsonwebtoken::EncodingKey::from_secret(b\"a-different-key\")",
           "count": 1
         }
       ]
     }
   ],
   "test_files": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": "crates/sutura-exec-bigquery/src/adbc/identity.rs"
-  },
-  "test_identities": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": [
-      "sutura-exec-bigquery",
-      "adbc::identity::tests::a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path"
-    ],
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": [
-      "sutura-exec-bigquery",
-      "adbc::identity::tests::the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
-    ]
+    "the_minted_pat_decodes_to_the_documented_claim_set": "dev/src/mint.rs"
   },
   "cargo_profile": "ci"
 }
