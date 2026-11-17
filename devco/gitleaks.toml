@@ -134,3 +134,12 @@ id = "jwk-private-key"
 description = "A JWK with its private member d"
 regex = '''"d"\s*:\s*"([A-Za-z0-9_-]{40,})"'''
 keywords = ['"d"']
+
+# The native mutation plan records the unchanged test source's SHA256, not an API credential.
+[[allowlists]]
+description = "Native transport witness test-source digest"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^devco/google1945-native-mutations\.json$''']
+regexTarget = "match"
+regexes = ['''^token_options_test\.go": "b8b401a4addb873afe3239178ca5f1071affd2986997a01b082554360086e6d4"$''']

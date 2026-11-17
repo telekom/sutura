@@ -470,12 +470,239 @@ def fuzz_metadata_preflight(inherited_home):
     )
 
 
+def google_native_mutations():
+    installable = PLAN["installable"]
+    assert (
+        installable
+        == ".#packages.x86_64-linux.adbc-driver-bigquery-x86_64-unknown-linux-gnu"
+    )
+    native_baseline = PLAN["native_source_manifest"]
+    test_file = "google_endpoints_test.go"
+
+    def native_source(label, expected):
+        path = Path(
+            subprocess.check_output(
+                ["nix", "eval", "--raw", installable + ".src.outPath"]
+            ).decode()
+        )
+        assert str(path).startswith("/nix/store/") and path.is_dir()
+        files = [file for file in sorted(path.rglob("*")) if file.is_file()]
+        assert not [file for file in files if file.suffix == ".rej"], "patch rejects"
+        backups = {
+            str(file.relative_to(path)): digest(file.read_bytes())
+            for file in files
+            if file.suffix == ".orig"
+        }
+        write(label + "-native-patch-backups.json", backups)
+        manifest = {
+            str(file.relative_to(path)): digest(file.read_bytes())
+            for file in files
+            if file.suffix != ".orig"
+        }
+        write(label + "-expanded-native-source.json", manifest)
+        assert manifest == expected, (
+            "expanded native source differs from the frozen manifest"
+        )
+        assert manifest[test_file] == PLAN["native_test_sha256"]
+        return path
+
+    def whole_native(label, expected, claims=None):
+        # --rebuild is necessary: a substituted output has no observed test run.
+        status, text = execute(
+            label, ["nix", "build", "--no-link", "--rebuild", "-L", installable]
+        )
+        path = native_source(label, expected)
+        observed = re.findall(r"--- (PASS|FAIL): (Test\S+) \(", text)
+        verdicts = {
+            name: {result for result, cell in observed if cell == name}
+            for _, name in observed
+        }
+        assert all(len(values) == 1 for values in verdicts.values()), (
+            "contradictory native rows"
+        )
+        rows = {name: next(iter(values)) for name, values in verdicts.items()}
+        write(label + "-native-rows.json", rows)
+        assert "(cached)" not in text, (
+            "cached Go test output has no new execution credit"
+        )
+        top = {name: result for name, result in rows.items() if "/" not in name}
+        assert set(top) == set(PLAN["native_tests"]), (
+            "native check venue did not finish all selected tests"
+        )
+        assert not re.search(r"panic:|SIGABRT|\[build failed\]", text), (
+            "non-assertion native failure"
+        )
+        if claims is None:
+            assert status == 0 and set(rows.values()) == {"PASS"}
+        else:
+            assert status != 0
+            current, sites = None, []
+            for line in text.splitlines():
+                run = re.search(r"=== RUN\s+(Test\S+)", line)
+                if run:
+                    current = run.group(1)
+                match = re.search(r"google_endpoints_test\.go:(\d+): (.*)", line)
+                if match:
+                    sites.append((current, int(match.group(1)), match.group(2)))
+            source = (path / test_file).read_text()
+            evidence = []
+            for claim in claims:
+                identity, wanted = claim["identity"], claim["line"]
+                assert rows.get(identity) == "FAIL", (
+                    "declared native cell did not fail",
+                    identity,
+                )
+                function = identity.split("/")[0]
+                start = source.index("func " + function + "(t *testing.T) {")
+                end = source.index("\n}", start) + 2
+                first = source[:start].count("\n") + 1
+                last = source[:end].count("\n") + 1
+                owner = PLAN["native_test_owners"][function]
+                assert owner == {
+                    "start": first,
+                    "end": last,
+                    "sha256": digest(source[start:end].encode()),
+                }
+                assert owner["sha256"] == claim["owner_sha256"]
+                assert first <= wanted <= last
+                assert "t.Fatal" in source.splitlines()[wanted - 1], (
+                    "claim is not an own fatal assertion"
+                )
+                own = [
+                    {
+                        "identity": name,
+                        "path": test_file,
+                        "line": line,
+                        "message": message,
+                    }
+                    for name, line, message in sites
+                    if name == identity
+                    and line == wanted
+                    and claim["assertion_contains"] in message
+                ]
+                assert own, ("no matching own native assertion", claim)
+                evidence.extend(own)
+            write(label + "-own-assertions.json", evidence)
+        # Capture the actual derivation and its toolchain, vendor closure and check phase.
+        derivation = json.loads(
+            subprocess.check_output(["nix", "derivation", "show", installable])
+        )
+        write(label + "-derivation.json", derivation)
+        facts = None
+        if claims is None:
+            output = Path(
+                subprocess.check_output(
+                    ["nix", "eval", "--raw", installable + ".outPath"]
+                ).decode()
+            )
+            libraries = {
+                str(file.relative_to(output)): digest(file.read_bytes())
+                for file in sorted((output / "lib").glob("libadbc_driver_bigquery.*"))
+            }
+            assert {
+                "lib/libadbc_driver_bigquery.so",
+                "lib/libadbc_driver_bigquery.a",
+            } <= set(libraries)
+            # Use the Go toolchain named by the actual native derivation, never PATH's Go.
+            assert len(derivation) == 1
+            environment = next(iter(derivation.values()))["env"]
+            go = [
+                Path(value) / "bin/go"
+                for value in environment["nativeBuildInputs"].split()
+                if re.search(r"-go-1\.27(?:[.-]|$)", value)
+            ]
+            assert len(go) == 1 and go[0].is_file()
+            go_version = subprocess.check_output([str(go[0]), "version"]).decode()
+            build_info = subprocess.check_output(
+                [
+                    str(go[0]),
+                    "version",
+                    "-m",
+                    str(output / "lib/libadbc_driver_bigquery.so"),
+                ]
+            ).decode()
+            facts = {
+                "output": str(output),
+                "libraries": libraries,
+                "go_tool": str(go[0]),
+                "go_version": go_version,
+                "go_build_info": build_info,
+                "derivation": derivation,
+            }
+            write(label + "-native-build.json", facts)
+        exact(BASELINE if claims is None else expected_tracked)
+        return facts
+
+    for mutant in PLAN["native_mutants"]:
+        label = mutant["label"]
+        file = Path(mutant["path"])
+        assert str(file) == "nix/bigquery-adbc-google-endpoints.patch"
+        exact(BASELINE)
+        assert not git("status", "--porcelain")
+        head_facts = whole_native(label + "-head", native_baseline)
+        original = file.read_bytes()
+        assert digest(original) == mutant["preimage_sha256"]
+        assert not re.search(r"^\+\+\+ b/.*_test\.go$", original.decode(), re.MULTILINE)
+        try:
+            changed = original.decode()
+            for edit in mutant["edits"]:
+                assert edit["before"].count("\n") == edit["after"].count("\n")
+                assert changed.count(edit["before"]) == edit["count"] == 1
+                changed = changed.replace(edit["before"], edit["after"], 1)
+            assert digest(changed.encode()) == mutant["mutated_sha256"]
+            file.write_text(changed)
+            expected_tracked = dict(BASELINE)
+            expected_tracked[str(file)] = [
+                os.lstat(file).st_mode,
+                digest(file.read_bytes()),
+            ]
+            exact(expected_tracked)
+            native_expected = dict(native_baseline)
+            assert set(mutant["expanded_files"]) <= {
+                "google_endpoints.go",
+                "connection.go",
+                "bigquery_database.go",
+            }
+            native_expected.update(mutant["expanded_files"])
+            whole_native(label + "-mutant", native_expected, mutant["claims"])
+        finally:
+            file.write_bytes(original)
+            exact(BASELINE)
+            restored_facts = whole_native(label + "-restored", native_baseline)
+            assert head_facts == restored_facts, "restored native build differs"
+            exact(BASELINE)
+            assert not git("status", "--porcelain")
+        write(
+            label + "-proof.json",
+            {
+                "source": PLAN["source_sha"],
+                "tree": PLAN["source_tree"],
+                "claims": mutant["claims"],
+                "restored": True,
+            },
+        )
+    write(
+        "native-mutation-summary.json",
+        {
+            "mutants": len(PLAN["native_mutants"]),
+            "status": "own native assertions and complete existing native venue head/restoration passes",
+        },
+    )
+
+
 if __name__ == "__main__":
     assert os.environ.get("GITHUB_ACTIONS") == "true", "hosted execution only"
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("preflight", "validate", "ship-check", "mutations", "sql-mutations")
+    assert mode in (
+        "preflight",
+        "validate",
+        "ship-check",
+        "mutations",
+        "sql-mutations",
+        "google-native-mutations",
+    )
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
     PLAN = json.loads(Path(plan_path).read_text())
     if mode in ("mutations", "sql-mutations"):
@@ -484,7 +711,9 @@ if __name__ == "__main__":
             if mode == "sql-mutations"
             else "sql1912-finishing-mutations.json"
         )
-        mutation_plan = json.loads(Path(__file__).with_name(mutation_file).read_bytes())
+        mutation_plan_bytes = Path(__file__).with_name(mutation_file).read_bytes()
+        PLAN["mutation_plan_sha256"] = digest(mutation_plan_bytes)
+        mutation_plan = json.loads(mutation_plan_bytes)
         for key in (
             "mutants",
             "test_files",
@@ -494,6 +723,21 @@ if __name__ == "__main__":
         ):
             if key in mutation_plan:
                 PLAN[key] = mutation_plan[key]
+    if mode == "google-native-mutations":
+        native_plan_bytes = (
+            Path(__file__).with_name("google1945-native-mutations.json").read_bytes()
+        )
+        native_plan = json.loads(native_plan_bytes)
+        PLAN["native_plan_sha256"] = digest(native_plan_bytes)
+        for key in (
+            "installable",
+            "native_tests",
+            "native_source_manifest",
+            "native_test_sha256",
+            "native_test_owners",
+            "native_mutants",
+        ):
+            PLAN[key] = native_plan[key]
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == PLAN["source_tree"]
     assert (
@@ -526,6 +770,8 @@ if __name__ == "__main__":
             "run_id": os.environ["GITHUB_RUN_ID"],
             "plan_sha256": digest(Path(plan_path).read_bytes()),
             "payload_sha256": digest(Path(__file__).read_bytes()),
+            "native_plan_sha256": PLAN.get("native_plan_sha256"),
+            "mutation_plan_sha256": PLAN.get("mutation_plan_sha256"),
             "index_sha256": digest(SAVED_INDEX),
         },
     )
@@ -554,6 +800,9 @@ if __name__ == "__main__":
         )
         if mode == "preflight":
             fuzz_metadata_preflight(inherited_home)
+            status = 0
+        elif mode == "google-native-mutations":
+            google_native_mutations()
             status = 0
         elif mode in ("mutations", "sql-mutations"):
             mutations()

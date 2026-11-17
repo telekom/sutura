@@ -1,0 +1,1192 @@
+{
+  "installable": ".#packages.x86_64-linux.adbc-driver-bigquery-x86_64-unknown-linux-gnu",
+  "native_tests": [
+    "TestErrToAdbcErrMapsRestForbidden",
+    "TestSafeWaitForJobBacksOffBetweenPolls",
+    "TestAccessToken",
+    "TestEmptyAccessTokenRefused",
+    "TestAccessTokenUnderImpersonationRefused",
+    "TestAccessTokenUnderOtherAuthTypeRefused",
+    "TestImpersonateSubject",
+    "TestExternalAccountFileReachesDomainDelegationSignJwt",
+    "TestSubjectWithoutTargetPrincipalRefused",
+    "TestQueryLabels",
+    "TestQueryLabelsNotAnObjectRefused",
+    "TestThroughJobsQuery",
+    "TestWithoutThroughJobsQueryInserts",
+    "TestThroughJobsQueryDryRun",
+    "TestThroughJobsQueryRefusesWhatItCannotCarry",
+    "TestThroughJobsQueryWithoutAJobRefused",
+    "TestThroughJobsQueryWithAnEmptyJobIdRefused",
+    "TestThroughJobsQueryNotABoolRefused",
+    "TestQueryLabelsThroughJobsQuery",
+    "TestPartitionDescriptorRoundTrip",
+    "TestPartitionDescriptorMalformedRefused",
+    "TestExecutePartitionsRefusesDryRun",
+    "TestExecutePartitionsRefusesEmptyQuery",
+    "TestExecutePartitionsRefusesBoundParameters",
+    "TestPartitionStreamCountFor",
+    "TestPartitionsOptionsValidTaken",
+    "TestPartitionsOptionsInvalidRefused",
+    "TestPartitionReadSendsNoRequestSerializationOptions",
+    "TestPartitionReadSessionCompressesAndAsksForAMinimum",
+    "TestPartitionReadClosesStreamWhenDecodingFails",
+    "TestGooglePrivateEndpointsEveryIdentity",
+    "TestGoogleStorageEndpointKeepsTLS",
+    "TestGooglePrivateEndpointOptionsRoundTrip",
+    "TestGoogleCredentialRedirectsRefused",
+    "TestGoogleTLSMaterialRefusesPartialBundles",
+    "TestGoogleDeclaredTrustHandshake"
+  ],
+  "native_source_manifest": {
+    ".env.macos": "148f484694cac3b57021f744799d489513d9a299b4e8a96210db9a2e9a823a67",
+    ".env.windows": "148f484694cac3b57021f744799d489513d9a299b4e8a96210db9a2e9a823a67",
+    "NOTICE.txt": "1cbd5bde106f265fc6c1daff570e92412e6151893d97e7cfc80cf5f373339b51",
+    "adbc-make.toml": "3d0f39f9e20498063c7d163ec66675f0154f432987b2d8e16b88f65558621f7c",
+    "bigquery_database.go": "1b515765a88755c8dc443943cf369942af690cb94df7d37b96b63e5cf38167f7",
+    "bigquery_error_test.go": "c96f4fcf3abc2c47147d70bcf7fdbb7b0fd30471d507aaba90b5f1b6d8786e4f",
+    "bulk_ingest.go": "6cc4eb1e81063cbb0ad0534ac2bd5da41b910e0f3f5524e52ba77cc0f76f1dbc",
+    "bulk_ingest_storage_write.go": "86afb961106f29105c321957cac7ccb47268bc21a5628d876e6c406f66e1bfeb",
+    "ci/test_package.py": "a30b7acdac0ee85595bd3c752ca87994029b261998c1aca65a05c86f701d7366",
+    "connection.go": "1f2baa875a261cf573f270ab33c74013bef68e37378840caeadf02a3d1f49ebb",
+    "connection_statistics.go": "dd1a0f81c425d56e8fd93ac7b1052d6bc600d1472fbdc5ff4c254722b61c3b12",
+    "docs/bigquery.md": "3462300aae2b5c4d8b652ccf754f16f408ac3c58b0f28d957ff5ce5e8e3078fc",
+    "driver.go": "622ecd989b87f9bfb8be0ea1ea195ac187cf544e62aedee80e5eb844859d72d8",
+    "driver_test.go": "826da403f8a167aeea2a4436dd37069a26ef7686b216a5a0a0658a257dc266dd",
+    "go.mod": "417df04dc56c69a829a20e1b248a1ef64eda1ab4b4be1007c6f2fd0d0dbda2c8",
+    "go.sum": "29da864082add69fe832c9147f17898a6ee2ee746bb930c5bf3d28b413d877b9",
+    "google_endpoints.go": "45de4df5edbcc6ba1522dfa723ff8761921d7a3c37986ba96362e6bd6ffa5a7c",
+    "google_endpoints_test.go": "336a2f045870e74486275144206576548dfc7d73beaa52bc2c6d9c6c69240cd1",
+    "job_query.go": "b4f465100b2bd2d22e5836cc2ab7fa9a5cd9a4aa36527e79893c3a8ce41bec1a",
+    "jobs_query.go": "57a0b980313fba5743c4e680ac00498e6b3afcc30ca2e0a3326739c8d66366d5",
+    "jobs_query_labels_test.go": "6c0d86e2237256414c6cff3736931ecba360d3b9b7353a9480365732604dea6e",
+    "jobs_query_test.go": "1a209a464c8fe7da78052109fd4810f79674cd655577e29424785ce79923b1e0",
+    "labels_test.go": "2e09a42ef2769ba76e44a533733ecfbadcfa2a3ae4c0b1a2d91ea903261bfd28",
+    "license.tpl": "9600e76aa9cfce51ce26bc610a5aba8634dcbcedaa90f041ad66356739d2a96b",
+    "manifest.toml": "8f1286196bcd91dc8deaec23c7cb790592398587cca3922e9caa31c96dd2d1f1",
+    "partitions.go": "de02348d621adf18c8fd3a8572b208978eb7501246ab1df63d48a57173d2c04a",
+    "partitions_test.go": "02b54565c050459edec6050940b877cf1e38e1b954102123113132ac16300ff6",
+    "pixi.lock": "1cb12f9396429003f0da8822d77e286b948973137e11cbec515aa37b526e5164",
+    "pixi.toml": "5b3e85fed8338bacd3e794f163403baad0a642d2c80f742ffafb5d9d5cff12db",
+    "pkg/adbc.h": "d8520037017246e7260e8b09c2cf1880b8adc2fcb64d360fa700f44ad504d5a2",
+    "pkg/driver.go": "0e6dcfdc6d6a62f1bbfdd48ffe7620672b39591dbb7e4c1c16e6ab3b05f9bed9",
+    "pkg/driver_cancel_test.go": "3c2e6d6ae65b78e83f511de48bd75d7402037f8113fb93d7d56b95f9da4b698b",
+    "pkg/utils.c": "998f2232ab1131f527b4b884a169b1cc90e899d74779492b791f403ed0f0a80d",
+    "pkg/utils.h": "69431fa4b52f9ac4bce3054d3d53f0f230bd508c1ae4a8c37e527ea1be0072ba",
+    "query_options.go": "db2b9718133d56cd4c9079bd0c48e340a49bdf5c0bf765e7fd82b600db74b3a4",
+    "record_reader.go": "4b0cd6e8e8b81debef7b2d3e2c3928d1979a3b99be8908c727958a587a18f4ab",
+    "record_reader_test.go": "874e60ade9856ab015c37c0d839e425457e6bc544d1b978a18d31b4e6fde68a4",
+    "schema_test.go": "166bb4b86e06f781387cc4aaa4cf32f585cb7a5871f6c59470d8184c55a8ae00",
+    "statement.go": "e7661bbb447a65dc87406f6af86f6dd44430e56919372ef4a593f7c2a63d0ea8",
+    "statement_cancel.go": "da2d4bf0d96292fb17eda68c2b0d01088aa2915b28ce0fc20c66e57f1be91982",
+    "statement_cancel_test.go": "7120ef00e6f4e5fb0d485d83274c113d157aa8261cbcaf1ba28c996cb73614ac",
+    "statistics_metadata.go": "5332df918147f5907dc5407abcfce0654eaa93fb2a8875e84ab5e85ea66a7b1e",
+    "token_options_test.go": "b8b401a4addb873afe3239178ca5f1071affd2986997a01b082554360086e6d4",
+    "util.go": "388b3547a61a6dd2175e5cc302239078b03e3aea7af2865b722aec3213e88c5c",
+    "util_test.go": "24d96b2e8c40b619d1b1f53ccabeb81bd65976e206bc0fdf281df7e02bd5473f",
+    "validation/README.md": "cd501aa376a3a7d0a4f4030bdbcec377fddb4cc133a7b8a294e457024fd6e4f9",
+    "validation/pytest.ini": "cee0d11aed37bdf6375473e08b97dc19d58a2de54869a78b36bea9933c48e808",
+    "validation/queries/ingest/binary.toml": "f380c91f10d2aec3a663b1c0d39cbdbca05391abad3d6b50f2f3523486394264",
+    "validation/queries/ingest/binary_view.toml": "7e2a4bd375415ad46ae171529ce9f1d99841478ac441b4153bd4c822c2d19180",
+    "validation/queries/ingest/binary_view_storagewrite.txtcase": "eb380f71fb3cc1f9fc6a6a8db9bb41ec2eb1b0c7da1c4dd74405d85a44d51857",
+    "validation/queries/ingest/decimal.schema.json": "b38918508aac1240012af70e63bfe93c172a1a802143d07fae97adc02d0ca005",
+    "validation/queries/ingest/decimal_scale_equals_precision.txtcase": "49b11b68afef244fa70294e7aae73d5d71fa420f71e000d550e2d5a11ccfd3d8",
+    "validation/queries/ingest/decimal_scale_negative.txtcase": "9259065e2e6dbebe1505a7dea4cbf0dcc8a428df95e8ce37428cf72c5a361ba6",
+    "validation/queries/ingest/decimal_scale_zero.txtcase": "49b11b68afef244fa70294e7aae73d5d71fa420f71e000d550e2d5a11ccfd3d8",
+    "validation/queries/ingest/fixed_size_binary.txtcase": "33917b16ab8bd1e4b4152ff28c956ee1f89a4966c0fe20ff9425262deb0d3981",
+    "validation/queries/ingest/float32.json": "be091e645a3996f6627b693680c4caf9c8befe8a01271a9f4a50f34a74c26b14",
+    "validation/queries/ingest/float32.schema.json": "5305719b5e708b7bc82acc818c05fa265cc3b920b4be3d961b3a886e6ff117de",
+    "validation/queries/ingest/float32.toml": "1e1faabe9c5c64cae1b74e938c44ae9ca8c9ba58a8bd29aed5d40eb04261b9a7",
+    "validation/queries/ingest/float64.toml": "1e1faabe9c5c64cae1b74e938c44ae9ca8c9ba58a8bd29aed5d40eb04261b9a7",
+    "validation/queries/ingest/int16.schema.json": "8bb71d3b15c86e9642b599c8c2ea3329a1d6875ee0a07986d67800ee1eec3873",
+    "validation/queries/ingest/int16.toml": "71fed6c72a3649aa5f8d177cf08e7236a0526f0439b4f6b0a21779065037e9be",
+    "validation/queries/ingest/int32.schema.json": "8bb71d3b15c86e9642b599c8c2ea3329a1d6875ee0a07986d67800ee1eec3873",
+    "validation/queries/ingest/int32.toml": "71fed6c72a3649aa5f8d177cf08e7236a0526f0439b4f6b0a21779065037e9be",
+    "validation/queries/ingest/int64.toml": "71fed6c72a3649aa5f8d177cf08e7236a0526f0439b4f6b0a21779065037e9be",
+    "validation/queries/ingest/large_binary.txtcase": "33917b16ab8bd1e4b4152ff28c956ee1f89a4966c0fe20ff9425262deb0d3981",
+    "validation/queries/ingest/large_string.txtcase": "59e1f532e75376bb4362dd3cfbc79cf3ffb11f3a52317a964e8a8f04c24c7aea",
+    "validation/queries/ingest/list.txtcase": "87d7a191c3df84ab6a95693a6f2b5f46033fee661ad9a53f07382685385b6ec1",
+    "validation/queries/ingest/list_storagewrite.txtcase": "c21a2e1e1ca56884f57668ad98e04130a8aa92cc81366f0d6936e7f1b3dc6385",
+    "validation/queries/ingest/string.toml": "df66c57c32dcab3832053e2d0c0d699652934615c388a40d3d2d4f47a38fa12d",
+    "validation/queries/ingest/string_view.toml": "fc6cb780eb3f0401b30e47cbec96677d289ae0befe520d968af2249a171348bb",
+    "validation/queries/ingest/string_view_storagewrite.txtcase": "36c35ea9605d18e9f8639938c07d62c6547957b1b9e525f8997aeeb8557c26a6",
+    "validation/queries/ingest/struct.input.json": "d7d4b148f76ee167d37a9f8a93ff09b59e4a932e2fd8f2a5becd43f57c8419bc",
+    "validation/queries/ingest/struct.input.schema.json": "4e86e260396faa2299f5314121159881e356d200823b6746f321631309533da1",
+    "validation/queries/ingest/struct.schema.json": "1b583e63dfb5e8df56259f8a7d601f6a5bff5854fafdf6289ad3e579e47e00c9",
+    "validation/queries/ingest/struct.toml": "1fb69217c4648c4390917c68541f7dd99a1eac3ed1f7561d52dca9e8e40f797a",
+    "validation/queries/ingest/time_ms.txtcase": "bf8d2372b724a8b5fc6af0253daa602f3bcffab3e695e4dbcb30fbdd2b7bc9f8",
+    "validation/queries/ingest/time_ns.txtcase": "a99bdcce2dbceb2ca6dfa8d00bccd928b6bc63152a2b8430dca2dd9b28595527",
+    "validation/queries/ingest/time_ns_storagewrite.txtcase": "9eb57f3ad22ca99cee211e6ac9238fd4c8c8c7c8f108b4d14065f9bc4009ef31",
+    "validation/queries/ingest/time_s.txtcase": "be19d04f74700f67db0113116c1079205ed37bb215c078fc6a73a28c1560bdc6",
+    "validation/queries/ingest/time_us.txtcase": "c81914845b4f76544d4ef03ceafbc4c0538d7b8dd06f5c4b7893f13288352738",
+    "validation/queries/ingest/timestamp_ms.txtcase": "c048ca548f5b6f23ce319c37fbb9735ee6699c741b3056f3c28fcb03eaba4978",
+    "validation/queries/ingest/timestamp_ns.txtcase": "801576e0458b6982fbe51503616c38415476b328e2ead9138b37225019655472",
+    "validation/queries/ingest/timestamp_ns_storagewrite.txtcase": "2e9c4d3cc69cc00529e438bd91912370e8a5431c649f06d951ea7a3372b43005",
+    "validation/queries/ingest/timestamp_s.txtcase": "74e6cc1068a7e14ca829da74aa0d62d1e00dd6aabacc2d4a513ce27ee5f3d833",
+    "validation/queries/ingest/timestamp_us.txtcase": "801576e0458b6982fbe51503616c38415476b328e2ead9138b37225019655472",
+    "validation/queries/ingest/timestamptz_ms.txtcase": "425540d886507d869bef0f22e4135ec6e273e683a0a1911ca51218d68b5ce41e",
+    "validation/queries/ingest/timestamptz_ns.txtcase": "689e5c95768e821ad8b4e4a7f6e2c04f4014422a983db924d9a0717e48ab61ab",
+    "validation/queries/ingest/timestamptz_ns_storagewrite.txtcase": "01eb1503391c3022c489581d410f23f51d76bff86fec9f86683fdade70f906be",
+    "validation/queries/ingest/timestamptz_s.txtcase": "02bf4e1716572658f7ba56a303ca88d6e672a66cccfea57fe7a3ccaccee7a562",
+    "validation/queries/ingest/timestamptz_us.txtcase": "1ddb2827f12e63a2dddefac00beb836b74e7487f2b653b0c132603c89d40cbf6",
+    "validation/queries/type/bind/binary.setup.sql": "e26cbf5023ef662734871f93b94fcbc1b713abeee4915082dddf891497c07dff",
+    "validation/queries/type/bind/binary.toml": "d058847a90fc117fcce6856ba3dfc751f44ee209cb43dbf094aa1b9c1b0f41dc",
+    "validation/queries/type/bind/binary_view.setup.sql": "509fdeb325fc0f01b7f42253ded8735a1a6ae4c45bf60d91ea7965e197a286bd",
+    "validation/queries/type/bind/binary_view.toml": "d058847a90fc117fcce6856ba3dfc751f44ee209cb43dbf094aa1b9c1b0f41dc",
+    "validation/queries/type/bind/boolean.txtcase": "23d975dfabb03b7209d2bf9168aefe0c83f9ab89c62651f98e487d93d17cad5d",
+    "validation/queries/type/bind/decimal.schema.json": "51e9c296641c4a198f0ce9451f0a996c9ffd9d6ef68ec786ee58a2b2612d83c3",
+    "validation/queries/type/bind/fixed_size_binary.setup.sql": "bf2dec94214eb50aa699c30a57bffca458cd0664cf869cddc30296586685db28",
+    "validation/queries/type/bind/fixed_size_binary.toml": "d058847a90fc117fcce6856ba3dfc751f44ee209cb43dbf094aa1b9c1b0f41dc",
+    "validation/queries/type/bind/float16.txtcase": "e07aeb335f677beab091b849fbbe8cd6eac636f8fef74d3bf5a0ed29332ddaae",
+    "validation/queries/type/bind/float32.toml": "571ae6ed21ce2f2b96b9a4631d788c6c3d7e485ce99866a203fdc9f81879346b",
+    "validation/queries/type/bind/float64.setup.sql": "cad349b3b62021431eb3d74e409db65759995dd61e0a80181e7c083d186f45ae",
+    "validation/queries/type/bind/float64.toml": "1e1faabe9c5c64cae1b74e938c44ae9ca8c9ba58a8bd29aed5d40eb04261b9a7",
+    "validation/queries/type/bind/int16.toml": "199578ed333ea5ad9005ccf73782ea7f41689880de4d07abeba40759d6740ba3",
+    "validation/queries/type/bind/int32.toml": "7bd22b9e8c0c157eacc1a8f50fd5a1a362969fab8b2d8bd107911073ffef41f1",
+    "validation/queries/type/bind/int64.toml": "71fed6c72a3649aa5f8d177cf08e7236a0526f0439b4f6b0a21779065037e9be",
+    "validation/queries/type/bind/large_binary.setup.sql": "f68a9627fc0f7e810ca0d7ad99933618dacaba380ef7484cb4636703bd49aa8b",
+    "validation/queries/type/bind/large_binary.toml": "d058847a90fc117fcce6856ba3dfc751f44ee209cb43dbf094aa1b9c1b0f41dc",
+    "validation/queries/type/bind/large_string.setup.sql": "2433b942ececbaa1e1773136f76717ab2191b058f6bbd6dd0bfeec898f6dd4ee",
+    "validation/queries/type/bind/large_string.toml": "f421f81d21e2a87193360799e453b4fc7191755ec0a78f391eb7cef1f835bc47",
+    "validation/queries/type/bind/string.setup.sql": "8410499eeb845be00c0d9524e2ce1d846493e387328f804b8339d03a3eb89f93",
+    "validation/queries/type/bind/string.toml": "f421f81d21e2a87193360799e453b4fc7191755ec0a78f391eb7cef1f835bc47",
+    "validation/queries/type/bind/string_view.setup.sql": "9a602b3ea9fddd44ae4251105ab651cdabc43941bf8d74440bf74e94b7aa57df",
+    "validation/queries/type/bind/string_view.toml": "f421f81d21e2a87193360799e453b4fc7191755ec0a78f391eb7cef1f835bc47",
+    "validation/queries/type/bind/time_ms.txtcase": "aca9f9b02b3bc07fd4538650146ebdee3fa90e08d4306e1ba87ec82fbdcae93d",
+    "validation/queries/type/bind/time_ns.txtcase": "d12ac6e79e96db64dc43ea9f38ff8783e16bd48814ad9c7f924f7894957e684e",
+    "validation/queries/type/bind/time_s.txtcase": "c4931a9caad1c6b6cfc43f5e41ea5ee7f88fa61c60934fa6229fe483f94fc05f",
+    "validation/queries/type/bind/time_us.txtcase": "5546b97ed23e6b5c93428be87eea14dc945beb6eb3d3f87d7f57e153c7c5d4eb",
+    "validation/queries/type/bind/timestamp_ms.txtcase": "215fddefc726cf7a3a907880157c90ba1bda85ae08bcae1fdd4c35f039e84cdd",
+    "validation/queries/type/bind/timestamp_ns.txtcase": "9505e8824216ab9df19f38424b9f82f8ac0d615c91c28d6284173c0051b01491",
+    "validation/queries/type/bind/timestamp_s.txtcase": "8ab0dfe8b1d1c9e528da6fbb7e7b52cbc2da75350ba84830345f4ea197e0c7a2",
+    "validation/queries/type/bind/timestamp_us.txtcase": "085a6d1d34f0c12ff0e6377d44059840a5119c520784fd091d54c7510117efe1",
+    "validation/queries/type/bind/timestamptz_ms.txtcase": "a896a9fabf3a1b3dc3e579553dfa2cf2544664a37930970095e9419bebad219a",
+    "validation/queries/type/bind/timestamptz_ns.txtcase": "f162b4b8e1a5f5b085bc52da9538b98e3e096c0d563c35d42dcabf459a91858e",
+    "validation/queries/type/bind/timestamptz_s.txtcase": "895aeea2710f1ffd33e32d0720e87b204de148bbae17304a8bac1207aa7581da",
+    "validation/queries/type/bind/timestamptz_us.txtcase": "2ed16ea5daefc97e68700ef82c3fe874b9a0ed2024ef0484e55c6ee76bb28318",
+    "validation/queries/type/literal/binary.sql": "2f499531279e6b55e86b8b7a0b2fffa5ac13de6f305f4af876d08b4008b85b9f",
+    "validation/queries/type/literal/binary.toml": "f380c91f10d2aec3a663b1c0d39cbdbca05391abad3d6b50f2f3523486394264",
+    "validation/queries/type/literal/boolean.toml": "2ca661dc2fdab8f2623d4ee8ce21b1ca6fd46f5517f09bb14836dfedc92d4f1c",
+    "validation/queries/type/literal/decimal.schema.json": "51e9c296641c4a198f0ce9451f0a996c9ffd9d6ef68ec786ee58a2b2612d83c3",
+    "validation/queries/type/literal/decimal.sql": "477c8248bc32c5d2edc5d4f8267f96c9abd74474de1eacbe0a33cc6872219297",
+    "validation/queries/type/literal/decimal.toml": "feacaf7e17a28e1793750575a79f963a428880006893421d62004b52ffe64036",
+    "validation/queries/type/literal/float32.toml": "571ae6ed21ce2f2b96b9a4631d788c6c3d7e485ce99866a203fdc9f81879346b",
+    "validation/queries/type/literal/float64.sql": "014a878ce9fe018256142f87f283a4a9387c0c66271820425be4d86cd184e3da",
+    "validation/queries/type/literal/float64.toml": "1e1faabe9c5c64cae1b74e938c44ae9ca8c9ba58a8bd29aed5d40eb04261b9a7",
+    "validation/queries/type/literal/int16.toml": "199578ed333ea5ad9005ccf73782ea7f41689880de4d07abeba40759d6740ba3",
+    "validation/queries/type/literal/int32.toml": "7bd22b9e8c0c157eacc1a8f50fd5a1a362969fab8b2d8bd107911073ffef41f1",
+    "validation/queries/type/literal/int64.toml": "71fed6c72a3649aa5f8d177cf08e7236a0526f0439b4f6b0a21779065037e9be",
+    "validation/queries/type/literal/string.toml": "df66c57c32dcab3832053e2d0c0d699652934615c388a40d3d2d4f47a38fa12d",
+    "validation/queries/type/literal/timestamp.sql": "3ce3a9215b8fc47dec089d53167bbd8e3a1a0391378421937171fa54d0b258f6",
+    "validation/queries/type/literal/timestamp.toml": "94804a31870fb18127b9a0a19a10946c1b5e1a985ea45cbbf1360fe33a876c7e",
+    "validation/queries/type/literal/timestamptz.sql": "528d9469248f30f82fc66e70a33e901050f55d4f53cf67186b25a893c2ddad62",
+    "validation/queries/type/literal/timestamptz.toml": "d6a80bd858a5620b320cb6686bc6d6cbad1cae90ac2d249b8ce78e83c541e046",
+    "validation/queries/type/select/array.json": "b051a1c0f3d6be31762c77a05bbf5e2ad151cd1e40beb460c5dbd5ad80602372",
+    "validation/queries/type/select/array.schema.json": "b511368e1316f3b3ef26d9548d4b40b46f4df26ac6c9e003a0488f9d28a3c99b",
+    "validation/queries/type/select/array.setup.sql": "4643428ab9cb5d064d656e46bd50398dc9e5b7954fcabc377a4496dc6555b665",
+    "validation/queries/type/select/array.sql": "4b858b624c69f1f12a93f37dfadbea373aabff91e476b42e78a9864ebf5621b2",
+    "validation/queries/type/select/array.toml": "33a68cce4e574ddaec76ec34bb51807da8f565890fb4852f1e9f31d4abd65810",
+    "validation/queries/type/select/bigdecimal.json": "acdcdea38887ccf4f344cdc5dcfd7dd1d6b4545abc1faad70addab751ff03ca7",
+    "validation/queries/type/select/bigdecimal.schema.json": "4c724283929d0b42e0ed5ceb931a00247344978140a4dd8b6ec1869ba8bb3727",
+    "validation/queries/type/select/bigdecimal.setup.sql": "297181d6485744efff2b66314f1f3355ea33cc002308c7a1bbbf71a465dc4aae",
+    "validation/queries/type/select/bigdecimal.sql": "b71e4783f57233e897c31cf2dd2d07dbb8caa475613682cb02cbf68df501fb6b",
+    "validation/queries/type/select/bigdecimal.toml": "d6625580d095ecfdc5d6e598008f06ff56fa14a49fc328a72a3770681edf70e0",
+    "validation/queries/type/select/binary.setup.sql": "dbf0d767d78f72dc4f15a25c11b9b359324f3055a7ed98e28e69d555920db469",
+    "validation/queries/type/select/binary.toml": "d058847a90fc117fcce6856ba3dfc751f44ee209cb43dbf094aa1b9c1b0f41dc",
+    "validation/queries/type/select/boolean.txtcase": "23d975dfabb03b7209d2bf9168aefe0c83f9ab89c62651f98e487d93d17cad5d",
+    "validation/queries/type/select/decimal.schema.json": "51e9c296641c4a198f0ce9451f0a996c9ffd9d6ef68ec786ee58a2b2612d83c3",
+    "validation/queries/type/select/decimal.toml": "98e74826da863d7c91f18f4562837407c36d463d6f205d1e0faf82fdf2474c55",
+    "validation/queries/type/select/float32.toml": "571ae6ed21ce2f2b96b9a4631d788c6c3d7e485ce99866a203fdc9f81879346b",
+    "validation/queries/type/select/float64.setup.sql": "4f9e2f91828e9f513ee7911bd05e10ff3a126ccc7a43ce2e16db4618f1f287ba",
+    "validation/queries/type/select/float64.toml": "1e1faabe9c5c64cae1b74e938c44ae9ca8c9ba58a8bd29aed5d40eb04261b9a7",
+    "validation/queries/type/select/geography.json": "087636c551e017ba84104bb3f9ae2bd4cbebcc146554bd417628b56f0a381a37",
+    "validation/queries/type/select/geography.schema.json": "ebbbdcf1524a6f1b605d95d9af3ffc8bb4843536de6d7fa0e83ddf7e17a74d86",
+    "validation/queries/type/select/geography.setup.sql": "c27d47112b8e2bd0fa998d9c4d08b19cd71109c66aae9d86f43963bafbf63637",
+    "validation/queries/type/select/geography.sql": "b8e548bf030c5bb3fa0110dc2a2ab2e6bdb44fd182d45c14808c32f8f79bda21",
+    "validation/queries/type/select/geography.toml": "d7f675c610ccdaff7ab5cc4ebf0eaf80b769b3fa8a57313fb20d14a6ccac9bfa",
+    "validation/queries/type/select/int16.toml": "199578ed333ea5ad9005ccf73782ea7f41689880de4d07abeba40759d6740ba3",
+    "validation/queries/type/select/int32.toml": "7bd22b9e8c0c157eacc1a8f50fd5a1a362969fab8b2d8bd107911073ffef41f1",
+    "validation/queries/type/select/int64.toml": "71fed6c72a3649aa5f8d177cf08e7236a0526f0439b4f6b0a21779065037e9be",
+    "validation/queries/type/select/interval.json": "66782a7d08009ef9cd990fe18af9803eb73cd6fb42357291fc43283857311a67",
+    "validation/queries/type/select/interval.schema.json": "af727f49aa8f0f18169386c221733a1601624ca460b6c0a72703c760936ee377",
+    "validation/queries/type/select/interval.setup.sql": "dbd091f8439fc86859abc015c17fc95e3b1f6d72342be33431aed742ea2ea91d",
+    "validation/queries/type/select/interval.sql": "86dc5b5fc80931886e0dbb40f86bf6ea1d6beadb26b357c214bbbcdf59751b26",
+    "validation/queries/type/select/interval.toml": "95643d5387dbb1f088888bbea8253733102086355f23ed6abe79a15c16a8cede",
+    "validation/queries/type/select/json.json": "817bd483f521fe61348b66520c6330426f2f5cad5d78afcad1c8c75b3c3f70ba",
+    "validation/queries/type/select/json.schema.json": "1d8a9355239a2f9be06c923f18a1b9a9277e8270bdd78e0e08db45c4b5b639ba",
+    "validation/queries/type/select/json.setup.sql": "3b0a829161921172f86e5dd5b0d5dfaee1e3834140bea577d006bb66274494fe",
+    "validation/queries/type/select/json.sql": "b4cae67b55695dd2c39a8eea57bb3c026657eadbb8173ce0aa08edf053322204",
+    "validation/queries/type/select/json.toml": "67ba6ba5c62418d4dbb2d4730411917d2610a293346e2993b0267ad2944cde11",
+    "validation/queries/type/select/range_date.json": "1ef9640e9434f4c9b428876a698c1ca05d577fed526d2796cda6b2f70de2f5e5",
+    "validation/queries/type/select/range_date.schema.json": "e7d1e07c38254c9fd94af58d5c3c5c2bde46b52dac008322536f4c2c16439063",
+    "validation/queries/type/select/range_date.setup.sql": "940b3e6935da0f5256d5120131ca75c49e245f7fd55b74d5e8f5ccee7dcb0bfb",
+    "validation/queries/type/select/range_date.sql": "2e5fc394c2fb3d081c1c73db45f1df1e583ab1b613916c7936f92903169960ea",
+    "validation/queries/type/select/range_date.toml": "44d4fff07df8c9b1f4c930a2fc102a30f6d858170c1e1a5ae2f493071820a0b8",
+    "validation/queries/type/select/range_datetime.json": "22d8f9e53efd82e96f4c55b46a281d4df2a1f676e4955a73165a210e69940a08",
+    "validation/queries/type/select/range_datetime.schema.json": "ed4b3c70b030eeb261119205a645a1d87fcd23f7cb7d47ae51bae5563279f81e",
+    "validation/queries/type/select/range_datetime.setup.sql": "1082274a9ba972a645d5e12ce611e6e359ee359ff52b0c899fb45e848525a4b7",
+    "validation/queries/type/select/range_datetime.sql": "d1abf9fe09cd488a64464c17012c413093f406880a923fef5d53a470abac5ebf",
+    "validation/queries/type/select/range_datetime.toml": "68fd244f9693bb673dfd9b88ed6d9a1d8a64e5c4e796867cd50ba95f98117961",
+    "validation/queries/type/select/range_timestamp.json": "22d8f9e53efd82e96f4c55b46a281d4df2a1f676e4955a73165a210e69940a08",
+    "validation/queries/type/select/range_timestamp.schema.json": "16054d28617025d5ca71794ba747bd9956b1e828417949be1e174f7c83c252a4",
+    "validation/queries/type/select/range_timestamp.setup.sql": "d18b9574e9803ea98b2e481d85bc4e7cffea1595a626144d39d2b47184addbe4",
+    "validation/queries/type/select/range_timestamp.sql": "e07ae6bc8885f1617b924a5f8b40e463be0cb02daa56d9432f3adb8151acb4ff",
+    "validation/queries/type/select/range_timestamp.toml": "20790786170c7e41decb4bf892d64d0bccdd9df22500eb62ae01ce9c2b96767c",
+    "validation/queries/type/select/string.setup.sql": "cf2470fedbe9d336112b6e0bf3f4c177be20e9d94affd3fa8e808f13a468c1fb",
+    "validation/queries/type/select/string.toml": "f421f81d21e2a87193360799e453b4fc7191755ec0a78f391eb7cef1f835bc47",
+    "validation/queries/type/select/struct.json": "ef9115d2194460f16ce175ac40010dbe3664cca1c24d3559ac352c760c0bc7ec",
+    "validation/queries/type/select/struct.schema.json": "39bb81511eff969aed304217f7ef3d02841a8a5b8062beac5afb61f230d30939",
+    "validation/queries/type/select/struct.setup.sql": "d35176a08dcc511726258a2c2fc48fa3a8308e8f0c4a4cdba209f3e32da50e17",
+    "validation/queries/type/select/struct.sql": "96c818e0243954fd574a8fa0478520d4ec9cc58de289bb46b0c9419e9fb15a40",
+    "validation/queries/type/select/struct.toml": "0cc1016709cc8d3086be9dcf65c0de13fb72c48c6010f0defde22349fdcd09e0",
+    "validation/queries/type/select/timestamp0.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp0tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp1.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp1tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp2.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp2tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp3.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp3tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp4.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp4tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp5.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp5tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp6.txtcase": "8095231bd5ffb1b0e63903cddc41eaeda63acfaf98796237f5ef9e0d36e55cd5",
+    "validation/queries/type/select/timestamp6tz.txtcase": "19ed5dbadb0f43c3efb0c502766238248550a553129c48c59cd76241e371f30d",
+    "validation/queries/type/select/timestamp7.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp7tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp8.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp8tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/queries/type/select/timestamp9.txtcase": "6b4b02281e32bf2e9fce37c1b28e9576c3c70984a9eca2b81e8473cc4abe841f",
+    "validation/queries/type/select/timestamp9tz.txtcase": "1a1a9c9134c0de654d9bb3d26661518821450a1e0cbe516c572a300d5a5e2500",
+    "validation/tests/__init__.py": "8532a6818f0cf7fc422763529f874eacfae5124f2c225fc541c6f2e73c87d07f",
+    "validation/tests/bigquery/conftest.py": "0870e45be321fb785fa7da8fa9b3187a9fc2ea4938bfdd3c34e239eec050812c",
+    "validation/tests/bigquery/test_uri.py": "f59e721c303486f1940eab9dc18afcfc39249b422e0d363b85ebebe9c958472e",
+    "validation/tests/bigquery.py": "b63f344a8fa2535b5055bc59683e811c74d74d2fbf2a2674f56a2060842e3271",
+    "validation/tests/conftest.py": "be00685d88d2c8857fe9a1f93d29f1cf31067f1c82592e3da8bf0f8eb92a4d41",
+    "validation/tests/generate_documentation.py": "62259d364b34f82a769189e1f291102c97ac339c95a41682a66e0ea80dae0f21",
+    "validation/tests/test_connection.py": "0397a916f7e1ee2a994757535bb5917b922ba5f8336ee7be57ee7b9fe05a5b7d",
+    "validation/tests/test_ingest.py": "0949bda137ca57b4725d1723e8d3fd3bbb782b122d1c62d4277018e724c688df",
+    "validation/tests/test_query.py": "a99116a0cf13ef61cd8a79d0a1f9616f0c363782b5fd37ad65fbc42c917fac5c",
+    "validation/tests/test_statement.py": "520c9a53bdcada6a55f576af30ecf46389dae23090e0132322906da1f1118f90",
+    "validation/tests/utils.py": "61172a60d2944f9a00687fa4d899e34002a4335df7f966d2f16d49173f88d74d"
+  },
+  "native_test_sha256": "336a2f045870e74486275144206576548dfc7d73beaa52bc2c6d9c6c69240cd1",
+  "native_test_owners": {
+    "TestGooglePrivateEndpointsEveryIdentity": {
+      "start": 109,
+      "end": 385,
+      "sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+    },
+    "TestGoogleStorageEndpointKeepsTLS": {
+      "start": 387,
+      "end": 398,
+      "sha256": "c1bbc68c64d8d4305f8bdba02e68d5610f6c8b8645e253e3f9b85d77a44a907a"
+    },
+    "TestGooglePrivateEndpointOptionsRoundTrip": {
+      "start": 400,
+      "end": 454,
+      "sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+    },
+    "TestGoogleCredentialRedirectsRefused": {
+      "start": 469,
+      "end": 494,
+      "sha256": "81f0ca8661cce92a97eff1b7782c3e405dd0a4831cad44137bce0b4d9dbe1ec0"
+    },
+    "TestGoogleTLSMaterialRefusesPartialBundles": {
+      "start": 496,
+      "end": 584,
+      "sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+    },
+    "TestGoogleDeclaredTrustHandshake": {
+      "start": 586,
+      "end": 701,
+      "sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+    }
+  },
+  "native_mutants": [
+    {
+      "label": "google-native-custom-roots",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\t\tconfig.RootCAs.AddCert(certificate)",
+          "after": "+\t\t\t_ = certificate",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "18bb7a797c9988e6df9b1071c1287005d9f7c36f5d8e48f3252e962e967b450c",
+      "expanded_files": {
+        "google_endpoints.go": "4a0842459e24a122c4723c1f50bed351da6217f7a287a79b0c83be02eb1775b5"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/https/declared",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "https declared:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        },
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/storage/declared",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "storage declared:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        }
+      ]
+    },
+    {
+      "label": "google-native-verifies-trust-and-hostname",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tconfig := &tls.Config{MinVersion: tls.VersionTLS12}",
+          "after": "+\tconfig := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "930900c9298076ff0d4e321fba043b9a254ae823683bab8c7272f2140a62d587",
+      "expanded_files": {
+        "google_endpoints.go": "80255a04d850d9600f5f77ef67afa6d728da48a5f223d30abd39ffc5103ba8e2"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/https/wrong_roots",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "https wrong_roots:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        },
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/https/wrong_name",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "https wrong_name:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        },
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/storage/wrong_roots",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "storage wrong_roots:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        },
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/storage/wrong_name",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "storage wrong_name:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        }
+      ]
+    },
+    {
+      "label": "google-native-client-certificate",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\tconfig.Certificates = []tls.Certificate{pair}",
+          "after": "+\t\tconfig.Certificates = []tls.Certificate{pair}[:0]",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "f97b8a21fc9f6cd0398f109e0a7de88a23f649f51becf6c56604c2cc38d3ca28",
+      "expanded_files": {
+        "google_endpoints.go": "e70e9f0b1f03f7d70f37df4771dac7a84c68476fa95d2f35599e4671963b853b"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/https/declared",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "https declared:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        },
+        {
+          "identity": "TestGoogleDeclaredTrustHandshake/storage/declared",
+          "path": "google_endpoints_test.go",
+          "line": 696,
+          "assertion_contains": "storage declared:",
+          "owner_sha256": "4b561bf25adac9dcc58dbf5074bc97112db1ca3b7d9d44fde7fc9bb711ebb508"
+        }
+      ]
+    },
+    {
+      "label": "google-native-storage-uses-tls",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\treturn credentials.NewTLS(config.Clone())",
+          "after": "+\treturn insecure.NewCredentials()",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "2b3fcfa939d8402cb0f7abb19ada0a8808aeb0955841c9aa61d54ae1e786ab7d",
+      "expanded_files": {
+        "google_endpoints.go": "d27e86f9ca96f5c63fc80168b989e4f8017b8592b7c691169d6a48857af36f35"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleStorageEndpointKeepsTLS",
+          "path": "google_endpoints_test.go",
+          "line": 392,
+          "assertion_contains": "instead of verified TLS",
+          "owner_sha256": "c1bbc68c64d8d4305f8bdba02e68d5610f6c8b8645e253e3f9b85d77a44a907a"
+        }
+      ]
+    },
+    {
+      "label": "google-native-credential-redirect-refusal",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\treturn fmt.Errorf(\"Google API redirects are refused\")",
+          "after": "+\t\treturn nil",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "f7bf5efa075302d04612f16b8d86916a15f276f1d473ccbd2bc271d69f944e6f",
+      "expanded_files": {
+        "google_endpoints.go": "cb4db107210691d6df07b8aa3ed24036d2938c236f1b9431df334c51ac5df48e"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleCredentialRedirectsRefused",
+          "path": "google_endpoints_test.go",
+          "line": 490,
+          "assertion_contains": "redirect status 307 authenticated false:",
+          "owner_sha256": "81f0ca8661cce92a97eff1b7782c3e405dd0a4831cad44137bce0b4d9dbe1ec0"
+        }
+      ]
+    },
+    {
+      "label": "google-native-authenticated-redirect-refusal",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\treturn googleHTTPClient(transport), nil",
+          "after": "+\treturn &http.Client{Transport: transport}, nil",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "c98d1506bee1c0dbbcc491402ec530c9a76ef369166b50af1736676e8f24c880",
+      "expanded_files": {
+        "google_endpoints.go": "34477258a90bcd2657381af585750fa79cfe6f06366cd24df18a4bb2179b1757"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleCredentialRedirectsRefused",
+          "path": "google_endpoints_test.go",
+          "line": 490,
+          "assertion_contains": "redirect status 307 authenticated true:",
+          "owner_sha256": "81f0ca8661cce92a97eff1b7782c3e405dd0a4831cad44137bce0b4d9dbe1ec0"
+        }
+      ]
+    },
+    {
+      "label": "google-native-partial-certificate-refusal",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\tdata = rest",
+          "after": "+\t\tdata = rest[:0]",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "7a7c405f683f8ebb01e7937f80f13f6d4be316c5cec20dd00f0cd88384a0b49b",
+      "expanded_files": {
+        "google_endpoints.go": "f96bdea0e8c3f4b0980085b12c7307a61064a7385b76472ef7377ddbef0cdedc"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles",
+          "path": "google_endpoints_test.go",
+          "line": 514,
+          "assertion_contains": "partial bundle accepted:",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    },
+    {
+      "label": "google-native-partial-private-key-refusal",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\tif block == nil || len(bytes.TrimSpace(rest)) != 0 || len(block.Headers) != 0 || (block.Type != \"PRIVATE KEY\" && block.Type != \"RSA PRIVATE KEY\" && block.Type != \"EC PRIVATE KEY\") {",
+          "after": "+\t\tif block == nil || len(bytes.TrimSpace(rest)) < 0 || len(block.Headers) != 0 || (block.Type != \"PRIVATE KEY\" && block.Type != \"RSA PRIVATE KEY\" && block.Type != \"EC PRIVATE KEY\") {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "d778f3a487d09e12e0e1f10f5361dd9f1b0e2bac1594aaa0f5ef53c19d73fbe8",
+      "expanded_files": {
+        "google_endpoints.go": "82d7371c588029a13bfc6c0d0780c7ffa19992d7eaafd67e8026689492a8e4fa"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles",
+          "path": "google_endpoints_test.go",
+          "line": 528,
+          "assertion_contains": "partial key accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    },
+    {
+      "label": "google-native-refuses-scheme",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "after": "+\tif err != nil || false || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "dc718d888d11eddf0174db1cda68c1e0eaa01c6a0e223d367d49e93007df1401",
+      "expanded_files": {
+        "google_endpoints.go": "5490e25a359a2d451a26918525d2875bcbd187a87c135c18bc9c4dbc32e1d981"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/sts/0",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid sts destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/oauth/0",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid oauth destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/iam/0",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid iam destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-refuses-suffix",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "after": "+\tif err != nil || endpoint.Scheme != \"https\" || false || endpoint.User != nil || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "3314b028dbe87da95849e1af291a549a13faef108596defeaf5bcb118b3d9c0c",
+      "expanded_files": {
+        "google_endpoints.go": "30cc1cea25fd713b98d540a0dbc0b28e53ef99ffc28b3d0696aa11db4ddc7a96"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/sts/1",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid sts destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/oauth/1",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid oauth destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/iam/1",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid iam destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/sts/2",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid sts destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/oauth/2",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid oauth destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/iam/2",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid iam destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-refuses-userinfo",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "after": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || false || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "e24fbe3a91a6281937348bc47e87b476fa1efd13afbb0996a7b1f10bdd5e21d3",
+      "expanded_files": {
+        "google_endpoints.go": "6bf0875197115acb848c8aaf64e7ea92f30826ee669c4e84441be8dff5e7177a"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/sts/3",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid sts destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/oauth/3",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid oauth destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/iam/3",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid iam destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-refuses-query",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "after": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || false || endpoint.Fragment != \"\" {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "4fd633d1761e97d1e8ea791c5a43353bc45bb27dea29a27b2b6d9e6fef7d6d02",
+      "expanded_files": {
+        "google_endpoints.go": "ba8ab5f7249a4eff1ed61cd1d84a9b9474a599f0e6cbaf478f3927346e77f167"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/sts/4",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid sts destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/oauth/4",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid oauth destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/iam/4",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid iam destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-refuses-fragment",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || endpoint.RawQuery != \"\" || endpoint.Fragment != \"\" {",
+          "after": "+\tif err != nil || endpoint.Scheme != \"https\" || !strings.HasSuffix(endpoint.Hostname(), \".googleapis.com\") || endpoint.User != nil || endpoint.RawQuery != \"\" || false {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "c1f4d10a8c4cb58d5ebf9561f3cebc834189dceefe20b550b57521be49c2c673",
+      "expanded_files": {
+        "google_endpoints.go": "5e3f96591316690d419770541590d097fadf3a61ed63bb309537757d0e85d2f1"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/sts/5",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid sts destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/oauth/5",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid oauth destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip/invalid_destinations/iam/5",
+          "path": "google_endpoints_test.go",
+          "line": 446,
+          "assertion_contains": "invalid iam destination reached transport:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-setter-iam",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\td.google.iam = value",
+          "after": "+\t\t_ = value",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "4fe9d4d77faa3b0c446fd259620bdd9bba967ea48ad697b430d1a31beac302bd",
+      "expanded_files": {
+        "bigquery_database.go": "214599a19802b94ad2cf734cbdc18359e37684f8f6706e8b978fee690aee60c8"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip",
+          "path": "google_endpoints_test.go",
+          "line": 410,
+          "assertion_contains": "bigquery.iam_credentials_endpoint:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-setter-oauth",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\td.google.oauth = value",
+          "after": "+\t\t_ = value",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "6a829bcc0329a25be73a9b1717f5397ccc4fea2ac3880732dd2a2f2257be3f87",
+      "expanded_files": {
+        "bigquery_database.go": "1514a5d16b25501f51159b3691515086587104d9341e76c9d045f81f29fe1f64"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip",
+          "path": "google_endpoints_test.go",
+          "line": 410,
+          "assertion_contains": "bigquery.oauth_token_endpoint:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-setter-sts",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\td.google.sts = value",
+          "after": "+\t\t_ = value",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "1cbc7e68a4e0d032f2fb56dd2c63d1cebf469c84b5b53845b121f977e8969b17",
+      "expanded_files": {
+        "bigquery_database.go": "d8290bc1091495440ccc7e09fa6095bfcf76553278c3305e5fd9ca84ba412824"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointOptionsRoundTrip",
+          "path": "google_endpoints_test.go",
+          "line": 410,
+          "assertion_contains": "bigquery.sts_endpoint:",
+          "owner_sha256": "a5a07995d2b06332cc6e256ef13a26eb3f8e15ab036c80342636c18f7c601397"
+        }
+      ]
+    },
+    {
+      "label": "google-native-canonical-token-path",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\trouted.URL.Path, routed.URL.RawPath = endpoint.Path, endpoint.RawPath",
+          "after": "+\t\trouted.URL.Path, routed.URL.RawPath = endpoint.Path+\"/mutated\", endpoint.RawPath",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "c590e249e7b28e4bb42fdf6c5fe741fe7d88c4785107c5571e9acdea7e8417b4",
+      "expanded_files": {
+        "google_endpoints.go": "7e54911750faf76f60a89993f431b0b865ed0aac8057c040010bb7ecd3dd7743"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/authorized_user",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/external_account",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/user_authentication",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        }
+      ]
+    },
+    {
+      "label": "google-native-explicit-file-token-url",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tswitch request.URL.Hostname() {",
+          "after": "+\thost := request.URL.Hostname(); if strings.HasPrefix(host, \"sts-\") { host = \"sts.googleapis.com\" }; switch host {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "465157302ef2d6d5b4428f6a95cf93242ebfd642c52c74a2dd7ee38499dc6af3",
+      "expanded_files": {
+        "google_endpoints.go": "f7e2b43a41c6c3ea900734985d5360f746aff767a2e2082577cc194fc4cfefa5"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/external_account_token_url",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        }
+      ]
+    },
+    {
+      "label": "google-native-consumes-actual-adc-provider",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\tauthOptions = append(authOptions, option.WithAuthCredentials(detected))",
+          "after": "+\t\t_ = detected; authOptions = append(authOptions, option.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: \"deployment-token\"})))",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "7a228fd5c00c14b4ef3f57471d4f0bd04e4e56242ba5f3d8d9265ce031b4de4c",
+      "expanded_files": {
+        "connection.go": "09a392c83a75bf858700c91e9fc1a531673204a3f4ca1a8ede1a781df4391bed"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/authorized_user",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/external_account",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        },
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/external_account_token_url",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        }
+      ],
+      "limit": "The SDK still loads the actual file; this measures provider consumption by the query client. Other fake-mode assertion failures remain retained but are not claimed."
+    },
+    {
+      "label": "google-native-user-refresh-shared-routing",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tclient := googleHTTPClient(c.googleTransport(tlsConfig))",
+          "after": "+\tclient := googleHTTPClient(googleRoutingTransport{base: googleBaseTransport(tlsConfig), destinations: googleDestinations{oauth: c.google.sts}})",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "0f11aa787df80cfe7aca178426d3f1ac3b53fa6e352393b9c2d8fedf09f575b0",
+      "expanded_files": {
+        "connection.go": "d647c29500d8b0e90c087f5f4d742ca2a0bd80898237236da6a68bdc8ec8f6ee"
+      },
+      "claims": [
+        {
+          "identity": "TestGooglePrivateEndpointsEveryIdentity/real_credentials/user_authentication",
+          "path": "google_endpoints_test.go",
+          "line": 362,
+          "assertion_contains": "credential token endpoint ",
+          "owner_sha256": "59bed45cad73150eff50cfd60532b6a18258dba254d23e265ec444f212fc1289"
+        }
+      ],
+      "limit": "Miswire OAuth to a different declared endpoint while preserving actual TLS and successful token/query responses. Reinstating a default public transport would fail setup and earns no causal credit."
+    },
+    {
+      "label": "google-native-tls-size-bound",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif len(data) > 4<<20 {",
+          "after": "+\tif len(data) < 0 {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "d7f2e683ed41fbec5b60010d368536c6a50076788c7550eaecc6c943a1b131e0",
+      "expanded_files": {
+        "google_endpoints.go": "0b42fb1ac1db96f28be80020d928cbf8bfa7eee5af0077ce1b91c4197e2cbd95"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/over-cap-ca",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration over-cap-ca was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        },
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/over-cap-certificate",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration over-cap-certificate was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        },
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/over-cap-key",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration over-cap-key was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    },
+    {
+      "label": "google-native-tls-empty-ca",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif len(certificates) == 0 {",
+          "after": "+\tif len(certificates) < 0 {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "6ce1ec4ccaddedb42af435c8a21f0395f28f8a628ec49da4010d0bd4ff9199cd",
+      "expanded_files": {
+        "google_endpoints.go": "5a2c19d4d434f2c74f7e9700bebd6b3d2c57f72e564ece922db140dd45fef059"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/empty-ca",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration empty-ca was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    },
+    {
+      "label": "google-native-tls-missing-ca",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tfile, err := os.Open(path)\n+\tif err != nil {\n+\t\treturn nil, err",
+          "after": "+\tfile, err := os.Open(path)\n+\tif err != nil {\n+\t\treturn nil, nil",
+          "count": 1
+        },
+        {
+          "before": "+\tif len(certificates) == 0 {",
+          "after": "+\tif len(certificates) < 0 {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "46b2ea7ed956743ed519085fccda6d6f28654d1e509df3db238d4dcbfad68a16",
+      "expanded_files": {
+        "google_endpoints.go": "2099db888304649d812aab7624ecf87e8bf87c9b8e6908af6215315b5cceaf44"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/missing-ca",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration missing-ca was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    },
+    {
+      "label": "google-native-tls-pem-headers",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\tif len(bytes.TrimSpace(remaining)) != 0 || block == nil || block.Type != \"CERTIFICATE\" || len(block.Headers) != 0 {",
+          "after": "+\t\tif len(bytes.TrimSpace(remaining)) != 0 || block == nil || block.Type != \"CERTIFICATE\" || false {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "47d88e2e1e55af34542d74719e15307bbe3113492fbfe2a9cddef8cae8cf698c",
+      "expanded_files": {
+        "google_endpoints.go": "f8f833fa1dfb0fbbf0510c851c9d85e89806193ecff6477dd13e90fb6293ca11"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/pem-headers",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration pem-headers was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    },
+    {
+      "label": "google-native-tls-partial-identity",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\tif d.certFile != \"\" || d.keyFile != \"\" {",
+          "after": "+\tif d.certFile != \"\" && d.keyFile != \"\" {",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "20203f41cd7f869c20f271ce0f7d77c033664bfef6a45b0037c57312ec9af87f",
+      "expanded_files": {
+        "google_endpoints.go": "ad95d1db20a820c8fa4921d2b0c711196185d96aaaea5518a1988935fdb583f6"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/missing-key",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration missing-key was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        },
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/missing-certificate",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration missing-certificate was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    },
+    {
+      "label": "google-native-tls-multiple-keys",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\tif !bytes.HasPrefix(key, []byte(\"-----BEGIN \")) || bytes.Count(key, []byte(\"-----BEGIN \")) != 1 {",
+          "after": "+\t\tif !bytes.HasPrefix(key, []byte(\"-----BEGIN \")) || false {",
+          "count": 1
+        },
+        {
+          "before": "+\t\tblock, rest := pem.Decode(key)",
+          "after": "+\t\tblock, rest := pem.Decode(key); if extra, tail := pem.Decode(rest); extra != nil && len(bytes.TrimSpace(tail)) == 0 { rest = nil }",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "23876fd8366227a5e16db9ceb1d2de8ccaf3c6291f5d044e6112d434cfb85540",
+      "expanded_files": {
+        "google_endpoints.go": "1dfc0953791e510687192182ab08f961a03495764ae18d7db5bb771fbd578673"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/multiple-keys",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration multiple-keys was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ],
+      "limit": "Allow only an additional complete PEM block; malformed trailing-key refusal remains active so the parent test reaches the startup subtest."
+    },
+    {
+      "label": "google-native-tls-key-type-and-pair",
+      "path": "nix/bigquery-adbc-google-endpoints.patch",
+      "edits": [
+        {
+          "before": "+\t\tif block == nil || len(bytes.TrimSpace(rest)) != 0 || len(block.Headers) != 0 || (block.Type != \"PRIVATE KEY\" && block.Type != \"RSA PRIVATE KEY\" && block.Type != \"EC PRIVATE KEY\") {",
+          "after": "+\t\tif block == nil || len(bytes.TrimSpace(rest)) != 0 || len(block.Headers) != 0 || false {",
+          "count": 1
+        },
+        {
+          "before": "+\t\tpair, err := tls.X509KeyPair(cert, key)\n+\t\tif err != nil {\n+\t\t\treturn nil, err",
+          "after": "+\t\tpair, err := tls.X509KeyPair(cert, key)\n+\t\tif err != nil {\n+\t\t\tpair = tls.Certificate{}",
+          "count": 1
+        }
+      ],
+      "preimage_sha256": "5945865400eda0816f5197b936981995ceb6d98af7130e0cd6e20982e3189739",
+      "mutated_sha256": "6f800467a9390634d0a4177b158f1ca9258dd1a93431f6a22fc8db41c0a2f37f",
+      "expanded_files": {
+        "google_endpoints.go": "ed7bc54948a6433ebf8a29638422c56e29834035af8e7392e0ed6eb30cc3dbd7"
+      },
+      "claims": [
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/wrong-key-type",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration wrong-key-type was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        },
+        {
+          "identity": "TestGoogleTLSMaterialRefusesPartialBundles/startup/mismatched-key",
+          "path": "google_endpoints_test.go",
+          "line": 569,
+          "assertion_contains": "invalid TLS declaration mismatched-key was accepted",
+          "owner_sha256": "ea4ff6acbcd38b1b0a5b387f2f3ab8bbf1da0995bb664d1c47a1e51cb6644e31"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Static candidate only; no runtime verdict until hosted execution.",
+    "Complete existing native checkPhase selection, not upstream credentialed integration tests.",
+    "Every declared kill must match full Go subtest identity, owning source region and actual fatal assertion text.",
+    "Additional failures are retained; only declared own assertion sites receive credit.",
+    "Compilation, fixture/setup errors, unrelated panic and SIGABRT earn no credit.",
+    "Real credential files exercise the pinned SDK over verified loopback TLS with a destination-only dial seam; no live Google exchange or human identity is proven."
+  ]
+}

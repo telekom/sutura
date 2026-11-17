@@ -31,6 +31,10 @@
 
 [silent]
 
+# The generated native mutation manifest records source digests, mutation payloads and owning
+# assertion sites; its length follows the bound corpus rather than an implementation module.
+devco/google1945-native-mutations.json
+
 # Lockfiles. Their length is a function of the dependency graph, and they are regenerated
 # by their own tools rather than edited.
 Cargo.lock

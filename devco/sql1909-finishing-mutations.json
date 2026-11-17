@@ -1,36 +1,333 @@
 {
   "mutants": [
     {
-      "label": "google-access-token-auth-type",
+      "label": "google-driver-propagates-endpoint",
       "package": "sutura-exec-bigquery",
       "tests": [
-        "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path",
-        "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
+        "every_database_receives_the_declared_google_destinations_and_trust"
       ],
-      "preimage_sha256": "275371a37359cb25760bbe1c829fd9a601a276065a572c3a224f9543cdaf0ced",
-      "mutated_sha256": "81db5a4ed7443326870afdfe93eddf5775504850440f1299c5e4bf689bfa25d1",
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "79bc722862e47d3b7e2488eb7294215399579adb0c1c9439f503d234bf4011a1",
       "edits": [
         {
-          "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-          "before": "            OptionDatabase::Other(AUTH_TYPE.into()),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
-          "after": "            OptionDatabase::Other(format!(\"{AUTH_TYPE}.invalid\")),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.endpoint\"",
+          "after": "\"bigquery.endpoint.invalid\"",
           "count": 1
         }
-      ]
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.endpoint",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-driver-propagates-storage_endpoint",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "every_database_receives_the_declared_google_destinations_and_trust"
+      ],
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "13e31a7b651c8a9cad64ec90e848a23be273ff219ef690fc6976be245ed161fe",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.storage_endpoint\"",
+          "after": "\"bigquery.storage_endpoint.invalid\"",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.storage_endpoint",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-driver-propagates-iam_credentials_endpoint",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "every_database_receives_the_declared_google_destinations_and_trust"
+      ],
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "b966fa25e98cae7a53c27e850a6f23ed39d113d2af51dc4b87deb1e733dcea4e",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.iam_credentials_endpoint\"",
+          "after": "\"bigquery.iam_credentials_endpoint.invalid\"",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.iam_credentials_endpoint",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-driver-propagates-oauth_token_endpoint",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "every_database_receives_the_declared_google_destinations_and_trust"
+      ],
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "2319eff655a94c6974b871453156c09f814269242d4b1f27897e37b5e870f4c3",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.oauth_token_endpoint\"",
+          "after": "\"bigquery.oauth_token_endpoint.invalid\"",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.oauth_token_endpoint",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-driver-propagates-sts_endpoint",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "every_database_receives_the_declared_google_destinations_and_trust"
+      ],
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "fccd45db2be7cd8d1edf7790af5707454cd964822a84a46c4f0a4345d99e1148",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.sts_endpoint\"",
+          "after": "\"bigquery.sts_endpoint.invalid\"",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.sts_endpoint",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-driver-propagates-tls-ca_file",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "every_database_receives_the_declared_google_destinations_and_trust"
+      ],
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "43ece7999ee211c78124620bac7472c4e4e03777c4c9c3a342a33e0fe8df1aca",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.tls.ca_file\"",
+          "after": "\"bigquery.tls.ca_file.invalid\"",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.tls.ca_file",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-driver-propagates-tls-cert_file",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "every_database_receives_the_declared_google_destinations_and_trust"
+      ],
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "50bdd3fa9af95499a67970e1a1109267e741369015dc6c4a0f0a10d60f95bf38",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.tls.cert_file\"",
+          "after": "\"bigquery.tls.cert_file.invalid\"",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.tls.cert_file",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-driver-propagates-tls-key_file",
+      "package": "sutura-exec-bigquery",
+      "tests": [
+        "every_database_receives_the_declared_google_destinations_and_trust"
+      ],
+      "preimage_sha256": "b635bc3d674010bf04b264b109a0b9f7866c6d40301c1a0d6edfee31a3578604",
+      "mutated_sha256": "17f71eb2754307c438434de804b4a25493541dc75b744adca1158270ece24f75",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-bigquery/src/adbc/endpoints.rs",
+          "before": "\"bigquery.tls.key_file\"",
+          "after": "\"bigquery.tls.key_file.invalid\"",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-exec-bigquery",
+        "identity": "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust",
+        "path": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+        "line": 44,
+        "contains": "driver lost bigquery.tls.key_file",
+        "function_sha256": "86e29f024526f026d5636f553855643e3c02445a75f98d179d65ae2afeab4894"
+      }
+    },
+    {
+      "label": "google-served-sts-propagates",
+      "package": "sutura-cli",
+      "tests": [
+        "the_served_pool_exchange_uses_its_configured_google_destination"
+      ],
+      "preimage_sha256": "d83e153904038a97b5cfaa8e9bf9a4ac92e6f8d622e0bb0b292fb73ad11dc857",
+      "mutated_sha256": "fcd0298766001253d90e9b53022314f6f85ff13dda10e1dff7ff799df6e95e8a",
+      "edits": [
+        {
+          "path": "crates/sutura-cli/src/serve/broker.rs",
+          "before": "TokenEndpoint::parse(endpoint)",
+          "after": "TokenEndpoint::parse(if endpoint.is_empty() { endpoint } else { sutura_http_client::delegation::GOOGLE_STS })",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-cli::bin/sutura",
+        "identity": "serve::broker::endpoint_cells::the_served_pool_exchange_uses_its_configured_google_destination",
+        "path": "crates/sutura-cli/src/serve/broker.rs",
+        "line": 330,
+        "contains": "no assertion may be sent to the default service behind a private-endpoint declaration",
+        "function_sha256": "e665dd65de422aaacfb558b5a927d2c39489dbda6388fe38a348fb3afd5e90e3"
+      }
+    },
+    {
+      "label": "google-claim-google_destinations_refuse_ambiguous_paths_and_surrounding_whitespace",
+      "package": "sutura-config",
+      "tests": [
+        "google_destinations_refuse_ambiguous_paths_and_surrounding_whitespace"
+      ],
+      "preimage_sha256": "1d6121a87594d5d24299a5ddea90c0cf8e7a5f2ad86ec446378e81e19fea1667",
+      "mutated_sha256": "80e983f48cf50d6bde131e51ba051cc5722753537ae843c1b25d288a78816bb8",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/google_endpoints.rs",
+          "before": "if raw.trim() != raw",
+          "after": "if false",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-config::google_endpoints",
+        "identity": "tests::google_destinations_refuse_ambiguous_paths_and_surrounding_whitespace",
+        "path": "crates/sutura-config/tests/google_endpoints.rs",
+        "line": 59,
+        "contains": "an ambiguous Google destination does not load",
+        "function_sha256": "6f58f912a20f5a76edbd803f1c0967aa8296998092f3c6694fc9213da26f43fd"
+      }
+    },
+    {
+      "label": "google-claim-storage_and_iam_destinations_refuse_non_root_paths",
+      "package": "sutura-config",
+      "tests": [
+        "storage_and_iam_destinations_refuse_non_root_paths"
+      ],
+      "preimage_sha256": "1d6121a87594d5d24299a5ddea90c0cf8e7a5f2ad86ec446378e81e19fea1667",
+      "mutated_sha256": "3afeff2d8d5dec7087831cf6b726a506b76b1c3a601f2bd29f39847a6d162548",
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/google_endpoints.rs",
+          "before": "if url.path() != \"/\" {",
+          "after": "if url.path().is_empty() {",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-config::google_endpoints",
+        "identity": "tests::storage_and_iam_destinations_refuse_non_root_paths",
+        "path": "crates/sutura-config/tests/google_endpoints.rs",
+        "line": 72,
+        "contains": "a host-only Google API does not accept a path prefix",
+        "function_sha256": "64a93a1e4f5addc28d7fe567b85e081a1c4c645f3cffb5bd8af6ab6f78554de8"
+      }
+    },
+    {
+      "label": "google-claim-native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths",
+      "package": "sutura-cli",
+      "tests": [
+        "native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths"
+      ],
+      "preimage_sha256": "eb3544f0dddac71f4837f0f070444c58b68c79667d42834d96a20002af6ac27c",
+      "mutated_sha256": "3a4396a14fa544445c41333a774eec86f0dabdd07ed0f6796f9a0460cc95ddd0",
+      "edits": [
+        {
+          "path": "crates/sutura-cli/src/bigquery_driver.rs",
+          "before": "    let path = |path: &std::path::Path| {\n        path.to_str()\n            .map(str::to_owned)\n            .ok_or_else(|| String::from(\"BigQuery TLS material needs a UTF-8 file path\"))\n    };",
+          "after": "    let path = |path: &std::path::Path| Ok::<String, String>(path.to_string_lossy().into_owned());",
+          "count": 1
+        }
+      ],
+      "expected_own_assertion_for_independent_audit": {
+        "binary": "sutura-cli::bin/sutura",
+        "identity": "bigquery_driver::endpoint_cells::native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths",
+        "path": "crates/sutura-cli/src/bigquery_driver.rs",
+        "line": 128,
+        "contains": "native TLS material with an unusable file path is refused before opening a driver",
+        "function_sha256": "63dff7f6d4a732568d1fde7ce9d31a515b27c7ac75a892e7db5a46fbfad5fb56"
+      }
     }
   ],
   "test_files": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": "crates/sutura-exec-bigquery/src/adbc/identity.rs"
+    "every_database_receives_the_declared_google_destinations_and_trust": "crates/sutura-exec-bigquery/src/adbc/endpoint_cells.rs",
+    "the_served_pool_exchange_uses_its_configured_google_destination": "crates/sutura-cli/src/serve/broker.rs",
+    "google_destinations_refuse_ambiguous_paths_and_surrounding_whitespace": "crates/sutura-config/tests/google_endpoints.rs",
+    "storage_and_iam_destinations_refuse_non_root_paths": "crates/sutura-config/tests/google_endpoints.rs",
+    "native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths": "crates/sutura-cli/src/bigquery_driver.rs"
   },
   "test_identities": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": [
+    "every_database_receives_the_declared_google_destinations_and_trust": [
       "sutura-exec-bigquery",
-      "adbc::identity::tests::a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path"
+      "adbc::endpoint_cells::every_database_receives_the_declared_google_destinations_and_trust"
     ],
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": [
-      "sutura-exec-bigquery",
-      "adbc::identity::tests::the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
+    "the_served_pool_exchange_uses_its_configured_google_destination": [
+      "sutura-cli::bin/sutura",
+      "serve::broker::endpoint_cells::the_served_pool_exchange_uses_its_configured_google_destination"
+    ],
+    "google_destinations_refuse_ambiguous_paths_and_surrounding_whitespace": [
+      "sutura-config::google_endpoints",
+      "tests::google_destinations_refuse_ambiguous_paths_and_surrounding_whitespace"
+    ],
+    "storage_and_iam_destinations_refuse_non_root_paths": [
+      "sutura-config::google_endpoints",
+      "tests::storage_and_iam_destinations_refuse_non_root_paths"
+    ],
+    "native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths": [
+      "sutura-cli::bin/sutura",
+      "bigquery_driver::endpoint_cells::native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths"
     ]
   },
   "cargo_profile": "ci"

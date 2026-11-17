@@ -40,7 +40,7 @@ on:
         description: Check fuzz metadata or run finishing gates on the pinned source
         type: choice
         required: true
-        options: [preflight, gates, gates-mutations, sql-mutations]
+        options: [preflight, gates, gates-mutations, sql-mutations, google-native-mutations]
       source_sha:
         description: Exact frozen source commit
         type: string
@@ -128,6 +128,8 @@ jobs:
             finishing_operations=(preflight)
           elif [[ "$OPERATION" == gates-mutations ]]; then
             finishing_operations+=(mutations)
+          elif [[ "$OPERATION" == google-native-mutations ]]; then
+            finishing_operations=(google-native-mutations)
           elif [[ "$OPERATION" == sql-mutations ]]; then
             finishing_operations=(sql-mutations)
           fi
