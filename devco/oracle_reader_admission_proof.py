@@ -12,8 +12,8 @@ from pathlib import Path
 
 SOURCE = "15d4485e65c09556d874bb5cd62cd5e73fe87e49"
 TREE = "7c38820904463f171a5bca753d576ea53568a407"
-REQUEST = "9f383726-2e94-4c9d-90f6-964351aecde6"
-REF = "ci/oracle-topology-proof-9f383726"
+REQUEST = "f98448ab-adec-4d1c-8d09-19615882c480"
+REF = "ci/oracle-topology-proof-f98448ab"
 NIX_FILE = "nix/multi-node-oracle.nix"
 TEST_FILE = "nix/multi-node-oracle.py"
 NIX_SHA = "c17021de8f6e81d5a479960ec657fe2819e85f09ecf9025907c1bb818571a9e5"
@@ -77,7 +77,15 @@ def git(root: Path, *args: str) -> bytes:
     capture_index("before " + label)
     try:
         return subprocess.check_output(
-            ["git", "--no-optional-locks", "-C", str(root), *args]
+            [
+                "git",
+                "--no-optional-locks",
+                "-c",
+                "diff.autoRefreshIndex=false",
+                "-C",
+                str(root),
+                *args,
+            ]
         )
     finally:
         capture_index("after " + label)
