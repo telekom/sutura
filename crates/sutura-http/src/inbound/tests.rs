@@ -45,7 +45,7 @@ const TRANSIT_HEADER: &str = "x-transit-proof";
 
 // The apparatus every cell below is driven with: the generated keys, the tokens signed with them,
 // the declarations and the header maps.
-mod fixtures;
+pub(super) mod fixtures;
 #[cfg(test)]
 mod multi_verifier;
 mod token_bytes;

@@ -19,6 +19,8 @@ const WELL_KNOWN_PATH: &str = "/.well-known/oauth-protected-resource";
 struct MetadataDocument {
     resource: String,
     authorization_servers: [String; 1],
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    scopes_supported: Vec<String>,
 }
 
 /// One direct inbound declaration rendered as a route, a document and its absolute URL.
@@ -35,17 +37,20 @@ pub(crate) struct ProtectedResource {
 
 impl ProtectedResource {
     /// Builds metadata only for direct inbound identity.
-    #[expect(
-        clippy::expect_used,
-        reason = "the document is two plain `String` fields - no float, no non-UTF-8 byte, no map \
-                  whose key order would matter - so serialization cannot fail; keep in hand so a \
-                  malformed serializer would be a visible panic rather than a silently absent route"
-    )]
     pub(crate) fn for_requirement(requirement: TokenRequirement<'_>) -> Option<Self> {
         if requirement.location() != TokenLocation::AuthorizationBearer {
             return None;
         }
-        let resource = requirement.resource()?.as_str();
+        Some(Self::for_direct(
+            requirement.resource()?,
+            requirement.issuer().as_str(),
+            Vec::new(),
+        ))
+    }
+
+    #[expect(clippy::expect_used, reason = "a plain string document serializes without failure")]
+    fn for_direct(resource: &sutura_config::ResourceIdentifier, issuer: &str, scopes_supported: Vec<String>) -> Self {
+        let resource = resource.as_str();
         let after_scheme = resource.strip_prefix("https://").unwrap_or(resource);
         let (authority, resource_path) = after_scheme
             .split_once('/')
@@ -63,22 +68,33 @@ impl ProtectedResource {
 
         let document = MetadataDocument {
             resource: String::from(resource),
-            authorization_servers: [String::from(requirement.issuer().as_str())],
+            authorization_servers: [String::from(issuer)],
+            scopes_supported,
         };
         let body = Bytes::from(serde_json::to_string(&document).expect("a two-string struct always serializes"));
 
-        Some(Self {
+        Self {
             authority: String::from(authority),
             body,
             path,
             resource_path,
             url,
-        })
+        }
     }
 
     /// Named verifiers publish at their configured mount; legacy objects retain their former URL.
     pub(crate) fn for_verifier(verifier: &sutura_config::InboundVerifier) -> Option<Self> {
-        let mut resource = Self::for_requirement(verifier.requirement())?;
+        let mut resource = match verifier.google() {
+            Some(google) => Self::for_direct(
+                google.resource(),
+                google.issuer().as_str(),
+                ["openid", "email", "https://www.googleapis.com/auth/bigquery.readonly"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+            ),
+            None => Self::for_requirement(verifier.requirement()?)?,
+        };
         if let Some(path) = verifier.metadata_path() {
             resource.path = format!("{WELL_KNOWN_PATH}{path}");
             resource.url = format!("https://{}{}", resource.authority, resource.path);

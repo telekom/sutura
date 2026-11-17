@@ -66,7 +66,7 @@ impl core::fmt::Display for McpPath {
 pub struct InboundVerifier {
     id: VerifierId,
     path: McpPath,
-    identity: InboundIdentity,
+    policy: VerifierPolicy,
     legacy_discovery: bool,
 }
 
@@ -76,7 +76,7 @@ impl InboundVerifier {
         Self {
             id,
             path,
-            identity,
+            policy: VerifierPolicy::Jwt(identity),
             legacy_discovery: false,
         }
     }
@@ -87,7 +87,7 @@ impl InboundVerifier {
         Self {
             id,
             path,
-            identity,
+            policy: VerifierPolicy::Jwt(identity),
             legacy_discovery: true,
         }
     }
@@ -109,12 +109,77 @@ impl InboundVerifier {
     }
 
     #[must_use]
-    pub const fn identity(&self) -> &InboundIdentity {
-        &self.identity
+    pub const fn identity(&self) -> Option<&InboundIdentity> {
+        match &self.policy {
+            VerifierPolicy::Jwt(identity) => Some(identity),
+            VerifierPolicy::Google(_) => None,
+        }
+    }
+    #[must_use]
+    pub const fn google(&self) -> Option<&super::google::GoogleTokenInfo> {
+        match &self.policy {
+            VerifierPolicy::Google(google) => Some(google),
+            VerifierPolicy::Jwt(_) => None,
+        }
+    }
+    #[must_use]
+    pub const fn with_google(id: VerifierId, path: McpPath, google: super::google::GoogleTokenInfo) -> Self {
+        Self {
+            id,
+            path,
+            policy: VerifierPolicy::Google(google),
+            legacy_discovery: false,
+        }
+    }
+    #[must_use]
+    pub fn mode(&self) -> &'static str {
+        self.identity().map_or("direct", InboundIdentity::mode)
+    }
+    #[must_use]
+    pub const fn is_direct(&self) -> bool {
+        self.google().is_some() || matches!(self.identity(), Some(InboundIdentity::Direct { .. }))
+    }
+    #[must_use]
+    pub const fn resource(&self) -> Option<&super::ResourceIdentifier> {
+        match &self.policy {
+            VerifierPolicy::Google(google) => Some(google.resource()),
+            VerifierPolicy::Jwt(identity) => identity.requirement().resource(),
+        }
+    }
+    #[must_use]
+    pub const fn issuer(&self) -> &super::IssuerUrl {
+        match &self.policy {
+            VerifierPolicy::Google(google) => google.issuer(),
+            VerifierPolicy::Jwt(identity) => identity.requirement().issuer(),
+        }
+    }
+    #[must_use]
+    pub const fn audience(&self) -> &super::TokenAudience {
+        match &self.policy {
+            VerifierPolicy::Google(google) => google.client(),
+            VerifierPolicy::Jwt(identity) => identity.requirement().audience(),
+        }
+    }
+    #[must_use]
+    pub fn reads_the_authorization_header(&self) -> bool {
+        self.identity().is_none_or(InboundIdentity::reads_the_authorization_header)
+    }
+    #[must_use]
+    pub fn who_authenticated(&self) -> &'static str {
+        self.identity().map_or(
+            "Google verified the caller's access token for the dedicated client",
+            InboundIdentity::who_authenticated,
+        )
     }
 
     #[must_use]
-    pub const fn requirement(&self) -> TokenRequirement<'_> {
-        self.identity.requirement()
+    pub fn requirement(&self) -> Option<TokenRequirement<'_>> {
+        self.identity().map(InboundIdentity::requirement)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum VerifierPolicy {
+    Jwt(InboundIdentity),
+    Google(super::google::GoogleTokenInfo),
 }

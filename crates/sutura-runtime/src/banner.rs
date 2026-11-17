@@ -331,7 +331,10 @@ fn announce_identity(settings: &Settings) {
         ),
         declarations => {
             for declaration in declarations {
-                let inbound = declaration.identity();
+                let Some(inbound) = declaration.identity() else {
+                    tracing::warn!(verifier_id = %declaration.id(), path = %declaration.path(), tokeninfo_endpoint = declaration.google().map(|google| google.endpoint().as_str()), "Google tokeninfo verifies caller access tokens; positive digest-only cache delays revocation until token expiry; no refresh token is stored");
+                    continue;
+                };
                 tracing::warn!(
                     verifier_id = %declaration.id(),
                     path = %declaration.path(),

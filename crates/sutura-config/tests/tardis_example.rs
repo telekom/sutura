@@ -29,7 +29,8 @@ mod tests {
             .inbound()
             .first()
             .expect("the example declares inbound identity")
-            .identity();
+            .identity()
+            .expect("a JWT verifier");
         assert_eq!(inbound.mode(), "behind-gateway");
         assert!(inbound.reads_the_authorization_header());
         let requirement = inbound.requirement();

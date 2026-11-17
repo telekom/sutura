@@ -12,7 +12,6 @@
 use sutura_domain::model::SourceName;
 use sutura_domain::source::SourcePosture;
 
-use crate::inbound::InboundIdentity;
 use crate::security::DeploymentIdentity;
 use crate::server::{BindAddress, ServerSettings};
 use crate::sources::SourceRegistry;
@@ -63,6 +62,8 @@ impl core::fmt::Display for TokenRequiredBy {
 /// check on this crate's own construction sites, and publishes nothing to anyone outside it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NotFitToServe {
+    #[error("`sources.{alias}.caller_google_token` must admit only google_tokeninfo verifiers")]
+    CallerGoogleTokenVerifier { alias: SourceName },
     /// The bind address is reachable from other hosts and nobody said what protects the path to
     /// it.
     ///
@@ -695,10 +696,7 @@ pub(super) fn workers_wait_refusal(server: &ServerSettings) -> Option<NotFitToSe
 }
 
 pub(super) fn flight_surface_refusals(inbound: &[crate::inbound::InboundVerifier]) -> Vec<NotFitToServe> {
-    if inbound
-        .iter()
-        .any(|verifier| matches!(verifier.identity(), InboundIdentity::Direct { .. }))
-    {
+    if inbound.iter().any(crate::InboundVerifier::is_direct) {
         Vec::new()
     } else {
         vec![NotFitToServe::FlightSurfaceWithoutDirectInbound]

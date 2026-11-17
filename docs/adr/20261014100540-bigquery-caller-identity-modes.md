@@ -240,3 +240,34 @@ decision from mode c to mode b.
 
 Limit: nothing here measured a mode b job with a read-only user token at Google. The fifth
 amendment's probes used a service account's own token.
+
+## Seventh amendment, 2026-11-17: directly verified caller Google tokens
+
+**Status: accepted.** `caller_google_token` is a
+fourth, explicit source mode. Its nonempty `acknowledged_because` and startup warning record a
+Google-token-forwarding exception to MCP's prohibition; they do not make it generally compliant.
+The dedicated OAuth client must belong only to this deployment, which configuration cannot prove.
+
+A named, direct `google_tokeninfo` verifier admits an opaque token only after a bounded tokeninfo
+response checks exact client `aud` and `azp`, positive expiry, every required scope, verified email
+and any hosted-domain allowlist. Its protected-resource document names Google and the three client
+scopes. Identity stays `(verifier id, sub)` while the record masks the verified email. Positive
+identity cache entries use only token digests and expire with the token; revocation is not checked
+again while a positive entry lives. Tokeninfo outages are 503, never an answer as the deployment.
+
+Google does not issue sutura's operation scopes. The fixed mapping grants
+`DescribeCatalog`, `AskMetric` and `RunSql` after a verified BigQuery read-only scope; it never
+accepts arbitrary sutura scopes or grants `RunRemoteLeg`. Raw SQL keeps its operator and source
+gates. Every source's `admitted_by` and catalog audience restrictions still apply. This grant can
+reach any source admitting the verifier, including shared-posture data. With a sole verifier,
+omitted `admitted_by` admits it under the existing rule; with several verifiers membership must be
+explicit. The Google
+account's BigQuery grants control only that leg. The existing HTTP removal of remote legs is an
+additional control, not the definition of this mapping.
+
+Only Google-tokeninfo verifiers may admit this source mode. The broker presents each admitted
+caller's own token, and the adapter sets `access_token` plus `jobs.query`, without refresh or a
+service-account hop. Existing billing selection is unchanged. Tokeninfo's declared outbound
+anchors and optional client identity are fixed at startup, not rotated. Fixture policy and driver
+option cells cannot prove a served Google account job, client resource-parameter acceptance,
+client refresh behaviour or live grants. Those venues remain unmeasured.

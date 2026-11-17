@@ -422,7 +422,7 @@ fn priced_state(key_set_id: &str) -> PricedState {
             .security()
             .inbound()
             .first()
-            .map(sutura_config::InboundVerifier::identity)
+            .and_then(sutura_config::InboundVerifier::identity)
             .expect("this overlay declares an inbound identity")
             .clone(),
     )
@@ -876,7 +876,7 @@ async fn the_composed_agent_route_honours_token_bytes_for_both_inbound_modes() {
                 .security()
                 .inbound()
                 .first()
-                .map(sutura_config::InboundVerifier::identity)
+                .and_then(sutura_config::InboundVerifier::identity)
                 .expect("an inbound declaration"),
         )
         .expect("the published keys load");

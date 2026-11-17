@@ -1,8 +1,9 @@
-//! Which one of three blocks says how an `impersonation-at-source` source runs its caller.
+//! Which one of four blocks says how an `impersonation-at-source` source runs its caller.
 //!
 //! - `workload_identity`: the caller's own assertion is federated to the caller's own pool principal.
 //! - `google_login` (`bigquery` only): the caller's own Google login, which the identity provider
 //!   brokered and returns through its Identity Brokering API v2.
+//! - `caller_google_token` (`bigquery` only): the request's tokeninfo-verified Google access token.
 //! - `domain_delegation` (`bigquery` only): a delegating service account acts as the caller's
 //!   verified address. The deployment vouches for the caller here, not the caller's own credential.
 //!
@@ -16,7 +17,7 @@ use sutura_domain::model::SourceName;
 use super::address_domains::AddressDomains;
 use super::workload_identity::WorkloadIdentityConfig;
 use super::{InvalidSourceRegistry, SourceKind};
-use crate::raw::{RawDomainDelegation, RawGoogleLogin, RawWorkloadIdentity};
+use crate::raw::{RawCallerGoogleToken, RawDomainDelegation, RawGoogleLogin, RawWorkloadIdentity};
 
 /// The `google_login` and `domain_delegation` blocks of one entry, as read.
 ///
@@ -25,6 +26,7 @@ use crate::raw::{RawDomainDelegation, RawGoogleLogin, RawWorkloadIdentity};
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct CallerIdentityBlocks<'raw> {
     pub(crate) google_login: Option<&'raw RawGoogleLogin>,
+    pub(crate) caller_google_token: Option<&'raw RawCallerGoogleToken>,
     pub(crate) domain_delegation: Option<&'raw RawDomainDelegation>,
 }
 
@@ -35,6 +37,8 @@ pub enum CallerIdentity {
     WorkloadIdentity(WorkloadIdentityConfig),
     /// The caller's own Google login, brokered by the identity provider.
     GoogleLogin(GoogleLogin),
+    /// The caller's own Google access token, verified by Google tokeninfo.
+    CallerGoogleToken(sutura_domain::source::AcknowledgementReason),
     /// A delegating service account acting as the caller's verified address.
     DomainDelegation(DomainDelegation),
 }
@@ -158,6 +162,7 @@ const DOMAIN_DELEGATION: &str = "domain_delegation";
 enum Written<'raw> {
     WorkloadIdentity(&'raw RawWorkloadIdentity),
     GoogleLogin(&'raw RawGoogleLogin),
+    CallerGoogleToken(&'raw RawCallerGoogleToken),
     DomainDelegation(&'raw RawDomainDelegation),
 }
 
@@ -166,6 +171,7 @@ impl Written<'_> {
         match self {
             Self::WorkloadIdentity(_) => WORKLOAD_IDENTITY,
             Self::GoogleLogin(_) => GOOGLE_LOGIN,
+            Self::CallerGoogleToken(_) => "caller_google_token",
             Self::DomainDelegation(_) => DOMAIN_DELEGATION,
         }
     }
@@ -185,6 +191,7 @@ pub(super) fn declared(
     let mut written = [
         workload_identity.map(Written::WorkloadIdentity),
         blocks.google_login.map(Written::GoogleLogin),
+        blocks.caller_google_token.map(Written::CallerGoogleToken),
         blocks.domain_delegation.map(Written::DomainDelegation),
     ]
     .into_iter()
@@ -222,6 +229,14 @@ pub(super) fn declared(
     }
     Ok(Some(match first {
         Written::WorkloadIdentity(raw) => CallerIdentity::WorkloadIdentity(super::parse_workload_identity(alias, raw)?),
+        Written::CallerGoogleToken(raw) => CallerIdentity::CallerGoogleToken(
+            sutura_domain::source::AcknowledgementReason::parse(raw.acknowledged_because.as_deref().unwrap_or("")).map_err(
+                |cause| InvalidSourceRegistry::CallerGoogleTokenReason {
+                    alias: alias.clone(),
+                    cause,
+                },
+            )?,
+        ),
         Written::GoogleLogin(raw) => {
             if raw.token_endpoint.contains('@') {
                 return Err(InvalidSourceRegistry::CredentialsInUrl {
@@ -354,6 +369,7 @@ mod tests {
             let blocks = CallerIdentityBlocks {
                 google_login,
                 domain_delegation,
+                caller_google_token: None,
             };
             let error = parse_one_entry(&entry, blocks).expect_err(second);
             assert_eq!(
@@ -394,6 +410,7 @@ mod tests {
                 CallerIdentityBlocks {
                     google_login: Some(login),
                     domain_delegation: None,
+                    caller_google_token: None,
                 },
                 "google_login",
             ),
@@ -401,6 +418,7 @@ mod tests {
                 CallerIdentityBlocks {
                     google_login: None,
                     domain_delegation: Some(delegation),
+                    caller_google_token: None,
                 },
                 "domain_delegation",
             ),
@@ -478,6 +496,7 @@ mod tests {
             let blocks = CallerIdentityBlocks {
                 google_login: None,
                 domain_delegation: Some(&delegation),
+                caller_google_token: None,
             };
             let error = parse_one_entry(&bigquery_impersonating_entry(), blocks).expect_err(written);
             assert_eq!(
@@ -493,6 +512,7 @@ mod tests {
         let blocks = CallerIdentityBlocks {
             google_login: None,
             domain_delegation: Some(&delegation),
+            caller_google_token: None,
         };
         let parsed = parse_one_entry(&bigquery_impersonating_entry(), blocks).expect("a service-account address parses");
         let Some(super::CallerIdentity::DomainDelegation(declared)) = parsed
@@ -510,6 +530,7 @@ mod tests {
         let blocks = CallerIdentityBlocks {
             google_login: Some(&login),
             domain_delegation: None,
+            caller_google_token: None,
         };
         let error = parse_one_entry(&bigquery_impersonating_entry(), blocks).expect_err("userinfo is refused");
         assert_eq!(
@@ -527,6 +548,7 @@ mod tests {
         let blocks = CallerIdentityBlocks {
             google_login: Some(&login),
             domain_delegation: None,
+            caller_google_token: None,
         };
         let error = parse_one_entry(&bigquery_impersonating_entry(), blocks).expect_err("a relative path is refused");
         assert_eq!(

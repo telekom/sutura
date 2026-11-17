@@ -96,7 +96,8 @@ fn the_values_the_gateway_page_prints_start_a_deployment_that_reads_authorizatio
         .inbound()
         .first()
         .expect("the values declare an inbound identity")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert_eq!(inbound.mode(), "behind-gateway");
     assert!(
         matches!(inbound.requirement().location(), TokenLocation::GatewayBearer),

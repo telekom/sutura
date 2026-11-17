@@ -190,7 +190,7 @@ mod tests {
                     .security()
                     .inbound()
                     .first()
-                    .map(sutura_config::InboundVerifier::identity)
+                    .and_then(sutura_config::InboundVerifier::identity)
                     .expect("node B declares leg 1"),
             )
             .expect("node B's gate reads its key set");

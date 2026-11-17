@@ -250,6 +250,7 @@ nav:
               - DataFusion (files): integrations/data-systems/datafusion.md
       - Identity:
           - Inbound identity: integrations/identity.md
+          - Sign in with Google directly: sign-in-with-google-directly.md
   - 💻 Examples:
       - examples/index.md
       - Single player: examples/single-player.md
