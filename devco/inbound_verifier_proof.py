@@ -609,8 +609,9 @@ def google_native_mutations():
                 "lib/libadbc_driver_bigquery.a",
             } <= set(libraries)
             # Use the Go toolchain named by the actual native derivation, never PATH's Go.
-            assert len(derivation) == 1
-            environment = next(iter(derivation.values()))["env"]
+            derivations = derivation.get("derivations", derivation)
+            assert isinstance(derivations, dict) and len(derivations) == 1
+            environment = next(iter(derivations.values()))["env"]
             go = [
                 Path(value) / "bin/go"
                 for value in environment["nativeBuildInputs"].split()
