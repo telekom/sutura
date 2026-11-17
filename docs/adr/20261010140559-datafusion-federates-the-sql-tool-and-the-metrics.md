@@ -625,3 +625,20 @@ change that the fourth amendment waits for: the adapter no longer refuses a leg 
   leg through the adapter. The fourth amendment's sentence that a leg on a remote node also runs is
   read from the application's admission of a remote leg (`crates/sutura-app/src/remote_leg.rs`),
   which takes a source that impersonates at source and executes legs. It is not measured.
+
+## Sixth amendment, 2026-11-17: an explicitly mapped NUMBER keeps its source semantics
+
+A UTF-8 representation preserves an Oracle NUMBER's digits, not its ordering. Evaluating `MAX` or
+`ORDER BY` over that representation can return a different answer from the source. The planner
+identifies value-dependent uses before optimization. Such a query runs at one Oracle source using
+the original admitted and resolved AST, with the existing Oracle spelling and text-policy views;
+it never sends the engine's text coercions to Oracle. Every original physical table is resolved
+again against that source alone, including a table optimization removed. The resulting set is
+passed to the existing source runner, under the same credential, row and deadline controls.
+
+A query that would need local evaluation of those values is refused as `unsupported_syntax`
+before opening credentials. Plain projections and unrelated operations keep the existing route.
+This deliberately provides no local decimal representation, cross-source numeric combine or
+complete Oracle function translator. The engine still admits the query and its function set;
+unsupported source functions remain source refusals or failures. Tests use a numeric fake source
+and pin both numeric results and refusal-before-open; native Oracle execution is a separate venue.

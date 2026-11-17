@@ -175,16 +175,18 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
 }
 
 #[test]
-fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_and_federated() {
-    use sutura_domain::warehouse::Value;
-
-    type TextCase<'a> = (&'a str, &'a [&'a str]);
-
+fn mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening() {
     let physical = RecordBatch::try_from_iter([
-        ("region", Arc::new(StringArray::from(vec!["north", "south"])) as ArrayRef),
-        ("sales_area", Arc::new(Int64Array::from(vec![2, 10])) as ArrayRef),
+        (
+            "region",
+            Arc::new(StringArray::from(vec!["e", "d", "c", "b", "a"])) as ArrayRef,
+        ),
+        (
+            "sales_area",
+            Arc::new(Int64Array::from(vec![9, 10, 95, 960, 4000])) as ArrayRef,
+        ),
     ])
-    .expect("the fake source stores physical numbers");
+    .expect("the source stores physical numbers");
     let schema = Arc::new(Schema::new(vec![
         Field::new("region", DataType::Utf8, false),
         Field::new("sales_area", DataType::Utf8, false).with_metadata(std::collections::HashMap::from([(
@@ -192,72 +194,112 @@ fn an_explicit_number_text_mapping_keeps_order_min_and_predicates_local_alone_an
             String::from("utf8"),
         )])),
     ]));
-    let tables = vec![
-        StatementTable::new(
-            named("crm"),
-            QualifiedTable::parse("dim_customer").expect("a fixture table"),
-            TypeDialect::DuckDb,
-            customers().schema(),
-        ),
-        StatementTable::new(
-            named("geo"),
-            QualifiedTable::parse("dim_region").expect("a fixture table"),
-            TypeDialect::Oracle,
-            schema,
-        ),
-    ];
-    let cases: [TextCase<'_>; 8] = [
-        (r#"select "sales_area" from "dim_region""#, &["2", "10"]),
-        (r#"select * from "dim_region""#, &["2", "10"]),
-        (r#"select "sales_area" from "dim_region" order by "sales_area""#, &["10", "2"]),
-        (
-            r#"select distinct r."sales_area" from dim_customer c join "dim_region" r on c.region = r."region" order by r."sales_area""#,
-            &["10", "2"],
-        ),
-        (r#"select min("sales_area") from "dim_region""#, &["10"]),
-        (
-            r#"select min(r."sales_area") from dim_customer c join "dim_region" r on c.region = r."region""#,
-            &["10"],
-        ),
-        (r#"select "sales_area" from "dim_region" where "sales_area" > '2'"#, &[]),
-        (
-            r#"select r."sales_area" from dim_customer c join "dim_region" r on c.region = r."region" where r."sales_area" > '2'"#,
-            &[],
-        ),
-    ];
-    for (sql, expected) in cases {
-        let mut legs = OracleLegs {
-            engines: Engines::new(None),
-            statements: Vec::new(),
-        };
-        drop(
-            legs.engines
-                .at
-                .insert(named("geo"), holding(&[("dim_region", physical.clone())])),
-        );
-        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
-        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                true,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
+    for dialect in [
+        TypeDialect::Oracle,
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Cube,
+    ] {
+        let tables = [
+            StatementTable::new(
+                named("crm"),
+                QualifiedTable::parse("dim_customer").expect("table"),
+                TypeDialect::DuckDb,
+                customers().schema(),
             ),
-            &mut legs,
-        );
-        let Some(Ok(rows)) = answer else {
-            panic!("the mapped number must run: {answer:?}");
-        };
-        assert_eq!(rows.rows().len(), expected.len(), "{sql}: {:?}", legs.statements);
-        for (row, text) in rows.rows().iter().zip(expected) {
-            assert_eq!(row.last(), Some(&Value::Text(String::from(*text))), "{sql}");
-        }
-        assert!(!legs.statements.is_empty(), "the physical source must run");
-        for statement in legs.statements {
-            let statement = statement.to_ascii_uppercase();
-            for operator in ["ORDER BY", "MIN(", "WHERE"] {
-                assert!(!statement.contains(operator), "{operator} was pushed: {statement}");
+            StatementTable::new(
+                named("geo"),
+                QualifiedTable::parse("dim_region").expect("table"),
+                dialect,
+                Arc::clone(&schema),
+            ),
+        ];
+        for (sql, expected) in [
+            (
+                r#"select "sales_area" from "dim_region""#,
+                &["9", "10", "95", "960", "4000"][..],
+            ),
+            (r#"select * from "dim_region""#, &["9", "10", "95", "960", "4000"]),
+            (r#"select min("sales_area") from "dim_region""#, &["9"]),
+            (r#"select max("sales_area") from "dim_region""#, &["4000"]),
+            (
+                r#"select "sales_area" from "dim_region" order by "sales_area" desc limit 3"#,
+                &["4000", "960", "95"],
+            ),
+            (
+                r#"select "sales_area" from "dim_region" where "sales_area" > 9 order by "sales_area""#,
+                &["10", "95", "960", "4000"],
+            ),
+            (
+                r#"select "sales_area" from "dim_region" where "sales_area" in (9, 4000) order by "sales_area""#,
+                &["9", "4000"],
+            ),
+            (
+                r#"with r as (select "sales_area" as n from "dim_region") select max(n) from r"#,
+                &["4000"],
+            ),
+            (
+                r#"select "sales_area" as "region", "region" as "sales_area" from "dim_region" order by "dim_region"."sales_area""#,
+                &["e", "d", "c", "b", "a"],
+            ),
+            (
+                r#"select min(r."sales_area") from dim_customer c join "dim_region" r on c.region = r."region""#,
+                &[],
+            ),
+            (
+                r#"select r."sales_area" from dim_customer c join "dim_region" r on c.region = r."region" order by r."sales_area""#,
+                &[],
+            ),
+            (
+                r#"select max(n) from (select "sales_area" as n from "dim_region" union all select cast(customer_id as varchar) as n from dim_customer where false) z"#,
+                &[],
+            ),
+        ] {
+            let projected = sql == r#"select "sales_area" from "dim_region""# || sql == r#"select * from "dim_region""#;
+            let refused = !projected && (dialect != TypeDialect::Oracle || sql.contains("dim_customer"));
+            let mut legs = OracleLegs {
+                engines: Engines::new(None),
+                statements: Vec::new(),
+            };
+            drop(
+                legs.engines
+                    .at
+                    .insert(named("geo"), holding(&[("dim_region", physical.clone())])),
+            );
+            let statement = RawStatement::parse(sql).expect("a bounded query");
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    true,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut legs,
+            );
+            if refused {
+                assert!(
+                    matches!(
+                        answer,
+                        Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText)))
+                    ),
+                    "{dialect:?} {sql}: {answer:?}"
+                );
+                assert!(
+                    legs.engines.opened.is_empty(),
+                    "a local numeric operation must not open credentials"
+                );
+                assert!(legs.statements.is_empty(), "a local numeric operation must not run");
+            } else {
+                let Some(Ok(rows)) = answer else {
+                    panic!("{dialect:?} {sql}: {answer:?}");
+                };
+                let actual: Vec<_> = rows.rows().iter().map(|row| row.last().expect("a value").render()).collect();
+                assert_eq!(actual, expected, "{dialect:?} {sql}: {:?}", legs.statements);
+                assert_eq!(legs.statements.len(), 1, "one numeric source statement: {sql}");
             }
         }
     }
@@ -336,6 +378,17 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 ),
                 &mut legs,
             );
+            if sql.contains(r#"order by "sales_area""#) && dialect != TypeDialect::Oracle {
+                assert!(
+                    matches!(
+                        answer,
+                        Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText)))
+                    ),
+                    "{dialect:?} {sql}: {answer:?}"
+                );
+                assert!(legs.engines.opened.is_empty(), "numeric ordering cannot open local legs");
+                continue;
+            }
             let Some(Ok(rows)) = answer else {
                 panic!("the mapped table must run: {answer:?}");
             };
@@ -350,9 +403,7 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
                 };
                 assert!(part.contains(operator), "{dialect:?}: missing {operator}: {part}");
             }
-            if sql.contains(r#"order by "sales_area""#) {
-                assert!(!part.contains("ORDER BY"), "text ordering must stay local: {part}");
-            } else if !sql.contains("sales_area") {
+            if !sql.contains("sales_area") {
                 assert!(!part.contains("sales_area"), "unused mapped column was fetched: {part}");
             }
         }

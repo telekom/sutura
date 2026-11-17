@@ -24,7 +24,7 @@
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
-//! | an explicit Oracle NUMBER-to-Utf8 mapping keeps operators over mapped values local | unrelated operators still run at the source; NUMBER ordering is not Utf8 ordering. This can transfer more rows and exhaust the existing working set or deadline sooner |
+//! | value-dependent uses of an explicit NUMBER-to-Utf8 mapping run unchanged at one Oracle source or are refused before credentials open | no local lexical answer is returned; source scalar syntax still belongs to Oracle |
 //! | Cube text policies run locally before query operators because its SQL planner lacks regex replacement | scans still run at Cube; raw values enter this process and existing row, memory and deadline caps apply |
 //! | Cube semi/anti/mark joins run locally because its SQL planner rejects correlated EXISTS | supported child plans still run at Cube; extra source rows can exhaust the existing row cap, working set or deadline |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
@@ -92,7 +92,7 @@ where
     let fetched = Arc::new(Fetched::default());
     let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
     let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
-    let plan = within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
+    let (plan, numeric_operations) = within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
         .ok_or(StatementStopped::DeadlineExceeded)?
         .map_err(|cause| match cause {
             PlanningStopped::Refused(resolve::Refused::UnknownTable) => StatementStopped::UnknownTable,
@@ -111,6 +111,30 @@ where
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
     if sources.len() > 1 && !question.federation_allowed() {
         return Err(StatementStopped::SpansMoreThanOneSource);
+    }
+    if numeric_operations {
+        let Some(source) = sources.first().filter(|_| sources.len() == 1) else {
+            return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
+        };
+        let native_tables: Vec<_> = tables.iter().filter(|table| table.source() == source).cloned().collect();
+        if native_tables.iter().any(|table| table.dialect() != TypeDialect::Oracle) {
+            return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
+        }
+        // Re-resolve the admitted input against this source alone: optimization can remove a
+        // second source, but that must never authorize its original table under this credential.
+        let mut native = Parser::parse_sql(&GenericDialect, question.statement().as_str())
+            .map_err(|cause| unplanned("the numeric statement did not parse", &cause))?;
+        let [native] = native.as_mut_slice() else {
+            return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
+        };
+        let scans = resolve::statement(native, &native_tables)
+            .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
+        let text = oracle::native(native)
+            .and_then(|sql| text::apply(sql, &native_tables, TypeDialect::Oracle))
+            .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
+        let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
+        legs.open(&sources).map_err(StatementStopped::Leg)?;
+        return legs.run_planned(source, &native, &scans).map_err(StatementStopped::Leg);
     }
     // A bare marked scan still needs fitting to its declared text representation.
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
@@ -264,8 +288,8 @@ fn number_text(schema: &SchemaRef) -> bool {
         .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
 }
 
-/// Passthrough projections preserve the mapped representation; every value-dependent use stays
-/// local. Inspect inputs, since a filter or aggregate can consume a column absent from its output.
+/// Passthrough projections preserve the mapped representation. Value-dependent uses cannot run
+/// locally as text; inspect inputs because their column can be absent from the output.
 fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
     if let LogicalPlan::Distinct(datafusion::logical_expr::Distinct::All(input)) = plan {
         return Ok(!number_text(input.schema().inner()));
@@ -598,7 +622,7 @@ async fn planned(
     context: &SessionContext,
     statement: &RawStatement,
     tables: &[StatementTable],
-) -> Result<LogicalPlan, PlanningStopped> {
+) -> Result<(LogicalPlan, bool), PlanningStopped> {
     let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
         .tokenize()
         .map_err(|cause| {
@@ -637,7 +661,7 @@ async fn planned(
     let [statement] = statements.as_mut_slice() else {
         return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
     };
-    resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?;
+    drop(resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?);
     let Some(statement) = statements.pop() else {
         return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
     };
@@ -651,6 +675,11 @@ async fn planned(
         .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
         .await?;
     options.verify_plan(&plan)?;
+    let mut numeric_operations = false;
+    plan.apply_with_subqueries(|node| {
+        numeric_operations |= !number_text_safe(node)?;
+        Ok(TreeNodeRecursion::Continue)
+    })?;
     // Validate caller functions before registering the policy-only regex replacement.
     let local: Vec<_> = tables
         .iter()
@@ -676,7 +705,7 @@ async fn planned(
             .await?
     };
     let frame = context.execute_logical_plan(plan).await?;
-    Ok(frame.into_optimized_plan()?)
+    Ok((frame.into_optimized_plan()?, numeric_operations))
 }
 
 #[derive(Debug, thiserror::Error)]

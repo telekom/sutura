@@ -84,12 +84,13 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
     expected.push(serde_json::json!([huge, "2026-07-01T00:00:00Z", "2026-07-01T00:00:00Z"]));
     expected.push(serde_json::json!(["null", "null", "null"]));
     assert_eq!(reply.json()["rows"], serde_json::json!(expected));
-    let lexical = serde_json::json!([[cases[3].0], [cases[1].0], [huge], [cases[0].0], [cases[2].0], ["null"]]);
-    text_operators(
+    let numeric = serde_json::json!([[cases[3].0], [cases[1].0], [cases[2].0], [cases[0].0], [huge], ["null"]]);
+    number_operators(
         &mut served,
         &format!("\"{}\".\"TYPE_EVENTS\" t", fixture.schema),
         &huge,
-        &lexical,
+        &numeric,
+        fixture,
         1,
     );
     drop(served);
@@ -134,14 +135,15 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
     numbers.push(serde_json::json!([huge, "2026-07-01T00:00:00Z", "2026-07-01T00:00:00Z", "4"]));
     numbers.push(serde_json::json!(["null", "null", "null", "null"]));
     assert_eq!(reply.json()["rows"], serde_json::json!(numbers));
-    text_operators(
+    number_operators(
         &mut served,
         &format!(
             "\"{0}\".\"TYPE_EVENTS\" t join \"{0}\".\"TYPE_KEYS\" k on t.\"ID\" = k.\"ID\"",
             fixture.schema
         ),
         &huge,
-        &lexical,
+        &numeric,
+        fixture,
         2,
     );
     drop(served);
@@ -171,28 +173,49 @@ fn refuses_sub_microsecond_timestamps(fixture: &Fixture, settings: &str) {
     }
 }
 
-fn text_operators(served: &mut Served, from: &str, huge: &str, lexical: &serde_json::Value, sources: usize) {
+fn number_operators(served: &mut Served, from: &str, huge: &str, numeric: &serde_json::Value, fixture: &Fixture, sources: usize) {
+    let like_count = fixture
+        .owner
+        .query_row("SELECT COUNT(*) FROM TYPE_EVENTS WHERE FULL_VALUE LIKE '100%'", &[])
+        .unwrap()
+        .get::<i64>(0)
+        .unwrap();
+    assert!(
+        (0..=1).contains(&like_count),
+        "the fixture has at most one matching numeric row"
+    );
+    let like = if like_count == 1 {
+        serde_json::json!([[huge]])
+    } else {
+        serde_json::json!([])
+    };
+    eprintln!("native NUMBER LIKE reference matched {like_count} row(s)");
     for (statement, expected) in [
         (
             format!("select t.\"FULL_VALUE\" from {from} order by t.\"FULL_VALUE\" nulls last"),
-            lexical.clone(),
+            numeric.clone(),
         ),
         (
             format!(
                 "select min(t.\"FULL_VALUE\") as smallest, max(t.\"FULL_VALUE\") as largest from {from} where t.\"ID\" in (0, 2, 4)"
             ),
-            serde_json::json!([[huge, "7"]]),
+            serde_json::json!([["7", huge]]),
         ),
         (
             format!("select t.\"FULL_VALUE\" from {from} where t.\"FULL_VALUE\" > '2' order by t.\"FULL_VALUE\""),
-            serde_json::json!([["7"]]),
+            serde_json::json!([["7"], ["12345678901234567890123456789012345678"], [huge]]),
         ),
         (
             format!("select t.\"FULL_VALUE\" from {from} where t.\"FULL_VALUE\" like '100%'"),
-            serde_json::json!([[huge]]),
+            like,
         ),
     ] {
         let reply = run(served, &statement);
+        if sources > 1 {
+            assert_eq!(reply.status, 422, "{statement}: {}", reply.body);
+            assert_eq!(reply.json()["code"], "unsupported_syntax", "{statement}: {}", reply.body);
+            continue;
+        }
         if reply.status != 200 {
             let status = served.terminate();
             eprintln!("planned Oracle fixture exited: {status}");
@@ -257,6 +280,21 @@ fn mapped_table_above_scan_cap(fixture: &Fixture, settings: &str) {
     );
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert_eq!(reply.json()["rows"], serde_json::json!([["1"]]));
+    for predicate in [r#""FULL_VALUE" = 1"#, r#""FULL_VALUE" IN (1)"#] {
+        let reply = run(
+            &served,
+            &format!(
+                r#"select count(*) as n from "{}"."LARGE_EVENTS" where {predicate}"#,
+                fixture.schema
+            ),
+        );
+        assert_eq!(
+            reply.status, 200,
+            "numeric predicates must push below the scan cap: {}",
+            reply.body
+        );
+        assert_eq!(reply.json()["rows"], serde_json::json!([["1"]]));
+    }
 }
 
 pub(super) fn alias_scope(fixture: &Fixture) {
