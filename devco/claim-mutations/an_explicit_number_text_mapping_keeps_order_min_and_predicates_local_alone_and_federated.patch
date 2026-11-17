@@ -1,7 +1,0 @@
---- a/crates/sutura-exec-datafusion/src/combine/statement.rs
-+++ b/crates/sutura-exec-datafusion/src/combine/statement.rs
-@@ -260,3 +260,3 @@
-         .iter()
--        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
-+        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("never"))
- }
