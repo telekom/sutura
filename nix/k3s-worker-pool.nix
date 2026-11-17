@@ -139,7 +139,9 @@ let
             rows.writerow(["day", "link", "amount"])
             rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(count))
         document(fact, dict(kind="model", name=fact, source="local", table=fact,
-                            columns=["day", "link", "amount"]))
+                            columns=[dict(name="day", type="date"),
+                                     dict(name="link", type="text"),
+                                     dict(name="amount", type="bigint")]))
         document(lookup, dict(kind="model", name=lookup, source="geo", table=lookup,
                               columns=[dict(name="link", type="text"),
                                        dict(name="region", type="text")]))
