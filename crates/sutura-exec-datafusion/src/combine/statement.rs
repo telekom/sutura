@@ -92,21 +92,24 @@ where
     let fetched = Arc::new(Fetched::default());
     let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
     let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
-    let (plan, numeric_operations) = within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
-        .ok_or(StatementStopped::DeadlineExceeded)?
-        .map_err(|cause| match cause {
-            PlanningStopped::Refused(resolve::Refused::UnknownTable) => StatementStopped::UnknownTable,
-            PlanningStopped::Refused(resolve::Refused::UnknownColumn) => StatementStopped::UnknownColumn,
-            PlanningStopped::Refused(resolve::Refused::Unsupported(construct)) => StatementStopped::UnsupportedSyntax(construct),
-            PlanningStopped::Engine(cause) => {
-                let fallback = unplanned("the statement did not plan", &cause);
-                if field_not_found(&cause) {
-                    StatementStopped::UnknownColumn
-                } else {
-                    fallback
+    let (plan, numeric_operations, native_schema) =
+        within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
+            .ok_or(StatementStopped::DeadlineExceeded)?
+            .map_err(|cause| match cause {
+                PlanningStopped::Refused(resolve::Refused::UnknownTable) => StatementStopped::UnknownTable,
+                PlanningStopped::Refused(resolve::Refused::UnknownColumn) => StatementStopped::UnknownColumn,
+                PlanningStopped::Refused(resolve::Refused::Unsupported(construct)) => {
+                    StatementStopped::UnsupportedSyntax(construct)
                 }
-            }
-        })?;
+                PlanningStopped::Engine(cause) => {
+                    let fallback = unplanned("the statement did not plan", &cause);
+                    if field_not_found(&cause) {
+                        StatementStopped::UnknownColumn
+                    } else {
+                        fallback
+                    }
+                }
+            })?;
     let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause))?;
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
     if sources.len() > 1 && !question.federation_allowed() {
@@ -137,7 +140,7 @@ where
             .and_then(|sql| text::apply(sql, &read, TypeDialect::Oracle))
             .and_then(|sql| {
                 if read.iter().any(text::oracle_lobs) {
-                    text::bounded_native_oracle_rows(&sql, plan.schema().inner(), &read)
+                    text::bounded_native_oracle_rows(&sql, &native_schema, &read)
                 } else {
                     Ok(sql)
                 }
@@ -648,7 +651,7 @@ async fn planned(
     context: &SessionContext,
     statement: &RawStatement,
     tables: &[StatementTable],
-) -> Result<(LogicalPlan, bool), PlanningStopped> {
+) -> Result<(LogicalPlan, bool, SchemaRef), PlanningStopped> {
     let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
         .tokenize()
         .map_err(|cause| {
@@ -730,8 +733,15 @@ async fn planned(
             .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
             .await?
     };
+    let plan = if numeric_operations && tables.iter().any(text::oracle_lobs) {
+        text::native_number_outputs(plan)?
+    } else {
+        plan
+    };
+    // The native output keeps its markers even when an optimizer rule drops field metadata.
+    let native_schema = Arc::clone(plan.schema().inner());
     let frame = context.execute_logical_plan(plan).await?;
-    Ok((frame.into_optimized_plan()?, numeric_operations))
+    Ok((frame.into_optimized_plan()?, numeric_operations, native_schema))
 }
 
 #[derive(Debug, thiserror::Error)]

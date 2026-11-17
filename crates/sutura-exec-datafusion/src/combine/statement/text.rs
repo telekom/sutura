@@ -3,8 +3,11 @@
 use std::ops::ControlFlow;
 
 use datafusion::arrow::datatypes::{DataType, Schema};
+use datafusion::common::tree_node::Transformed;
 use datafusion::common::{plan_datafusion_err, plan_err};
 use datafusion::error::{DataFusionError, Result};
+use datafusion::functions_aggregate::min_max::{Max, Min};
+use datafusion::logical_expr::{Expr as PlannedExpr, ExprSchemable as _, LogicalPlan};
 use datafusion::sql::sqlparser::ast::{Expr, Ident, SetExpr, Statement, TableFactor, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -22,6 +25,48 @@ pub(super) fn oracle_lobs(table: &StatementTable) -> bool {
             .fields()
             .iter()
             .any(|field| field.metadata().contains_key(LOB_KEY))
+}
+
+/// MIN/MAX keep the source NUMBER type, although their Arrow Utf8 field loses its marker.
+/// Carry it through typed aggregate arguments before parent schemas are rebuilt.
+pub(super) fn native_number_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
+    plan.transform_up_with_subqueries(|mut node| {
+        if let LogicalPlan::Aggregate(aggregate) = &mut node {
+            let input = aggregate.input.schema();
+            aggregate.aggr_expr = std::mem::take(&mut aggregate.aggr_expr)
+                .into_iter()
+                .map(|expression| {
+                    let aggregate = match &expression {
+                        PlannedExpr::Alias(alias) => alias.expr.as_ref(),
+                        other => other,
+                    };
+                    let PlannedExpr::AggregateFunction(function) = aggregate else {
+                        return Ok(expression);
+                    };
+                    let builtin = function.func.inner();
+                    if builtin.downcast_ref::<Min>().is_none() && builtin.downcast_ref::<Max>().is_none() {
+                        return Ok(expression);
+                    }
+                    let [argument] = function.params.args.as_slice() else {
+                        return Ok(expression);
+                    };
+                    let metadata = argument.metadata(input.as_ref())?;
+                    if metadata.inner().get("sutura:unbounded_number").map(String::as_str) != Some("utf8") {
+                        return Ok(expression);
+                    }
+                    Ok(match expression {
+                        PlannedExpr::Alias(alias) => PlannedExpr::Alias(alias.with_metadata(Some(metadata))),
+                        other => {
+                            let name = other.schema_name().to_string();
+                            other.alias_with_metadata(name, Some(metadata))
+                        }
+                    })
+                })
+                .collect::<Result<_>>()?;
+        }
+        node.recompute_schema().map(Transformed::yes)
+    })
+    .map(|transformed| transformed.data)
 }
 
 /// A LOB is redacted at the source without clipping. Only a whole-source answer may return it:
