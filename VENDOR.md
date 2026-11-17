@@ -114,7 +114,7 @@ four release triples. It is pinned at the release tag `go/v1.14.1`
 (repo rev `a25673b7`) as flake input `bigquery-adbc-src`; `just update` does not chase
 `main` past that pin.
 
-Seven source-level adaptations, recorded here so nothing is silent:
+Eight source-level adaptations, recorded here so nothing is silent:
 
 - **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.3`) above what
   nixpkgs' `go_1_27` provides. `nix/bigquery-adbc-drivers.nix` relaxes the floor
@@ -137,6 +137,25 @@ Seven source-level adaptations, recorded here so nothing is silent:
   [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Upstream pull request:
   [`adbc-drivers/bigquery#374`](https://github.com/adbc-drivers/bigquery/pull/374). Drop it when
   upstream ships both options.
+- **Private Google destinations and verified custom Storage TLS.**
+  `nix/bigquery-adbc-google-endpoints.patch` and its `-tests.patch` companion route IAM Credentials, OAuth token exchange and ADC's
+  STS exchange through connection-owned destinations, preserving the Google library's authentication
+  and its signJwt/JWT exchange. It passes declared CA and client material to REST, authentication
+  and Storage clients. A CA bundle replaces system roots; absent a bundle, the driver's system
+  roots apply. Material reads are bounded to 4 MiB per file. It also removes the
+  upstream assumption that every custom Storage endpoint is a plaintext emulator: only an explicit
+  numeric loopback endpoint retains that test venue. A private Google hostname uses verified TLS.
+  Fake transport and credential-detection ports exercise the real delegation exchange and dry-run query
+  request, refusing a request to any default host. A separate loopback mTLS fixture loads real ADC
+  authorized-user and external-account files, observes their token requests and the resulting query,
+  and covers the driver's explicit user-refresh path through the same declared transport. An
+  external-account file's explicit token URL remains the SDK's choice; canonical Google token URLs
+  are routed to the declared destination. This is fixture credential acquisition, not human sign-in
+  or proof of a data-system principal. Native invalid-destination and TLS-material refusal cells
+  share the existing driver build venue. The workload-identity and Google-login driver
+  rows begin with an already-issued caller token; sutura's pool exchange is outside this driver.
+  Upstream submission is pending; drop the patch when upstream supports these destinations and TLS
+  material without disabling verification for a custom Storage host (telekom/sutura#1945).
 - **A statement option for the query job's labels.** `nix/bigquery-adbc-job-labels.patch` adds
   `bigquery.query.labels`, a JSON object of string keys to string values that the driver copies
   into `QueryConfig.Labels`; an empty value clears them and anything that is not such an object,

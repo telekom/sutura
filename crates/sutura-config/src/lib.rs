@@ -106,6 +106,7 @@ pub mod audience;
 pub mod catalog;
 pub mod credentials;
 pub mod environment;
+pub mod google_endpoints;
 pub mod governance;
 pub mod inbound;
 pub mod limits;
