@@ -1699,6 +1699,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#private-service-connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Private Service Connect
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2808,6 +2819,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#private-service-connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Private Service Connect
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3284,6 +3306,43 @@ without it.</p>
 <p>One result has at most 1 000 000 rows and 256 MiB. A time column must be <code>DATE</code>: sutura refuses
 <code>TIMESTAMP</code> and <code>DATETIME</code> time columns. <code>governance.per_replica_spend_ceiling</code> cannot be used with
 a BigQuery source.</p>
+<h2 id="private-service-connect">Private Service Connect<a class="headerlink" href="#private-service-connect" title="Permanent link">&para;</a></h2>
+<p>A deployment that reaches Google APIs through Private Service Connect can keep the public API
+names and set the chart's top-level <code>hostAliases</code>. Serving, combining and reading pods inherit it:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">hostAliases</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">ip</span><span class="p">:</span><span class="w"> </span><span class="s">"192.0.2.10"</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">hostnames</span><span class="p">:</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bigquery.googleapis.com</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bigquerystorage.googleapis.com</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sts.googleapis.com</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">iamcredentials.googleapis.com</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oauth2.googleapis.com</span>
+</span></code></pre></div>
+<p>Alternatively, set the Google API URLs in the settings file (<code>config.base.google_endpoints</code> in
+chart values). All keys are optional and otherwise keep their public defaults:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">google_endpoints</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">bigquery</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://bigquery-example.p.googleapis.com/bigquery/v2/</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">bigquery_storage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://bigquerystorage-example.p.googleapis.com/</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">sts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sts-example.p.googleapis.com/v1/token</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">iam_credentials</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://iamcredentials-example.p.googleapis.com/</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">oauth_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://oauth2-example.p.googleapis.com/token</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">tokeninfo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://oauth2-example.p.googleapis.com/tokeninfo</span>
+</span></code></pre></div>
+<p>Every value must be an HTTPS URL whose host ends in <code>.googleapis.com</code>; credentials, queries and
+fragments are refused. Storage and IAM URLs name an origin, with no path beyond <code>/</code>. The Storage
+URL becomes a gRPC authority with port 443 unless another port was declared. <code>oauth_token</code> routes
+the JWT token exchange after domain delegation's signJwt; it is separate from <code>tokeninfo</code>, reserved
+for the Google token verifier. External identity providers' delegation and broker endpoints keep
+their own source settings.</p>
+<p>The selected destinations are logged at startup. Query jobs and partition reads share the same
+driver destinations. TLS verifies the selected hostname: <code>security.outbound</code> supplies the CA
+bundle and optional client certificate/key for authentication, REST and Storage; malformed or partial
+certificate/key files are refused. Authentication and API clients refuse HTTP redirects. A supplied bundle
+replaces the driver's system roots. Files are read per connection, up to 4 MiB each. Reading
+workers inherit the Google destinations and outbound settings, and must mount the referenced files
+through their group's own volumes. Google IAM, pool configuration, API access and private DNS
+routing still belong to the operator; these settings do not provision a private endpoint or grant
+access.</p>
 
 
 
