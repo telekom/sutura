@@ -34,6 +34,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(crate) struct RawSettings {
     pub(crate) server: RawServer,
     #[serde(default)]
+    pub(crate) google_endpoints: RawGoogleEndpoints,
+    #[serde(default)]
     pub(crate) security: RawSecurity,
     pub(crate) rate_limit: RawRateLimit,
     pub(crate) telemetry: RawTelemetry,
@@ -986,15 +988,8 @@ pub(crate) struct RawPrompt {
     pub(crate) list_physical_schema: bool,
 }
 
-/// The `operator` section.
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RawOperator {
-    pub(crate) api_group: String,
-    /// The Deployment the operator sizes; unset refuses at startup (`ClusterError::NoWorkersName`).
-    #[serde(default)]
-    pub(crate) workers: Option<String>,
-    /// The Deployment whose demand the operator reads; unset refuses at startup (`ClusterError::NoServingName`).
-    #[serde(default)]
-    pub(crate) serving: Option<String>,
-}
+mod google;
+pub(crate) use google::RawGoogleEndpoints;
+
+mod operator;
+pub(crate) use operator::RawOperator;

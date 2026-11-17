@@ -22,6 +22,11 @@ use crate::tools::InvalidRunSqlSources;
 /// stderr gets both without either being formatted into the other.
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
+    #[error("Google API endpoint configuration is not usable")]
+    GoogleEndpoint {
+        #[source]
+        cause: crate::google_endpoints::InvalidGoogleEndpoint,
+    },
     #[error("a source's admitted verifiers are not usable")]
     SourceAdmission {
         #[source]

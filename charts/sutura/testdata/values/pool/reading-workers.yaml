@@ -4,6 +4,14 @@
 # and its own credential Secret only, never the release-wide `extraVolumes` or another group's.
 #
 # `crates/sutura-config/tests/chart_renders.rs` loads the serving pod and each group's pod as settings.
+hostAliases:
+  - ip: "192.0.2.10"
+    hostnames:
+      - bigquery-example.p.googleapis.com
+      - bigquerystorage-example.p.googleapis.com
+      - sts-example.p.googleapis.com
+      - iamcredentials-example.p.googleapis.com
+      - oauth2-example.p.googleapis.com
 environment: production
 security:
   metricsToken:
@@ -64,6 +72,13 @@ readingWorkers:
           readOnly: true
 config:
   base:
+    google_endpoints:
+      bigquery: https://bigquery-example.p.googleapis.com/bigquery/v2/
+      bigquery_storage: https://bigquerystorage-example.p.googleapis.com/
+      sts: https://sts-example.p.googleapis.com/v1/token
+      iam_credentials: https://iamcredentials-example.p.googleapis.com/
+      oauth_token: https://oauth2-example.p.googleapis.com/token
+      tokeninfo: https://oauth2-example.p.googleapis.com/tokeninfo
     security:
       identity: multi-user
       inbound:

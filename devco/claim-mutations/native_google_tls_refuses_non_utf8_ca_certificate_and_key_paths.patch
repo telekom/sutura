@@ -1,0 +1,15 @@
+--- a/crates/sutura-cli/src/bigquery_driver.rs
++++ b/crates/sutura-cli/src/bigquery_driver.rs
+@@ -83,11 +83,7 @@
+         configured.oauth_token().as_str(),
+         configured.sts().as_str(),
+     );
+-    let path = |path: &std::path::Path| {
+-        path.to_str()
+-            .map(str::to_owned)
+-            .ok_or_else(|| String::from("BigQuery TLS material needs a UTF-8 file path"))
+-    };
++    let path = |path: &std::path::Path| Ok::<String, String>(path.to_string_lossy().into_owned());
+     let Some(outbound) = outbound else {
+         return Ok(endpoints);
+     };

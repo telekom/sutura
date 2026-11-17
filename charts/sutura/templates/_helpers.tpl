@@ -327,8 +327,8 @@ guard and reading workers consume the same result.
 A reading worker group's settings file: the deployment's identity and inbound declaration, the
 catalogs the group names, and the `sources` entries of the aliases the group reads - never another
 alias's. Sources are layered like the binary does, the environment file over `base.yaml`. Nothing
-else in `config.base` or `config.environment` reaches it, so a setting the sources depend on
-(`security.outbound`, say) is not carried. `.root` is the release, `.group` the group's values.
+else reaches it except the shared Google destinations and outbound trust needed to read them.
+`.root` is the release, `.group` the group's values.
 */}}
 {{- define "sutura.readingWorkerSettings" -}}
 {{- $root := .root -}}
@@ -352,7 +352,12 @@ else in `config.base` or `config.environment` reaches it, so a setting the sourc
 {{- if hasKey $resolved "inbound" -}}
 {{- $_ := set $security "inbound" (get $resolved "inbound") -}}
 {{- end -}}
-{{- toYaml (dict "catalogs" .group.catalogs "security" $security "sources" $sources) -}}
+{{- $settings := dict "catalogs" .group.catalogs "security" $security "sources" $sources -}}
+{{- $outbound := mergeOverwrite (deepCopy (dig "security" "outbound" (dict) $base)) (dig "security" "outbound" (dict) $env) -}}
+{{- with $outbound }}{{ $_ := set $security "outbound" . }}{{ end -}}
+{{- $google := mergeOverwrite (deepCopy (dig "google_endpoints" (dict) $base)) (dig "google_endpoints" (dict) $env) -}}
+{{- with $google }}{{ $_ := set $settings "google_endpoints" . }}{{ end -}}
+{{- toYaml $settings -}}
 {{- end -}}
 
 {{/*
