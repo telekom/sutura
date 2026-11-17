@@ -66,6 +66,7 @@ mod tests {
         use crate::harness::{config_path, derived_beside, example_root};
         use sutura_domain::pinned::SemanticCatalog as _;
         let case = "duckdb-certified-text-policy";
+        let settings = raw_sql_settings(case);
         let root = derived_beside(&config_path(case));
         std::fs::create_dir_all(&root).expect("a fixture directory");
         let catalog = root.join("catalog");
@@ -84,7 +85,7 @@ mod tests {
         );
         assert_ne!(declared, original);
         std::fs::write(&model, declared).expect("the protected fixture writes");
-        let settings = raw_sql_settings(case).replace(
+        let settings = settings.replace(
             &example_root().join("catalog").display().to_string(),
             &catalog.display().to_string(),
         );

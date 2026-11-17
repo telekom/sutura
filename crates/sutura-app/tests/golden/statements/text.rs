@@ -290,7 +290,10 @@ where
         let raw = service.run_sql(&crate::adapters::a_caller(), &statement, deadline());
         assert!(raw.is_ok(), "{} placement={other_source}: {raw:?}", W::NAME);
         let Ok(RawOutcome::Rows { rows, .. }) = raw else {
-            panic!("the protected served statement must answer");
+            panic!(
+                "{} placement={other_source}: the protected served statement must answer Rows: {raw:?}",
+                W::NAME
+            );
         };
         assert_eq!(rows, vec![vec![String::from("masked")]]);
     }
