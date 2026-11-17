@@ -1,37 +1,37 @@
 {
   "mutants": [
     {
-      "label": "google-access-token-auth-type",
-      "package": "sutura-exec-bigquery",
+      "label": "oracle-bounded-lob-statement-delimiter",
+      "package": "sutura-exec-datafusion",
       "tests": [
-        "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path",
-        "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
+        "oracle_lob_output_contains_no_statement_delimiter"
       ],
-      "preimage_sha256": "275371a37359cb25760bbe1c829fd9a601a276065a572c3a224f9543cdaf0ced",
-      "mutated_sha256": "81db5a4ed7443326870afdfe93eddf5775504850440f1299c5e4bf689bfa25d1",
+      "preimage_sha256": "e9d149c4cbaa8c3033ebe522dd1143b58e5729b6ee00b76df3cf168a8adb60b6",
+      "mutated_sha256": "c5c7cc4d41a390805808a2eb0687e23df41d02edea9834599e1a3ed093d9f73f",
       "edits": [
         {
-          "path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-          "before": "            OptionDatabase::Other(AUTH_TYPE.into()),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
-          "after": "            OptionDatabase::Other(format!(\"{AUTH_TYPE}.invalid\")),\n            OptionValue::String(String::from(AUTH_TYPE_ACCESS_TOKEN)),",
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/text.rs",
+          "before": "    let pattern = literal(&format!(\"^[]\\t\\r\\n{alphabet}\\\\\\\\-]*$\"), TypeDialect::Oracle).replace(';', \"' || CHR(59) || '\");",
+          "after": "    let pattern = literal(&format!(\"^[]\\t\\r\\n{alphabet}\\\\\\\\-]*$\"), TypeDialect::Oracle);",
           "count": 1
         }
       ]
     }
   ],
   "test_files": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": "crates/sutura-exec-bigquery/src/adbc/identity.rs",
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": "crates/sutura-exec-bigquery/src/adbc/identity.rs"
+    "oracle_lob_output_contains_no_statement_delimiter": "crates/sutura-exec-datafusion/src/combine/statement/tests/text.rs"
   },
   "test_identities": {
-    "a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path": [
-      "sutura-exec-bigquery",
-      "adbc::identity::tests::a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path"
-    ],
-    "the_access_token_option_is_set_only_with_the_auth_type_that_selects_it": [
-      "sutura-exec-bigquery",
-      "adbc::identity::tests::the_access_token_option_is_set_only_with_the_auth_type_that_selects_it"
+    "oracle_lob_output_contains_no_statement_delimiter": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::text::oracle_lob_output_contains_no_statement_delimiter"
     ]
+  },
+  "test_functions": {
+    "oracle_lob_output_contains_no_statement_delimiter": {
+      "name": "oracle_lob_output_contains_no_statement_delimiter",
+      "indent": ""
+    }
   },
   "cargo_profile": "ci"
 }
