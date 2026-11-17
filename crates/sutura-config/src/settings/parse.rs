@@ -207,7 +207,9 @@ pub(super) fn parse_sources(
             crate::sources::split::declare(&mut registry, written, value).map_err(|cause| SettingsError::Sources { cause })?;
         }
     }
-    Ok(registry)
+    let endpoints = crate::google_endpoints::GoogleEndpoints::parse(&raw.google_endpoints)
+        .map_err(|cause| SettingsError::GoogleEndpoint { cause })?;
+    Ok(registry.with_google_endpoints(endpoints))
 }
 
 pub(super) fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {

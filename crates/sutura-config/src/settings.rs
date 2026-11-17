@@ -199,6 +199,12 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// The destinations every Google API request is composed with.
+    #[must_use]
+    pub const fn google_endpoints(&self) -> &crate::google_endpoints::GoogleEndpoints {
+        self.sources.google_endpoints()
+    }
+
     /// Reads every source, parses the result, and refuses a deployment it will not serve.
     ///
     /// The order is the contract: defaults, then `<dir>/base.yaml`, then

@@ -44,12 +44,14 @@
 
 mod ceiling;
 mod driver_message;
+mod endpoints;
 pub mod google_trace;
 mod identity;
 mod partitions;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use driver_message::DriverMessage;
+pub use endpoints::GoogleEndpoints;
 pub use identity::{DelegatingAccount, Impersonation, UnusableDelegatingAccount};
 #[cfg(test)]
 pub(crate) use partitions::{PartitionDescriptor, execute_leg_partitions, read_partition_to_deadline};
@@ -393,6 +395,7 @@ pub struct AdbcBigQuery {
     /// What a [`Impersonation::ThroughPool`] source exchanges a subject's assertion through. `None`
     /// refuses every subject at such a source, never runs one as the deployment.
     exchange: Option<Box<dyn PoolExchange>>,
+    endpoints: Option<GoogleEndpoints>,
 }
 
 impl AdbcBigQuery {
@@ -415,7 +418,15 @@ impl AdbcBigQuery {
             impersonation,
             max_bytes_billed,
             exchange: None,
+            endpoints: None,
         }
+    }
+
+    /// This transport, with explicit destinations on both query jobs and partition reads.
+    #[must_use]
+    pub fn at_endpoints(mut self, endpoints: GoogleEndpoints) -> Self {
+        self.endpoints = Some(endpoints);
+        self
     }
 
     /// This transport, exchanging a subject's assertion at its declared pool through `exchange`.
@@ -497,7 +508,11 @@ impl AdbcBigQuery {
         let bound = sutura_adbc::parameter_batch(request.params()).map_err(|cause| AdbcError::Parameters { cause })?;
         let mut driver = load(&self.driver)?;
         let db = driver
-            .new_database_with_opts(database_options(request.billing_project(), runs_as))
+            .new_database_with_opts(database_options_at(
+                request.billing_project(),
+                runs_as,
+                self.endpoints.as_ref(),
+            ))
             .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let mut conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let mut stmt = conn.new_statement().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
@@ -533,7 +548,11 @@ impl AdbcBigQuery {
         let authentication = identity::forwarded(token, &self.impersonation)?;
         let mut driver = load(&self.driver)?;
         let db = driver
-            .new_database_with_opts(database_options(billing_project, authentication.options))
+            .new_database_with_opts(database_options_at(
+                billing_project,
+                authentication.options,
+                self.endpoints.as_ref(),
+            ))
             .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         partitions::read_partition_to_deadline(
@@ -557,6 +576,18 @@ fn database_options(billing_project: &ProjectId, runs_as: identity::DatabaseOpti
         OptionValue::String(billing_project.as_str().to_owned()),
     )];
     options.extend(runs_as);
+    options
+}
+
+fn database_options_at(
+    billing_project: &ProjectId,
+    runs_as: identity::DatabaseOptions,
+    endpoints: Option<&GoogleEndpoints>,
+) -> identity::DatabaseOptions {
+    let mut options = database_options(billing_project, runs_as);
+    if let Some(endpoints) = endpoints {
+        options.extend(endpoints.options());
+    }
     options
 }
 
@@ -891,6 +922,8 @@ impl JobTransport for AdbcBigQuery {
 
 #[cfg(test)]
 mod batch_cells;
+#[cfg(test)]
+mod endpoint_cells;
 #[cfg(test)]
 mod partition_cells;
 #[cfg(test)]
