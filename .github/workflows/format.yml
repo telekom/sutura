@@ -84,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [cube]
+        lane: [oracle-native]
     env: &helper-env
       CONSUMER: ${{ inputs.consumer }}
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
@@ -192,19 +192,3 @@ jobs:
           path: ${{ runner.temp }}/sql-planned-${{ matrix.lane }}
           if-no-files-found: ignore
           retention-days: 7
-
-  bigquery:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: rust-mcp-16core
-    timeout-minutes: 360
-    environment: bq-test
-    concurrency:
-      group: bigquery-conformance-${{ vars.SUTURA_BQ_DATASET }}
-      queue: max
-      cancel-in-progress: false
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [bigquery]
-    env: *helper-env
-    steps: *generation-steps

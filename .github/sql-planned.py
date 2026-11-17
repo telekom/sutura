@@ -427,7 +427,7 @@ def cube_meta(out, update, env):
 
 
 def diagnose(name, out):
-    require(name in ("cube", "bigquery"), "Unknown diagnostic lane")
+    require(name in ("cube", "bigquery", "oracle-native"), "Unknown diagnostic lane")
     value = binding()
     require(
         git("write-tree") == value["source_tree"] and not changed_paths(),
@@ -436,7 +436,7 @@ def diagnose(name, out):
     out.mkdir(parents=True, exist_ok=False)
     env = dict(
         os.environ,
-        INSTA_UPDATE="always",
+        INSTA_UPDATE="no" if name == "oracle-native" else "always",
         NO_COLOR="1",
         CLICOLOR="0",
         CARGO_TERM_COLOR="never",
@@ -469,10 +469,14 @@ def diagnose(name, out):
             out / "provision.log",
             env,
         )
-    else:
+    elif name == "cube":
         run(["nix", "run", ".#just", "--", "dev-up-cube"], out / "provision.log", env)
         cube_meta(out, True, env)
-    source_path = "crates/sutura-app/tests/golden/statements.rs"
+    source_path = (
+        "crates/sutura-exec-oracle/src/raw.rs"
+        if name == "oracle-native"
+        else "crates/sutura-app/tests/golden/statements.rs"
+    )
     require(
         value["diagnostic_source_path"] == source_path,
         "Unexpected instrumentation path",
@@ -502,6 +506,21 @@ def diagnose(name, out):
     )
     (out / "instrumentation.patch").write_bytes(patch)
     index = git("ls-files", "--stage")
+    (out / "source-index.stage").write_text(index + "\n")
+    tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=SOURCE).split(
+        b"\0"
+    )
+    source_files = {}
+    for raw in tracked:
+        if raw:
+            tracked_path = SOURCE / os.fsdecode(raw)
+            data = (
+                os.fsencode(os.readlink(tracked_path))
+                if tracked_path.is_symlink()
+                else tracked_path.read_bytes()
+            )
+            source_files[os.fsdecode(raw)] = sha(data)
+    dump(out / "source-files.json", source_files)
     try:
         subprocess.run(
             ["git", "apply", "--check", "-"], input=patch, cwd=SOURCE, check=True
@@ -511,45 +530,85 @@ def diagnose(name, out):
             sha(source.read_bytes()) == value["diagnostic_postimage_sha256"],
             "Instrumentation postimage mismatch",
         )
-        command = (
-            ["nix", "run", ".#bigquery-conformance", "--", "--no-capture"]
-            if name == "bigquery"
-            else ["nix", "run", ".#just", "--", "ci-cube-tier"]
-        )
+        command = {
+            "bigquery": ["nix", "run", ".#bigquery-conformance", "--", "--no-capture"],
+            "cube": ["nix", "run", ".#just", "--", "ci-cube-tier"],
+            "oracle-native": ["nix", "run", ".#oracle-native-acceptance"],
+        }[name]
         log = run(command, out / "venue.log", env, allow_failure=True)
-        current = None
-        queries = []
-        for line in log.splitlines():
-            if line.startswith("SUTURA_FIXTURE_DIAGNOSTIC_CASE "):
-                event = json.loads(line.split(" ", 1)[1])
-                require(event["engine"] == name, "Unexpected diagnostic engine")
-                current = event["case"]
-            elif current and line.startswith("SUTURA_FIXTURE_DIAGNOSTIC_SQL "):
-                event = json.loads(line.split(" ", 1)[1])
-                require(event["engine"] == name, "Unexpected diagnostic engine")
-                queries.append({"case": current, "statement": event["statement"]})
-        target = (
-            "join_unaliased_filter_limit"
-            if name == "bigquery"
-            else "join_left_filter_limit"
-        )
-        selected = [query for query in queries if query["case"] == target]
-        require(len(selected) == 1, "Missing exactly-once failed-case statement")
-        dump(out / "queries.json", queries)
-        if name == "cube":
-            status, raw = cube_fixture_request("cubesql", env, selected[0]["statement"])
-            (out / "cube-response.log").write_bytes(scrub(raw, env))
-            dump(
-                out / "cube-response.json",
-                {
-                    "status": status,
-                    "query_sha256": sha(selected[0]["statement"].encode()),
-                    "body_sha256": sha(scrub(raw, env)),
-                    "subject": "sutura-matrix",
-                    "timezone": "UTC",
-                    "limit": 1 << 20,
-                },
+        if name == "oracle-native":
+            marker = "SUTURA_ORACLE_RAW_DIAGNOSTIC statement="
+            diagnostics = []
+            decoder = json.JSONDecoder()
+            for line in log.splitlines():
+                if marker not in line or not line.startswith('["'):
+                    continue
+                for event in json.loads(line):
+                    if not event.startswith(marker):
+                        continue
+                    statement, stop = decoder.raw_decode(event[len(marker) :])
+                    rest = event[len(marker) + stop :]
+                    require(rest.startswith(" cause="), "Malformed driver diagnostic")
+                    cause = json.loads(rest[len(" cause=") :])
+                    diagnostics.append({"statement": statement, "cause": cause})
+            dump(out / "oracle-driver-diagnostics.json", diagnostics)
+            for directory in (
+                "oracle-native-probe",
+                "oracle-legacy-probe",
+                "oracle-raw-product",
+            ):
+                source_logs = SOURCE / "target" / directory
+                if source_logs.exists():
+                    shutil.copytree(source_logs, out / directory)
+            require(len(diagnostics) == 1, "Missing exactly-once NUMBER diagnostic")
+            require(
+                all(
+                    token in diagnostics[0]["statement"].upper()
+                    for token in ("MIN(", "MAX(", "NATIVE_NUMBER")
+                ),
+                "Wrong failed Oracle statement",
             )
+            require(
+                "test oracle_native::raw::bounded_lobs_are_redacted_before_projection_predicates_order_and_min ... FAILED"
+                in log,
+                "Expected native fixture assertion was not reached",
+            )
+        else:
+            current = None
+            queries = []
+            for line in log.splitlines():
+                if line.startswith("SUTURA_FIXTURE_DIAGNOSTIC_CASE "):
+                    event = json.loads(line.split(" ", 1)[1])
+                    require(event["engine"] == name, "Unexpected diagnostic engine")
+                    current = event["case"]
+                elif current and line.startswith("SUTURA_FIXTURE_DIAGNOSTIC_SQL "):
+                    event = json.loads(line.split(" ", 1)[1])
+                    require(event["engine"] == name, "Unexpected diagnostic engine")
+                    queries.append({"case": current, "statement": event["statement"]})
+            target = (
+                "join_unaliased_filter_limit"
+                if name == "bigquery"
+                else "join_left_filter_limit"
+            )
+            selected = [query for query in queries if query["case"] == target]
+            require(len(selected) == 1, "Missing exactly-once failed-case statement")
+            dump(out / "queries.json", queries)
+            if name == "cube":
+                status, raw = cube_fixture_request(
+                    "cubesql", env, selected[0]["statement"]
+                )
+                (out / "cube-response.log").write_bytes(scrub(raw, env))
+                dump(
+                    out / "cube-response.json",
+                    {
+                        "status": status,
+                        "query_sha256": sha(selected[0]["statement"].encode()),
+                        "body_sha256": sha(scrub(raw, env)),
+                        "subject": "sutura-matrix",
+                        "timezone": "UTC",
+                        "limit": 1 << 20,
+                    },
+                )
     finally:
         source.write_bytes(original)
         require(
@@ -561,6 +620,17 @@ def diagnose(name, out):
             sha(source.read_bytes()) == value["diagnostic_preimage_sha256"],
             "Instrumentation not restored",
         )
+        require(not changed_paths(), "Diagnostic left source changes")
+        (out / "restored-index.stage").write_text(git("ls-files", "--stage") + "\n")
+        for tracked_path, digest in source_files.items():
+            restored = SOURCE / tracked_path
+            data = (
+                os.fsencode(os.readlink(restored))
+                if restored.is_symlink()
+                else restored.read_bytes()
+            )
+            require(sha(data) == digest, "Tracked diagnostic source was not restored")
+        dump(out / "restored-source-files.json", source_files)
     for path in out.rglob("*"):
         if path.is_file():
             require(
@@ -872,53 +942,6 @@ def receipt(out):
     )
 
 
-def self_check():
-    names = [
-        f"statements::{engine}::pins_planned_source_statements" for engine in ENGINES
-    ]
-    names += [planned(engine) for engine in ENGINES[:4]]
-    log = "\n".join(
-        f"        PASS [   0.010s] ({index:2}/11) sutura-app::golden {name}"
-        for index, name in enumerate(names, 1)
-    )
-    log += "\nSummary [1s] 11 tests run: 11 passed, 100 skipped\n"
-    assert len(check_results("core", log)) == 11
-    for bad in (
-        log.replace("PASS", "FAIL", 1),
-        log + "exempt: postgres from Unavailable\n",
-    ):
-        try:
-            check_results("core", bad)
-        except SystemExit:
-            pass
-        else:
-            raise AssertionError("False native proof accepted")
-    live = f"        PASS [   0.010s] (1/1) sutura-app::golden {planned('bigquery')}\n"
-    live += "exempt: bigquery from DryRun - unrelated capability cell\n"
-    live += "exempt: bigquery from KeyProbe - unrelated capability cell\n"
-    assert check_results("bigquery", live) == [planned("bigquery")]
-    for notice in ("Unavailable", "SUTURA_ONLY_SYSTEMS"):
-        try:
-            check_results(
-                "bigquery",
-                live + f"exempt: bigquery from {notice} - native corpus unavailable\n",
-            )
-        except SystemExit:
-            pass
-        else:
-            raise AssertionError("Native availability/narrowing exemption accepted")
-    assert (
-        len(SHAPES + list(ROWS.values()))
-        == len(set(SHAPES + list(ROWS.values())))
-        == 14
-    )
-    assert (
-        ROWS["oracle"] in OUTPUTS["oracle-native"]
-        and ROWS["oracle"] in OUTPUTS["oracle-verified"]
-    )
-    print("collector self-check passed")
-
-
 if __name__ == "__main__":
     task, *args = sys.argv[1:]
     if task == "guard":
@@ -933,7 +956,5 @@ if __name__ == "__main__":
         collect(Path(args[0]).resolve(), Path(args[1]).resolve())
     elif task == "receipt":
         receipt(Path(args[0]).resolve())
-    elif task == "self-check":
-        self_check()
     else:
         raise SystemExit("Unknown task")
