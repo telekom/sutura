@@ -10,16 +10,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-SOURCE = "d994a05519aa8f20d39c842861c46e2eb23890d1"
-TREE = "0d39cb5ec946a2b142a413f8b98a9678ec830959"
-REQUEST = "8d6a957e-73d0-495b-8215-a749f8bb5da8"
-REF = "ci/oracle-reader-admission-proof"
+SOURCE = "15d4485e65c09556d874bb5cd62cd5e73fe87e49"
+TREE = "7c38820904463f171a5bca753d576ea53568a407"
+REQUEST = "0e83d1d5-05ce-41e4-a5e6-8b03451ba2b1"
+REF = "ci/oracle-topology-proof-0e83d1d5"
 NIX_FILE = "nix/multi-node-oracle.nix"
 TEST_FILE = "nix/multi-node-oracle.py"
-NIX_SHA = "2c9be32739d39eb1d19834f04725756d6c37b4547f3331a8ff1cc9db8817abb7"
-MUTANT_SHA = "95f87a1c413cdcb2f697ee6e0db8cee250af5df80e17e87f2d74a25dc8548f4e"
-TEST_SHA = "d3227c241bbdb3d8da93b98ef31e432b5e016e8c04e32aa99ee70053d0c048b2"
-PATCH_SHA = "5058e343504218db73ba540eb61ea0e66de3d5059555199469a4eada03caf222"
+NIX_SHA = "c17021de8f6e81d5a479960ec657fe2819e85f09ecf9025907c1bb818571a9e5"
+MUTANT_SHA = "36827d0b301cbc0abd36448676f4680f421a6c821222615f5ce4cf330c7fae6f"
+TEST_SHA = "5e707e842635c3f6e773310cbb4767e729cc5a09a4be7a38d88e2b7b23ed2047"
+PATCH_SHA = "d45c3fa3a180340ff98d5a09fc30db90a62edf4aff1bbacea5a9777e2168c7ed"
 ATTRIBUTE = ".#checks.x86_64-linux.multi-node-oracle"
 INBOUND = b"""    inbound = {
       mode = "direct";
