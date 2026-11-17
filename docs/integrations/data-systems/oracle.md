@@ -104,12 +104,13 @@ live interoperability evidence. No Oracle per-caller identity claim follows from
 An unbounded `NUMBER` has no implicit approximation. To include it in a native dictionary and
 planned `run_sql`, declare `unbounded_number: utf8` on its `sources:` entry. The dictionary keeps
 the physical `NUMBER` declaration; the planner uses UTF-8 and the adapter fetches the exact full
-decimal text, including values wider than 38 integer digits. Operators that use an explicitly
-mapped `NUMBER` run locally against UTF-8, including in a single-source query. Filters, joins,
-ordering, aggregates and limits over other columns still run at Oracle. Ordering and `MIN` over
-mapped values are lexical; arithmetic does not acquire decimal semantics. Local operators may
-read more rows and reach the existing scan row, memory or deadline limits sooner than a
-pushed-down query. No decimal policy is available.
+decimal text, including values wider than 38 integer digits. A value-dependent operation over a
+mapped `NUMBER` runs as the admitted original query at one Oracle source: ordering, `MIN`/`MAX`,
+comparisons and `IN` keep Oracle's numeric semantics before values become text. If the query needs
+another source or local evaluation, it is refused as `unsupported_syntax` before credentials open.
+Plain projection still returns the exact text. Source scalar syntax and arithmetic remain Oracle's;
+this is not a local decimal type. Text-policy views still apply before every source operator, and
+the existing row and deadline bounds still apply. No decimal policy is available.
 Without the declaration, native dictionary loading refuses the column. Other catalogs keep the
 model out of planned SQL and startup logs a `WARN` naming the model, column and declared type;
 undeclared types are named as `<undeclared>`.
