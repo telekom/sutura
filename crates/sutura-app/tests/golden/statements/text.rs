@@ -58,6 +58,41 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
+    let customer = pinned
+        .definitions()
+        .model(&ModelName::parse("customers").expect("a model name"))
+        .expect("the customer fixture");
+    let dialects = pinned
+        .definitions()
+        .models()
+        .values()
+        .map(|model| (model.source().clone(), dialect))
+        .collect();
+    let schemas = sutura_domain::warehouse::schema::PinnedSchemas::pin(pinned.definitions(), &dialects)
+        .expect("disjoint policies pin beside certified metrics");
+    let tables = [StatementTable::new(
+        customer.source().clone(),
+        customer.table().clone(),
+        dialect,
+        Arc::clone(schemas.of(customer.name()).expect("the customer schema")),
+    )];
+    let statement = RawStatement::parse(format!(
+        "select \"customer_id\" from {} where \"customer_id\" = 'masked' limit 1",
+        quoted(customer.table())
+    ))
+    .expect("a protected statement");
+    let protected_answer = DataFusionCombiner::new().expect("a combiner").answer_statement(
+        StatementQuestion::new(&statement, &tables, false, WORKING_SET, deadline()),
+        &mut Executing {
+            warehouse,
+            table: customer.table(),
+        },
+    );
+    let Some(Ok(protected_rows)) = protected_answer else {
+        panic!("{}: {protected_answer:?}", W::NAME);
+    };
+    assert_eq!(protected_rows.into_parts().1, vec![vec![Value::Text(String::from("masked"))]]);
+
     let model = pinned
         .definitions()
         .model(&ModelName::parse("regions").expect("a model name"))
@@ -118,4 +153,145 @@ where
         &bounded,
     );
     assert_eq!(rows, vec![vec![text("sout...[truncated]")]]);
+}
+
+/// Keep the complete certified catalog alongside a policy on an unused column of a joined table.
+pub(super) fn with_disjoint_policy(
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
+    dialect: TypeDialect,
+    other_source: bool,
+) -> sutura_domain::pinned::PinnedDefinitions {
+    use sutura_domain::catalog::{Definitions, Description, Model, TextPolicy};
+    use sutura_domain::warehouse::schema::PinnedSchemas;
+    let policy: TextPolicy = serde_json::from_value(serde_json::json!({
+        "max_text_bytes": 128,
+        "redact": [{"pattern": "C[0-9]+", "replace": "masked"}]
+    }))
+    .expect("a fixture text policy");
+    let models = pinned
+        .definitions()
+        .models()
+        .values()
+        .map(|model| {
+            let columns = model.columns().map(|column| {
+                if model.name().as_str() == "customers" && column.name().as_str() == "customer_id" {
+                    column.clone().with_text_policy(policy.clone())
+                } else {
+                    column.clone()
+                }
+            });
+            let mut rebuilt = Model::new(
+                model.name().clone(),
+                if other_source && model.name().as_str() == "customers" {
+                    SourceName::parse("notes").expect("a fixture source")
+                } else {
+                    model.source().clone()
+                },
+                model.table().clone(),
+                columns,
+                Description::parse(model.description()).expect("a bounded fixture description"),
+            )
+            .with_primary_key(model.primary_key().iter().cloned())
+            .expect("the original key exists");
+            if let Some(audience) = model.audience() {
+                rebuilt = rebuilt.with_audience(audience.clone());
+            }
+            rebuilt
+        })
+        .collect();
+    let definitions = Definitions::assemble(
+        models,
+        pinned.definitions().relationships().values().cloned().collect(),
+        pinned.definitions().metrics().values().cloned().collect(),
+    )
+    .expect("the catalog keeps its graph");
+    let dialects = definitions
+        .models()
+        .values()
+        .map(|model| (model.source().clone(), dialect))
+        .collect();
+    let schemas = PinnedSchemas::pin(&definitions, &dialects);
+    assert!(
+        schemas.is_ok(),
+        "{dialect:?}: disjoint certified columns must pin: {schemas:?}"
+    );
+    sutura_domain::pinned::PinnedDefinitions::pin(
+        pinned.version().clone(),
+        definitions,
+        pinned.knowledge().clone(),
+        pinned.manifest().clone(),
+    )
+    .expect("the protected catalog pins")
+}
+
+struct Audit;
+impl sutura_domain::audit::AuditSink for Audit {
+    fn record(&self, _record: &sutura_domain::audit::CallRecord<'_>) {}
+}
+
+/// The transport's service port, over the same native venues as the renderer and row matrix.
+pub(super) fn served<W>(dialect: TypeDialect)
+where
+    W: DataSystemUnderTest + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    use sutura_app::surface::{LocalService, Surface as _};
+    use sutura_domain::query::ToolOutcome;
+    use sutura_domain::raw::RawOutcome;
+    for other_source in [false, true] {
+        let original = load_on::<W>();
+        let pinned = with_disjoint_policy(&original, dialect, other_source);
+        let customer = pinned
+            .definitions()
+            .model(&ModelName::parse("customers").expect("a model"))
+            .expect("the customer model");
+        let path = quoted(customer.table());
+        let mut warehouses = sutura_app::Warehouses::of(open::<W>(&original));
+        if other_source {
+            let table = customer.table_name().clone();
+            let csv = data_root().join(format!("{table}.csv"));
+            warehouses = warehouses
+                .and(W::open_on(customer.source().clone(), vec![(table, csv)]))
+                .expect("the sources have different names");
+        }
+        let started = LocalService::start_pinned(
+            pinned,
+            warehouses,
+            Audit,
+            crate::adapters::shared_credential(),
+            DataFusionCombiner::new().expect("a combiner"),
+            WORKING_SET,
+        );
+        assert!(
+            started.is_ok(),
+            "{} placement={other_source}: service must start: {started:?}",
+            W::NAME
+        );
+        let service = started.expect("the service's startup was asserted");
+        let certified = service.answer(
+            &crate::adapters::a_caller(),
+            &crate::shared::question("recurring-revenue-june.yaml"),
+            deadline(),
+        );
+        assert!(certified.is_ok(), "{} placement={other_source}: {certified:?}", W::NAME);
+        let Ok(ToolOutcome::Answer { rows, .. }) = certified else {
+            panic!("the served metric must answer");
+        };
+        let rendered: Vec<Vec<_>> = rows
+            .rows()
+            .iter()
+            .map(|row| row.iter().map(Value::render).collect())
+            .collect();
+        assert_eq!(rendered, vec![vec![String::from("2026-06-01"), String::from("202121")]]);
+        let statement = RawStatement::parse(format!(
+            "select \"customer_id\" from {path} where \"customer_id\" = 'masked' limit 1"
+        ))
+        .expect("a protected fixture statement");
+        let raw = service.run_sql(&crate::adapters::a_caller(), &statement, deadline());
+        assert!(raw.is_ok(), "{} placement={other_source}: {raw:?}", W::NAME);
+        let Ok(RawOutcome::Rows { rows, .. }) = raw else {
+            panic!("the protected served statement must answer");
+        };
+        assert_eq!(rows, vec![vec![String::from("masked")]]);
+    }
 }
