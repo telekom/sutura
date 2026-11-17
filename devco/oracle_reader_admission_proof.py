@@ -12,8 +12,8 @@ from pathlib import Path
 
 SOURCE = "15d4485e65c09556d874bb5cd62cd5e73fe87e49"
 TREE = "7c38820904463f171a5bca753d576ea53568a407"
-REQUEST = "0e83d1d5-05ce-41e4-a5e6-8b03451ba2b1"
-REF = "ci/oracle-topology-proof-0e83d1d5"
+REQUEST = "9f383726-2e94-4c9d-90f6-964351aecde6"
+REF = "ci/oracle-topology-proof-9f383726"
 NIX_FILE = "nix/multi-node-oracle.nix"
 TEST_FILE = "nix/multi-node-oracle.py"
 NIX_SHA = "c17021de8f6e81d5a479960ec657fe2819e85f09ecf9025907c1bb818571a9e5"
@@ -56,10 +56,31 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def git(root: Path, *args: str) -> bytes:
-    return subprocess.check_output(
-        ["git", "--no-optional-locks", "-C", str(root), *args]
+def capture_index(label: str) -> None:
+    if "INDEX" not in globals():
+        return
+    data = INDEX.read_bytes()
+    snapshots = OUT / "index-snapshots"
+    snapshots.mkdir(exist_ok=True)
+    key = digest(data)
+    path = snapshots / (key + ".bin")
+    if not path.exists():
+        path.write_bytes(data)
+    INDEX_CAPTURES.append(
+        {"order": len(INDEX_CAPTURES) + 1, "label": label, "sha256": key}
     )
+    write("index-capture-order.json", INDEX_CAPTURES)
+
+
+def git(root: Path, *args: str) -> bytes:
+    label = "git " + " ".join(args)
+    capture_index("before " + label)
+    try:
+        return subprocess.check_output(
+            ["git", "--no-optional-locks", "-C", str(root), *args]
+        )
+    finally:
+        capture_index("after " + label)
 
 
 def write(name: str, value: object) -> None:
@@ -102,9 +123,14 @@ def exact(expected: dict) -> None:
 
 
 def run(
-    label: str, command: list[str], cwd: Path, combined: bool = False
+    label: str,
+    command: list[str],
+    cwd: Path,
+    combined: bool = False,
+    environment: dict | None = None,
 ) -> tuple[int, str]:
     print(label, flush=True)
+    capture_index("before command " + label)
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         try:
             status = subprocess.run(
@@ -114,6 +140,7 @@ def run(
                 stderr=subprocess.STDOUT if combined else stderr,
                 timeout=4500,
                 check=False,
+                env=environment,
             ).returncode
         except subprocess.TimeoutExpired:
             status = 124
@@ -130,6 +157,7 @@ def run(
             text = re.sub(r"^::add-mask::.*\n", "", text, flags=re.MULTILINE)
             (OUT / f"{label}.{name}").write_text(text, encoding="utf-8")
             logs[name] = text
+    capture_index("after command " + label)
     write(
         label + ".json",
         {
@@ -212,6 +240,34 @@ def native(label: str, binding: dict, expected: dict, red: bool = False) -> None
             prefix="oracle-admission-" + label + "-", dir=os.environ["RUNNER_TEMP"]
         )
     )
+    work.chmod(0o700)
+    environment = dict(os.environ, XDG_RUNTIME_DIR=str(work))
+    storage = {}
+    for name, raw_path in {
+        "inherited_runtime": os.environ.get("XDG_RUNTIME_DIR"),
+        "runner_temp": os.environ["RUNNER_TEMP"],
+        "chosen_runtime": str(work),
+    }.items():
+        if raw_path and Path(raw_path).exists():
+            path = Path(raw_path)
+            stat = path.stat()
+            space = os.statvfs(path)
+            storage[name] = {
+                "path": str(path.resolve()),
+                "mode": stat.st_mode,
+                "device": stat.st_dev,
+                "block_size": space.f_frsize,
+                "blocks": space.f_blocks,
+                "available_blocks": space.f_bavail,
+                "files": space.f_files,
+                "available_files": space.f_favail,
+            }
+        else:
+            storage[name] = {"path": raw_path, "exists": False}
+    write(label + "-storage-before.json", storage)
+    (OUT / (label + "-mountinfo.txt")).write_bytes(
+        Path("/proc/self/mountinfo").read_bytes()
+    )
     output = OUT / (label + "-output")
     output.mkdir()
     status, raw = run(
@@ -226,6 +282,20 @@ def native(label: str, binding: dict, expected: dict, red: bool = False) -> None
         ],
         work,
         combined=True,
+        environment=environment,
+    )
+    space = os.statvfs(work)
+    write(
+        label + "-storage-after.json",
+        {
+            "runtime": str(work),
+            "mode": work.stat().st_mode,
+            "block_size": space.f_frsize,
+            "blocks": space.f_blocks,
+            "available_blocks": space.f_bavail,
+            "files": space.f_files,
+            "available_files": space.f_favail,
+        },
     )
     text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw)
     admissions = {"reader1": [], "reader2": []}
@@ -398,6 +468,8 @@ if __name__ == "__main__":
         .decode()
         .strip()
     )
+    INDEX_CAPTURES = []
+    capture_index("initial before staged entry read")
     INDEX_SHA = digest(INDEX.read_bytes())
     INDEX_ENTRIES = git(ROOT, "ls-files", "--stage", "-z")
     BASELINE = state()
@@ -450,6 +522,7 @@ if __name__ == "__main__":
         exact(BASELINE)
         proof()
     finally:
+        capture_index("final before staged entry read")
         (OUT / "source-index-final.z").write_bytes(
             git(ROOT, "ls-files", "--stage", "-z")
         )
