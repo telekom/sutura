@@ -8,15 +8,62 @@ fn oracle_lob_output_contains_no_statement_delimiter() {
     use datafusion::sql::sqlparser::dialect::GenericDialect;
     use datafusion::sql::sqlparser::parser::Parser;
 
-    let schema = Schema::new(vec![Field::new("SCRIPT", DataType::Utf8, true)]);
-    let sql = super::super::text::bounded_oracle_rows(r#"SELECT SCRIPT AS "c0" FROM TEXT_EVENTS"#, &schema, &[])
-        .expect("a bounded LOB projection renders");
+    struct Captured(Vec<String>);
+    impl StatementLegs for Captured {
+        type Stop = SourceName;
+
+        fn open(&mut self, _: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+            Ok(())
+        }
+
+        fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+            self.0.push(String::from(statement.as_str()));
+            Err(source.clone())
+        }
+    }
+
+    let schema = Schema::new(vec![Field::new("SCRIPT", DataType::Utf8, true).with_metadata(
+        std::collections::HashMap::from([
+            (String::from("sutura:oracle_lob"), String::from("clob")),
+            (String::from("sutura:text_policy"), String::from(r#"{"max_text_bytes":4000}"#)),
+        ]),
+    )]);
+    let tables = [StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("TEXT_EVENTS").unwrap(),
+        TypeDialect::Oracle,
+        Arc::new(schema),
+    )];
+    let statement = RawStatement::parse(r#"SELECT "SCRIPT" FROM "TEXT_EVENTS""#).unwrap();
+    let mut legs = Captured(Vec::new());
+    let answer = DataFusionCombiner::new().unwrap().answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), "{answer:?}");
+    let [sql] = legs.0.as_slice() else {
+        panic!("one bounded LOB projection must reach the port: {:?}", legs.0);
+    };
+    assert!(
+        sql.contains("DBMS_LOB.\"SUBSTR\"") && sql.contains("...[truncated]"),
+        "the emitted LOB output must be bounded: {sql}"
+    );
+    assert!(
+        sql.contains("CHR(59)"),
+        "the generated ASCII pattern must retain its semicolon without a delimiter: {sql}"
+    );
     assert!(
         !sql.contains(';'),
         "the Oracle raw reader refuses a delimiter even inside the generated pattern: {sql}"
     );
     assert_eq!(
-        Parser::parse_sql(&GenericDialect, &sql)
+        Parser::parse_sql(&GenericDialect, sql)
             .expect("the generated pattern remains a SQL expression")
             .len(),
         1
