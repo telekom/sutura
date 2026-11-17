@@ -507,10 +507,15 @@ def google_native_mutations():
         return path
 
     def whole_native(label, expected, claims=None):
-        # --rebuild is necessary: a substituted output has no observed test run.
+        # A new mutant can fail its assertions before producing a valid output.
         status, text = execute(
-            label, ["nix", "build", "--no-link", "--rebuild", "-L", installable]
+            label + "-prepare", ["nix", "build", "--no-link", "-L", installable]
         )
+        if status == 0:
+            # A successful preparation may substitute; only its forced rebuild counts.
+            status, text = execute(
+                label, ["nix", "build", "--no-link", "--rebuild", "-L", installable]
+            )
         path = native_source(label, expected)
         observed = re.findall(r"--- (PASS|FAIL): (Test\S+) \(", text)
         verdicts = {
