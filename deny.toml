@@ -21,7 +21,11 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+  { id = "RUSTSEC-2026-0543", reason = "Unmaintained chrono remains required by Arrow and DataFusion; no patched version exists. Upgrade when an upstream fix is released; tracked in telekom/sutura#1960." },
+  { id = "RUSTSEC-2026-0555", reason = "Unmaintained chrono-tz remains required by Arrow and DataFusion; no patched version exists. Upgrade when an upstream fix is released; tracked in telekom/sutura#1960." },
+  { id = "RUSTSEC-2026-0542", reason = "Unmaintained humantime remains required by object_store; no patched version exists. Upgrade when an upstream fix is released; tracked in telekom/sutura#1960." },
+]
 
 [licenses]
 version = 2
