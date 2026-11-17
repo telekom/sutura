@@ -7,12 +7,12 @@
         "google_tokeninfo_refuses_another_audience"
       ],
       "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
-      "mutated_sha256": "fa008e1c03dc76236ba33074ac8eb87900fba9ef46d567c0376b3046d173714d",
+      "mutated_sha256": "a5201e43dae86b38b2bcdbf1bcbc174bf92968c33b4b0d1d39952228ab38f560",
       "edits": [
         {
           "path": "crates/sutura-http/src/inbound/google.rs",
           "before": "response.aud != self.policy.client().as_str()",
-          "after": "false",
+          "after": "response.aud.is_empty()",
           "count": 1
         }
       ]
@@ -24,12 +24,12 @@
         "google_tokeninfo_refuses_another_authorized_party"
       ],
       "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
-      "mutated_sha256": "e3c4b13988fbfb777a6521af9e8c25ee1f3a2dc6234c3b310ba41dfeaf5879bb",
+      "mutated_sha256": "61852a57ace7bd818820b3ad59ac1283199d39d4544540f13d10dc202c9675a8",
       "edits": [
         {
           "path": "crates/sutura-http/src/inbound/google.rs",
           "before": "response.azp != self.policy.client().as_str()",
-          "after": "false",
+          "after": "response.azp.is_empty()",
           "count": 1
         }
       ]
@@ -75,12 +75,12 @@
         "google_tokeninfo_refuses_an_unverified_email"
       ],
       "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
-      "mutated_sha256": "d4964162dd9df491d609b0053715d6a24e86cfc07ffa1ca85b7b13e31f9b3a20",
+      "mutated_sha256": "e6ec26e119206a9b53131e013bfb33b208ac26360a4efa85b37807f4cf2b84b2",
       "edits": [
         {
           "path": "crates/sutura-http/src/inbound/google.rs",
           "before": "!response.email_verified.is_true()",
-          "after": "false",
+          "after": "!response.email_verified.is_true() && false",
           "count": 1
         }
       ]
@@ -144,12 +144,12 @@
         "google_tokeninfo_positive_cache_expires_and_stays_bounded"
       ],
       "preimage_sha256": "3e532b508620fc16f223362de131d6aa1e053b9f4a9c85c61c56f38142ab3cb4",
-      "mutated_sha256": "721ded14f7d3fd6607e9d2f6e7c0a211030a0aa95c0ee80984d012c285d6cb49",
+      "mutated_sha256": "5aff49756173fe5c4847f114ff36175e22a7fe7228db83fa0008ae4e6b7d1a46",
       "edits": [
         {
           "path": "crates/sutura-http/src/inbound/google.rs",
           "before": "positive.retain(|_, value| value.until > now && value.expires > wall);",
-          "after": "positive.retain(|_, _value| true);",
+          "after": "positive.retain(|_, value| value.until > now && value.expires > wall || true);",
           "count": 1
         }
       ]
