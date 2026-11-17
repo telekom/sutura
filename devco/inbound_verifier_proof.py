@@ -116,6 +116,10 @@ def whole(label, binary, cells, green, profile=""):
         "whole binary did not finish every discovered cell"
     )
     assert "Summary" in text, "no completed test run"
+    if PLAN.get("native_venue") == "cube":
+        assert not re.search(
+            r"exempt:\s*cube\s+from\s+(?:Unavailable|SUTURA_ONLY_SYSTEMS)\b", text
+        ), "native Cube availability/narrowing exemption refused"
     assert all(
         rows.get((binary, cell)) == ("PASS" if green else "FAIL") for cell in cells
     )
@@ -176,6 +180,24 @@ def own_sites(text, cell, full_name):
 def mutations():
     global BINARY_CELLS
     os.environ["NEXTEST_PROFILE"] = "nofailfast"
+    venue = PLAN.get("native_venue")
+    assert venue in (None, "cube"), "unknown native venue"
+    if venue == "cube":
+        assert not os.environ.get("SUTURA_ONLY_SYSTEMS"), "system narrowing refused"
+        status, _ = execute("cube-provision", ["just", "dev-up-cube"])
+        assert status == 0, "native Cube provisioning failed"
+        os.environ["SUTURA_CUBE_TIER"] = "1"
+        os.environ["INSTA_UPDATE"] = "no"
+        os.environ["NEXTEST_SUCCESS_OUTPUT"] = "immediate"
+        write(
+            "cube-venue.json",
+            {
+                "task": "just dev-up-cube",
+                "SUTURA_CUBE_TIER": "1",
+                "INSTA_UPDATE": "no",
+                "limit": "Whole owning binary; non-Cube named exemptions remain visible.",
+            },
+        )
     packages = sorted({mutant["package"] for mutant in PLAN["mutants"]})
     explicit = PLAN.get("test_identities", {})
     discovery = (
@@ -491,6 +513,7 @@ if __name__ == "__main__":
             "test_identities",
             "test_functions",
             "cargo_profile",
+            "native_venue",
         ):
             if key in mutation_plan:
                 PLAN[key] = mutation_plan[key]

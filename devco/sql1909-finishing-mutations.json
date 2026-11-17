@@ -1,17 +1,17 @@
 {
   "mutants": [
     {
-      "label": "dev-pat-binds-the-supplied-hmac-key",
-      "package": "sutura-dev",
+      "label": "cube-fixture-token-binds-the-tier-hmac-key",
+      "package": "sutura-app",
       "tests": [
-        "the_minted_pat_decodes_to_the_documented_claim_set"
+        "the_corpus_runs_and_the_rows_are_pinned"
       ],
-      "preimage_sha256": "942a24bd08afb3b8f2cb77987262d767ed6d797cfd94316d25a80680055a25b7",
-      "mutated_sha256": "58c30e3cac69b8ab021219e95dfa74d2b14c7eae98477a42e67c4fb99d75353f",
+      "preimage_sha256": "51503f974280f728ec8fa83aa5872f8fae1c0c90304ce351059a95b920347008",
+      "mutated_sha256": "9afb842450cd6930ed9741a3fe89ed4b59c899041449d9441b8ca53743a8cb79",
       "edits": [
         {
-          "path": "dev/src/mint.rs",
-          "before": "jsonwebtoken::EncodingKey::from_secret(key.as_bytes())",
+          "path": "crates/sutura-exec-cube/src/fixture.rs",
+          "before": "jsonwebtoken::EncodingKey::from_secret(TIER_SECRET)",
           "after": "jsonwebtoken::EncodingKey::from_secret(b\"a-different-key\")",
           "count": 1
         }
@@ -19,7 +19,20 @@
     }
   ],
   "test_files": {
-    "the_minted_pat_decodes_to_the_documented_claim_set": "dev/src/mint.rs"
+    "the_corpus_runs_and_the_rows_are_pinned": "crates/sutura-app/tests/golden/data_systems.rs"
   },
-  "cargo_profile": "ci"
+  "test_identities": {
+    "the_corpus_runs_and_the_rows_are_pinned": [
+      "sutura-app::golden",
+      "data_systems::cube::the_corpus_runs_and_the_rows_are_pinned"
+    ]
+  },
+  "test_functions": {
+    "the_corpus_runs_and_the_rows_are_pinned": {
+      "name": "runs_the_corpus_and_pins_the_rows",
+      "indent": ""
+    }
+  },
+  "cargo_profile": "ci",
+  "native_venue": "cube"
 }
