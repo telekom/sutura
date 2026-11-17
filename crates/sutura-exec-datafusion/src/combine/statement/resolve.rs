@@ -1,11 +1,13 @@
 //! Resolve only the caller's admitted metadata, before the engine sees a table reference.
 
+use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 
 use datafusion::sql::sqlparser::ast::{
     Expr, Ident, JoinConstraint, JoinOperator, ObjectName, ObjectNamePart, Query, SelectItem, SelectItemQualifiedWildcardKind,
     SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, VisitMut as _, VisitorMut,
 };
+use sutura_domain::model::QualifiedTable;
 use sutura_domain::plan::StatementTable;
 use sutura_domain::raw::SqlConstruct;
 use sutura_domain::warehouse::schema::TypeDialect;
@@ -103,21 +105,24 @@ const fn unsupported() -> Refused {
 }
 
 /// Quoted paths and schemas remain exact; an unquoted Oracle component folds up, all others down.
-pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<()> {
+pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
     let Statement::Query(query) = statement else {
         return Err(Refused::Unsupported(SqlConstruct::NonQuery));
     };
-    let mut resolver = Resolver { tables, physical: 0 };
+    let mut resolver = Resolver {
+        tables,
+        physical: BTreeSet::new(),
+    };
     drop(resolver.query(query, &[], &[])?);
-    if resolver.physical == 0 {
+    if resolver.physical.is_empty() {
         return Err(Refused::Unsupported(SqlConstruct::SelectWithoutTable));
     }
-    Ok(())
+    Ok(resolver.physical)
 }
 
 struct Resolver<'a> {
     tables: &'a [StatementTable],
-    physical: usize,
+    physical: BTreeSet<QualifiedTable>,
 }
 
 impl Resolver<'_> {
@@ -323,7 +328,7 @@ impl Resolver<'_> {
                     }
                     let path = table_path(table);
                     *name = object_name(&path);
-                    self.physical += 1;
+                    self.physical.insert(table.table().clone());
                     let fold = Fold::of(table.dialect());
                     let columns = table
                         .schema()

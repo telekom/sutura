@@ -280,6 +280,8 @@ pub enum SqlConstruct {
     FetchFirst,
     /// The session registers no table function.
     TableFunction,
+    /// A numeric source value cannot be ordered or evaluated locally as its text representation.
+    NumberText,
 }
 
 impl fmt::Display for SqlConstruct {
@@ -290,6 +292,7 @@ impl fmt::Display for SqlConstruct {
             Self::SelectWithoutTable => "SELECT without a table is not supported",
             Self::FetchFirst => "FETCH FIRST is not supported; use LIMIT",
             Self::TableFunction => "table functions are not supported",
+            Self::NumberText => "value-dependent operations over an unbounded NUMBER column require one Oracle source",
         })
     }
 }
