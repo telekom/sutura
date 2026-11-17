@@ -1509,6 +1509,14 @@ jobs:
       rust: ${{ steps.classify.outputs.rust }}
       # `postgres-linked-driver`'s, one flag for `driver_check`'s reason: the step's own three-way OR.
       postgres_driver: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
+      # Native legs start here; ci-aggregate still requires ci's own category selections.
+      oracle_tier: ${{ steps.classify.outputs.data_source_oracle == 'true' || steps.classify.outputs.catalog_rdbms == 'true' }}
+      multi_node: ${{ steps.classify.outputs.data_source_node == 'true' || steps.classify.outputs.data_source_clickhouse == 'true' || steps.classify.outputs.identity == 'true' }}
+      multi_node_postgres: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true' || steps.classify.outputs.identity == 'true' }}
+      chart: ${{ steps.classify.outputs.chart }}
+      catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
+      catalog_openmetadata: ${{ steps.classify.outputs.catalog_openmetadata }}
+      catalog_cube: ${{ steps.classify.outputs.catalog_cube }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -2284,9 +2292,11 @@ jobs:
   # the app falls open to `core`, which runs every leg. Held run-or-fail by `ci-aggregate`. A VM test
   # needs `/dev/kvm`, which the runner has and does not open to the job's user, so the first step
   # opens it, and nix is told the feature exists.
+  # Native legs start after early classification, even if ci later fails. The aggregate keeps
+  # ci's independent run-or-fail selections; release commits retain their explicit skip.
   multi-node:
-    needs: [ci, queue-validated]
-    if: (needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node != 'true'
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.multi_node == 'true' && needs.queue-validated.outputs.multi_node != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 60
     permissions:
@@ -2324,8 +2334,8 @@ jobs:
   # Held run-or-fail by `ci-aggregate`, and skipped on a push the merge queue already ran it for, as
   # `multi-node` is. `/dev/kvm` and nix's feature as in `multi-node`.
   multi-node-postgres:
-    needs: [ci, queue-validated]
-    if: (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node_postgres != 'true'
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.multi_node_postgres == 'true' && needs.queue-validated.outputs.multi_node_postgres != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 60
     permissions:
@@ -2361,8 +2371,8 @@ jobs:
   # say what each observes and what it does not. Gated on the `chart` area of `xtask/src/changes.rs` - the chart, the pinned helm,
   # the image and the test - and held run-or-fail by `ci-aggregate`. `/dev/kvm` as in `multi-node`.
   k3s-autoscaling:
-    needs: [ci, queue-validated]
-    if: needs.ci.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true'
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 60
     permissions:
@@ -2408,8 +2418,8 @@ jobs:
   # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
   # info` inside the 10s default has wedged on this runner.
   oracle-tier:
-    needs: [ci, queue-validated]
-    if: (needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true') && needs.queue-validated.outputs.oracle_tier != 'true'
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.oracle_tier != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 50
     permissions:
@@ -2463,8 +2473,8 @@ jobs:
   # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
   # info` inside the 10s default has wedged on this runner.
   ci-datahub-tier:
-    needs: [ci, queue-validated]
-    if: needs.ci.outputs.catalog_datahub == 'true' && needs.queue-validated.outputs.ci_datahub_tier != 'true'
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.catalog_datahub == 'true' && needs.queue-validated.outputs.ci_datahub_tier != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -2502,8 +2512,8 @@ jobs:
   # `checks.*` entry for `ci-datahub-tier`'s reason: it needs a docker socket, and its cells fail on a
   # missing endpoint, which would go fatal on every `just validate`.
   ci-openmetadata-tier:
-    needs: [ci, queue-validated]
-    if: needs.ci.outputs.catalog_openmetadata == 'true' && needs.queue-validated.outputs.ci_openmetadata_tier != 'true'
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.catalog_openmetadata == 'true' && needs.queue-validated.outputs.ci_openmetadata_tier != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -2536,8 +2546,8 @@ jobs:
   # `cube` data system. `ci-openmetadata-tier`'s shape and rules:
   # category-gated on `catalog_cube`, held run-or-fail by `ci-aggregate`, no secret, no event exception.
   ci-cube-tier:
-    needs: [ci, queue-validated]
-    if: needs.ci.outputs.catalog_cube == 'true' && needs.queue-validated.outputs.ci_cube_tier != 'true'
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.catalog_cube == 'true' && needs.queue-validated.outputs.ci_cube_tier != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
