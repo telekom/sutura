@@ -7,12 +7,12 @@
         "the_corpus_runs_and_the_rows_are_pinned"
       ],
       "preimage_sha256": "51503f974280f728ec8fa83aa5872f8fae1c0c90304ce351059a95b920347008",
-      "mutated_sha256": "9afb842450cd6930ed9741a3fe89ed4b59c899041449d9441b8ca53743a8cb79",
+      "mutated_sha256": "64980f8516970a6af13d12ae314d3b09027bf863624a9b5591afd9c5659f51be",
       "edits": [
         {
           "path": "crates/sutura-exec-cube/src/fixture.rs",
-          "before": "jsonwebtoken::EncodingKey::from_secret(TIER_SECRET)",
-          "after": "jsonwebtoken::EncodingKey::from_secret(b\"a-different-key\")",
+          "before": "const TIER_SECRET: &[u8] = b\"sutura-dev-cube-secret-with-256-bits\";",
+          "after": "const TIER_SECRET: &[u8] = b\"sutura-dev-cube-secret-with-257-bits\";",
           "count": 1
         }
       ]
