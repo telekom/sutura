@@ -89,7 +89,9 @@ pub(crate) fn sign(key: &str, actor_id: &str, lifetime: Duration) -> Result<Stri
         "exp": now.saturating_add(lifetime.as_secs()),
     });
     let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
-    let encoding = jsonwebtoken::EncodingKey::from_secret(key.as_bytes());
+    let encoding = jsonwebtoken::EncodingKey::from_secret(key.as_bytes()).map_err(|_library| Defect {
+        told: "the JWT library refused the signing key",
+    })?;
     jsonwebtoken::encode(&header, &claims, &encoding).map_err(|_library| Defect {
         told: "the JWT library refused the claim set",
     })
@@ -111,7 +113,7 @@ mod tests {
         // Re-verify under the SAME key, through the library's real verify path.
         let data: jsonwebtoken::TokenData<serde_json::Value> = jsonwebtoken::decode(
             &pat,
-            &jsonwebtoken::DecodingKey::from_secret(key.as_bytes()),
+            &jsonwebtoken::DecodingKey::from_secret(key.as_bytes()).expect("a nonempty fixture HMAC key"),
             &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
         )
         .expect("the PAT verifies under the tier's own signing key");
@@ -136,7 +138,7 @@ mod tests {
         // And a WRONG key must not verify - the mutation that makes the tier cell fail.
         let wrong = jsonwebtoken::decode::<serde_json::Value>(
             &pat,
-            &jsonwebtoken::DecodingKey::from_secret(b"a-different-key"),
+            &jsonwebtoken::DecodingKey::from_secret(b"a-different-key").expect("a nonempty fixture HMAC key"),
             &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
         );
         assert!(

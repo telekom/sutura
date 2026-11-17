@@ -44,6 +44,7 @@ let
     patch -p1 -d $out < ${./bigquery-adbc-jobs-query.patch}
     patch -p1 -d $out < ${./bigquery-adbc-partitions.patch}
     patch -p1 -d $out < ${./bigquery-adbc-google-endpoints.patch}
+    patch -p1 -d $out < ${./bigquery-adbc-google-endpoints-tests.patch}
   '';
   driver = { triple, crossPkgs }:
     {

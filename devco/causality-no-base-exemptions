@@ -446,3 +446,4 @@ a_final_response_body_past_the_deadline_is_refused # in crates/sutura-catalog-op
 hidden_and_absent_tables_have_byte_identical_details_and_open_nothing # new planned_refusals module is removed with the production change; 16 sibling tests still prove base red
 excluded_and_absent_columns_have_byte_identical_details_and_open_nothing # new planned_refusals module is removed with the production change; 16 sibling tests still prove base red
 planned_source_failure_and_unsupported_syntax_have_safe_discovery_details # new planned_refusals module is removed with the production change; 16 sibling tests still prove base red
+every_database_receives_the_declared_google_destinations_and_trust # endpoint_cells is declared in adbc.rs, which the base run reverts; hosted production option-key mutations fail this unchanged cell at its driver-option assertion

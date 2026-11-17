@@ -138,15 +138,21 @@ Eight source-level adaptations, recorded here so nothing is silent:
   [`adbc-drivers/bigquery#374`](https://github.com/adbc-drivers/bigquery/pull/374). Drop it when
   upstream ships both options.
 - **Private Google destinations and verified custom Storage TLS.**
-  `nix/bigquery-adbc-google-endpoints.patch` routes IAM Credentials, OAuth token exchange and ADC's
+  `nix/bigquery-adbc-google-endpoints.patch` and its `-tests.patch` companion route IAM Credentials, OAuth token exchange and ADC's
   STS exchange through connection-owned destinations, preserving the Google library's authentication
   and its signJwt/JWT exchange. It passes declared CA and client material to REST, authentication
   and Storage clients. A CA bundle replaces system roots; absent a bundle, the driver's system
-  roots apply. Material is read per connection, bounded to 4 MiB per file. It also removes the
+  roots apply. Material reads are bounded to 4 MiB per file. It also removes the
   upstream assumption that every custom Storage endpoint is a plaintext emulator: only an explicit
   numeric loopback endpoint retains that test venue. A private Google hostname uses verified TLS.
   Fake transport and credential-detection ports exercise the real delegation exchange and dry-run query
-  request, refusing a request to any default host. The workload-identity and Google-login driver
+  request, refusing a request to any default host. A separate loopback mTLS fixture loads real ADC
+  authorized-user and external-account files, observes their token requests and the resulting query,
+  and covers the driver's explicit user-refresh path through the same declared transport. An
+  external-account file's explicit token URL remains the SDK's choice; canonical Google token URLs
+  are routed to the declared destination. This is fixture credential acquisition, not human sign-in
+  or proof of a data-system principal. Native invalid-destination and TLS-material refusal cells
+  share the existing driver build venue. The workload-identity and Google-login driver
   rows begin with an already-issued caller token; sutura's pool exchange is outside this driver.
   Upstream submission is pending; drop the patch when upstream supports these destinations and TLS
   material without disabling verification for a custom Storage host (telekom/sutura#1945).

@@ -34,7 +34,7 @@ pub fn tier_token() -> Result<Secret, UnsignedToken> {
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &claims,
-        &jsonwebtoken::EncodingKey::from_secret(TIER_SECRET),
+        &jsonwebtoken::EncodingKey::from_secret(TIER_SECRET).map_err(UnsignedToken::Sign)?,
     )
     .map(Secret::new)
     .map_err(UnsignedToken::Sign)

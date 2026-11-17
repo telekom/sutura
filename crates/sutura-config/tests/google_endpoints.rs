@@ -45,4 +45,43 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn google_destinations_refuse_ambiguous_paths_and_surrounding_whitespace() {
+        for value in [
+            " https://sts.googleapis.com/v1/token",
+            "https://sts.googleapis.com/v1/token ",
+            "https://sts.googleapis.com/@private-token",
+            "not a URL",
+        ] {
+            let sources =
+                Sources::defaults(Environment::Development).with_overlay(format!("google_endpoints:\n  sts: {value:?}\n"));
+            let error = Settings::load(&sources).expect_err("an ambiguous Google destination does not load");
+            let message = diagnostic(&error);
+            assert!(message.contains("google_endpoints.sts"), "{message}");
+            assert!(!message.contains("private-token"), "{message}");
+        }
+    }
+
+    #[test]
+    fn storage_and_iam_destinations_refuse_non_root_paths() {
+        for key in ["bigquery_storage", "iam_credentials"] {
+            let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+                "google_endpoints:\n  {key}: https://sts.googleapis.com/unsupported-path\n"
+            ));
+            let error = Settings::load(&sources).expect_err("a host-only Google API does not accept a path prefix");
+            let message = diagnostic(&error);
+            assert!(message.contains(&format!("google_endpoints.{key}")), "{message}");
+        }
+    }
+
+    fn diagnostic(error: &dyn std::error::Error) -> String {
+        let mut cause = Some(error);
+        let mut message = String::new();
+        while let Some(error) = cause {
+            message.push_str(&error.to_string());
+            cause = error.source();
+        }
+        message
+    }
 }

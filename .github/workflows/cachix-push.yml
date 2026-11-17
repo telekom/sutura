@@ -100,7 +100,7 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           # `keep-outputs` is for the store cache's collection before a `main` save, as in `ci.yml`.
           extra_nix_config: |
@@ -235,7 +235,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -277,7 +277,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -344,7 +344,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
