@@ -22,7 +22,7 @@ fn a_direct_google_job_carries_only_its_access_token_and_the_readonly_jobs_query
         assert!(
             shown
                 .iter()
-                .any(|(found, text)| found.contains(key) && text == &format!("String({value:?})")),
+                .any(|(found, text)| found == &format!("Other({key:?})") && text == &format!("String({value:?})")),
             "{key}: {shown:?}"
         );
     }
