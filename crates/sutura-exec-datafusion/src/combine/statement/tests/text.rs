@@ -4,6 +4,136 @@ use super::*;
 use sutura_domain::warehouse::Value;
 
 #[test]
+fn oracle_lob_output_contains_no_statement_delimiter() {
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+
+    let schema = Schema::new(vec![Field::new("SCRIPT", DataType::Utf8, true)]);
+    let sql = super::super::text::bounded_oracle_rows(r#"SELECT SCRIPT AS "c0" FROM TEXT_EVENTS"#, &schema, &[])
+        .expect("a bounded LOB projection renders");
+    assert!(
+        !sql.contains(';'),
+        "the Oracle raw reader refuses a delimiter even inside the generated pattern: {sql}"
+    );
+    assert_eq!(
+        Parser::parse_sql(&GenericDialect, &sql)
+            .expect("the generated pattern remains a SQL expression")
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn oracle_native_numeric_extrema_stay_exact_beside_bounded_lob_outputs() {
+    use datafusion::sql::sqlparser::ast::{SelectItem, SetExpr, Statement};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+
+    struct Captured(Vec<String>);
+    impl StatementLegs for Captured {
+        type Stop = SourceName;
+
+        fn open(&mut self, _: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+            Ok(())
+        }
+
+        fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+            self.0.push(String::from(statement.as_str()));
+            Err(source.clone())
+        }
+    }
+
+    let metadata = |pairs: &[(&str, &str)]| {
+        pairs
+            .iter()
+            .map(|(key, value)| (String::from(*key), String::from(*value)))
+            .collect()
+    };
+    let schema = Schema::new(vec![
+        Field::new("NATIVE_NUMBER", DataType::Utf8, false).with_metadata(metadata(&[("sutura:unbounded_number", "utf8")])),
+        Field::new("SCRIPT", DataType::Utf8, true).with_metadata(metadata(&[
+            ("sutura:oracle_lob", "clob"),
+            (
+                "sutura:text_policy",
+                r#"{"max_text_bytes":4000,"redact":[{"pattern":"secret","replace":"***"}]}"#,
+            ),
+        ])),
+        Field::new("SCRIPT_N", DataType::Utf8, true).with_metadata(metadata(&[
+            ("sutura:oracle_lob", "nclob"),
+            (
+                "sutura:text_policy",
+                r#"{"max_text_bytes":4000,"redact":[{"pattern":"secret","replace":"***"}]}"#,
+            ),
+        ])),
+    ]);
+    let tables = [StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("TEXT_EVENTS").unwrap(),
+        TypeDialect::Oracle,
+        Arc::new(schema),
+    )];
+    for common in [
+        r#"WITH numbers AS (SELECT MIN("NATIVE_NUMBER") AS lo, MAX("NATIVE_NUMBER") AS hi FROM "TEXT_EVENTS")"#,
+        r#"WITH first_values AS (SELECT MIN("NATIVE_NUMBER") AS lo, MAX("NATIVE_NUMBER") AS hi FROM "TEXT_EVENTS"), numbers AS (SELECT MAX(lo) AS lo, MIN(hi) AS hi FROM first_values)"#,
+    ] {
+        // Output aliases deliberately exchange numeric and LOB names.
+        let statement = RawStatement::parse(format!(
+            r#"{common} SELECT numbers.lo AS "SCRIPT", numbers.hi AS "SCRIPT_N", events."SCRIPT" AS "NATIVE_NUMBER", events."SCRIPT_N" AS "windowed" FROM "TEXT_EVENTS" events CROSS JOIN numbers ORDER BY numbers.lo"#
+        ))
+        .unwrap();
+        let mut legs = Captured(Vec::new());
+        let answer = DataFusionCombiner::new().unwrap().answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), "{answer:?}");
+        let [sql] = legs.0.as_slice() else {
+            panic!("one native statement must reach the port: {:?}", legs.0);
+        };
+        let parsed = Parser::parse_sql(&GenericDialect, sql).unwrap();
+        let [Statement::Query(query)] = parsed.as_slice() else {
+            panic!("one generated query: {sql}");
+        };
+        let SetExpr::Select(select) = query.body.as_ref() else {
+            panic!("the output is a projection: {sql}");
+        };
+        assert_eq!(select.projection.len(), 4, "{sql}");
+        for (index, item) in select.projection.iter().enumerate() {
+            let SelectItem::ExprWithAlias { expr, .. } = item else {
+                panic!("output labels remain explicit: {sql}");
+            };
+            let expression = expr.to_string();
+            if index < 2 {
+                assert_eq!(
+                    expression,
+                    format!("\"sutura_lob_output\".\"c{index}\""),
+                    "native NUMBER extrema must not become LOB expressions: {sql}"
+                );
+            } else {
+                assert!(
+                    expression.contains("DBMS_LOB.\"SUBSTR\""),
+                    "LOB output must remain bounded: {sql}"
+                );
+                assert!(expression.contains("...[truncated]"), "LOB output retains its marker: {sql}");
+                let payload = if index == 2 { "3986" } else { "1986" };
+                assert!(expression.contains(payload), "LOB output retains its byte ceiling: {sql}");
+            }
+        }
+        assert!(
+            sql.contains("REGEXP_REPLACE"),
+            "source redaction must remain before operators: {sql}"
+        );
+        assert!(!sql.contains(';'), "the native statement cannot contain a delimiter: {sql}");
+    }
+}
+
+#[test]
 fn a_text_policy_replaces_every_use_before_source_operators_and_bounds_utf8() {
     for dialect in [TypeDialect::DataFusion, TypeDialect::Cube] {
         let wide = "\u{e9}".repeat(100);
@@ -90,4 +220,50 @@ fn a_text_policy_replaces_every_use_before_source_operators_and_bounds_utf8() {
             vec![vec![Value::Null]]
         );
     }
+}
+
+#[test]
+fn a_federation_cannot_search_an_oracle_lob_after_a_bounded_leaf() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("sales_area", DataType::Utf8, false).with_metadata(std::collections::HashMap::from([
+            (String::from("sutura:text_policy"), String::from(r#"{"max_text_bytes":4000}"#)),
+            (String::from("sutura:oracle_lob"), String::from("clob")),
+        ])),
+    ]));
+    let tables = [
+        StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").unwrap(),
+            TypeDialect::Oracle,
+            schema,
+        ),
+        StatementTable::new(
+            named("crm"),
+            QualifiedTable::parse("dim_customer").unwrap(),
+            TypeDialect::DataFusion,
+            customers().schema(),
+        ),
+    ];
+    let mut legs = Engines::new(Some("geo"));
+    let statement = RawStatement::parse(
+        r#"select c.customer_id from dim_customer c join "dim_region" r on c.region = r."region" where r."sales_area" like '%late-note%'"#,
+    )
+    .unwrap();
+    let answer = DataFusionCombiner::new().unwrap().answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            true,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(
+        legs.opened.is_empty(),
+        "a local operator must not consume a clipped LOB: {answer:?}"
+    );
+    assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
+    assert!(legs.ran.is_empty(), "no source should run: {:?}", legs.ran);
 }
