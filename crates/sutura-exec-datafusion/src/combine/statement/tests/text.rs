@@ -4,6 +4,26 @@ use super::*;
 use sutura_domain::warehouse::Value;
 
 #[test]
+fn oracle_lob_output_contains_no_statement_delimiter() {
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+
+    let schema = Schema::new(vec![Field::new("SCRIPT", DataType::Utf8, true)]);
+    let sql = super::super::text::bounded_oracle_rows(r#"SELECT SCRIPT AS "c0" FROM TEXT_EVENTS"#, &schema, &[])
+        .expect("a bounded LOB projection renders");
+    assert!(
+        !sql.contains(';'),
+        "the Oracle raw reader refuses a delimiter even inside the generated pattern: {sql}"
+    );
+    assert_eq!(
+        Parser::parse_sql(&GenericDialect, &sql)
+            .expect("the generated pattern remains a SQL expression")
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn a_text_policy_replaces_every_use_before_source_operators_and_bounds_utf8() {
     for dialect in [TypeDialect::DataFusion, TypeDialect::Cube] {
         let wide = "\u{e9}".repeat(100);

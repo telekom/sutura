@@ -116,7 +116,8 @@ fn bounded_lob(value: &str, bytes: u32) -> String {
         .filter(|byte| !matches!(byte, b']' | b'-' | b'\\'))
         .map(char::from)
         .collect();
-    let pattern = literal(&format!("^[]\t\r\n{alphabet}\\\\-]*$"), TypeDialect::Oracle);
+    // Preserve the ASCII semicolon without triggering the raw reader's delimiter refusal.
+    let pattern = literal(&format!("^[]\t\r\n{alphabet}\\\\-]*$"), TypeDialect::Oracle).replace(';', "' || CHR(59) || '");
     let chars = format!(
         "CASE WHEN REGEXP_LIKE(SUBSTR({value}, 1, {payload}), {pattern}, 'c') THEN {payload} ELSE {} END",
         payload.div_euclid(4)
