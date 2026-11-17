@@ -53,46 +53,6 @@ pub(crate) fn resolve(subject: &str) -> Result<DriverLocation, String> {
         .map_err(|cause| format!("`{MOUNTED}` does not name a driver this process can open for {subject}: {cause}"))
 }
 
-/// Refuses a `security.outbound` declaration the `BigQuery` transport would silently not honour.
-///
-/// **The ADBC driver dials with its own trust store and presents no client certificate** - nothing
-/// in this build hands it a bundle or an identity. The deleted HTTP transport did read both: a
-/// declared bundle REPLACED the compiled-in roots, which narrows trust. So serving a `bigquery` source
-/// under a declared bundle or identity would widen trust behind a declaration that says the
-/// opposite, and a declaration that silently does nothing is what `docs/adr/0010` forbids.
-/// `Anchors::System` with no identity promises nothing the driver's own store does not already
-/// stand for, and is accepted - which is the limit: nothing here shows the driver's store is the
-/// same set of roots.
-///
-/// # Errors
-///
-/// A sentence naming `sources.<source>` and what was declared, when `outbound` carries a bundle or
-/// a client identity.
-pub(crate) fn refuse_undeliverable_outbound(
-    source: &sutura_domain::model::SourceName,
-    outbound: Option<&sutura_tls::Declared>,
-) -> Result<(), String> {
-    let Some(declared) = outbound else {
-        return Ok(());
-    };
-    let bundle = matches!(declared.anchors(), sutura_tls::Anchors::Bundle(_));
-    let identity = declared.identity().is_some();
-    if !bundle && !identity {
-        return Ok(());
-    }
-    let what = match (bundle, identity) {
-        (true, true) => "a trust-anchor bundle and a client identity",
-        (true, false) => "a trust-anchor bundle",
-        _ => "a client identity",
-    };
-    Err(format!(
-        "`security.outbound` declares {what}, and `sources.{source}` is `kind: bigquery`: the ADBC \
-         BigQuery driver dials with its own trust store and presents no client certificate, so this \
-         declaration would reach nothing for that source. Remove the bundle and identity from \
-         `security.outbound`, or serve `{source}` from a deployment that does not declare them"
-    ))
-}
-
 /// Who `source`'s jobs bill, as the adapter holds it. The service account project is parsed a
 /// second time by the transport's own type, because that is the value written into a request.
 pub(crate) fn job_billing(
@@ -108,4 +68,65 @@ pub(crate) fn job_billing(
             })?,
         ),
     })
+}
+
+/// Both command roots share the same endpoints and native-driver TLS material.
+#[cfg(feature = "bigquery")]
+pub(crate) fn endpoints(
+    configured: &sutura_config::google_endpoints::GoogleEndpoints,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_exec_bigquery::adbc::GoogleEndpoints, String> {
+    let endpoints = sutura_exec_bigquery::adbc::GoogleEndpoints::new(
+        configured.bigquery().as_str(),
+        configured.bigquery_storage().as_str(),
+        configured.iam_credentials().as_str(),
+        configured.oauth_token().as_str(),
+        configured.sts().as_str(),
+    );
+    let path = |path: &std::path::Path| {
+        path.to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| String::from("BigQuery TLS material needs a UTF-8 file path"))
+    };
+    let Some(outbound) = outbound else {
+        return Ok(endpoints);
+    };
+    let ca = match outbound.anchors() {
+        sutura_tls::Anchors::System => None,
+        sutura_tls::Anchors::Bundle(file) => Some(path(file)?),
+    };
+    let identity = outbound
+        .identity()
+        .map(|identity| Ok::<_, String>((path(identity.certificate())?, path(identity.key())?)))
+        .transpose()?;
+    Ok(endpoints.with_trust(ca, identity))
+}
+
+#[cfg(test)]
+mod endpoint_cells {
+    #[test]
+    #[cfg(all(unix, feature = "bigquery"))]
+    fn native_google_tls_refuses_non_utf8_ca_certificate_and_key_paths() {
+        use std::os::unix::ffi::OsStringExt as _;
+        let invalid = std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', 0xff]));
+        let declarations = [
+            sutura_tls::Declared::new(sutura_tls::Anchors::Bundle(invalid.clone()), None),
+            sutura_tls::Declared::new(
+                sutura_tls::Anchors::System,
+                Some(sutura_tls::Identity::new(invalid.clone(), "/etc/sutura/client.key".into())),
+            ),
+            sutura_tls::Declared::new(
+                sutura_tls::Anchors::System,
+                Some(sutura_tls::Identity::new("/etc/sutura/client.pem".into(), invalid)),
+            ),
+        ];
+        for declaration in declarations {
+            let result = super::endpoints(
+                &sutura_config::google_endpoints::GoogleEndpoints::default(),
+                Some(&declaration),
+            );
+            let error = result.expect_err("native TLS material with an unusable file path is refused before opening a driver");
+            assert_eq!(error, "BigQuery TLS material needs a UTF-8 file path");
+        }
+    }
 }

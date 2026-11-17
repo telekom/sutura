@@ -65,6 +65,7 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
         mount(tls, authority, settings.runtime())?
     };
     let router = sutura_http::worker_router(settings, &mount).map_err(super::flatten)?;
+    tracing::info!(google_endpoints = ?settings.google_endpoints(), "Google API destinations");
     if reading {
         tracing::info!("serving as a reading worker: catalog and declared sources opened, no /v1, /mcp or Flight");
     } else {
