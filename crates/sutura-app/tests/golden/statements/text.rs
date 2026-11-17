@@ -161,7 +161,7 @@ pub(super) fn with_disjoint_policy(
     dialect: TypeDialect,
     other_source: bool,
 ) -> sutura_domain::pinned::PinnedDefinitions {
-    use sutura_domain::catalog::{Definitions, Description, Model, TextPolicy};
+    use sutura_domain::catalog::{Column, Definitions, Description, Model, TextPolicy};
     use sutura_domain::warehouse::schema::PinnedSchemas;
     let policy: TextPolicy = serde_json::from_value(serde_json::json!({
         "max_text_bytes": 128,
@@ -174,10 +174,28 @@ pub(super) fn with_disjoint_policy(
         .values()
         .map(|model| {
             let columns = model.columns().map(|column| {
-                if model.name().as_str() == "customers" && column.name().as_str() == "customer_id" {
-                    column.clone().with_text_policy(policy.clone())
+                let native_integer = match dialect {
+                    TypeDialect::ClickHouse => "Int64",
+                    TypeDialect::Oracle => "NUMBER(19,0)",
+                    TypeDialect::Cube => "number",
+                    _ => "BIGINT",
+                };
+                let column = if column.data_type().is_some_and(|kind| kind.as_str() == "BIGINT") && native_integer != "BIGINT" {
+                    Column::from_metadata(
+                        column.name().clone(),
+                        Some(native_integer),
+                        Some(column.description()),
+                        column.nullable(),
+                    )
+                    .expect("the native fixture column keeps its description")
+                    .with_text_policy(column.text_policy().clone())
                 } else {
                     column.clone()
+                };
+                if model.name().as_str() == "customers" && column.name().as_str() == "customer_id" {
+                    column.with_text_policy(policy.clone())
+                } else {
+                    column
                 }
             });
             let mut rebuilt = Model::new(

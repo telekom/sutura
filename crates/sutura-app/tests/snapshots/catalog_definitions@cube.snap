@@ -8,6 +8,11 @@ models:
     source: local
     table: dim_customer
     columns:
+      customer_id:
+        name: customer_id
+        data_type: string
+        description: "The business key a person would quote, for example C0001."
+        nullable: ~
       customer_key:
         name: customer_key
         data_type: number
