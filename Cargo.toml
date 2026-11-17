@@ -539,7 +539,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["loggin
 # Upstream calls itself passively maintained. That is a real cost and it is the smallest one
 # available: every alternative is either bigger (an HTTP client, an async runtime and an axum layer),
 # built on OpenSSL, or unmaintained outright.
-jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "12", default-features = false, features = ["aws_lc_rs"] }
 
 # base64, and it is no longer test-only. `sutura-http` decodes a PEM key set's armoured block, and its
 # leg 1 tests write a JWK, whose `x` and `y` are base64url of a public point; `sutura-exec-bigquery`'s wire encodes a JWT's two segments and its
