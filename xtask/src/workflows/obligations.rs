@@ -262,9 +262,19 @@ const RELEASE_SKIP_CLAUSE: &str = "!startsWith(github.event.head_commit.message 
 ///
 /// `ci` skips the whole job and everything under `needs: [ci]` skips with it. `bigquery-driver-check`
 /// no longer needs `ci` and repeats the test in its own `if:` - so the clause must be pinned on
-/// BOTH. `ci`'s `if:` is the clause alone (textually identical to [`RELEASE_SKIP_CLAUSE`]);
-/// `bigquery-driver-check`'s is the clause as a conjunct beside the category test.
-const RELEASE_SKIP: &[&str] = &["bigquery-driver-check", "ci"];
+/// both. The native legs also carry it after moving off `ci`. `ci`'s `if:` is the clause alone;
+/// the other jobs carry it beside their category and queue-reuse tests.
+const RELEASE_SKIP: &[&str] = &[
+    "bigquery-driver-check",
+    "ci",
+    "multi-node",
+    "multi-node-postgres",
+    "k3s-autoscaling",
+    "oracle-tier",
+    "ci-datahub-tier",
+    "ci-openmetadata-tier",
+    "ci-cube-tier",
+];
 
 /// How many release-skip rows this rule holds, for the success line.
 pub(super) const fn release_skip_held() -> usize {
@@ -620,7 +630,7 @@ mod tests {
 
     // ---- release-skip (job-level `if:`) ----
 
-    /// A `ci.yml` with both release-skip jobs carrying their real `if:` shape.
+    /// A `ci.yml` with the release-skip jobs carrying their real `if:` shape.
     fn release_skip_tree(bigquery_if: Option<&str>, ci_if: Option<&str>) -> String {
         let mut text = String::from("jobs:\n");
         text.push_str("  bigquery-driver-check:\n");
@@ -633,6 +643,15 @@ mod tests {
             writeln!(text, "    if: ${{{{ {gate} }}}}").expect("writing into a String cannot fail");
         }
         text.push_str("    runs-on: ubuntu-latest\n    steps:\n      - run: true\n");
+        for job in RELEASE_SKIP
+            .iter()
+            .filter(|&&job| !["ci", "bigquery-driver-check"].contains(&job))
+        {
+            writeln!(text, "  {job}:").expect("writing into a String cannot fail");
+            if ci_if.is_some() {
+                writeln!(text, "    if: {RELEASE_SKIP_CLAUSE}").expect("writing into a String cannot fail");
+            }
+        }
         text
     }
 
@@ -831,13 +850,13 @@ mod tests {
             ),
             (
                 "oracle-tier reads another leg's output",
-                "needs.queue-validated.outputs.oracle_tier != 'true'\n",
-                "needs.queue-validated.outputs.multi_node != 'true'\n",
+                "needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.oracle_tier != 'true' }}\n",
+                "needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.multi_node != 'true' }}\n",
             ),
             (
                 "ci-cube-tier loses its conjunct",
-                " && needs.queue-validated.outputs.ci_cube_tier != 'true'\n",
-                "\n",
+                "needs.identity-classify.outputs.catalog_cube == 'true' && needs.queue-validated.outputs.ci_cube_tier != 'true' }}\n",
+                "needs.identity-classify.outputs.catalog_cube == 'true' }}\n",
             ),
             (
                 "K3S_SELECTED loses its conjunct",
