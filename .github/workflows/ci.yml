@@ -343,7 +343,7 @@ jobs:
       # - so the config that names `sutura-prs` was written and never applied, and a PR's own
       # commits never substituted from their own cache. `cache_scope::installers` refuses two
       # installers admitting the same event in one job, so removing this `if:` again is red.
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name != 'pull_request'
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
@@ -382,7 +382,7 @@ jobs:
       # published set. Removing or fuzzing this `if:` reopens main = the gate reddens.
       # A PR still restores the published closures AND reads its own branch cache: nix verifies a
       # signature against the intersection of signer and trusted keys, so every key must be named.
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name == 'pull_request'
         with:
           extra_nix_config: |
@@ -1274,7 +1274,7 @@ jobs:
 
       - uses: $/.github/actions/reclaim-disk
 
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name == 'pull_request'
         with:
           extra_nix_config: |
@@ -1521,7 +1521,7 @@ jobs:
 
       # EXACTLY ONE INSTALLER PER EVENT, `ci`'s own pattern: gated OFF `pull_request` so the
       # PR-additive step below is the only one that runs there.
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name != 'pull_request'
         with:
           extra_nix_config: |
@@ -1536,7 +1536,7 @@ jobs:
       # which `cachix-push.yml` already publishes to the shared stores, so the cachix
       # substituters this step names are enough; a local store restore would also make this job a
       # THIRD writer of scope `ci` on a main push, ahead of `ci` and `cachix-push` themselves.
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name == 'pull_request'
         with:
           extra_nix_config: |
@@ -1666,7 +1666,7 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -1709,7 +1709,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -1784,7 +1784,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -1896,7 +1896,7 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -1958,7 +1958,7 @@ jobs:
           minimum-gb: "25"
 
       # EXACTLY ONE INSTALLER PER EVENT, `ci`'s pattern and for its reason (#980).
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name != 'pull_request'
         with:
           extra_nix_config: |
@@ -1966,7 +1966,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name == 'pull_request'
         with:
           extra_nix_config: |
@@ -2137,7 +2137,7 @@ jobs:
           minimum-gb: "25"
 
       # EXACTLY ONE INSTALLER PER EVENT, `ci`'s pattern and for its reason (#980).
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name != 'pull_request'
         with:
           extra_nix_config: |
@@ -2145,7 +2145,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name == 'pull_request'
         with:
           extra_nix_config: |
@@ -2232,7 +2232,7 @@ jobs:
           minimum-gb: "25"
 
       # EXACTLY ONE INSTALLER PER EVENT, `ci`'s pattern and for its reason (#980).
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name != 'pull_request'
         with:
           extra_nix_config: |
@@ -2240,7 +2240,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         if: github.event_name == 'pull_request'
         with:
           extra_nix_config: |
@@ -2305,7 +2305,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -2344,7 +2344,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -2381,7 +2381,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -2424,7 +2424,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -2479,7 +2479,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -2518,7 +2518,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -2552,7 +2552,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
@@ -2607,7 +2607,7 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
             fallback = true
