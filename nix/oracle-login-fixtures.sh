@@ -43,6 +43,10 @@ INSERT INTO $legacy_user.TEXT_EVENTS VALUES (2, 'IDENTIFIED BY another', 'IDENTI
 INSERT INTO $legacy_user.TEXT_EVENTS VALUES (3, RPAD('wide ', 1000, 'wide '), RPAD('wide ', 1000, 'wide '));
 INSERT INTO $legacy_user.TEXT_EVENTS VALUES (4, NULL, NULL);
 INSERT INTO $legacy_user.TEXT_EVENTS VALUES (5, RPAD(UNISTR('\00E9'), 1000, UNISTR('\00E9')), RPAD(UNISTR('\00E9'), 1000, UNISTR('\00E9')));
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (6, TO_CLOB(RPAD('a', 2999, 'a')) || 'late-note IDENTIFIED BY secret ' || TO_CLOB(RPAD('z', 3000, 'z')), TO_NCLOB(RPAD('a', 2999, 'a')) || 'late-note IDENTIFIED BY secret ' || TO_NCLOB(RPAD('z', 3000, 'z')));
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (7, TO_CLOB(RPAD('a', 2500, 'a')) || UNISTR('\00E9') || TO_CLOB(RPAD('z', 3500, 'z')), TO_NCLOB(RPAD('a', 2500, 'a')) || UNISTR('\00E9') || TO_NCLOB(RPAD('z', 3500, 'z')));
+ALTER TABLE $legacy_user.TEXT_EVENTS ADD (NATIVE_NUMBER NUMBER);
+UPDATE $legacy_user.TEXT_EVENTS SET NATIVE_NUMBER = CASE WHEN ID = 6 THEN 10 ELSE ID END;
 
 CREATE TABLE $legacy_user.COLUMNS (
   environment VARCHAR2(64), catalog_name VARCHAR2(64), schema_name VARCHAR2(64),
