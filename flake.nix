@@ -650,6 +650,9 @@
           deps-native-ci = crossPackages."sutura-${shipped.hostRustTarget}-ci".cargoArtifacts;
           deps-native-release = shipped.nativeBinaries.sutura.cargoArtifacts;
           deps-musl-release = crossPackages.sutura-x86_64-unknown-linux-musl.cargoArtifacts;
+          # The release checks also build both ARM targets; the CI-profile cache is distinct.
+          deps-aarch64-gnu-release = crossPackages.sutura-aarch64-unknown-linux-gnu.cargoArtifacts;
+          deps-aarch64-musl-release = crossPackages.sutura-aarch64-unknown-linux-musl.cargoArtifacts;
 
           # The gate binary on its own, so CI can run the `classify` app with
           # nothing but `nix` on the runner.

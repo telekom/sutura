@@ -2,8 +2,12 @@
 
 use std::ops::ControlFlow;
 
+use datafusion::arrow::datatypes::{DataType, Schema};
+use datafusion::common::tree_node::Transformed;
 use datafusion::common::{plan_datafusion_err, plan_err};
 use datafusion::error::{DataFusionError, Result};
+use datafusion::functions_aggregate::min_max::{Max, Min};
+use datafusion::logical_expr::{Expr as PlannedExpr, ExprSchemable as _, LogicalPlan};
 use datafusion::sql::sqlparser::ast::{Expr, Ident, SetExpr, Statement, TableFactor, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -12,6 +16,161 @@ use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
 const KEY: &str = "sutura:text_policy";
+const LOB_KEY: &str = "sutura:oracle_lob";
+
+pub(super) fn oracle_lobs(table: &StatementTable) -> bool {
+    table.dialect() == TypeDialect::Oracle
+        && table
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| field.metadata().contains_key(LOB_KEY))
+}
+
+/// MIN/MAX keep the source NUMBER type, although their Arrow Utf8 field loses its marker.
+/// Carry it through typed aggregate arguments before parent schemas are rebuilt.
+pub(super) fn native_number_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
+    plan.transform_up_with_subqueries(|mut node| {
+        if let LogicalPlan::Aggregate(aggregate) = &mut node {
+            let input = aggregate.input.schema();
+            aggregate.aggr_expr = std::mem::take(&mut aggregate.aggr_expr)
+                .into_iter()
+                .map(|expression| {
+                    let aggregate = match &expression {
+                        PlannedExpr::Alias(alias) => alias.expr.as_ref(),
+                        other => other,
+                    };
+                    let PlannedExpr::AggregateFunction(function) = aggregate else {
+                        return Ok(expression);
+                    };
+                    let builtin = function.func.inner();
+                    if builtin.downcast_ref::<Min>().is_none() && builtin.downcast_ref::<Max>().is_none() {
+                        return Ok(expression);
+                    }
+                    let [argument] = function.params.args.as_slice() else {
+                        return Ok(expression);
+                    };
+                    let metadata = argument.metadata(input.as_ref())?;
+                    if metadata.inner().get("sutura:unbounded_number").map(String::as_str) != Some("utf8") {
+                        return Ok(expression);
+                    }
+                    Ok(match expression {
+                        PlannedExpr::Alias(alias) => PlannedExpr::Alias(alias.with_metadata(Some(metadata))),
+                        other => {
+                            let name = other.schema_name().to_string();
+                            other.alias_with_metadata(name, Some(metadata))
+                        }
+                    })
+                })
+                .collect::<Result<_>>()?;
+        }
+        node.recompute_schema().map(Transformed::yes)
+    })
+    .map(|transformed| transformed.data)
+}
+
+/// A LOB is redacted at the source without clipping. Only a whole-source answer may return it:
+/// clipping a federation leaf would make a later local predicate silently search a prefix.
+pub(super) fn bounded_oracle_rows(sql: &str, schema: &Schema, tables: &[StatementTable]) -> Result<String> {
+    let parsed = Parser::parse_sql(&GenericDialect, sql)?;
+    let ordered = matches!(parsed.first(), Some(Statement::Query(query)) if query.order_by.is_some());
+    bounded_oracle_output(sql, schema, tables, ordered)
+}
+
+/// Label the caller's original query with a CTE column list: its numeric expressions, aliases,
+/// wildcards and set operations stay native. Existing CTEs remain at the top level for Oracle.
+pub(super) fn bounded_native_oracle_rows(sql: &str, schema: &Schema, tables: &[StatementTable]) -> Result<String> {
+    let mut parsed = Parser::parse_sql(&GenericDialect, sql)?;
+    let Some(Statement::Query(mut query)) = parsed.pop() else {
+        return plan_err!("expected one native Oracle query");
+    };
+    let ordered = query.order_by.is_some();
+    let existing = query
+        .with
+        .take()
+        .map_or_else(|| String::from("WITH "), |with| format!("{with}, "));
+    let mut name = String::from("sutura_lob_values");
+    let folded = sql.to_ascii_lowercase();
+    while folded.contains(&name) {
+        name.push('_');
+    }
+    let labels = (0..schema.fields().len())
+        .map(|index| format!("\"c{index}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let labelled = format!("SELECT * FROM \"{name}\"");
+    let bounded = bounded_oracle_output(&labelled, schema, tables, ordered)?;
+    Ok(format!("{existing}\"{name}\"({labels}) AS ({query}) {bounded}"))
+}
+
+fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], ordered: bool) -> Result<String> {
+    let mut bytes = 4000;
+    for field in tables
+        .iter()
+        .filter(|table| oracle_lobs(table))
+        .flat_map(|table| table.schema().fields())
+    {
+        if let Some(encoded) = field.metadata().get(KEY) {
+            let policy: TextPolicy =
+                serde_json::from_str(encoded).map_err(|cause| plan_datafusion_err!("invalid pinned text policy: {cause}"))?;
+            if let Some(bound) = policy.max_text_bytes() {
+                bytes = bytes.min(u32::from(bound));
+            }
+        }
+    }
+    let national = tables
+        .iter()
+        .flat_map(|table| table.schema().fields())
+        .any(|field| field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob"));
+    let columns = schema
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let column = format!("\"sutura_lob_output\".\"c{index}\"");
+            let value = if matches!(field.data_type(), DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
+                && !field.metadata().contains_key("sutura:unbounded_number")
+            {
+                let clob = field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "clob");
+                // NCLOB scalar results have a national-character byte ceiling as well. A derived
+                // expression may lose its field metadata, so keep that ceiling unless it is CLOB.
+                bounded_lob(&column, if national && !clob { bytes.min(2000) } else { bytes })
+            } else {
+                column
+            };
+            format!("{value} AS {}", Ident::with_quote('"', field.name()))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    if ordered {
+        // ROWNUM pins the inner order before the output expressions run; the outer ORDER BY
+        // restores that order without sorting on a clipped value or returning the ordinal.
+        Ok(format!(
+            "SELECT {columns} FROM (SELECT \"sutura_lob_inner\".*, ROWNUM AS \"sutura_lob_ordinal\" FROM ({sql}) \"sutura_lob_inner\") \"sutura_lob_output\" ORDER BY \"sutura_lob_output\".\"sutura_lob_ordinal\""
+        ))
+    } else {
+        Ok(format!("SELECT {columns} FROM ({sql}) \"sutura_lob_output\""))
+    }
+}
+
+fn bounded_lob(value: &str, bytes: u32) -> String {
+    let payload = bytes - 14;
+    // Enumerate literals, not a linguistic range. A large ASCII window is safe even when the
+    // database's character set is multibyte; other text keeps the four-byte UTF-8 reservation.
+    let alphabet: String = (b' '..=b'~')
+        .filter(|byte| !matches!(byte, b']' | b'-' | b'\\'))
+        .map(char::from)
+        .collect();
+    // Preserve the ASCII semicolon without triggering the raw reader's delimiter refusal.
+    let pattern = literal(&format!("^[]\t\r\n{alphabet}\\\\-]*$"), TypeDialect::Oracle).replace(';', "' || CHR(59) || '");
+    let chars = format!(
+        "CASE WHEN REGEXP_LIKE(SUBSTR({value}, 1, {payload}), {pattern}, 'c') THEN {payload} ELSE {} END",
+        payload.div_euclid(4)
+    );
+    format!(
+        "CASE WHEN {value} IS NULL THEN NULL ELSE DBMS_LOB.\"SUBSTR\"({value}, {chars}, 1) || CASE WHEN LENGTH({value}) > {chars} THEN '...[truncated]' END END"
+    )
+}
 
 pub(super) fn protected(table: &StatementTable) -> bool {
     table.schema().fields().iter().any(|field| field.metadata().contains_key(KEY))
@@ -92,7 +251,10 @@ impl VisitorMut for Views<'_> {
                 };
                 let policy: TextPolicy =
                     serde_json::from_str(encoded).map_err(|cause| plan_datafusion_err!("invalid pinned text policy: {cause}"))?;
-                Ok(format!("{} AS {name}", expression(&name, &policy, self.dialect)))
+                Ok(format!(
+                    "{} AS {name}",
+                    expression(&name, &policy, self.dialect, !field.metadata().contains_key(LOB_KEY))
+                ))
             })
             .collect::<Result<Vec<_>>>();
         let projection = match projection {
@@ -142,7 +304,7 @@ fn literal(text: &str, dialect: TypeDialect) -> String {
     format!("'{text}'")
 }
 
-fn expression(column: &str, policy: &TextPolicy, dialect: TypeDialect) -> String {
+fn expression(column: &str, policy: &TextPolicy, dialect: TypeDialect, bound_output: bool) -> String {
     let mut value = column.to_owned();
     for rule in policy.redactions() {
         let pattern = rule.pattern();
@@ -162,7 +324,7 @@ fn expression(column: &str, policy: &TextPolicy, dialect: TypeDialect) -> String
             }
         };
     }
-    if let Some(bound) = policy.max_text_bytes() {
+    if let Some(bound) = policy.max_text_bytes().filter(|_| bound_output) {
         // ponytail: reserve four UTF-8 bytes per character; Oracle SQL also caps VARCHAR2 at 4000.
         // A byte-exact prefix can replace this if retaining more text becomes necessary.
         let bytes = u32::from(bound);
