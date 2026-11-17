@@ -140,8 +140,8 @@ jobs:
           case "$CONSUMER" in
                 google-endpoints)
                     parent=54a65789609579573a58a4f5feddae793331afbc
-                    expected_tree=44febacaad139afa8bb9e69bab55df736c9be2ab
-                    patch_sha=36b37de5418de9aa0bff30c5244d30e9b9eacb025017b074448d94ce2089c360
+                    expected_tree=808df430de0b68dd0a1a640d76deebf1940bc175
+                    patch_sha=072fd51b70ba581fffadcdd00854597bc3f4a30c4410ad27651ed710b3055c82
                     message_sha=83b023039c7bd9b03a971f6760bf0c9f252c13c8cf0663afbe35cb2e00c444e3
                     branch='fix/google-api-endpoints-1945-20261117'
                     subject='fix(bigquery): route declared private Google destinations'
