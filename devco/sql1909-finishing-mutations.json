@@ -1,299 +1,385 @@
 {
   "mutants": [
     {
-      "label": "drop-fetch-by-reentering-simple-scan-extraction",
+      "label": "ignore-final-select-and-expression-guard-verdict",
       "package": "sutura-exec-datafusion",
       "tests": [
-        "direct_aliased_fetched_scan_join"
+        "guard_ast",
+        "guard_before_open"
       ],
-      "preimage_sha256": "965a66e85aa20dd956a934eca7b9de5c768dae2dac86e1d89afa16f73cf1aa65",
-      "mutated_sha256": "c7f110182e1be93b04deda0bcbddfeb1302255543fc57f50ce6f78aa08c25aad",
+      "preimage_sha256": "8125ed262cc4dae92e6888de6b5a98ad9dd562f871a2de5f913e9a01c9b1369f",
+      "mutated_sha256": "d422344306c155ab94039089284c69dbf15566d12c9ed6591907cd743202ed4b",
       "edits": [
         {
-          "path": "vendor/datafusion-sql/src/unparser/utils.rs",
-          "before": "            LogicalPlan::TableScan(table_scan) if table_scan.fetch.is_none() => {",
-          "after": "            LogicalPlan::TableScan(table_scan) => {",
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
+          "before": "    if let ControlFlow::Break(cause) = statements.visit(&mut Explicit) {\n        return Err(cause);\n    }",
+          "after": "    let _ = statements.visit(&mut Explicit);",
           "count": 1
         }
       ]
     },
     {
-      "label": "restore-filter-rewrite-to-scan-filters-only",
-      "package": "sutura-app",
+      "label": "open-before-checking-every-final-statement",
+      "package": "sutura-exec-datafusion",
       "tests": [
-        "shapes_oracle",
-        "unread_oracle"
+        "guard_before_open"
       ],
-      "preimage_sha256": "965a66e85aa20dd956a934eca7b9de5c768dae2dac86e1d89afa16f73cf1aa65",
-      "mutated_sha256": "928d2c8b826a14779dec2c8caf0617d3bbca72559767ebe57584b694afe4e7fd",
+      "preimage_sha256": "8125ed262cc4dae92e6888de6b5a98ad9dd562f871a2de5f913e9a01c9b1369f",
+      "mutated_sha256": "babd15b8004c7003f138a1fa26df637b382703eef234a71d6682f33bae836382",
       "edits": [
         {
-          "path": "vendor/datafusion-sql/src/unparser/utils.rs",
-          "before": "                for table_scan_filter in table_scan.filters.iter().cloned() {\n                    if !filters.contains(&table_scan_filter) {\n                        filters.insert(table_scan_filter);\n                    }\n                }\n\n                // Filters below the alias can still name the physical table.\n                let filters = filters\n                    .into_iter()\n                    .map(|expr| {\n                        if let Some(ref mut rewriter) = filter_alias_rewriter {\n                            expr.rewrite(rewriter).data()\n                        } else {\n                            Ok(expr)\n                        }\n                    })\n                    .collect::<Result<Vec<_>>>()?;",
-          "after": "                let table_scan_filters = table_scan\n                    .filters\n                    .iter()\n                    .cloned()\n                    .map(|expr| {\n                        if let Some(ref mut rewriter) = filter_alias_rewriter {\n                            expr.rewrite(rewriter).data()\n                        } else {\n                            Ok(expr)\n                        }\n                    })\n                    .collect::<Result<Vec<_>>>()?;\n\n                for table_scan_filter in table_scan_filters {\n                    if !filters.contains(&table_scan_filter) {\n                        filters.insert(table_scan_filter);\n                    }\n                }",
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
+          "before": "    for statement in statements {",
+          "after": "    legs.open(sources).map_err(StatementStopped::Leg)?;\n    for statement in statements {",
           "count": 1
         },
         {
-          "path": "vendor/datafusion-sql/src/unparser/utils.rs",
-          "before": "                let plan = builder.build()?;\n                return Ok(Some((plan, filters)));",
-          "after": "                let plan = builder.build()?;\n                let filters = filters.into_iter().collect();\n                return Ok(Some((plan, filters)));",
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
+          "before": "    legs.open(sources).map_err(StatementStopped::Leg)\n}",
+          "after": "    Ok(())\n}",
           "count": 1
         }
       ]
     },
     {
-      "label": "restore-projection-recursion-over-join",
+      "label": "restore-duplicate-normal-output-without-source-labels",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "normal_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "385b435237ad9fdd1ac1cb7a58ae541790508fb6f4682902db1df0f605ff8def",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner())",
+          "after": "whole && !full_lobs",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "restore-native-duplicate-output-without-source-labels",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "native_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "62da6eec9a26a0da4f7ae28a9825cf5068e847896730e27aeeabdadc376dfa4d",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema)",
+          "after": "read.iter().any(text::oracle_lobs)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "leave-original-native-projection-wildcards-unexpanded",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "native_wildcards"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "6d9a8d0255237caeb8ddee74687aa67d8813502e1faebecbe3b024e093c59105",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "resolve::explicit_statement(native, &native_tables)",
+          "after": "resolve::statement(native, &native_tables)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "restore-implicit-root-wildcard-projection",
       "package": "sutura-app",
       "tests": [
         "shapes_datafusion",
-        "unread_datafusion",
-        "shapes_duckdb",
-        "unread_duckdb",
-        "shapes_postgres",
-        "unread_postgres",
-        "shapes_clickhouse",
-        "unread_clickhouse",
-        "shapes_bigquery",
-        "unread_bigquery",
-        "shapes_oracle",
-        "unread_oracle",
-        "native_datafusion_fetch",
-        "native_duckdb",
-        "native_postgres",
-        "native_clickhouse"
+        "native_datafusion"
       ],
-      "preimage_sha256": "c067977d7283637bd4fb5cf2790279b10562cd67f10102f7268e8961d2335873",
-      "mutated_sha256": "23d91b90b4fc739e270b65f5aa56c6cc29df61fc0f90d07f44ca739d24e02df9",
+      "preimage_sha256": "01d85104e912f042b3e2c275778b2d53673495f05a47618fce7145c5f6567d2f",
+      "mutated_sha256": "73db3c1b44918cd893fd8605c1ec3eb896e7b21b083d7650d1fbdbeef18755c6",
       "edits": [
         {
           "path": "vendor/datafusion-sql/src/unparser/plan.rs",
-          "before": "                    && (matches!(scan, LogicalPlan::TableScan(scan) if scan.fetch.is_none())\n                        || matches!(scan, LogicalPlan::Join(_)));",
-          "after": "                    && matches!(scan, LogicalPlan::TableScan(scan) if scan.fetch.is_none());",
+          "before": "        // Keep the plan's declared output even when optimization removed its projection.\n        if !select_builder.already_projected() {\n            let expressions = if plan.schema().fields().is_empty() {\n                self.empty_projection_fallback()\n            } else {\n                plan.schema().columns().into_iter().map(Expr::Column).collect()\n            };\n            select_builder.projection(\n                expressions.iter()\n                    .map(|expression| self.select_item_to_sql(expression))\n                    .collect::<Result<Vec<_>>>()?,\n            );\n        }",
+          "after": "        if !select_builder.already_projected() {\n            select_builder.projection(vec![ast::SelectItem::Wildcard(\n                ast::WildcardAdditionalOptions::default(),\n            )]);\n        }",
           "count": 1
         }
       ]
     },
     {
-      "label": "restore-previous-cube-join-whitelist-renderers",
+      "label": "restore-wildcard-before-alias-derive",
       "package": "sutura-app",
       "tests": [
-        "shapes_cube",
-        "unread_cube"
+        "shapes_oracle",
+        "shapes_datafusion"
       ],
-      "preimage_sha256": "2491e63496b03cdf840d26768e02841c1a622098692c501d16c67b023ac836eb",
-      "mutated_sha256": "9c4753e8717b4fc53bb5e7d0eb494663db45627bf7d84fc7f37a2c8fa35328c9",
+      "preimage_sha256": "01d85104e912f042b3e2c275778b2d53673495f05a47618fce7145c5f6567d2f",
+      "mutated_sha256": "f22e1cda1ff880ff91440d6bd48749248a9416501ad7cdd43f59a8217541dabe",
       "edits": [
         {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
-          "before": "                if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {\n                    safe = false;\n                }",
-          "after": "                if self.1 == TypeDialect::Cube\n                    && let LogicalPlan::Join(join) = input\n                {\n                    safe &= matches!(\n                        join.join_type,\n                        datafusion::logical_expr::JoinType::Inner\n                            | datafusion::logical_expr::JoinType::Left\n                            | datafusion::logical_expr::JoinType::Right\n                            | datafusion::logical_expr::JoinType::Full\n                    );\n                }",
+          "path": "vendor/datafusion-sql/src/unparser/plan.rs",
+          "before": "                if !select.already_projected()\n                    && (unparsed_table_scan.is_none()\n                        || matches!(&unparsed_table_scan, Some(LogicalPlan::Limit(_))))\n                {\n                    select.projection(\n                        plan_alias.schema.columns().into_iter()\n                            .map(|column| self.select_item_to_sql(&Expr::Column(column)))\n                            .collect::<Result<Vec<_>>>()?,\n                    );\n                }",
+          "after": "                if !select.already_projected()\n                    && (unparsed_table_scan.is_none()\n                        || matches!(&unparsed_table_scan, Some(LogicalPlan::Limit(_))))\n                {\n                    select.projection(vec![ast::SelectItem::Wildcard(\n                        ast::WildcardAdditionalOptions::default(),\n                    )]);\n                }",
           "count": 1
         }
       ]
     },
     {
-      "label": "restore-previous-cube-join-whitelist-offline",
+      "label": "restore-native-lob-cte-wildcard",
       "package": "sutura-exec-datafusion",
       "tests": [
-        "offline_cube_join_guard"
+        "native_lob"
       ],
-      "preimage_sha256": "2491e63496b03cdf840d26768e02841c1a622098692c501d16c67b023ac836eb",
-      "mutated_sha256": "9c4753e8717b4fc53bb5e7d0eb494663db45627bf7d84fc7f37a2c8fa35328c9",
+      "preimage_sha256": "dc7ab5c2cfcefeb25f4eb9e59afc210cf4b130e522f5505c4cae220411485ec3",
+      "mutated_sha256": "e775c4af2f52fad9d0cbebc22632278cc6dd50741207e8fb94503361a02ad323",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/text.rs",
+          "before": "let labelled = format!(\"SELECT {labels} FROM \\\"{name}\\\"\");",
+          "after": "let labelled = format!(\"SELECT * FROM \\\"{name}\\\"\");",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "guard-whole-part-final-wildcard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "normal_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "3b68ca0ff12dbd5f3172c3c6945af8ebad3ef1f8d02a484a510c7db985a4db36",
       "edits": [
         {
           "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
-          "before": "                if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {\n                    safe = false;\n                }",
-          "after": "                if self.1 == TypeDialect::Cube\n                    && let LogicalPlan::Join(join) = input\n                {\n                    safe &= matches!(\n                        join.join_type,\n                        datafusion::logical_expr::JoinType::Inner\n                            | datafusion::logical_expr::JoinType::Left\n                            | datafusion::logical_expr::JoinType::Right\n                            | datafusion::logical_expr::JoinType::Full\n                    );\n                }",
+          "before": "    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;",
+          "after": "    let mut statements = statements;\n    if let Some((statement, _tables)) = statements.last_mut() {\n        *statement = RawStatement::parse(\"SELECT * FROM items\")\n            .map_err(|cause| unplanned(\"the injected statement was not bounded\", &cause))?;\n    }\n    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "bypass-guard-whole-part-final-wildcard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "normal_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "9e6808f89ba2e2928db2c3e4b8385cd8f8f55996b532f1c26b83eab0a1904c53",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;",
+          "after": "    let mut statements = statements;\n    if let Some((statement, _tables)) = statements.last_mut() {\n        *statement = RawStatement::parse(\"SELECT * FROM items\")\n            .map_err(|cause| unplanned(\"the injected statement was not bounded\", &cause))?;\n    }\n    legs.open(&sources).map_err(StatementStopped::Leg)?;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "guard-later-federation-part-final-wildcard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "normal_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "da28ee50c7b920c6d13302992e093e37d2224736ef33e79a3f895fc26dc883d0",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;",
+          "after": "    let mut statements = statements;\n    if statements.len() > 1 {\n    if let Some((statement, _tables)) = statements.last_mut() {\n        *statement = RawStatement::parse(\"SELECT * FROM items\")\n            .map_err(|cause| unplanned(\"the injected statement was not bounded\", &cause))?;\n    }\n    }\n    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "bypass-guard-later-federation-part-final-wildcard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "normal_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "9802e07a68eaa950d9dab5f576019ede6ff30c3d215cff214de421289f3048dc",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;",
+          "after": "    let mut statements = statements;\n    if statements.len() > 1 {\n    if let Some((statement, _tables)) = statements.last_mut() {\n        *statement = RawStatement::parse(\"SELECT * FROM items\")\n            .map_err(|cause| unplanned(\"the injected statement was not bounded\", &cause))?;\n    }\n    }\n    legs.open(&sources).map_err(StatementStopped::Leg)?;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "guard-native-numeric-final-wildcard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "native_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "1127a88a4c6ddd1020b78d2b490d6387a20d93dd51f89ecf288a08b36e0d74c7",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "        let native = RawStatement::parse(text).map_err(|cause| unplanned(\"the numeric statement was not bounded\", &cause))?;",
+          "after": "        let native = RawStatement::parse(format!(\"SELECT * FROM ({text}) sutura_projection_values\"))\n            .map_err(|cause| unplanned(\"the numeric statement was not bounded\", &cause))?;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "bypass-guard-native-numeric-final-wildcard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "native_duplicate_outputs"
+      ],
+      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
+      "mutated_sha256": "f91290f58ce9b8e8c622631c2ac84c2d91456146587ed7b329c60f9cc8f4afca",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "        let native = RawStatement::parse(text).map_err(|cause| unplanned(\"the numeric statement was not bounded\", &cause))?;",
+          "after": "        let native = RawStatement::parse(format!(\"SELECT * FROM ({text}) sutura_projection_values\"))\n            .map_err(|cause| unplanned(\"the numeric statement was not bounded\", &cause))?;",
+          "count": 1
+        },
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
+          "before": "        projection::open(legs, &sources, [&native])?;",
+          "after": "        legs.open(&sources).map_err(StatementStopped::Leg)?;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "restore-ordered-lob-inner-wildcard",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "normal_lob",
+        "native_lob"
+      ],
+      "preimage_sha256": "dc7ab5c2cfcefeb25f4eb9e59afc210cf4b130e522f5505c4cae220411485ec3",
+      "mutated_sha256": "9f29d0fffbfdf677758809d9ea258f8fe5975ab007d98d8a512157d81bd28c35",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/text.rs",
+          "before": "        let inner = (0..schema.fields().len())\n            .map(|index| format!(\"\\\"sutura_lob_inner\\\".\\\"c{index}\\\"\"))\n            .collect::<Vec<_>>()\n            .join(\", \");\n",
+          "after": "",
+          "count": 1
+        },
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/text.rs",
+          "before": "SELECT {inner}, ROWNUM AS",
+          "after": "SELECT \\\"sutura_lob_inner\\\".*, ROWNUM AS",
           "count": 1
         }
       ]
     }
   ],
   "test_files": {
-    "native_datafusion_fetch": "crates/sutura-app/tests/golden/statements.rs",
-    "shapes_datafusion": "crates/sutura-app/tests/golden/statements.rs",
-    "unread_datafusion": "crates/sutura-app/tests/golden/statements.rs",
-    "shapes_duckdb": "crates/sutura-app/tests/golden/statements.rs",
-    "unread_duckdb": "crates/sutura-app/tests/golden/statements.rs",
-    "shapes_postgres": "crates/sutura-app/tests/golden/statements.rs",
-    "unread_postgres": "crates/sutura-app/tests/golden/statements.rs",
-    "shapes_clickhouse": "crates/sutura-app/tests/golden/statements.rs",
-    "unread_clickhouse": "crates/sutura-app/tests/golden/statements.rs",
-    "shapes_bigquery": "crates/sutura-app/tests/golden/statements.rs",
-    "unread_bigquery": "crates/sutura-app/tests/golden/statements.rs",
+    "guard_ast": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
+    "guard_before_open": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
+    "normal_duplicate_outputs": "crates/sutura-exec-datafusion/src/combine/statement/tests.rs",
+    "native_duplicate_outputs": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
+    "native_wildcards": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
+    "normal_lob": "crates/sutura-exec-datafusion/src/combine/statement/tests/text.rs",
+    "native_lob": "crates/sutura-exec-datafusion/src/combine/statement/tests/text.rs",
     "shapes_oracle": "crates/sutura-app/tests/golden/statements.rs",
-    "unread_oracle": "crates/sutura-app/tests/golden/statements.rs",
-    "shapes_cube": "crates/sutura-app/tests/golden/statements.rs",
-    "unread_cube": "crates/sutura-app/tests/golden/statements.rs",
-    "native_duckdb": "crates/sutura-app/tests/golden/statements.rs",
-    "native_postgres": "crates/sutura-app/tests/golden/statements.rs",
-    "native_clickhouse": "crates/sutura-app/tests/golden/statements.rs",
-    "offline_cube_join_guard": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
-    "direct_aliased_fetched_scan_join": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs"
+    "shapes_datafusion": "crates/sutura-app/tests/golden/statements.rs",
+    "native_datafusion": "crates/sutura-app/tests/golden/statements.rs"
   },
   "test_identities": {
-    "native_datafusion_fetch": [
-      "sutura-app::golden",
-      "statements::engines::datafusion::every_planned_shape_answers_at_the_native_engine"
+    "guard_ast": [
+      "sutura-exec-datafusion",
+      "combine::statement::projection::tests::the_final_source_guard_rejects_nested_projection_wildcards_only"
     ],
-    "shapes_datafusion": [
-      "sutura-app::golden",
-      "statements::datafusion::pins_planned_source_statements"
+    "guard_before_open": [
+      "sutura-exec-datafusion",
+      "combine::statement::projection::tests::every_final_statement_is_checked_before_any_source_opens"
     ],
-    "unread_datafusion": [
-      "sutura-app::golden",
-      "statements::datafusion::an_unread_mapped_number_preserves_every_planned_source_golden"
+    "normal_duplicate_outputs": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata"
     ],
-    "shapes_duckdb": [
-      "sutura-app::golden",
-      "statements::duckdb::pins_planned_source_statements"
+    "native_duplicate_outputs": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::oracle::native_numeric_duplicate_outputs_restore_names_and_distinct_positions"
     ],
-    "unread_duckdb": [
-      "sutura-app::golden",
-      "statements::duckdb::an_unread_mapped_number_preserves_every_planned_source_golden"
+    "native_wildcards": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::oracle::mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening"
     ],
-    "shapes_postgres": [
-      "sutura-app::golden",
-      "statements::postgres::pins_planned_source_statements"
+    "normal_lob": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::text::oracle_lob_output_contains_no_statement_delimiter"
     ],
-    "unread_postgres": [
-      "sutura-app::golden",
-      "statements::postgres::an_unread_mapped_number_preserves_every_planned_source_golden"
-    ],
-    "shapes_clickhouse": [
-      "sutura-app::golden",
-      "statements::clickhouse::pins_planned_source_statements"
-    ],
-    "unread_clickhouse": [
-      "sutura-app::golden",
-      "statements::clickhouse::an_unread_mapped_number_preserves_every_planned_source_golden"
-    ],
-    "shapes_bigquery": [
-      "sutura-app::golden",
-      "statements::bigquery::pins_planned_source_statements"
-    ],
-    "unread_bigquery": [
-      "sutura-app::golden",
-      "statements::bigquery::an_unread_mapped_number_preserves_every_planned_source_golden"
+    "native_lob": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::text::oracle_native_numeric_extrema_stay_exact_beside_bounded_lob_outputs"
     ],
     "shapes_oracle": [
       "sutura-app::golden",
       "statements::oracle::pins_planned_source_statements"
     ],
-    "unread_oracle": [
+    "shapes_datafusion": [
       "sutura-app::golden",
-      "statements::oracle::an_unread_mapped_number_preserves_every_planned_source_golden"
+      "statements::datafusion::pins_planned_source_statements"
     ],
-    "shapes_cube": [
+    "native_datafusion": [
       "sutura-app::golden",
-      "statements::cube::pins_planned_source_statements"
-    ],
-    "unread_cube": [
-      "sutura-app::golden",
-      "statements::cube::an_unread_mapped_number_preserves_every_planned_source_golden"
-    ],
-    "native_duckdb": [
-      "sutura-app::golden",
-      "statements::engines::duckdb::every_planned_shape_answers_at_the_native_engine"
-    ],
-    "native_postgres": [
-      "sutura-app::golden",
-      "statements::engines::postgres::every_planned_shape_answers_at_the_native_engine"
-    ],
-    "native_clickhouse": [
-      "sutura-app::golden",
-      "statements::engines::clickhouse::every_planned_shape_answers_at_the_native_engine"
-    ],
-    "offline_cube_join_guard": [
-      "sutura-exec-datafusion",
-      "combine::statement::tests::oracle::mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dialect"
-    ],
-    "direct_aliased_fetched_scan_join": [
-      "sutura-exec-datafusion",
-      "combine::statement::tests::oracle::a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect"
+      "statements::engines::datafusion::every_planned_shape_answers_at_the_native_engine"
     ]
   },
   "test_functions": {
-    "native_datafusion_fetch": {
-      "name": "runs_native_statement_corpus",
+    "guard_ast": {
+      "name": "the_final_source_guard_rejects_nested_projection_wildcards_only",
+      "indent": "    "
+    },
+    "guard_before_open": {
+      "name": "every_final_statement_is_checked_before_any_source_opens",
+      "indent": "    "
+    },
+    "normal_duplicate_outputs": {
+      "name": "duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
       "indent": ""
     },
-    "shapes_datafusion": {
-      "name": "pins_planned_statements_over",
+    "native_duplicate_outputs": {
+      "name": "native_numeric_duplicate_outputs_restore_names_and_distinct_positions",
       "indent": ""
     },
-    "unread_datafusion": {
-      "name": "pins_planned_statements_over",
+    "native_wildcards": {
+      "name": "mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening",
       "indent": ""
     },
-    "shapes_duckdb": {
-      "name": "pins_planned_statements_over",
+    "normal_lob": {
+      "name": "oracle_lob_output_contains_no_statement_delimiter",
       "indent": ""
     },
-    "unread_duckdb": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "shapes_postgres": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "unread_postgres": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "shapes_clickhouse": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "unread_clickhouse": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "shapes_bigquery": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "unread_bigquery": {
-      "name": "pins_planned_statements_over",
+    "native_lob": {
+      "name": "oracle_native_numeric_extrema_stay_exact_beside_bounded_lob_outputs",
       "indent": ""
     },
     "shapes_oracle": {
       "name": "pins_planned_statements_over",
       "indent": ""
     },
-    "unread_oracle": {
+    "shapes_datafusion": {
       "name": "pins_planned_statements_over",
       "indent": ""
     },
-    "shapes_cube": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "unread_cube": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "native_duckdb": {
+    "native_datafusion": {
       "name": "runs_native_statement_corpus",
-      "indent": ""
-    },
-    "native_postgres": {
-      "name": "runs_native_statement_corpus",
-      "indent": ""
-    },
-    "native_clickhouse": {
-      "name": "runs_native_statement_corpus",
-      "indent": ""
-    },
-    "offline_cube_join_guard": {
-      "name": "mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dialect",
-      "indent": ""
-    },
-    "direct_aliased_fetched_scan_join": {
-      "name": "a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect",
       "indent": ""
     }
   },
-  "cargo_profile": "ci"
+  "cargo_profile": "ci",
+  "source_sha": "38de15bece6539352d4831d464188e386043593d",
+  "source_tree": "5d6e0f3e6656d49ab7e221efb589e41d30f1c187",
+  "comparison_sha": "969afca89a6e8edb7ed09f42db033577e5558e56",
+  "request_id": "604ef22d-43ad-40ac-a5e0-2fc8a3b4f1b6",
+  "helper_ref": "ci/explicit-projection-mutations-1970-604ef22d",
+  "ownership_sha256": "c97b5a3783914098a19aa2be8b76c2e9a96b353208d3d7a006fbd8b2090a00da",
+  "runner_sha256": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707"
 }
