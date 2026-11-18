@@ -22,6 +22,11 @@ use crate::tools::InvalidRunSqlSources;
 /// stderr gets both without either being formatted into the other.
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
+    #[error("the Google access-token verifier is not usable")]
+    GoogleVerifier {
+        #[source]
+        cause: crate::inbound::google::InvalidGoogleVerifier,
+    },
     #[error("Google API endpoint configuration is not usable")]
     GoogleEndpoint {
         #[source]

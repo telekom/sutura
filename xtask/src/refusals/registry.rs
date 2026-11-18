@@ -125,7 +125,8 @@ const STARTUP: Subject = Subject {
     // with no other source to federate with or no peer to read its buckets. 56:
     // named-verifier identity, path and source-admission combinations (#1890) replace the
     // five `AlsoAccept` variants; the common audience/header checks cover every verifier.
-    variants: variants(56),
+    // 57: `CallerGoogleTokenVerifier` refuses token forwarding without Google-tokeninfo admission.
+    variants: variants(57),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

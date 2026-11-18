@@ -53,7 +53,7 @@
 //! the returned token to the asker (`docs/where-identity-is-proven.md`), so Oracle is supported as
 //! `shared-service-user` only, for now.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::identity::{
     BillTo, CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted,
@@ -103,6 +103,7 @@ pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
     admissions: super::SourceAdmissions,
     federating: BTreeMap<SourceName, Option<Delegation>>,
+    google_tokens: BTreeSet<SourceName>,
     /// Each source that runs a caller as their verified name, the deployment's own user there - a
     /// name no caller is run as - and, for a source each caller signs in at, the exchange for the
     /// token they sign in with.
@@ -147,6 +148,14 @@ impl DeclaredPrincipalBroker {
     #[must_use]
     pub fn federating(mut self, at: SourceName, delegation: Option<Delegation>) -> Self {
         drop(self.federating.insert(at, delegation));
+        self
+    }
+
+    /// Accepts only Google-tokeninfo admission and forwards that request's token without refresh.
+    #[must_use]
+    pub fn caller_google_token(mut self, at: SourceName) -> Self {
+        drop(self.federating.insert(at.clone(), None));
+        let _new = self.google_tokens.insert(at);
         self
     }
 
@@ -241,6 +250,13 @@ impl CredentialBroker for DeclaredPrincipalBroker {
         // first one's credential is built, so "refused before anything was minted" is true of what
         // happened rather than only of what escaped.
         for source in sources.iter() {
+            if self.google_tokens.contains(source)
+                && !context
+                    .verifier()
+                    .is_some_and(sutura_domain::identity::AdmittingVerifier::is_google_tokeninfo)
+            {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
             if context.is_gateway_admitted() && !self.shared.contains_key(source) {
                 return Ok(Minted::Refused { source: source.clone() });
             }

@@ -103,7 +103,11 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
                 .map_err(|cause| SettingsError::Identity { cause })?,
         ),
     };
-    let inbound = crate::settings::inbound::parse_verifiers(raw.security.inbound.as_ref())?;
+    let inbound = crate::settings::inbound::parse_verifiers(
+        raw.security.inbound.as_ref(),
+        &crate::google_endpoints::GoogleEndpoints::parse(&raw.google_endpoints)
+            .map_err(|cause| SettingsError::GoogleEndpoint { cause })?,
+    )?;
     // Deployment-wide, and parsed in `crate::settings::outbound` - absence is not a refusal, a
     // PRESENT empty block is. `outbound_identity` is the optional client pair beside the anchors
     // (`github.com/telekom/sutura#911`).
@@ -173,6 +177,7 @@ pub(super) fn parse_sources(
             };
             let blocks = CallerIdentityBlocks {
                 google_login: source.google_login.as_ref(),
+                caller_google_token: source.caller_google_token.as_ref(),
                 domain_delegation: source.domain_delegation.as_ref(),
             };
             (entry, blocks)

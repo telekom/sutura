@@ -106,6 +106,8 @@ pub enum Impersonation {
     /// subject's own Google login: the subject's credential is that token itself. Its job starts
     /// with `jobs.query`, so the token may hold `bigquery.readonly` and no more.
     GoogleLogin,
+    /// Direct tokeninfo admission; use the caller token with the read-only jobs.query route.
+    CallerGoogleToken,
     /// This source runs the asking subject's verified address through domain-wide delegation: the
     /// deployment's own credential signs as this account, which acts as the address. The
     /// deployment vouches for the subject here.
@@ -176,13 +178,20 @@ pub(super) fn authenticate(
 ) -> Result<JobAuthentication, AdbcError> {
     let options = match (identity, impersonation) {
         (JobIdentity::Transport, _) => Vec::new(),
-        (JobIdentity::AsSubject { assertion }, Impersonation::GoogleLogin) => caller_google_token_options(assertion),
+        (JobIdentity::AsSubject { assertion }, Impersonation::GoogleLogin | Impersonation::CallerGoogleToken) => {
+            caller_google_token_options(assertion)
+        }
         (JobIdentity::AsAddress { address }, Impersonation::DomainDelegation(account)) => delegation_options(account, address),
         // A subject's own credential at a delegating source, or an address anywhere else: in-crate
         // misuse insurance, for the reason the arm below gives.
         (JobIdentity::AsSubject { .. }, Impersonation::DomainDelegation(_))
-        | (JobIdentity::AsAddress { .. }, Impersonation::Disabled | Impersonation::ThroughPool(_) | Impersonation::GoogleLogin) =>
-        {
+        | (
+            JobIdentity::AsAddress { .. },
+            Impersonation::Disabled
+            | Impersonation::ThroughPool(_)
+            | Impersonation::GoogleLogin
+            | Impersonation::CallerGoogleToken,
+        ) => {
             return Err(AdbcError::Uncovered(
                 "run a subject by a mechanism this source does not declare",
             ));
@@ -227,7 +236,10 @@ pub(super) fn forwarded(token: &Secret, impersonation: &Impersonation) -> Result
         Impersonation::ThroughPool(_) => Ok(JobAuthentication {
             options: access_token_options(token),
         }),
-        Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
+        Impersonation::Disabled
+        | Impersonation::GoogleLogin
+        | Impersonation::CallerGoogleToken
+        | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
             "read a forwarded token at a source that federates at no pool",
         )),
     }
@@ -605,3 +617,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod google_token_cells;

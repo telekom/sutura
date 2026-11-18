@@ -67,6 +67,7 @@
 mod address_claim;
 mod audience;
 mod declaration;
+pub mod google;
 mod key_set;
 mod primitive;
 mod scope;

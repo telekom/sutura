@@ -506,10 +506,10 @@ impl SecuritySettings {
     /// `"none"` rather than an `Option` because the caller is a log line, and a field that is
     /// sometimes absent reads as a field that is sometimes broken.
     #[inline]
-    pub const fn inbound_mode(&self) -> &'static str {
+    pub fn inbound_mode(&self) -> &'static str {
         match self.inbound.as_slice() {
             [] => "none",
-            [verifier] => verifier.identity().mode(),
+            [verifier] => verifier.mode(),
             _ => "multiple",
         }
     }

@@ -1,7 +1,7 @@
 --- a/crates/sutura-config/src/google_endpoints.rs
 +++ b/crates/sutura-config/src/google_endpoints.rs
 @@ -11,7 +11,7 @@
-     fn parse(key: &'static str, raw: &str) -> Result<Self, InvalidGoogleEndpoint> {
+     pub(crate) fn parse(key: &'static str, raw: &str) -> Result<Self, InvalidGoogleEndpoint> {
          let refused = || InvalidGoogleEndpoint { key, cause: None };
          let url = url::Url::parse(raw).map_err(|cause| InvalidGoogleEndpoint { key, cause: Some(cause) })?;
 -        if raw.trim() != raw
