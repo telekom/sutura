@@ -22,8 +22,8 @@ use super::{
     rewrite::TableAliasRewriter,
 };
 use datafusion_common::{
-    Column, DFSchema, DataFusionError, Result, ScalarValue, TableReference,
-    assert_eq_or_internal_err, internal_err,
+    Column, DFSchema, Result, ScalarValue, TableReference, assert_eq_or_internal_err,
+    internal_err,
     tree_node::{Transformed, TransformedResult, TreeNode},
 };
 use datafusion_expr::{
@@ -387,7 +387,7 @@ pub(crate) fn try_transform_to_simple_table_scan_with_filters(
                 }
                 plan_stack.push(filter.input.as_ref());
             }
-            LogicalPlan::TableScan(table_scan) => {
+            LogicalPlan::TableScan(table_scan) if table_scan.fetch.is_none() => {
                 let table_schema = table_scan.source.schema();
                 let filter_schema = DFSchema::try_from_qualified_schema(
                     table_scan.table_name.clone(),
@@ -401,11 +401,15 @@ pub(crate) fn try_transform_to_simple_table_scan_with_filters(
                         rewrite_unqualified: true,
                     });
 
-                // rewrite filters to use table alias if present
-                let table_scan_filters = table_scan
-                    .filters
-                    .iter()
-                    .cloned()
+                for table_scan_filter in table_scan.filters.iter().cloned() {
+                    if !filters.contains(&table_scan_filter) {
+                        filters.insert(table_scan_filter);
+                    }
+                }
+
+                // Filters below the alias can still name the physical table.
+                let filters = filters
+                    .into_iter()
                     .map(|expr| {
                         if let Some(ref mut rewriter) = filter_alias_rewriter {
                             expr.rewrite(rewriter).data()
@@ -413,13 +417,7 @@ pub(crate) fn try_transform_to_simple_table_scan_with_filters(
                             Ok(expr)
                         }
                     })
-                    .collect::<Result<Vec<_>, DataFusionError>>()?;
-
-                for table_scan_filter in table_scan_filters {
-                    if !filters.contains(&table_scan_filter) {
-                        filters.insert(table_scan_filter);
-                    }
-                }
+                    .collect::<Result<Vec<_>>>()?;
 
                 let mut builder = LogicalPlanBuilder::scan(
                     table_scan.table_name.clone(),
@@ -432,8 +430,6 @@ pub(crate) fn try_transform_to_simple_table_scan_with_filters(
                 }
 
                 let plan = builder.build()?;
-                let filters = filters.into_iter().collect();
-
                 return Ok(Some((plan, filters)));
             }
             _ => {

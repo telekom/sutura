@@ -310,7 +310,8 @@ impl ConfiguredSource {
     pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig> {
         match self.caller_identity {
             Some(CallerIdentity::WorkloadIdentity(ref config)) => Some(config),
-            Some(CallerIdentity::GoogleLogin(_) | CallerIdentity::DomainDelegation(_)) | None => None,
+            Some(CallerIdentity::GoogleLogin(_) | CallerIdentity::DomainDelegation(_) | CallerIdentity::CallerGoogleToken(_))
+            | None => None,
         }
     }
 }
@@ -334,6 +335,12 @@ pub struct UnknownPosture {
 /// convenience, and nothing needs to clone a startup refusal.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidSourceRegistry {
+    #[error("`sources.{alias}.caller_google_token.acknowledged_because` must state the opt-in reason")]
+    CallerGoogleTokenReason {
+        alias: SourceName,
+        #[source]
+        cause: InvalidOperatorText,
+    },
     /// An Oracle-only transport or password declaration was refused.
     #[error("`sources.{alias}`: {cause}")]
     OracleTransport {

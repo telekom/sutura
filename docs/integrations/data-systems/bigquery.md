@@ -35,8 +35,8 @@ Every model names its table as `project.dataset.table`. A job on an `impersonati
 bills, in order: the project of the caller's first `billing.by_group` group, then the one project
 that the job's tables are in. If no step decides a payer, the question is refused.
 
-`impersonation-at-source` needs exactly one of `workload_identity`, `google_login` or
-`domain_delegation`. `workload_identity` has these keys:
+`impersonation-at-source` needs exactly one of `workload_identity`, `google_login`,
+`domain_delegation` or the opt-in [`caller_google_token`](../../sign-in-with-google-directly.md). `workload_identity` has these keys:
 
 | Key                                                 | Type          | Default          | Meaning                                                                                                                                                                                  |
 | --------------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

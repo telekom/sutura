@@ -265,7 +265,7 @@ text as a read. A redaction-only policy leaves text unbounded and does not enabl
 `tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,
 or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
 on or off, over the tables that the catalog declares on the listed sources and the caller's view holds. It cuts the plan
-into one part for each source that the statement reads, and runs each part at its source under that source's posture.
+into supported parts, and runs each part at its source under that source's posture.
 Input uses DataFusion SQL, including `LIMIT` instead of `FETCH FIRST`. Double quotes select an exact
 identifier. Unquoted physical table and column names fold to uppercase at an Oracle source and
 lowercase at other sources; SQL aliases follow the planner's lowercase folding unless quoted.
@@ -285,7 +285,9 @@ names. These categories describe the planned path; a build without `sql` retains
 With the switch
 off, a statement that reads more than one source is refused with `plan_spans_more_than_one_source`. With it on, the join or
 aggregate over the parts runs in this deployment, and the answer names each source that it read and the posture that ran
-there. Planning and that local part stop at the request's deadline. What this does not bound:
+there. Cube joins combine locally even with one source and this switch off. Their supported child plans run at Cube;
+transferring more rows can reach the existing per-leg row, working-set or deadline limits sooner.
+Planning and that local part stop at the request's deadline. What this does not bound:
 
 - The local part runs in the deployment's memory, within the combiner's working set. It stops at the deadline only at its
   next batch, so one batch, or the final pass of a sort, runs to its end.

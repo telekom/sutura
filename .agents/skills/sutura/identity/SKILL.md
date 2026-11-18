@@ -10,7 +10,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 
 | | State | What that means |
 | --- | --- | --- |
-| **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
+| **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token under its declared verifier policy |
 | **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery this process exchanges every verified caller's own assertion at Google's token service for the declared pool and hands the driver the token that comes back, which IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. `each_subject_executes_as_its_own_principal_at_the_declared_pool`, `the_deployments_own_identity_is_neither_subjects_principal` and `an_inbound_token_presented_without_the_hop_is_refused_at_the_pool` passed on 2026-11-02 in `github.com/telekom/sutura/actions/runs/41431036477`, over the in-process exchange with a fake standing in for the delegation hop; service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row that answers yes. **Oracle is supported as `shared-service-user` only, for now**: the token path is built and the settings accept it, but no run has shown a database executing as the asker (the end-user security context path is `github.com/telekom/sutura#1583`). Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
@@ -319,3 +319,16 @@ anonymous request is refused at the broker, never run as the deployment.
 (`md`/`nix`/`yml`/`yaml`/`toml`/`sh`) and `.rs` doc comments (`///`, `//!`) only - **a `//` or
 `/* */` comment or a string literal in Rust is not read** - and it matches literal wordings, so a
 paraphrase escapes.
+
+
+## Direct Google tokens
+
+`google_tokeninfo` validates opaque tokens at a bounded Google endpoint; it does not verify a JWT
+signature locally. `caller_google_token` admits only those verifiers and forwards the request's
+own token, with a written acknowledgement and startup warning. This explicitly departs from MCP's
+token-passthrough rule. Positive digest-only cache entries live until expiry, so revocation during
+that lifetime is unobserved. Outbound trust and optional client identity are fixed at startup.
+The fixed read-only scope map grants catalog, metric and raw SQL reads, keeps operator
+and source gates, and never grants remote legs. The served Google-account and real-client venues
+remain unmeasured. See
+`docs/sign-in-with-google-directly.md` and the caller-modes record's seventh amendment.

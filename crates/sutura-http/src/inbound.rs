@@ -5,7 +5,9 @@
 //! produces a domain value, and it decides nothing about what a question may ask."* That is what this
 //! module is - a header becomes a [`VerifiedCaller`], which becomes a
 //! `sutura_domain::identity::RequestContext` through `crate::principal::of_verified`, and nothing
-//! here can widen, narrow or parameterize what executes.
+//! here chooses a source's data rights. The Google-tokeninfo verifier maps a verified `BigQuery`
+//! read-only scope to three surface read operations, as the caller-modes record's seventh amendment
+//! specifies; source admissions and operator tool switches still narrow that grant.
 //!
 //! | File | What it owns |
 //! | --- | --- |
@@ -20,7 +22,8 @@
 //!
 //! # What this delivers, and what it must not be read as delivering
 //!
-//! **Delivered:** a caller's identity is established from a signed, audience-bound, unexpired token,
+//! A caller's identity is established from a signed, audience-bound, unexpired JWT, or from the
+//! explicit Google-tokeninfo policy for an opaque access token,
 //! and `sutura_domain::identity::Subject::Verified` finally has a constructor with something real
 //! behind it. Every audit record written for such a call names the person rather than the deployment.
 //!
@@ -96,6 +99,7 @@
 mod address;
 pub mod caller;
 pub mod gate;
+pub mod google;
 pub mod keys;
 mod replay;
 pub mod token;
