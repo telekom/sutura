@@ -28,17 +28,20 @@ LANES = ("core", "cube", "oracle-verified", "oracle-native", "bigquery")
 SNAPS = "crates/sutura-app/tests/snapshots/"
 SHAPES = [SNAPS + f"planned_statement_shapes@{engine}.snap" for engine in ENGINES]
 ROWS = {engine: SNAPS + f"planned_statement_rows@{engine}.snap" for engine in ENGINES}
+POLICY = {
+    engine: SNAPS + f"bounded_redacted_text_sql@{engine}.snap" for engine in ENGINES
+}
 OUTPUTS = {
-    "core": SHAPES + [ROWS[engine] for engine in ENGINES[:4]],
+    "core": SHAPES + [ROWS[engine] for engine in ENGINES[:4]] + list(POLICY.values()),
     "cube": [SHAPES[-1], ROWS["cube"]],
-    "oracle-verified": [SHAPES[-2], ROWS["oracle"]],
+    "oracle-verified": [SHAPES[-2], ROWS["oracle"], POLICY["oracle"]],
     "oracle-native": [ROWS["oracle"]],
-    "bigquery": [SHAPES[-3], ROWS["bigquery"]],
+    "bigquery": [SHAPES[-3], ROWS["bigquery"], POLICY["bigquery"]],
 }
 ALLOWED = set().union(*map(set, OUTPUTS.values()))
 CORE_FILTER = (
     "package(=sutura-app) & binary(=golden) & "
-    "(test(/^statements::(datafusion|duckdb|postgres|clickhouse|bigquery|oracle|cube)::pins_planned_source_statements$/)"
+    "(test(/^statements::(datafusion|duckdb|postgres|clickhouse|bigquery|oracle|cube)::(pins_planned_source_statements|pins_bounded_redacted_text_sql)$/)"
     " | test(/^statements::engines::(datafusion|duckdb|postgres|clickhouse)::every_planned_shape_answers_at_the_native_engine$/))"
 )
 
@@ -190,10 +193,17 @@ def check_results(lane, log):
                 for engine in ENGINES
             ]
             + [planned(engine) for engine in ENGINES[:4]]
+            + [
+                f"statements::{engine}::pins_bounded_redacted_text_sql"
+                for engine in ENGINES
+            ]
         )
         if lane == "core"
         else [planned("oracle" if lane.startswith("oracle") else lane)]
     )
+    if lane in ("bigquery", "oracle-verified"):
+        engine = "oracle" if lane == "oracle-verified" else lane
+        names.append(f"statements::{engine}::pins_bounded_redacted_text_sql")
     for name in names:
         require(passed(log, name, runner), "Missing exactly-once actual PASS: " + name)
     systems = (
@@ -216,8 +226,8 @@ def check_results(lane, log):
             not re.search(r"\bexempt:|\bSKIPPED\b", log), "Core exemption/skip refused"
         )
         require(
-            re.search(r"\b11 tests run: 11 passed\b", log),
-            "Core did not run exactly 11 selected cells",
+            re.search(r"\b18 tests run: 18 passed\b", log),
+            "Core did not run exactly 18 selected cells",
         )
     if lane == "cube":
         for name in (
@@ -485,8 +495,9 @@ def collect(incoming, out):
             "lane_tree": manifest["phases"]["no-update"]["tree"],
         }
     require(
-        set(merged) == ALLOWED and set(SHAPES + list(ROWS.values())) <= set(merged),
-        "Missing 14 planned snapshots",
+        set(merged) == ALLOWED
+        and set(SHAPES + list(ROWS.values()) + list(POLICY.values())) <= set(merged),
+        "Missing 21 planned/policy snapshots",
     )
     out.mkdir(parents=True, exist_ok=False)
     for path, data in merged.items():
@@ -589,7 +600,12 @@ def self_check():
                 "test tests::the_live_cube_serves_the_recorded_definitions ... ok\n"
             )
             actual += "test catalogs::cube::the_catalog_is_pinned_as_a_whole ... ok\n"
-        assert check_results(lane, actual) == [expected]
+        expected_names = [expected]
+        if engine == "bigquery":
+            policy = f"statements::{engine}::pins_bounded_redacted_text_sql"
+            actual += f"        PASS [   0.010s] (2/2) sutura-app::golden {policy}\n"
+            expected_names.append(policy)
+        assert check_results(lane, actual) == expected_names
         wrong = actual.replace(f"at_the_{engine}_engine", "at_the_native_engine")
         try:
             check_results(lane, wrong)
@@ -601,14 +617,18 @@ def self_check():
         f"statements::{engine}::pins_planned_source_statements" for engine in ENGINES
     ]
     names += [planned(engine) for engine in ENGINES[:4]]
+    names += [
+        f"statements::{engine}::pins_bounded_redacted_text_sql" for engine in ENGINES
+    ]
     log = "\n".join(
-        f"        PASS [   0.010s] ({index:2}/11) sutura-app::golden {name}"
+        f"        PASS [   0.010s] ({index:2}/18) sutura-app::golden {name}"
         for index, name in enumerate(names, 1)
     )
-    log += "\nSummary [1s] 11 tests run: 11 passed, 100 skipped\n"
-    assert len(check_results("core", log)) == 11
+    log += "\nSummary [1s] 18 tests run: 18 passed, 100 skipped\n"
+    assert len(check_results("core", log)) == 18
     for bad in (
         log.replace("PASS", "FAIL", 1),
+        log.replace("pins_bounded_redacted_text_sql", "missing_policy", 1),
         log + "exempt: postgres from Unavailable\n",
     ):
         try:
@@ -618,9 +638,13 @@ def self_check():
         else:
             raise AssertionError("False native proof accepted")
     live = f"        PASS [   0.010s] (1/1) sutura-app::golden {planned('bigquery')}\n"
+    live += "        PASS [   0.010s] (2/2) sutura-app::golden statements::bigquery::pins_bounded_redacted_text_sql\n"
     live += "exempt: bigquery from DryRun - unrelated capability cell\n"
     live += "exempt: bigquery from KeyProbe - unrelated capability cell\n"
-    assert check_results("bigquery", live) == [planned("bigquery")]
+    assert check_results("bigquery", live) == [
+        planned("bigquery"),
+        "statements::bigquery::pins_bounded_redacted_text_sql",
+    ]
     for notice in ("Unavailable", "SUTURA_ONLY_SYSTEMS"):
         try:
             check_results(
@@ -632,11 +656,11 @@ def self_check():
         else:
             raise AssertionError("Native availability/narrowing exemption accepted")
     assert (
-        len(SHAPES + list(ROWS.values()))
-        == len(set(SHAPES + list(ROWS.values())))
-        == 14
+        len(SHAPES + list(ROWS.values()) + list(POLICY.values()))
+        == len(set(SHAPES + list(ROWS.values()) + list(POLICY.values())))
+        == 21
     )
-    assert ALLOWED == set(SHAPES + list(ROWS.values()))
+    assert ALLOWED == set(SHAPES + list(ROWS.values()) + list(POLICY.values()))
     assert (
         ROWS["oracle"] in OUTPUTS["oracle-native"]
         and ROWS["oracle"] in OUTPUTS["oracle-verified"]
