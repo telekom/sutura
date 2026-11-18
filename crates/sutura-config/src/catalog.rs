@@ -601,6 +601,7 @@ mod tests {
     use sutura_domain::pinned::DefinitionVersion;
 
     use super::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings};
+    use crate::{Environment, Settings, Sources};
 
     fn version() -> DefinitionVersion {
         DefinitionVersion::parse("test-1").expect("a test version is a version")
@@ -889,5 +890,72 @@ mod tests {
             .with_refresh_seconds(Some(0))
             .expect_err("a zero interval is not an interval");
         assert_eq!(error, InvalidCatalogSettings::ZeroRefresh { name: name("catalog") });
+    }
+
+    const ENTRY: &[&str] = &[
+        "environment: prod",
+        "source_alias: warehouse",
+        "live_row_predicate: {column: deleted_at, operator: is_null}",
+        "max_dictionary_rows: 1000",
+        "max_dictionary_bytes: 1048576",
+    ];
+
+    const CONNECTION: &[&str] = &[
+        "host: 127.0.0.1",
+        "port: 5432",
+        "database: dictionary",
+        "user: reader",
+        "password_file: /run/secrets/dictionary",
+        "transport_mode: plaintext",
+    ];
+
+    fn overlay(kind: &str, entry: &[&str], connection: Option<&[&str]>) -> String {
+        let indent = |lines: &[&str], by: &str| lines.iter().flat_map(|line| [by, line, "\n"]).collect::<String>();
+        let connection = connection.map_or_default(|lines| format!("    connection:\n{}", indent(lines, "      ")));
+        format!(
+            "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
+             catalogs:\n  - name: dict\n    kind: {kind}\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n{}{connection}",
+            indent(entry, "    ")
+        )
+    }
+
+    fn load(overlay: &str) -> Result<Settings, crate::settings::SettingsLoadError> {
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+    }
+
+    #[test]
+    fn a_separate_description_mapping_is_parsed_as_prose_only_with_a_closed_predicate() {
+        let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+        let text = format!(
+            "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: deleted, operator: equals, value: 'N'}}\n"
+        );
+        let settings = load(&text).expect("a checked standalone mapping loads");
+        let entry = settings.catalogs().each().next().unwrap();
+        let sources = entry.rdbms().unwrap().descriptions_from();
+        let crate::catalog::rdbms::DescriptionSource::Table(mapping) = sources.first().unwrap() else {
+            panic!("a mapping")
+        };
+        assert_eq!(mapping.table().to_string(), "inventory.column_docs");
+        assert_eq!(mapping.predicate().unwrap().value(), Some("N"));
+        load(&text.replace(
+            "live_row_predicate: {column: deleted, operator: equals, value: 'N'}",
+            "live_row: \"deleted = 'N'\"",
+        ))
+        .expect_err("raw SQL is not a declared mapping field");
+    }
+
+    #[test]
+    fn referenced_catalogs_are_prose_only_and_unrelated_contributors_are_retained() {
+        let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+        let first = format!("{base}    descriptions_from: [{{catalog: second}}]\n");
+        let entry = base.split_once("catalogs:\n").unwrap().1;
+        let second = entry.replace("name: dict", "name: second");
+        let third = entry.replace("name: dict", "name: third");
+        let settings = load(&format!("{first}{second}{third}")).expect("declared prose reference");
+        let structural = settings.catalogs().structural_catalogs().unwrap();
+        assert_eq!(
+            structural.each().map(|entry| entry.name().as_str()).collect::<Vec<_>>(),
+            ["dict", "third"]
+        );
     }
 }
