@@ -2,11 +2,11 @@
   "status": "READY_FOR_EXACT_REVIEW",
   "main": "f454275025078c6611bd3e3dcd4b89c931ce5656",
   "base": "f454275025078c6611bd3e3dcd4b89c931ce5656",
-  "source_tree": "5eaa545854fef0af5aa9f0d08cce65792be9711e",
-  "source_patch_sha256": "91a02234b93120e31ef443eccfdfbee582d36b8006257b6f49c72f4918f74797",
-  "source_freeze_sha256": "1982a90cb9f59f9dea05175938b15c33b0839c276bab4a38d6c54f93f5976f71",
-  "source_review_sha256": "922eedce00f57b0e93bab1362d4f58b84b062e141e08944f6629a0e500107845",
-  "helper_ref": "ci/explicit-projections-generation-1970-r4-concierge0811-r1",
-  "request_id": "80fbac8a-cd84-4ccb-8e1a-231052bdc567",
-  "source_branch": "fix/explicit-source-projections-1970-generated-r4-concierge0811-r1"
+  "source_tree": "b583de3ee2ce670d9ab03e82a0d5088bdbdc3822",
+  "source_patch_sha256": "36fc446f46dd1d36d57ca4ea1d5a90577ea6431d74b41bef9df10337fecec61d",
+  "source_freeze_sha256": "fba0f97f799172ee6e08dce616b140ccfdb05fb012c74b14d579ca25bc05568b",
+  "source_review_sha256": "451ce2ee130cf3a5a41fa01c494627e219885e480f094364bf883ecaaa77d5c4",
+  "helper_ref": "ci/text-prefilter-generation-only-1973-96764287",
+  "request_id": "96764287-885b-48b6-99f6-8964622c5fdb",
+  "source_branch": "fix/text-prefilter-generated-1973-96764287"
 }
