@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       consumer:
-        description: Reviewed source to commit and export
+        description: Reviewed source tree to generate and collect
         type: choice
         required: true
         options: [sql-planned-native]
@@ -106,7 +106,7 @@ jobs:
           persist-credentials: false
       - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
-        with: &nix-config
+        with:
           extra_nix_config: |
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
@@ -242,67 +242,36 @@ jobs:
         with:
           pattern: sql-planned-*
           path: ${{ runner.temp }}/sql-planned-incoming
-      - name: Collect planned snapshots and commit one source unit through normal hooks
+      - name: Collect generated outputs without creating a source commit
         env:
           SOURCE_BASE: ${{ steps.binding.outputs.base }}
         run: |
           set -euo pipefail
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           export helper="$GITHUB_WORKSPACE/.github/sql-planned.py"
-          export evidence="$RUNNER_TEMP/sql-planned-bundle"
-          # Collector creates evidence only after all five artifacts have been checked.
-          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD'
+          export evidence="$RUNNER_TEMP/sql-planned-generated"
+          nix shell --inputs-from . nixpkgs#just --command bash -euo pipefail <<'COLLECT'
           just lint-ci
           python3 "$helper" self-check
           cd source
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          base="$SOURCE_BASE"
-          test "$(git rev-parse HEAD)" = "$base"
-          source_branch="$(python3 -c 'import json;print(json.load(open("../.github/payloads/sql-planned.json"))["source_branch"])')"
-          test -z "$(git ls-remote --refs origin "refs/heads/$source_branch")"
-          test -z "$(git config --get core.hooksPath || true)"
-          git config --local user.name ci
-          git config --local user.email user@example.com
+          test "$(git rev-parse HEAD)" = "$SOURCE_BASE"
           python3 "$helper" prepare
           python3 "$helper" collect "$RUNNER_TEMP/sql-planned-incoming" "$evidence"
-          git switch -c "$source_branch"
-          cp "$(git rev-parse --git-path index)" "$evidence/index-before.raw"
-          git ls-files --stage -z > "$evidence/stage-before.z"
-          devenv --profile hooks shell bash -euo pipefail <<'SOURCE'
-          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}${PREK_ALLOW_NO_CONFIG:-}"
-          test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          pixi run --frozen hooks-install
-          hook_dir="$(git rev-parse --git-path hooks)"
-          for stage in pre-commit commit-msg pre-push; do test -x "$hook_dir/$stage"; done
-          test "$(cargo deny --version)" = 'cargo-deny 0.20.2'
-          { rustc --version; cargo --version; cargo deny --version; pixi --version; devenv --version; } > "$evidence/versions.log" 2>&1
-          git -c color.ui=false commit -F "$GITHUB_WORKSPACE/.github/payloads/sql-planned-source-message.txt" 2>&1 | tee "$evidence/source-commit.log"
-          SOURCE
-          test "$(git log -1 --format=%B)" = "$(cat "$GITHUB_WORKSPACE/.github/payloads/sql-planned-source-message.txt")"
-          for hook in 'cargo fmt' 'cargo clippy (-D warnings, all features)' 'structural gates' 'cargo check (changed packages only)' 'copy/paste detection (jscpd)' 'detect hardcoded secrets (CI is authoritative)' 'conventional commit subject'; do
-            grep -F "$hook" "$evidence/source-commit.log" | grep -Eq '\.+Passed$'
-          done
-          if grep -Eq '^run-gate: SKIPPED|^format-text: SKIPPED|not on PATH - skipped|skipped - no nix' "$evidence/source-commit.log"; then exit 1; fi
-          cp "$(git rev-parse --git-path index)" "$evidence/index-after.raw"
-          git ls-files --stage -z > "$evidence/stage-after.z"
-          git cat-file commit HEAD > "$evidence/source-commit.raw"
-          git bundle create "$evidence/source.bundle" "refs/heads/$source_branch" "^$base"
-          git bundle verify "$evidence/source.bundle"
-          python3 "$helper" receipt "$evidence"
-          BUILD
-      - name: Keep draft source bundle and collection receipt
+          COLLECT
+      - name: Keep generated patch and collection receipt
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sql-planned-source-bundle
-          path: ${{ runner.temp }}/sql-planned-bundle
+          name: sql-planned-generated
+          path: ${{ runner.temp }}/sql-planned-generated
           if-no-files-found: error
           retention-days: 7
       - name: Keep failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sql-planned-bundle-failure
+          name: sql-planned-generated-failure
           path: |
-            ${{ runner.temp }}/sql-planned-bundle/*.log
+            ${{ runner.temp }}/sql-planned-generated/*.log
           if-no-files-found: ignore
           retention-days: 7
