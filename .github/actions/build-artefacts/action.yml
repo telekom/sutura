@@ -127,6 +127,9 @@ runs:
           # a warm workspace an append would report this artefact twice.
           printf '%s|%s|%s\n' "$bin" "$TARGET" "$linkage" > "facts/${key}.txt"
         done
+        # Resolve the SQL image binary before image closures can exhaust the cache API.
+        # This moves its existing build earlier; a cache hit is still best-effort.
+        nix build ".#sutura-sql-${TARGET}${SUFFIX}" -L -o result-sql
         ls -l dist
 
     # Built and RUN here, pushed by `publish`. Building the image in the job that holds
