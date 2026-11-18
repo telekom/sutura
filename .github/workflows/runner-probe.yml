@@ -54,7 +54,7 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/source-projections-native-duplicate-diagnostic-r2
+          test "$GITHUB_REF" = refs/heads/ci/source-projections-native-duplicate-diagnostic-r3-85768df1
           [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
@@ -63,7 +63,7 @@ jobs:
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
           test "$CONSUMER" = native-duplicate-diagnostic
-          test "$REQUEST_ID" = f78f6e3d-d5e3-40b6-9268-071caae1d6c4
+          test "$REQUEST_ID" = 85768df1-a2f5-4894-b6b5-62daad5dba3e
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -161,7 +161,7 @@ jobs:
               )
               local restoration_status=$?
               printf '%s\n' "$restoration_status" > "$EVIDENCE/restoration.status"
-              printf '{"helper":"%s","source":"%s","source_tree":"%s","instrumented_tree":"%s","patch_sha256":"%s","filter":"%s","request_id":"%s","run_id":"%s","attempt":"%s","diagnostic_status":%s,"restoration_status":%s}\n' \
+              printf '{"helper":"%s","source":"%s","source_tree":"%s","instrumented_tree":"%s","patch_sha256":"%s","diagnostic_interest":"%s","request_id":"%s","run_id":"%s","attempt":"%s","diagnostic_status":%s,"restoration_status":%s}\n' \
                   "$EXPECTED_HELPER_SHA" "$SOURCE_COMMIT" "$EXPECTED_TREE" "$INSTRUMENTED_TREE" "$PATCH_SHA" \
                   "$FILTER" "$REQUEST_ID" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$run_status" "$restoration_status" > "$EVIDENCE/receipt.json"
               (cd "$EVIDENCE" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum) > "$EVIDENCE/SHA256SUMS"
@@ -178,9 +178,9 @@ jobs:
           test "$(git --no-optional-locks write-tree)" = "$INSTRUMENTED_TREE"
           git --no-optional-locks diff --exit-code
           snapshot instrumented
-          printf '%s\n' 'nix run .#just -- test-only "$FILTER" ci' > "$EVIDENCE/task.txt"
+          printf '%s\n' 'nix build .#checks.x86_64-linux.nextest -L' > "$EVIDENCE/task.txt"
           set +e
-          nix run .#just -- test-only "$FILTER" ci 2>&1 | tee "$EVIDENCE/test-debug.log"
+          nix build .#checks.x86_64-linux.nextest -L 2>&1 | tee "$EVIDENCE/test-debug.log"
           statuses=("${PIPESTATUS[@]}")
           set -e
           printf '%s\n' "${statuses[0]}" > "$EVIDENCE/task.status"
