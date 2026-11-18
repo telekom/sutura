@@ -2,11 +2,11 @@
   "status": "READY_FOR_EXACT_REVIEW",
   "main": "f454275025078c6611bd3e3dcd4b89c931ce5656",
   "base": "f454275025078c6611bd3e3dcd4b89c931ce5656",
-  "source_tree": "a1add352283e0783fc7d5960e9c4c785aa03f239",
-  "source_patch_sha256": "24754bb327b1bfdfd6434098c9b8683acd399be4ab4a4946148a1f3c04927187",
-  "source_freeze_sha256": "b5badc85babad05aba3dc0af1e5b66bc0e0648361e9be6f01720ad5ac2c0192f",
-  "source_review_sha256": "310bdfc91df8cca6eaaaba136573edacc9b3ff5e4d0c663ca900ce3dc55cf0d3",
-  "helper_ref": "ci/bounded-redacted-text-generation-only-1972-29d13972",
-  "request_id": "29d13972-68e4-4a69-a90e-440ceda61e5b",
-  "source_branch": "fix/bounded-redacted-text-generated-1972-29d13972"
+  "source_tree": "399033cefa8b4851e586ab5c32a70e0e7286a604",
+  "source_patch_sha256": "c9e499bab068ee315b0caa0fd869bf944ef32aff1435fa843ad755c211265ebc",
+  "source_freeze_sha256": "bb62b14f0bd40310390d51eece604f1d453ac434e9971c4a3443dcc38626d227",
+  "source_review_sha256": "fda12c9be25d2c72e79d38f0afe90c68a3515f9ccd21216fbb37e868887dd2f4",
+  "helper_ref": "ci/bounded-redacted-text-generation-only-1972-e1a68417",
+  "request_id": "e1a68417-a983-4875-b00b-25726b527451",
+  "source_branch": "fix/bounded-redacted-text-generated-1972-e1a68417"
 }
