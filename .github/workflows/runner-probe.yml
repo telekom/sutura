@@ -1,5 +1,6 @@
 # Manual normal-hook commit and bundle export; publication is a separate operation.
-name: Oracle topology source bundle
+name: Catalog fixture source bundle
+run-name: Catalog fixture source bundle ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
@@ -8,7 +9,11 @@ on:
         description: Reviewed source to commit and export
         type: choice
         required: true
-        options: [oracle-topology]
+        options: [catalog-overlay]
+      request_id:
+        description: Exact fresh reviewed request
+        type: string
+        required: true
       expected_helper_sha:
         description: Exact reviewed workflow commit
         type: string
@@ -18,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: oracle-topology-source-bundle-${{ github.ref }}
+  group: catalog-overlay-source-bundle-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -27,15 +32,15 @@ jobs:
     timeout-minutes: 360
     env:
       CONSUMER: ${{ inputs.consumer }}
+      REQUEST_ID: ${{ inputs.request_id }}
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
       WORKFLOW_SHA: ${{ github.workflow_sha }}
-      MAIN_PARENT: 4ce251204b416d74a8dc499d423e19efc6f1afc3
-      TOPIC_PARENT: 15d4485e65c09556d874bb5cd62cd5e73fe87e49
-      NATIVE_TREE: a988a9435a85f4df0225cfecb468f8177334ff40
-      EXPECTED_TREE: 605238dfc6ae1592899a2e9eebd3e3a8510154d0
-      PATCH_SHA: 4d10f2778e6d110c3c7e631c06f38f8d0cb63822994d398296b0ba2d0c7496d2
-      MESSAGE_SHA: bcf05452e9dcf14e4c04d0c4130ae1f8b523795ba0574406e953c88740cbeec5
-      SOURCE_BRANCH: test/oracle-topology-main-20261116
+      MAIN_PARENT: f454275025078c6611bd3e3dcd4b89c931ce5656
+      SOURCE_PARENT: 12dc44dc22bf2e57208df231940a872aef98d388
+      EXPECTED_TREE: 53bb3701f435c422965337578f8eea9ed856d008
+      MESSAGE_SHA: 921b4766671012f341eecd47ef3be079579e38af3878d89fc9cb8a9c7a0f9802
+      PATCH_SHA: 52e18074c36c43e5c3866c22d045e3b09c7e0fed14ce18daee9862d1972cf23b
+      SOURCE_BRANCH: feat/catalog-overlays-actual-main-concierge0811-r3
       GIT_OPTIONAL_LOCKS: "0"
       NO_COLOR: "1"
     steps:
@@ -50,7 +55,7 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/oracle-topology-source-bundle-20261118
+          test "$GITHUB_REF" = refs/heads/ci/catalog-overlay-source-bundle-concierge0811-r1
           [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
@@ -58,11 +63,12 @@ jobs:
           test -z "$(git --no-optional-locks status --porcelain=v1 --untracked-files=all)"
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
-          test "$CONSUMER" = oracle-topology
+          test "$CONSUMER" = catalog-overlay
+          test "$REQUEST_ID" = bbe53a28-7ee7-4eec-b84f-d44f8c6574e4
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 4ce251204b416d74a8dc499d423e19efc6f1afc3
+          ref: 12dc44dc22bf2e57208df231940a872aef98d388
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -72,31 +78,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EVIDENCE="$RUNNER_TEMP/oracle-topology-source-commit"
+          EVIDENCE="$RUNNER_TEMP/catalog-overlay-source-commit"
           mkdir "$EVIDENCE"
-          test "$(git --no-optional-locks rev-parse HEAD)" = "$MAIN_PARENT"
+          test "$(git --no-optional-locks rev-parse HEAD)" = "$SOURCE_PARENT"
           test -z "$(git --no-optional-locks status --porcelain=v1 --untracked-files=all)"
           test -z "$(git --no-optional-locks config --get core.hooksPath || true)"
           remote_main="$(git --no-optional-locks ls-remote --refs origin refs/heads/main)"
           remote_topic="$(git --no-optional-locks ls-remote --refs origin "refs/heads/$SOURCE_BRANCH")"
           printf '%s\n%s\n' "$remote_main" "$remote_topic" > "$EVIDENCE/remote-bindings.before"
           test "$remote_main" = "$MAIN_PARENT"$'\trefs/heads/main'
-          test "$remote_topic" = "$TOPIC_PARENT"$'\trefs/heads/'"$SOURCE_BRANCH"
+          test "$remote_topic" = "$SOURCE_PARENT"$'\trefs/heads/'"$SOURCE_BRANCH"
           git --no-optional-locks config --local user.name ci
           git --no-optional-locks config --local user.email user@example.com
           git --no-optional-locks switch -c "$SOURCE_BRANCH"
-          git --no-optional-locks merge --no-commit --no-ff "$TOPIC_PARENT" 2>&1 | tee "$EVIDENCE/native-merge.log"
-          test "$(git --no-optional-locks rev-parse HEAD)" = "$MAIN_PARENT"
-          test "$(git --no-optional-locks rev-parse MERGE_HEAD)" = "$TOPIC_PARENT"
-          test "$(git --no-optional-locks write-tree)" = "$NATIVE_TREE"
-          base64 --decode <<'PATCH' | gzip --decompress > "$EVIDENCE/forward-fixes.diff"
-          H4sIAAAAAAAC/8VW224bNxB911cwaWE5kLja+0WAAffBBYK0aNAA7YMRCLwMJVZ7UZdcWUacf++sVivLkS0ryEMFCRSGc4YzwzPDkVopQulcW8ImDi6Lhk/uqnqp8urOTIR27ouc8Be3BrqUsCFCulnsS54JLwhS5iYSOPgZyhIOWRR7vg9SSt9xYiYjyWXiqiSVmZdA4IKM4wx4EnlcBSAjiEEw4rluHIYDSukJzwaj0eiUd9fXhHqRF4xjMtquCUHRPxU30wHpPlXNRA4zq6Gekp+/fCHGwso4ImfGaHXvVI1dNdY4klk2M1VTC5h1GHJ1RYa2bmBIHh5eggmE5dV8VktemAPE16+9A0WTWz0rKwlnn98qn3X6IUjkWiwXVWPOg2oJpdX2/hWfZ6vK2HkN5qTzdVPOWJ6fdXCpN98dW+/ED0Q2Ooqsu+X/Na7vINrJ+xILVtuTkWw1DhE73rbeYGmdxj7VfcZKtYKyAMtajbNMHQJae20h+0GcjlMywjXD9bGQ29N+Ir/qNRClNyDJX78jHf/ocne3qHKYmFWOLU5UpcUsmTHp8ktWORNQoGhMalCNYbkhrJTk/cd1SGoEkhWzC+MMembQlhl0x4wBbWMsASQedyv0mPzbQAN0zXKNjoP83GloNSWXWzUH+9JJ7hxpHbHmSOM1vhwBjpnyjlxc7PS+iWAPOqoL8qZHd6XTp6G3Tvu7fSYroz4rLRPeGIvUM39jC7/s+rgDa7ThLIDJmaiKQlunAGPYHNp4hsMxGYpFVcNlDTkwA++mhxEcOXAihsdE/UgC9oTHKzW0Kqf4x1haiBUNfIGOdrtWF4DWaKHLxrYNM3a7jRXUhUZXqxLZ3DE9TfGpQqan2TNPVvsxjaxII2HNZLHlNbIVH3LMSMUkrZsczIvqttbzOdSoXrICaMGsWFwt18UhAAuB5mSCiEm7QzspJfh8oOeCiYXeTHSJd5fnFElKmbAYwHUSCfwGHr7/ArIkhDAFLoKYh0x6fsRllmx/WLCB53ieE/Sd93XbgRRe6HIlkliEmeIylDKL0tDPvMCHIAljLribxnvb0WNEd8isJwmEja3ZDK0jxUql51PycLhNiMLTORNLckXaWx7Iw1FpY5lZTkwtDmaOiud6zlpPsbgNjiWvK+3GpzRiXhJmnPmQuiH3eZIwn3kupJ6rMg+9cF0ZQuQ4vlJcqYglApQfqNj1ZJr6Hovi1ItViLNTxlQau0/HpzMc6QapMxS3/MQGjBNVu2zZiRk0lvx589vNL59uZp8+vP84JRe3F8bWnzF7F7ddYt8K/Xa8+/vYTJ8R0f45x73Rt3td8e1Ry8BQ1tjKCKzYcr6Xd2q0Hev2MqHp7onq5f8BJ67BNv8KAAA=
+          patch="$EVIDENCE/source.patch"
+          base64 --decode <<'PATCH' | gzip --decompress > "$patch"
+          H4sIAAAAAAAC/+1WbXPaRhD+zq/YqJlYDEgY20BCXiaelDaZcSEDbjOdOHM5pBVcIt0pdycw4/i/d0+CmjjYcTJtPxVmuONu99n3R4pFkkAQzIQF3oo0t2haprCF5kGUihb9tXSAeoFxa861RGNCbWB6d9makDGeQzd61Iu6Hb4fhgnvdg56ncMOtPf3u0dHtSAIvsd6rdFofJcHz59D0Gv3mu19aJRrB+goL6Z+iVGHRIKxXFs/4gb78MBYXYfgGUxKKLioQasF7y3qTEhSeA9KA4ecSxF9FHIG3JBRK5SEADTy3ICwIYxp527nqBGWqkhjyJBLWHJh3XlCKHaO4BwWEZZGrAI8p2JMkW6RgEt8Vx25snPah7VdjrNIyUTMCo3xVgxNgrbOlNkVUwD0sXrFdiJc6dYrSfcJC7nUPGdKM0wN+p9L1SL/XOXinu9txQMSF6gpH7nSlixySIWxKFH3z+TFpdeEtXb4QQnpe2fSq9frtYYzdN0lthR2zmItCPGae00YKon1GlzWoNb46W2UzHyepn4FlCCn9kB4Cp6Op5nxml+dm0/pjlM+Q2k355R8f+suV8bONBLYtobSPErRowjq9XfXq3Rjnm+p1BhNkdonVcGa8AdGTyZWk9CzZ64lbypflSuUC6GVzCiKnQlrwoO378qfMnXxLTxQIreMjlobiPWklRllEbc8VbOdtHBn1TVLtJMuHna6j3ph2H7Y6T2KjuLprSxxdwM7SePu6o5Djnr7zR40qoUOqK5V0Vkhp6qgCGImi2yKmuUqFdGKCcPwPKetsIzLmGlMCoOGKZoTTf9y6iKqEHfcYVjNIXJmMOfOTRajibTI3SXLeO7IxCHSrSFLnHZaGWRKpquq6JxFqXJ3hBsL8h79+qZVUrRg8dxSqyqaopSv/M1IwGB4Ov6zCROVof9iNBwOXpy+Gg3r9cdfqRIrZdze8684wbtwV5duu+WvYYlWGQ16JRQApVpi5K76cHExpwnqQ/ugF+7Tt92EmDI9LcchVhG1KGVJ9x2XxkjDkRPBLpWOWSJSEmnpQlLBIo1UqUreai6NIxqWqZhE8pQLWTp2ufGBpoVPnbqQC8q50qswUmmRSeYgrqQ+4sq5aKI5ZrwPaimdC2tdNf1AUTDJM5qgSr0PicA0Ls+2rW1lg/xxlbq6S4nImFbLq0I5kxu8GCnjbuRVjtQIijKBnwqeUpwLnhYkuzfcc6a8ip7+uTK4DPahc3R48H9JfrQkJdr26GyohcYnVTz2H7gk1EMiBvLb9zhQWNFHekISk8uYCEcirMe9VDDeNhrlSa8IaoMarknK+ATJozktkvBpqR7WPil/we5SnLc2T7DACtQBZWIhDCUlNHPiyNsF1kx9FHe6D9udyL3PJQ97B4e8jV8y9TdgKj7+hpBj3YPeYfnmtl7pqHpXWzObSOAe5PQQh2AO3v185kGQuw11Hm1/hw08BPHW3h5HcFZl1ZsMTojxoA2/jEe/QT6jNkhJ5s3LwXgAtHdt9HTvvhuAPQ8+AyHkEHyC9mP3/iYrlO924WzDocECRkM2GI9HYzY5Hb1+2oYgAu/FeHB8OoDx6GQAZ15p/cyDk9Gvr4bw+ngyeTMa/wx79zeDuPc3GfwAXnVXXu2GJlj3xvcvhXp8Qsave/bm1enLHwr0ZrS7hJmI/7arMpsadmNr/QVTIjwvoA0AAA==
           PATCH
-          test "$(sha256sum "$EVIDENCE/forward-fixes.diff" | cut -d ' ' -f 1)" = "$PATCH_SHA"
-          printf '%s\n' 'test: integrate Oracle topology with current main' > "$EVIDENCE/commit-message.txt"
+          test "$(sha256sum "$patch" | cut -d ' ' -f 1)" = "$PATCH_SHA"
+          git --no-optional-locks apply --index --check "$patch"
+          git --no-optional-locks apply --index "$patch"
+          test "$(git --no-optional-locks rev-parse HEAD)" = "$SOURCE_PARENT"
+          printf 'fix: provision catalog overlay fixture boundaries\n' > "$EVIDENCE/commit-message.txt"
           test "$(sha256sum "$EVIDENCE/commit-message.txt" | cut -d ' ' -f 1)" = "$MESSAGE_SHA"
-          git --no-optional-locks apply --index --check "$EVIDENCE/forward-fixes.diff"
-          git --no-optional-locks apply --index "$EVIDENCE/forward-fixes.diff"
           test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
           git --no-optional-locks diff --exit-code
           sha256sum flake.lock devenv.lock pixi.lock .pre-commit-config.yaml > "$EVIDENCE/source-inputs.sha256"
@@ -120,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
-          export EVIDENCE="$RUNNER_TEMP/oracle-topology-source-commit"
+          export EVIDENCE="$RUNNER_TEMP/catalog-overlay-source-commit"
           export MESSAGE="$EVIDENCE/commit-message.txt"
           test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
           nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD' 2>&1 | tee "$EVIDENCE/normal-hooks.log"
@@ -142,8 +146,7 @@ jobs:
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
           test -z "$(git --no-optional-locks config --get core.hooksPath || true)"
-          test "$(git --no-optional-locks rev-parse HEAD)" = "$MAIN_PARENT"
-          test "$(git --no-optional-locks rev-parse MERGE_HEAD)" = "$TOPIC_PARENT"
+          test "$(git --no-optional-locks rev-parse HEAD)" = "$SOURCE_PARENT"
           test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
           git --no-optional-locks diff --exit-code
           snapshot before
@@ -177,10 +180,8 @@ jobs:
               'structural gates'
               'cargo check (changed packages only)'
               'copy/paste detection (jscpd)'
-              'markdown/yaml/toml (dprint), python (ruff)'
-              'Helm chart (lint, render, goldens, kubeconform)'
+              'shell scripts'
               'detect hardcoded secrets (CI is authoritative)'
-              'GitHub Actions static analysis'
               'conventional commit subject'
           )
           for hook in "${hooks[@]}"; do
@@ -191,13 +192,13 @@ jobs:
           fi
           commit="$(git --no-optional-locks rev-parse HEAD)"
           git --no-optional-locks rev-list --parents -n 1 HEAD > "$EVIDENCE/parents.txt"
-          test "$(cat "$EVIDENCE/parents.txt")" = "$commit $MAIN_PARENT $TOPIC_PARENT"
+          test "$(cat "$EVIDENCE/parents.txt")" = "$commit $SOURCE_PARENT"
           test "$(git --no-optional-locks rev-parse 'HEAD^{tree}')" = "$EXPECTED_TREE"
           test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
           test -z "$(git --no-optional-locks status --porcelain=v1 --untracked-files=all)"
-          git --no-optional-locks diff --binary --full-index "$MAIN_PARENT" HEAD > "$EVIDENCE/source.diff"
+          git --no-optional-locks diff --binary --full-index "$SOURCE_PARENT" HEAD > "$EVIDENCE/source.diff"
           ref="refs/heads/$SOURCE_BRANCH"
-          git --no-optional-locks bundle create "$EVIDENCE/source.bundle" "$ref" "^$MAIN_PARENT" "^$TOPIC_PARENT"
+          git --no-optional-locks bundle create "$EVIDENCE/source.bundle" "$ref" "^$SOURCE_PARENT"
           git --no-optional-locks bundle verify "$EVIDENCE/source.bundle" 2>&1 | tee "$EVIDENCE/bundle-verify.log"
           test "$(git --no-optional-locks bundle list-heads "$EVIDENCE/source.bundle")" = "$commit $ref"
           remote_main="$(git --no-optional-locks ls-remote --refs origin refs/heads/main)"
@@ -205,9 +206,9 @@ jobs:
           printf '%s\n%s\n' "$remote_main" "$remote_topic" > "$EVIDENCE/remote-bindings.after"
           cmp "$EVIDENCE/remote-bindings.before" "$EVIDENCE/remote-bindings.after"
           bundle_sha="$(sha256sum "$EVIDENCE/source.bundle" | cut -d ' ' -f 1)"
-          printf '{"consumer":"%s","helper":"%s","commit":"%s","parents":["%s","%s"],"tree":"%s","ref":"%s","patch_sha256":"%s","message_sha256":"%s","bundle_sha256":"%s","run_id":"%s","attempt":"%s"}\n' \
-              "$CONSUMER" "$EXPECTED_HELPER_SHA" "$commit" "$MAIN_PARENT" "$TOPIC_PARENT" "$EXPECTED_TREE" "$ref" \
-              "$PATCH_SHA" "$MESSAGE_SHA" "$bundle_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$EVIDENCE/receipt.json"
+          printf '{"consumer":"%s","helper":"%s","commit":"%s","parents":["%s"],"tree":"%s","ref":"%s","message_sha256":"%s","bundle_sha256":"%s","run_id":"%s","attempt":"%s"}\n' \
+              "$CONSUMER" "$EXPECTED_HELPER_SHA" "$commit" "$SOURCE_PARENT" "$EXPECTED_TREE" "$ref" \
+              "$MESSAGE_SHA" "$bundle_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$EVIDENCE/receipt.json"
           BUILD
           (cd "$EVIDENCE" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum) > "$EVIDENCE/SHA256SUMS"
 
@@ -215,7 +216,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: oracle-topology-source-commit-${{ github.run_id }}
-          path: ${{ runner.temp }}/oracle-topology-source-commit
+          name: catalog-overlay-source-commit-${{ github.run_id }}
+          path: ${{ runner.temp }}/catalog-overlay-source-commit
           if-no-files-found: error
           retention-days: 14
