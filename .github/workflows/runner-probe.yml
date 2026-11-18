@@ -1,4 +1,4 @@
-name: Native BigQuery qualifier mutation proof
+name: Native build filesystem metadata diagnostic
 
 on:
   workflow_dispatch:
@@ -15,6 +15,10 @@ on:
         description: Exact ancestor for the finishing comparison
         type: string
         required: true
+      warm_artifacts:
+        description: Exact inherited artifact from the retained failed run
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -27,7 +31,7 @@ jobs:
   bigquery-mutations:
     if: github.event_name == 'workflow_dispatch'
     runs-on: rust-mcp-16core
-    timeout-minutes: 360
+    timeout-minutes: 30
     environment: bq-test
     concurrency:
       group: bigquery-conformance-${{ vars.SUTURA_BQ_DATASET }}
@@ -35,6 +39,7 @@ jobs:
       cancel-in-progress: false
     env:
       GIT_OPTIONAL_LOCKS: "0"
+      WARM_ARTIFACTS: ${{ inputs.warm_artifacts }}
       SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
       SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
       INSTA_UPDATE: "no"
@@ -67,86 +72,154 @@ jobs:
           [[ "$(git --no-optional-locks rev-parse 'HEAD^{tree}')" == "$SOURCE_TREE" ]]
           [[ "$(git --no-optional-locks merge-base "$SOURCE_SHA" "$COMPARISON_SHA")" == "$COMPARISON_SHA" ]]
           [[ -z "$(git --no-optional-locks status --porcelain)" ]]
+          python3 -c 'import hashlib,os; assert hashlib.sha256(os.environ["WARM_ARTIFACTS"].encode()).hexdigest() == "8d3406ec5bf756f949e62395ac31de695f9427a3771c0f96eda58c4737c1c5e4"'
           printf '{"source_sha":"%s","source_tree":"%s","comparison_sha":"%s"}\n' "$SOURCE_SHA" "$SOURCE_TREE" "$COMPARISON_SHA" > "$RUNNER_TEMP/finishing-plan.json"
 
-      - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           extra_nix_config: |
-            fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-      - uses: $/.github/actions/nix-store-cache
-        with:
-          scope: ci
-
-      - name: Place credential outside the checkout
-        env:
-          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
-        run: |
-          set -eu
-          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
-            echo "bq-test has no CI credential" >&2
-            exit 1
-          fi
-          umask 077
-          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
-          chmod 600 "$RUNNER_TEMP/bq-key.json"
-          printf 'GOOGLE_APPLICATION_CREDENTIALS=%s\n' "$RUNNER_TEMP/bq-key.json" >> "$GITHUB_ENV"
-      # The project comes off the key, masked before it is exported, so it reaches the cells
-      # without reaching the log.
-      - name: Mask resource names and read the project off the key
-        env:
-          K: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: |
-          set -eu
-          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
-            || { echo "the CI credential names no project_id" >&2; exit 1; }
-          if [ -z "$project" ]; then
-            echo "the CI credential names an empty project_id" >&2
-            exit 1
-          fi
-          printf '::add-mask::%s\n' "$project"
-          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
-            echo "bq-test has no SUTURA_BQ_DATASET" >&2
-            exit 1
-          fi
-          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
-          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-      - name: Export the exact current BigQuery driver
+      - name: Copy only the exact existing inherited artifact
         working-directory: source
         run: |
           set -euo pipefail
-          driver="$(nix build --no-link --print-out-paths .#packages.x86_64-linux.adbc-driver-bigquery-x86_64-unknown-linux-gnu)"
-          driver="$driver/lib/libadbc_driver_bigquery.so"
-          [[ "$driver" == /nix/store/* && -f "$driver" ]]
-          printf 'SUTURA_BIGQUERY_ADBC_DRIVER=%s\n' "$driver" >> "$GITHUB_ENV"
+          out=target/inbound-verifier-proof/filesystem-diagnostic
+          mkdir -p "$out"
+          nix copy --option fallback false --from https://sutura.cachix.org "$WARM_ARTIFACTS" 2>&1 | tee "$out/acquisition.log"
+          nix path-info --json "$WARM_ARTIFACTS" > "$out/warm-path-info.json"
 
-      - name: Load the exact source corpus once
+      - name: Read archive and existing path metadata without restoring the target
         working-directory: source
-        run: nix run .#bigquery-provision -- --no-capture
-
-      - name: Run the existing whole-binary mutation proof
-        working-directory: source
+        timeout-minutes: 10
         run: |
           set -euo pipefail
-          unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND SUTURA_ONLY_SYSTEMS
-          export CARGO_TERM_COLOR=never NO_COLOR=1
-          : "${SUTURA_BQ_PROJECT:?}" "${SUTURA_BQ_DATASET:?}" "${SUTURA_BIGQUERY_ADBC_DRIVER:?}"
-          test -f "$GOOGLE_APPLICATION_CREDENTIALS"
-          test -f "$SUTURA_BIGQUERY_ADBC_DRIVER"
-          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py sql-mutations "$RUNNER_TEMP/finishing-plan.json"
+          python3 -I - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import hashlib, io, json, os, re, shutil, subprocess, tarfile, tomllib, urllib.request
+
+          out = Path('target/inbound-verifier-proof/filesystem-diagnostic')
+          out.mkdir(parents=True, exist_ok=True)
+          warm = Path(os.environ['WARM_ARTIFACTS'])
+          assert hashlib.sha256(str(warm).encode()).hexdigest() == '8d3406ec5bf756f949e62395ac31de695f9427a3771c0f96eda58c4737c1c5e4'
+          archive = warm / 'target.tar.zst'
+          hint = PurePosixPath('ci/build/zstd-sys/32188762f3244dd9/out/include/zstd.h')
+          wanted = {hint, hint.with_name('zstd_errors.h'), *hint.parents}
+          report = {
+              'status': 'INCOMPLETE_DIAGNOSTIC_NO_VERDICT',
+              'source_binding': json.loads((Path(os.environ['RUNNER_TEMP']) / 'finishing-plan.json').read_text()),
+              'helper_sha': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+              'cwd': str(Path.cwd()), 'cwd_scope': 'diagnostic process, not the failed build script',
+              'identity': {'uid': os.getuid(), 'euid': os.geteuid(), 'gid': os.getgid(), 'egid': os.getegid(), 'groups': os.getgroups()},
+              'OUT_DIR': os.environ.get('OUT_DIR'), 'OUT_DIR_scope': 'diagnostic environment only; failed build value was not retained',
+              'warm_artifacts': str(warm), 'retained_link_search_hint': str(hint.parent.parent),
+              'warm_members': [], 'source_members': [], 'filesystem': {},
+              'limits': [
+                  'Archive mode, owner and symlink metadata do not establish the failed extracted filesystem state.',
+                  'The output path is a retained link-search hint, not an independently observed failed OUT_DIR.',
+                  'Current process and filesystem observations are from this diagnostic run, not the failed process.',
+                  'No extraction, header copy, chmod, cache deletion, build, provision or test is performed here.',
+                  'Access checks and ACLs do not reproduce fs::copy or identify its denied sub-operation.',
+                  'stat/access/getfacl follow symlinks; lstat records the link itself. No resolved-root confinement is claimed.',
+                  'Archive limits cover member count, selected records and step time, not decompressed bytes or parser memory.',
+              ],
+          }
+
+          def metadata(member):
+              return {'name': member.name, 'mode': oct(member.mode), 'uid': member.uid, 'gid': member.gid,
+                      'type': member.type.decode('ascii'), 'linkname': member.linkname,
+                      'pax_acl': {k: v for k, v in member.pax_headers.items() if 'acl' in k.lower()}}
+
+          def inspect(path):
+              for node in (path, *path.parents):
+                  if str(node) in report['filesystem']:
+                      continue
+                  facts = {}
+                  for name, follow in [('lstat', False), ('stat', True)]:
+                      try:
+                          value = node.stat(follow_symlinks=follow)
+                          facts[name] = {'mode': oct(value.st_mode), 'uid': value.st_uid, 'gid': value.st_gid, 'inode': value.st_ino, 'device': value.st_dev}
+                      except OSError as error:
+                          facts[name] = {'errno': error.errno}
+                  if node.is_symlink():
+                      facts['readlink'] = os.readlink(node)
+                  facts['effective_access'] = {name: os.access(node, flag, effective_ids=True) for name, flag in [('read', os.R_OK), ('write', os.W_OK), ('execute_or_search', os.X_OK)]}
+                  if shutil.which('getfacl'):
+                      try:
+                          result = subprocess.run(['getfacl', '-p', '-n', '--', str(node)], capture_output=True, text=True, timeout=2, check=False)
+                          facts['acl'] = {'exit': result.returncode, 'stdout': result.stdout[:8192], 'stderr': result.stderr[:1024], 'truncated': len(result.stdout) > 8192}
+                      except subprocess.TimeoutExpired:
+                          facts['acl'] = {'status': 'timeout'}
+                  else:
+                      facts['acl'] = {'status': 'getfacl unavailable; not installed by this diagnostic'}
+                  report['filesystem'][str(node)] = facts
+
+          try:
+              inspect(archive)
+              for header in ['zstd.h', 'zstd_errors.h']:
+                  inspect(Path.cwd() / 'target/causality-target' / str(hint.with_name(header)))
+              with archive.open('rb') as source:
+                  report['archive_sha256'] = hashlib.file_digest(source, 'sha256').hexdigest()
+              decoder = shutil.which('zstd')
+              assert decoder, 'zstd is unavailable; no tool build or install is attempted'
+              report['decoder_version'] = subprocess.check_output([decoder, '--version'], text=True, timeout=5).strip()
+              with (out / 'decoder.stderr').open('wb') as errors:
+                  process = subprocess.Popen([decoder, '-dc', '--', str(archive)], stdout=subprocess.PIPE, stderr=errors)
+                  try:
+                      with tarfile.open(fileobj=process.stdout, mode='r|') as contents:
+                          for count, member in enumerate(contents, 1):
+                              assert count <= 1000000, 'archive member bound exceeded'
+                              name = PurePosixPath(member.name.removeprefix('./'))
+                              assert not name.is_absolute() and '..' not in name.parts
+                              unit = any(part == 'zstd-sys' or re.fullmatch(r'zstd-sys-[0-9a-f]+', part) for part in name.parts)
+                              selected = name in wanted or (unit and (name.name in {'out', 'include', 'zstd.h', 'zstd_errors.h'} or re.fullmatch(r'[0-9a-f]{16}', name.name)))
+                              if selected:
+                                  assert len(report['warm_members']) < 256, 'selected member bound exceeded'
+                                  report['warm_members'].append(metadata(member))
+                          report['archive_member_count'] = count
+                      assert process.wait(timeout=10) == 0
+                  finally:
+                      if process.poll() is None:
+                          process.kill()
+                          process.wait()
+              report['warm_exact_hint_present'] = any(PurePosixPath(m['name'].removeprefix('./')) == hint for m in report['warm_members'])
+              assert any(PurePosixPath(m['name']).name == 'zstd.h' for m in report['warm_members']), 'no warm zstd.h metadata; no permission conclusion'
+              packages = [p for p in tomllib.loads(Path('Cargo.lock').read_text())['package'] if p['name'] == 'zstd-sys']
+              assert len(packages) == 1
+              package = packages[0]
+              assert package['version'] == '2.1.2+zstd.1.5.7'
+              report['locked_source'] = {k: package[k] for k in ['name', 'version', 'source', 'checksum']}
+              url = 'https://static.crates.io/crates/zstd-sys/zstd-sys-' + package['version'] + '.crate'
+              with urllib.request.urlopen(url, timeout=20) as response:
+                  data = response.read(10000001)
+              assert len(data) <= 10000000 and hashlib.sha256(data).hexdigest() == package['checksum']
+              (out / 'locked-zstd-sys.crate').write_bytes(data)
+              prefix = PurePosixPath('zstd-sys-' + package['version'])
+              source_names = {prefix / 'build.rs', prefix / 'zstd/lib/zstd.h', prefix / 'zstd/lib/zstd_errors.h'}
+              source_names |= {parent for name in source_names for parent in name.parents}
+              with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as contents:
+                  for member in contents:
+                      if PurePosixPath(member.name) in source_names:
+                          report['source_members'].append(metadata(member))
+                      if member.name == str(prefix / 'build.rs'):
+                          body = contents.extractfile(member).read(100001)
+                          assert len(body) <= 100000
+                          report['build_script_sha256'] = hashlib.sha256(body).hexdigest()
+                          report['build_script_lines_430_438'] = body.decode().splitlines()[429:438]
+              report['status'] = 'ARCHIVE_METADATA_ONLY_NO_FAILED_PROCESS_CAUSE_OR_PERMISSION_REPAIR_VERDICT'
+          finally:
+              (out / 'metadata.json').write_text(json.dumps(report, indent=2) + '\n')
+          PY
 
       - name: Remove credential
         if: always()
         run: rm -f "$RUNNER_TEMP/bq-key.json"
 
-      - name: Retain native mutation evidence on success or failure
+      - name: Retain filesystem metadata on success or failure
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sql-qualifier-bigquery-${{ github.run_id }}
+          name: native-build-filesystem-${{ github.run_id }}
           path: source/target/inbound-verifier-proof/
           if-no-files-found: error
           retention-days: 14
