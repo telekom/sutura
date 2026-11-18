@@ -299,6 +299,17 @@
           "primaryKey": true
         },
         {
+          "name": "dim_customer.customer_id",
+          "title": "Dim Customer Customer ID",
+          "type": "string",
+          "description": "The business key a person would quote, for example C0001.",
+          "shortTitle": "Customer ID",
+          "suggestFilterValues": true,
+          "isVisible": true,
+          "public": true,
+          "primaryKey": false
+        },
+        {
           "name": "dim_customer.segment",
           "title": "Dim Customer Segment",
           "type": "string",
