@@ -17,12 +17,12 @@ jobs:
     timeout-minutes: 30
     env:
       GIT_OPTIONAL_LOCKS: "0"
-      SOURCE_SHA: a0d0c086745141328c69ec0f251bc4b9be0e8949
-      SOURCE_TREE: 9d20d057273ec2552e65938ed6d1c96f32d5f5fa
+      SOURCE_SHA: 85be876530008dd54cc7b0761118ef2723ddcba2
+      SOURCE_TREE: 4096c0fc38eed6adf4f98c0fac505d9419777f76
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: a0d0c086745141328c69ec0f251bc4b9be0e8949
+          ref: 85be876530008dd54cc7b0761118ef2723ddcba2
           persist-credentials: false
 
       - name: Bind the accepted source before acquiring tools
