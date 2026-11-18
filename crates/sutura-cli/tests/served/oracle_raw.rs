@@ -1,5 +1,9 @@
 //! Real Oracle raw calls over the existing native and verified login fixtures.
 
+#[cfg(feature = "sql")]
+#[path = "oracle_prefilter.rs"]
+mod prefilter;
+
 use serde_json::json;
 use sutura_http::constants::base_paths::RUN_SQL;
 

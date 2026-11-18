@@ -81,6 +81,7 @@ use crate::pool::{self, WorkingSet};
 mod oracle;
 mod resolve;
 mod text;
+mod text_prefilter;
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>

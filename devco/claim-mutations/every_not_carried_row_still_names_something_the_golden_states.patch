@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
 --- a/crates/sutura-catalog-local/src/document.rs
 +++ b/crates/sutura-catalog-local/src/document.rs
-@@ -275,7 +275,7 @@
-                     column: name.clone(),
-                     cause,
+@@ -280,7 +280,7 @@
+                         cause,
+                     }
                  })?;
 -                Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable)
 +                Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable.and(None))

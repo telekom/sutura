@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
 --- a/crates/sutura-catalog-local/src/document.rs
 +++ b/crates/sutura-catalog-local/src/document.rs
-@@ -266,7 +266,7 @@
+@@ -268,7 +268,7 @@
              Self::Long {
                  name,
                  r#type,
@@ -10,9 +10,9 @@ diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog
                  nullable,
                  max_text_bytes,
                  redact,
-@@ -275,7 +275,7 @@
-                     column: name.clone(),
-                     cause,
+@@ -280,7 +280,7 @@
+                         cause,
+                     }
                  })?;
 -                Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable)
 +                Column::from_metadata(name, r#type.as_deref(), None, nullable)
