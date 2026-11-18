@@ -275,12 +275,18 @@ impl Unparser<'_> {
             return Ok(*body);
         }
 
-        // If no projection is set, add a wildcard projection to the select
-        // which will be translated to `SELECT *` in the SQL statement
+        // Keep the plan's declared output even when optimization removed its projection.
         if !select_builder.already_projected() {
-            select_builder.projection(vec![ast::SelectItem::Wildcard(
-                ast::WildcardAdditionalOptions::default(),
-            )]);
+            let expressions = if plan.schema().fields().is_empty() {
+                self.empty_projection_fallback()
+            } else {
+                plan.schema().columns().into_iter().map(Expr::Column).collect()
+            };
+            select_builder.projection(
+                expressions.iter()
+                    .map(|expression| self.select_item_to_sql(expression))
+                    .collect::<Result<Vec<_>>>()?,
+            );
         }
 
         let mut twj = select_builder.pop_from().unwrap();
@@ -1563,6 +1569,17 @@ impl Unparser<'_> {
                     select.already_projected(),
                 )?;
 
+                if !select.already_projected()
+                    && (unparsed_table_scan.is_none()
+                        || matches!(&unparsed_table_scan, Some(LogicalPlan::Limit(_))))
+                {
+                    select.projection(
+                        plan_alias.schema.columns().into_iter()
+                            .map(|column| self.select_item_to_sql(&Expr::Column(column)))
+                            .collect::<Result<Vec<_>>>()?,
+                    );
+                }
+
                 // A scan fetch is an inner row window, not a replacement for the caller's limit.
                 if let Some(unparsed) = &unparsed_table_scan
                     && matches!(unparsed, LogicalPlan::Limit(_))
@@ -1618,13 +1635,6 @@ impl Unparser<'_> {
                     );
                 }
 
-                // if the child plan is a TableScan with pushdown operations, we don't need to
-                // create an additional subquery for it
-                if !select.already_projected() && unparsed_table_scan.is_none() {
-                    select.projection(vec![ast::SelectItem::Wildcard(
-                        ast::WildcardAdditionalOptions::default(),
-                    )]);
-                }
                 let plan = unparsed_table_scan.unwrap_or_else(|| plan.clone());
                 if !columns.is_empty()
                     && !self.dialect.supports_column_alias_in_table_alias()

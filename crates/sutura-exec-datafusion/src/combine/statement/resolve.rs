@@ -20,7 +20,7 @@ pub(super) enum Refused {
 }
 
 type Resolved<T> = Result<T, Refused>;
-type Body = (Vec<Column>, Vec<Relation>);
+type Body = (Relation, Vec<Relation>);
 
 #[derive(Clone, Copy)]
 enum Fold {
@@ -59,6 +59,7 @@ struct Relation {
     path: Vec<String>,
     fold: Fold,
     columns: Vec<Column>,
+    complete: bool,
 }
 
 impl Relation {
@@ -71,11 +72,27 @@ impl Relation {
                 .all(|(ident, name)| self.fold.name(ident) == *name)
     }
 
+    fn projection(&self) -> Resolved<Vec<SelectItem>> {
+        if !self.complete {
+            return Err(unsupported());
+        }
+        Ok(self
+            .columns
+            .iter()
+            .map(|column| {
+                let mut path: Vec<_> = self.path.iter().cloned().map(quoted).collect();
+                path.push(quoted(column.name.clone()));
+                SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path))
+            })
+            .collect())
+    }
+
     fn alias(mut self, alias: &mut TableAlias) -> Self {
         normalize(&mut alias.name);
         self.path = vec![alias.name.value.clone()];
         self.fold = Fold::Lower;
         if !alias.columns.is_empty() {
+            self.complete = true;
             self.columns = alias
                 .columns
                 .iter_mut()
@@ -106,12 +123,21 @@ const fn unsupported() -> Refused {
 
 /// Quoted paths and schemas remain exact; an unquoted Oracle component folds up, all others down.
 pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
+    resolved(statement, tables, false)
+}
+
+pub(super) fn explicit_statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
+    resolved(statement, tables, true)
+}
+
+fn resolved(statement: &mut Statement, tables: &[StatementTable], explicit: bool) -> Resolved<BTreeSet<QualifiedTable>> {
     let Statement::Query(query) = statement else {
         return Err(Refused::Unsupported(SqlConstruct::NonQuery));
     };
     let mut resolver = Resolver {
         tables,
         physical: BTreeSet::new(),
+        explicit,
     };
     drop(resolver.query(query, &[], &[])?);
     if resolver.physical.is_empty() {
@@ -123,10 +149,11 @@ pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) ->
 struct Resolver<'a> {
     tables: &'a [StatementTable],
     physical: BTreeSet<QualifiedTable>,
+    explicit: bool,
 }
 
 impl Resolver<'_> {
-    fn query(&mut self, query: &mut Query, outer: &[Relation], ctes: &[Relation]) -> Resolved<Vec<Column>> {
+    fn query(&mut self, query: &mut Query, outer: &[Relation], ctes: &[Relation]) -> Resolved<Relation> {
         if query.fetch.is_some() {
             return Err(Refused::Unsupported(SqlConstruct::FetchFirst));
         }
@@ -142,27 +169,16 @@ impl Resolver<'_> {
                 return Err(unsupported());
             }
             for cte in &mut with.cte_tables {
-                let columns = self.query(&mut cte.query, outer, &ctes)?;
-                let relation = Relation {
-                    path: Vec::new(),
-                    fold: Fold::Lower,
-                    columns,
-                }
-                .alias(&mut cte.alias);
+                let relation = self.query(&mut cte.query, outer, &ctes)?.alias(&mut cte.alias);
                 ctes.retain(|existing| existing.path != relation.path);
                 ctes.push(relation);
             }
         }
-        let (columns, scope) = self.body(&mut query.body, outer, &ctes)?;
-        let outputs = Relation {
-            path: Vec::new(),
-            fold: Fold::Lower,
-            columns: columns.clone(),
-        };
+        let (outputs, scope) = self.body(&mut query.body, outer, &ctes)?;
         let mut expressions = Expressions::new(self, &scope, outer, &ctes, Some(&outputs));
         continued(query.order_by.visit(&mut expressions))?;
         continued(query.limit_clause.visit(&mut expressions))?;
-        Ok(columns)
+        Ok(outputs)
     }
 
     fn body(&mut self, body: &mut SetExpr, outer: &[Relation], ctes: &[Relation]) -> Resolved<Body> {
@@ -175,9 +191,33 @@ impl Resolver<'_> {
                 for from in &mut select.from {
                     self.from(from, outer, ctes, &mut scope)?;
                 }
+                if self.explicit {
+                    let mut projection = Vec::new();
+                    for item in std::mem::take(&mut select.projection) {
+                        match item {
+                            SelectItem::Wildcard(options) if options.to_string().is_empty() => {
+                                for relation in &scope {
+                                    projection.extend(relation.projection()?);
+                                }
+                            }
+                            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), options)
+                                if options.to_string().is_empty() =>
+                            {
+                                let path = identifiers(&name)?;
+                                let relation =
+                                    unique(scope.iter().filter(|relation| relation.matches(&path)))?.ok_or_else(unsupported)?;
+                                projection.extend(relation.projection()?);
+                            }
+                            SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) => return Err(unsupported()),
+                            other => projection.push(other),
+                        }
+                    }
+                    select.projection = projection;
+                }
                 let mut expressions = Expressions::new(self, &scope, outer, ctes, None);
                 continued(select.projection.visit(&mut expressions))?;
                 let mut columns = Vec::new();
+                let mut complete = true;
                 for item in &mut select.projection {
                     match item {
                         SelectItem::ExprWithAlias { alias, .. } => {
@@ -199,15 +239,19 @@ impl Resolver<'_> {
                                 columns.push(column);
                             }
                         }
-                        SelectItem::Wildcard(_) => columns.extend(scope.iter().flat_map(|relation| relation.columns.clone())),
+                        SelectItem::Wildcard(_) => {
+                            complete &= scope.iter().all(|relation| relation.complete);
+                            columns.extend(scope.iter().flat_map(|relation| relation.columns.clone()));
+                        }
                         SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
                             let identifiers = identifiers(name)?;
                             let relation = unique(scope.iter().filter(|relation| relation.matches(&identifiers)))?
                                 .ok_or_else(unsupported)?;
                             *name = object_name(&relation.path);
+                            complete &= relation.complete;
                             columns.extend(relation.columns.clone());
                         }
-                        _ => {}
+                        _ => complete = false,
                     }
                 }
                 let projection = std::mem::take(&mut select.projection);
@@ -222,12 +266,13 @@ impl Resolver<'_> {
                 let outputs = Relation {
                     path: Vec::new(),
                     fold: Fold::Lower,
-                    columns: columns.clone(),
+                    columns,
+                    complete,
                 };
                 let mut expressions = Expressions::new(self, &scope, outer, ctes, Some(&outputs));
                 continued(select.having.visit(&mut expressions))?;
                 continued(select.qualify.visit(&mut expressions))?;
-                Ok((columns, scope))
+                Ok((outputs, scope))
             }
             SetExpr::Query(query) => Ok((self.query(query, outer, ctes)?, Vec::new())),
             SetExpr::SetOperation { left, right, .. } => {
@@ -238,7 +283,15 @@ impl Resolver<'_> {
             SetExpr::Values(values) => {
                 let mut expressions = Expressions::new(self, &[], outer, ctes, None);
                 continued(values.visit(&mut expressions))?;
-                Ok((Vec::new(), Vec::new()))
+                Ok((
+                    Relation {
+                        path: Vec::new(),
+                        fold: Fold::Lower,
+                        columns: Vec::new(),
+                        complete: false,
+                    },
+                    Vec::new(),
+                ))
             }
             SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Delete(_) | SetExpr::Merge(_) => {
                 Err(Refused::Unsupported(SqlConstruct::NonQuery))
@@ -278,6 +331,11 @@ impl Resolver<'_> {
             else {
                 continue;
             };
+            if matches!(constraint, JoinConstraint::Using(_) | JoinConstraint::Natural) {
+                for relation in scope.iter_mut().skip(start) {
+                    relation.complete = false;
+                }
+            }
             if let JoinConstraint::Using(names) = constraint {
                 for name in names {
                     let path = identifiers(name)?;
@@ -339,7 +397,15 @@ impl Resolver<'_> {
                             fold,
                         })
                         .collect();
-                    (Relation { path, fold, columns }, alias)
+                    (
+                        Relation {
+                            path,
+                            fold,
+                            columns,
+                            complete: true,
+                        },
+                        alias,
+                    )
                 }
             }
             TableFactor::Derived {
@@ -347,17 +413,7 @@ impl Resolver<'_> {
                 alias,
                 lateral: false,
                 ..
-            } => {
-                let columns = self.query(subquery, outer, ctes)?;
-                (
-                    Relation {
-                        path: Vec::new(),
-                        fold: Fold::Lower,
-                        columns,
-                    },
-                    alias,
-                )
-            }
+            } => (self.query(subquery, outer, ctes)?, alias),
             TableFactor::NestedJoin {
                 table_with_joins,
                 alias: None,

@@ -51,6 +51,9 @@ impl StatementLegs for OracleLegs {
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        if !explicit_source_projection(statement.as_str()) {
+            return Err(source.clone());
+        }
         if *source == named("geo") {
             self.statements.push(String::from(statement.as_str()));
             eprintln!("source SQL: {}", statement.as_str());
@@ -232,6 +235,18 @@ fn mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening() {
             (
                 r#"select "sales_area" from "dim_region" where "sales_area" > 9 order by "sales_area""#,
                 &["10", "95", "960", "4000"],
+            ),
+            (
+                r#"select * from "dim_region" where "sales_area" > 9 order by "sales_area""#,
+                &["10", "95", "960", "4000"],
+            ),
+            (
+                r#"select r.* from "dim_region" r where r."sales_area" > 9 order by r."sales_area""#,
+                &["10", "95", "960", "4000"],
+            ),
+            (
+                r#"with r as (select "sales_area" as n from "dim_region") select * from r order by n"#,
+                &["9", "10", "95", "960", "4000"],
             ),
             (
                 r#"select "sales_area" from "dim_region" where "sales_area" in (9, 4000) order by "sales_area""#,
@@ -611,5 +626,66 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             };
             assert_eq!(legs.statements.len(), parts, "{dialect:?}: {sql}");
         }
+    }
+}
+
+#[test]
+fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
+    let physical = RecordBatch::try_from_iter([("sales_area", Arc::new(Int64Array::from(vec![9, 10, 20])) as ArrayRef)])
+        .expect("physical source numbers");
+    let schema = Schema::new(vec![Field::new("sales_area", DataType::Utf8, false).with_metadata(
+        std::collections::HashMap::from([(String::from("sutura:unbounded_number"), String::from("utf8"))]),
+    )]);
+    let tables = [StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("dim_region").expect("a table"),
+        TypeDialect::Oracle,
+        Arc::new(schema),
+    )];
+    for predicate in [r#"a."sales_area" = 9"#, r#"a."sales_area" = 1000"#] {
+        let statement = RawStatement::parse(format!(
+            r#"SELECT a."sales_area", b."sales_area" FROM "dim_region" a JOIN "dim_region" b ON a."sales_area" + 1 = b."sales_area" WHERE {predicate}"#
+        )).expect("an admitted native numeric query");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        drop(
+            legs.engines
+                .at
+                .insert(named("geo"), holding(&[("dim_region", physical.clone())])),
+        );
+        let answer = DataFusionCombiner::new().expect("a combiner").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                false,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!(
+                "native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}",
+                legs.engines.opened, legs.engines.ran
+            )
+        };
+        assert_eq!(rows.columns(), ["sales_area", "sales_area"]);
+        assert_eq!(
+            source_labels(legs.statements.first().expect("a native source statement")),
+            ["c0", "c1"]
+        );
+        let expected = if predicate.contains("1000") {
+            vec![]
+        } else {
+            vec![vec![
+                sutura_domain::warehouse::Value::Integer(9),
+                sutura_domain::warehouse::Value::Integer(10),
+            ]]
+        };
+        assert_eq!(rows.rows(), expected);
+        assert_eq!(legs.engines.opened, [BTreeSet::from([named("geo")])]);
+        assert_eq!(legs.statements.len(), 1);
     }
 }
