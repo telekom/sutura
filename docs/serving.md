@@ -236,6 +236,9 @@ columns:
         replace: "IDENTIFIED BY ***"
 ```
 
+[An optional raw search prefilter](raw-text-search.md) requires a per-column acknowledgement of
+secret-dependent timing and conservative proof; redacted text still decides every answer.
+
 For a native `rdbms` dictionary, put the same settings in `column_rules` on its catalog entry,
 with `column: SCRIPT*` selecting column names by dictionary pattern. This admits Oracle CLOB and
 NCLOB columns only when a bound is present. Without a bound, native dictionaries still refuse

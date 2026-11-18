@@ -22,7 +22,7 @@ use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, Metada
 use sutura_domain::catalog::{
     Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidComparison,
     InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidSharedCalendars, InvalidViaChain, JoinKey, JoinKeys,
-    MaxTextBytes, Metric, Model, Redaction, Relationship, SharedCalendars, TextPolicy, ViaChain,
+    MaxTextBytes, Metric, Model, RawPrefilter, Redaction, Relationship, SharedCalendars, TextPolicy, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
@@ -252,6 +252,8 @@ pub enum ColumnEntryDoc {
         max_text_bytes: Option<MaxTextBytes>,
         #[serde(default)]
         redact: Vec<Redaction>,
+        #[serde(default)]
+        raw_prefilter: Option<RawPrefilter>,
     },
 }
 
@@ -270,10 +272,13 @@ impl ColumnEntryDoc {
                 nullable,
                 max_text_bytes,
                 redact,
+                raw_prefilter,
             } => {
-                let text = TextPolicy::parse(max_text_bytes, redact).map_err(|cause| InvalidModelDocument::TextPolicy {
-                    column: name.clone(),
-                    cause,
+                let text = TextPolicy::parse(max_text_bytes, redact, raw_prefilter).map_err(|cause| {
+                    InvalidModelDocument::TextPolicy {
+                        column: name.clone(),
+                        cause,
+                    }
                 })?;
                 Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable)
                     .map(|column| column.with_text_policy(text))
@@ -772,3 +777,6 @@ mod tests;
 #[cfg(test)]
 #[path = "document/relationship_tests.rs"]
 mod relationship_tests;
+
+#[cfg(test)]
+mod raw_prefilter_tests;
