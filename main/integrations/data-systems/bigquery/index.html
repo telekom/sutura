@@ -1978,6 +1978,8 @@
       
         
       
+        
+      
     
     
     
@@ -2041,6 +2043,34 @@
     
   
     Inbound identity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../sign-in-with-google-directly/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sign in with Google directly
   
 
     
@@ -2900,8 +2930,8 @@ and these keys:</p>
 <p>Every model names its table as <code>project.dataset.table</code>. A job on an <code>impersonation-at-source</code> source
 bills, in order: the project of the caller's first <code>billing.by_group</code> group, then the one project
 that the job's tables are in. If no step decides a payer, the question is refused.</p>
-<p><code>impersonation-at-source</code> needs exactly one of <code>workload_identity</code>, <code>google_login</code> or
-<code>domain_delegation</code>. <code>workload_identity</code> has these keys:</p>
+<p><code>impersonation-at-source</code> needs exactly one of <code>workload_identity</code>, <code>google_login</code>,
+<code>domain_delegation</code> or the opt-in <a href="../../../sign-in-with-google-directly/"><code>caller_google_token</code></a>. <code>workload_identity</code> has these keys:</p>
 <table>
 <thead>
 <tr>

@@ -1785,6 +1785,8 @@
       
         
       
+        
+      
     
     
     
@@ -1845,6 +1847,34 @@
     
   
     Inbound identity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sign-in-with-google-directly/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sign in with Google directly
   
 
     
@@ -5305,7 +5335,7 @@ the token nor the fingerprint.</p>
 <p><strong>The limit:</strong> the constructor is <code>pub</code>, so the fingerprint states what the exchanging adapter
 says it exchanged. Nothing here can tell that an exchange took place.</p>
 <h3 id="use-admittingverifier"><code>use AdmittingVerifier</code><a class="headerlink" href="#use-admittingverifier" title="Permanent link">&para;</a></h3>
-<p>Admission provenance, copied from configuration after signature verification.</p>
+<p>Admission provenance, copied from configuration after the declared verification policy succeeds.</p>
 <p>No wire deserialization. This records admission; it does not prove source impersonation.
 One immutable declaration is shared across request contexts without copying issuer text.</p>
 <h3 id="use-invalidverifierid"><code>use InvalidVerifierId</code><a class="headerlink" href="#use-invalidverifierid" title="Permanent link">&para;</a></h3>
