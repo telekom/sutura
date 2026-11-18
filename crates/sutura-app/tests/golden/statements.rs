@@ -380,13 +380,14 @@ fn summarized(rows: &RowSet) -> String {
 
 fn runs_native_statement_corpus<W>(expected_dialect: TypeDialect)
 where
-    W: DataSystemUnderTest + Sync,
-    W::Error: Send,
+    W: DataSystemUnderTest + Send + Sync + 'static,
+    W::Error: Send + Sync,
 {
     if !runs_here::<W>() {
         return;
     }
-    let pinned = load_on::<W>();
+    text::served::<W>(expected_dialect);
+    let pinned = text::with_disjoint_policy(&load_on::<W>(), expected_dialect, false);
     let warehouse: W = open(&pinned);
     let dialect = warehouse
         .type_dialect()
