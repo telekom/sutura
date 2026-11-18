@@ -38,7 +38,7 @@ jobs:
       MAIN_PARENT: f454275025078c6611bd3e3dcd4b89c931ce5656
       SOURCE_PARENT: 969afca89a6e8edb7ed09f42db033577e5558e56
       EXPECTED_TREE: 5d6e0f3e6656d49ab7e221efb589e41d30f1c187
-      MESSAGE_SHA: d98a59f50bf4138e2b2db3f2421c5b645fc05fcb510726346f7058c6d75ddc56
+      MESSAGE_SHA: 3b3a0189bef72b1d2bdf07d2880b39ee09fabd69e17ab2e8b7694010a40d1d24
       PATCH_SHA: d5bcd1c51be7ec9bd866760cb0021cb6f4b4103343f45afaa2522675a6b041a6
       SOURCE_BRANCH: fix/explicit-source-projections-1970-generated-r4-concierge0811-r1
       GIT_OPTIONAL_LOCKS: "0"
@@ -55,7 +55,7 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/source-projections-fixture-export-810077c5
+          test "$GITHUB_REF" = refs/heads/ci/source-projections-fixture-export-4ee0c170
           [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
@@ -64,7 +64,7 @@ jobs:
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
           test "$CONSUMER" = source-projections
-          test "$REQUEST_ID" = 810077c5-b537-4ed6-99a0-67fe0d011ce7
+          test "$REQUEST_ID" = 4ee0c170-88e6-4d4d-8839-edb27bf31088
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,7 +100,7 @@ jobs:
           git --no-optional-locks apply --index "$patch"
           test "$(git --no-optional-locks rev-parse HEAD)" = "$SOURCE_PARENT"
           base64 --decode <<'MESSAGE' > "$EVIDENCE/commit-message.txt"
-          dGVzdChzcWwpOiBrZWVwIGR1cGxpY2F0ZS1vdXRwdXQgY292ZXJhZ2Ugb24gc3VwcG9ydGVkIG51bWVyaWMgY29tcGFyaXNvbnMK
+          dGVzdChzcWwpOiBjb3ZlciBkdXBsaWNhdGUgb3V0cHV0cyB3aXRoIG5hdGl2ZSBudW1lcmljIGNvbXBhcmlzb25zCg==
           MESSAGE
           test "$(sha256sum "$EVIDENCE/commit-message.txt" | cut -d ' ' -f 1)" = "$MESSAGE_SHA"
           test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
