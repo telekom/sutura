@@ -1,36 +1,107 @@
-# Frozen lock hash comparison; maintenance writes require a genuine bot event.
-name: Native npm dependency hash equivalence
+# Manual normal-hook commit and bundle export; publication is a separate operation.
+name: Oracle topology source bundle
 
 on:
   workflow_dispatch:
+    inputs:
+      consumer:
+        description: Reviewed source to commit and export
+        type: choice
+        required: true
+        options: [oracle-topology]
+      expected_helper_sha:
+        description: Exact reviewed workflow commit
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: npm-native-hash-equivalence-${{ github.ref }}
+  group: oracle-topology-source-bundle-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  native-hash:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  source-bundle:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
     env:
+      CONSUMER: ${{ inputs.consumer }}
+      EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
+      WORKFLOW_SHA: ${{ github.workflow_sha }}
+      MAIN_PARENT: 4ce251204b416d74a8dc499d423e19efc6f1afc3
+      TOPIC_PARENT: 15d4485e65c09556d874bb5cd62cd5e73fe87e49
+      NATIVE_TREE: a988a9435a85f4df0225cfecb468f8177334ff40
+      EXPECTED_TREE: 605238dfc6ae1592899a2e9eebd3e3a8510154d0
+      PATCH_SHA: 4d10f2778e6d110c3c7e631c06f38f8d0cb63822994d398296b0ba2d0c7496d2
+      MESSAGE_SHA: bcf05452e9dcf14e4c04d0c4130ae1f8b523795ba0574406e953c88740cbeec5
+      SOURCE_BRANCH: test/oracle-topology-main-20261116
       GIT_OPTIONAL_LOCKS: "0"
-      SOURCE_SHA: 85be876530008dd54cc7b0761118ef2723ddcba2
-      SOURCE_TREE: 4096c0fc38eed6adf4f98c0fac505d9419777f76
+      NO_COLOR: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 85be876530008dd54cc7b0761118ef2723ddcba2
           persist-credentials: false
 
-      - name: Bind the accepted source before acquiring tools
+      - name: Check the reviewed helper
+        shell: bash
         run: |
           set -euo pipefail
-          [[ "$(git --no-optional-locks rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          [[ "$(git --no-optional-locks rev-parse 'HEAD^{tree}')" == "$SOURCE_TREE" ]]
-          [[ -z "$(git --no-optional-locks status --porcelain)" ]]
+          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
+          test "$GITHUB_REPOSITORY" = telekom/sutura
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/ci/oracle-topology-source-bundle-20261118
+          [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
+          test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
+          test "$(git --no-optional-locks rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
+          test -z "$(git --no-optional-locks status --porcelain=v1 --untracked-files=all)"
+          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
+          test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
+          test "$CONSUMER" = oracle-topology
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 4ce251204b416d74a8dc499d423e19efc6f1afc3
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reconstruct the accepted source before acquiring tools
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVIDENCE="$RUNNER_TEMP/oracle-topology-source-commit"
+          mkdir "$EVIDENCE"
+          test "$(git --no-optional-locks rev-parse HEAD)" = "$MAIN_PARENT"
+          test -z "$(git --no-optional-locks status --porcelain=v1 --untracked-files=all)"
+          test -z "$(git --no-optional-locks config --get core.hooksPath || true)"
+          remote_main="$(git --no-optional-locks ls-remote --refs origin refs/heads/main)"
+          remote_topic="$(git --no-optional-locks ls-remote --refs origin "refs/heads/$SOURCE_BRANCH")"
+          printf '%s\n%s\n' "$remote_main" "$remote_topic" > "$EVIDENCE/remote-bindings.before"
+          test "$remote_main" = "$MAIN_PARENT"$'\trefs/heads/main'
+          test "$remote_topic" = "$TOPIC_PARENT"$'\trefs/heads/'"$SOURCE_BRANCH"
+          git --no-optional-locks config --local user.name ci
+          git --no-optional-locks config --local user.email user@example.com
+          git --no-optional-locks switch -c "$SOURCE_BRANCH"
+          git --no-optional-locks merge --no-commit --no-ff "$TOPIC_PARENT" 2>&1 | tee "$EVIDENCE/native-merge.log"
+          test "$(git --no-optional-locks rev-parse HEAD)" = "$MAIN_PARENT"
+          test "$(git --no-optional-locks rev-parse MERGE_HEAD)" = "$TOPIC_PARENT"
+          test "$(git --no-optional-locks write-tree)" = "$NATIVE_TREE"
+          base64 --decode <<'PATCH' | gzip --decompress > "$EVIDENCE/forward-fixes.diff"
+          H4sIAAAAAAAC/8VW224bNxB911cwaWE5kLja+0WAAffBBYK0aNAA7YMRCLwMJVZ7UZdcWUacf++sVivLkS0ryEMFCRSGc4YzwzPDkVopQulcW8ImDi6Lhk/uqnqp8urOTIR27ouc8Be3BrqUsCFCulnsS54JLwhS5iYSOPgZyhIOWRR7vg9SSt9xYiYjyWXiqiSVmZdA4IKM4wx4EnlcBSAjiEEw4rluHIYDSukJzwaj0eiUd9fXhHqRF4xjMtquCUHRPxU30wHpPlXNRA4zq6Gekp+/fCHGwso4ImfGaHXvVI1dNdY4klk2M1VTC5h1GHJ1RYa2bmBIHh5eggmE5dV8VktemAPE16+9A0WTWz0rKwlnn98qn3X6IUjkWiwXVWPOg2oJpdX2/hWfZ6vK2HkN5qTzdVPOWJ6fdXCpN98dW+/ED0Q2Ooqsu+X/Na7vINrJ+xILVtuTkWw1DhE73rbeYGmdxj7VfcZKtYKyAMtajbNMHQJae20h+0GcjlMywjXD9bGQ29N+Ir/qNRClNyDJX78jHf/ocne3qHKYmFWOLU5UpcUsmTHp8ktWORNQoGhMalCNYbkhrJTk/cd1SGoEkhWzC+MMembQlhl0x4wBbWMsASQedyv0mPzbQAN0zXKNjoP83GloNSWXWzUH+9JJ7hxpHbHmSOM1vhwBjpnyjlxc7PS+iWAPOqoL8qZHd6XTp6G3Tvu7fSYroz4rLRPeGIvUM39jC7/s+rgDa7ThLIDJmaiKQlunAGPYHNp4hsMxGYpFVcNlDTkwA++mhxEcOXAihsdE/UgC9oTHKzW0Kqf4x1haiBUNfIGOdrtWF4DWaKHLxrYNM3a7jRXUhUZXqxLZ3DE9TfGpQqan2TNPVvsxjaxII2HNZLHlNbIVH3LMSMUkrZsczIvqttbzOdSoXrICaMGsWFwt18UhAAuB5mSCiEm7QzspJfh8oOeCiYXeTHSJd5fnFElKmbAYwHUSCfwGHr7/ArIkhDAFLoKYh0x6fsRllmx/WLCB53ieE/Sd93XbgRRe6HIlkliEmeIylDKL0tDPvMCHIAljLribxnvb0WNEd8isJwmEja3ZDK0jxUql51PycLhNiMLTORNLckXaWx7Iw1FpY5lZTkwtDmaOiud6zlpPsbgNjiWvK+3GpzRiXhJmnPmQuiH3eZIwn3kupJ6rMg+9cF0ZQuQ4vlJcqYglApQfqNj1ZJr6Hovi1ItViLNTxlQau0/HpzMc6QapMxS3/MQGjBNVu2zZiRk0lvx589vNL59uZp8+vP84JRe3F8bWnzF7F7ddYt8K/Xa8+/vYTJ8R0f45x73Rt3td8e1Ry8BQ1tjKCKzYcr6Xd2q0Hev2MqHp7onq5f8BJ67BNv8KAAA=
+          PATCH
+          test "$(sha256sum "$EVIDENCE/forward-fixes.diff" | cut -d ' ' -f 1)" = "$PATCH_SHA"
+          printf '%s\n' 'test: integrate Oracle topology with current main' > "$EVIDENCE/commit-message.txt"
+          test "$(sha256sum "$EVIDENCE/commit-message.txt" | cut -d ' ' -f 1)" = "$MESSAGE_SHA"
+          git --no-optional-locks apply --index --check "$EVIDENCE/forward-fixes.diff"
+          git --no-optional-locks apply --index "$EVIDENCE/forward-fixes.diff"
+          test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
+          git --no-optional-locks diff --exit-code
+          sha256sum flake.lock devenv.lock pixi.lock .pre-commit-config.yaml > "$EVIDENCE/source-inputs.sha256"
+
+      - uses: $/.github/actions/reclaim-disk
 
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
@@ -39,93 +110,112 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - name: Acquire the pinned accepted-source tools
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Commit through normal hooks and export the source bundle
+        working-directory: source
+        shell: bash
         run: |
           set -euo pipefail
-          for tool in prefetch-npm-deps cacert python3; do
-            nix build --inputs-from . "nixpkgs#$tool" --out-link "$RUNNER_TEMP/trusted-$tool"
-          done
-
-      - name: Compare the native stdout with the accepted npm dependency hash
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/npm-native-hash-proof"
-          python="$RUNNER_TEMP/trusted-python3/bin/python3"
-          "$python" -I - <<'PYTHON'
-          import hashlib
-          import json
-          import os
-          import runpy
-          from pathlib import Path
-
-          trusted = runpy.run_path("devco/dependabot_npm.py")
-          deck = Path("slides/2026-introducing-sutura")
-          manifest = (deck / "package.json").read_bytes()
-          lock = trusted["validate_graph"](manifest, (deck / "package-lock.json").read_bytes())
-          template = Path("nix/slides.nix").read_bytes()
-          expected = trusted["template_slot"](template, template).group(1).decode("ascii")
-          temporary = Path(os.environ["RUNNER_TEMP"])
-          out = temporary / "npm-native-hash-proof"
-          out.mkdir()
-          (out / "package-lock.json").write_bytes(lock)
-          proof = {
-              "status": "prepared",
-              "source": os.environ["SOURCE_SHA"],
-              "source_tree": os.environ["SOURCE_TREE"],
-              "flake_lock_sha256": hashlib.sha256(Path("flake.lock").read_bytes()).hexdigest(),
-              "helper_sha256": hashlib.sha256(Path("devco/dependabot_npm.py").read_bytes()).hexdigest(),
-              "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
-              "lock_sha256": hashlib.sha256(lock).hexdigest(),
-              "nix_sha256": hashlib.sha256(template).hexdigest(),
-              "expected": expected,
-              "native_format": 1,
-              "tools": {
-                  name: str((temporary / ("trusted-" + name)).resolve())
-                  for name in ("prefetch-npm-deps", "cacert", "python3")
-              },
-              "scope": "Frozen lock native hash only; no dependency build, advisory or maintenance-write verdict.",
+          unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
+          export EVIDENCE="$RUNNER_TEMP/oracle-topology-source-commit"
+          export MESSAGE="$EVIDENCE/commit-message.txt"
+          test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
+          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command bash -euo pipefail <<'BUILD' 2>&1 | tee "$EVIDENCE/normal-hooks.log"
+          devenv --profile hooks shell bash -euo pipefail <<'COMMIT'
+          snapshot() {
+              local out="$EVIDENCE/$1"
+              mkdir "$out"
+              cp "$(git --no-optional-locks rev-parse --git-path index)" "$out/index.raw"
+              git --no-optional-locks ls-files --stage -z > "$out/index.entries.z"
+              git --no-optional-locks ls-files -z > "$out/tracked.paths.z"
+              git --no-optional-locks ls-tree -rz --full-tree "$EXPECTED_TREE" > "$out/tree.manifest.z"
+              git --no-optional-locks write-tree > "$out/index.tree"
+              git --no-optional-locks rev-parse HEAD > "$out/HEAD"
+              git --no-optional-locks status --porcelain=v1 --untracked-files=all > "$out/status.txt"
+              git --no-optional-locks diff --binary --full-index > "$out/unstaged.diff"
+              git --no-optional-locks diff --cached --binary --full-index > "$out/staged.diff"
+              tar --create --gzip --file "$out/tracked.tar.gz" --null --no-recursion --files-from "$out/tracked.paths.z"
           }
-          (out / "proof.json").write_text(json.dumps(proof, indent=2) + "\n")
-          PYTHON
-          mkdir "$out/home" "$out/tmp"
-          test -f "$RUNNER_TEMP/trusted-cacert/etc/ssl/certs/ca-bundle.crt"
-          # Registry redirects remain trusted; the native reader has no per-response size bound.
-          (
-            cd "$out"
-            timeout 1200 env -i \
-              PATH="$RUNNER_TEMP/trusted-prefetch-npm-deps/bin" \
-              HOME="$out/home" TMPDIR="$out/tmp" \
-              SSL_CERT_FILE="$RUNNER_TEMP/trusted-cacert/etc/ssl/certs/ca-bundle.crt" \
-              NPM_FETCHER_VERSION=1 RAYON_NUM_THREADS=2 \
-              "$RUNNER_TEMP/trusted-prefetch-npm-deps/bin/prefetch-npm-deps" \
-              "$out/package-lock.json" > "$out/hash"
+          test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
+          test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
+          test -z "$(git --no-optional-locks config --get core.hooksPath || true)"
+          test "$(git --no-optional-locks rev-parse HEAD)" = "$MAIN_PARENT"
+          test "$(git --no-optional-locks rev-parse MERGE_HEAD)" = "$TOPIC_PARENT"
+          test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
+          git --no-optional-locks diff --exit-code
+          snapshot before
+          trap 'COMMIT_STATUS=$?; trap - EXIT; printf "%s\n" "$COMMIT_STATUS" > "$EVIDENCE/normal-commit.status"; snapshot after; exit "$COMMIT_STATUS"' EXIT
+          pixi run --frozen hooks-install
+          hook_dir="$(git --no-optional-locks rev-parse --git-path hooks)"
+          mkdir "$EVIDENCE/hooks"
+          for stage in pre-commit commit-msg pre-push; do
+              test -x "$hook_dir/$stage"
+              cp "$hook_dir/$stage" "$EVIDENCE/hooks/$stage"
+          done
+          test -z "$(git --no-optional-locks config --get core.hooksPath || true)"
+          {
+              rustc --version
+              cargo --version
+              cargo deny --version
+              pixi --version
+              devenv --version
+          } > "$EVIDENCE/versions.log" 2>&1
+          git --no-optional-locks commit -F "$MESSAGE" 2>&1 | tee "$EVIDENCE/commit.log"
+          git --no-optional-locks cat-file commit HEAD > "$EVIDENCE/commit.raw"
+          sed '1,/^$/d' "$EVIDENCE/commit.raw" > "$EVIDENCE/commit-message.actual"
+          cmp "$MESSAGE" "$EVIDENCE/commit-message.actual"
+          COMMIT
+          cmp "$EVIDENCE/before/index.entries.z" "$EVIDENCE/after/index.entries.z"
+          cmp "$EVIDENCE/before/tracked.paths.z" "$EVIDENCE/after/tracked.paths.z"
+          tar --compare --gzip --file "$EVIDENCE/before/tracked.tar.gz" 2>&1 | tee "$EVIDENCE/tracked-compare.log"
+          hooks=(
+              'cargo fmt'
+              'cargo clippy (-D warnings, all features)'
+              'structural gates'
+              'cargo check (changed packages only)'
+              'copy/paste detection (jscpd)'
+              'markdown/yaml/toml (dprint), python (ruff)'
+              'Helm chart (lint, render, goldens, kubeconform)'
+              'detect hardcoded secrets (CI is authoritative)'
+              'GitHub Actions static analysis'
+              'conventional commit subject'
           )
-          "$python" -I - <<'PYTHON'
-          import hashlib
-          import json
-          import os
-          from pathlib import Path
+          for hook in "${hooks[@]}"; do
+              grep -F "$hook" "$EVIDENCE/commit.log" | grep -Eq '\.+Passed$'
+          done
+          if grep -Eq '^run-gate: SKIPPED|^format-text: SKIPPED|not on PATH - skipped|skipped - no nix' "$EVIDENCE/commit.log"; then
+              exit 1
+          fi
+          commit="$(git --no-optional-locks rev-parse HEAD)"
+          git --no-optional-locks rev-list --parents -n 1 HEAD > "$EVIDENCE/parents.txt"
+          test "$(cat "$EVIDENCE/parents.txt")" = "$commit $MAIN_PARENT $TOPIC_PARENT"
+          test "$(git --no-optional-locks rev-parse 'HEAD^{tree}')" = "$EXPECTED_TREE"
+          test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
+          test -z "$(git --no-optional-locks status --porcelain=v1 --untracked-files=all)"
+          git --no-optional-locks diff --binary --full-index "$MAIN_PARENT" HEAD > "$EVIDENCE/source.diff"
+          ref="refs/heads/$SOURCE_BRANCH"
+          git --no-optional-locks bundle create "$EVIDENCE/source.bundle" "$ref" "^$MAIN_PARENT" "^$TOPIC_PARENT"
+          git --no-optional-locks bundle verify "$EVIDENCE/source.bundle" 2>&1 | tee "$EVIDENCE/bundle-verify.log"
+          test "$(git --no-optional-locks bundle list-heads "$EVIDENCE/source.bundle")" = "$commit $ref"
+          remote_main="$(git --no-optional-locks ls-remote --refs origin refs/heads/main)"
+          remote_topic="$(git --no-optional-locks ls-remote --refs origin "refs/heads/$SOURCE_BRANCH")"
+          printf '%s\n%s\n' "$remote_main" "$remote_topic" > "$EVIDENCE/remote-bindings.after"
+          cmp "$EVIDENCE/remote-bindings.before" "$EVIDENCE/remote-bindings.after"
+          bundle_sha="$(sha256sum "$EVIDENCE/source.bundle" | cut -d ' ' -f 1)"
+          printf '{"consumer":"%s","helper":"%s","commit":"%s","parents":["%s","%s"],"tree":"%s","ref":"%s","patch_sha256":"%s","message_sha256":"%s","bundle_sha256":"%s","run_id":"%s","attempt":"%s"}\n' \
+              "$CONSUMER" "$EXPECTED_HELPER_SHA" "$commit" "$MAIN_PARENT" "$TOPIC_PARENT" "$EXPECTED_TREE" "$ref" \
+              "$PATCH_SHA" "$MESSAGE_SHA" "$bundle_sha" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$EVIDENCE/receipt.json"
+          BUILD
+          (cd "$EVIDENCE" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum) > "$EVIDENCE/SHA256SUMS"
 
-          out = Path(os.environ["RUNNER_TEMP"]) / "npm-native-hash-proof"
-          proof = json.loads((out / "proof.json").read_bytes())
-          raw = (out / "hash").read_bytes()
-          assert len(raw) <= 128, "unexpected native hash output"
-          proof["actual"] = raw.removesuffix(b"\n").decode("ascii")
-          proof["hash_stdout_sha256"] = hashlib.sha256(raw).hexdigest()
-          proof["status"] = "equal" if proof["actual"] == proof["expected"] else "different"
-          (out / "proof.json").write_text(json.dumps(proof, indent=2) + "\n")
-          assert proof["status"] == "equal", "native stdout differs from accepted npmDepsHash"
-          print("native hash equals accepted npmDepsHash")
-          PYTHON
-          [[ -z "$(git --no-optional-locks status --porcelain)" ]]
-
-      - name: Retain the source and hash comparison
+      - name: Retain the source, normal hooks and bundle
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: npm-native-hash-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/npm-native-hash-proof/proof.json
-            ${{ runner.temp }}/npm-native-hash-proof/hash
+          name: oracle-topology-source-commit-${{ github.run_id }}
+          path: ${{ runner.temp }}/oracle-topology-source-commit
           if-no-files-found: error
           retention-days: 14
