@@ -37,9 +37,9 @@ jobs:
       WORKFLOW_SHA: ${{ github.workflow_sha }}
       MAIN_PARENT: f454275025078c6611bd3e3dcd4b89c931ce5656
       SOURCE_PARENT: eeafa71fd3209df271031e75183db28e03cb9b97
-      EXPECTED_TREE: 89df0e538823821733cd2395e60c00bfc8567f99
+      EXPECTED_TREE: 7ddbda909705e735c127e569e167ac50997ae05a
       MESSAGE_SHA: 0c784b72ceef13181151675f46f873ff597088e0b2eb2ba06d47e0cf537a5986
-      PATCH_SHA: e97342422c4f2ddffbf813a3ea9dd7921469be8d75c4dd57f1da042f8370908a
+      PATCH_SHA: 2b79391bc408627d67bcc7296b6e981584d17a0816d0d5dcdd04b4ce1ffa7b97
       SOURCE_BRANCH: feat/catalog-overlays-actual-main-concierge0811-r3
       GIT_OPTIONAL_LOCKS: "0"
       NO_COLOR: "1"
@@ -55,7 +55,7 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/catalog-overlay-fixture-tools-concierge0811-r1
+          test "$GITHUB_REF" = refs/heads/ci/catalog-overlay-fixture-tools-concierge0811-r2
           [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
@@ -64,7 +64,7 @@ jobs:
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
           test "$CONSUMER" = catalog-overlay
-          test "$REQUEST_ID" = b2d10885-2062-4c7f-a30a-78e09cf11851
+          test "$REQUEST_ID" = dcac3516-7acf-4feb-929d-2cbec94aae02
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,7 +93,7 @@ jobs:
           git --no-optional-locks switch -c "$SOURCE_BRANCH"
           patch="$EVIDENCE/source.patch"
           base64 --decode <<'PATCH' | gzip --decompress > "$patch"
-          H4sIAAAAAAAC/61Ty27bMBC86ytYHxIbsmQ9KFJSUcBpG/TQoumhRwMCRS4TArJkkLSRIPC/l6pj5+lALsqDhCV3Z3bJGaGkREFwrSxiM66ZBTMza7vWLOCNmrnQug3QGxAzLeqlCbVB9dBMT7UCblHNIKcZSTKRJ1JgmUV1nFHOcC0lr2sa0QhIRmQYJgwSDjTHjEQFlULgOucJTXOcJlgCo2kGPOYCxVFEMPaCIBjet+f7/gm9z+coSKNoSpDf/yiazz30ckl162Dg9UG/wpZZtYHKgLWqvTbjM6tAT9EZ3FrNJkeKNKwaxmF8Jju9ZPbDeLR2rZVoMbrfLkajKepBwn5v4qBeJ9XMQKWBCdB9/mTi+e/y/Li6+vX54sv3Kfp7M2V5w3QLxpTlxbfLn7+r/fmLficfn8cNWCSgVSDQJ7Sf+Ogw96Lj5tBlO3pjlOeDuJS3GJvu2tFpkK5GVLarjGXajj1xgq4fXqnTjDdQCcWt6lqm72YCDNdq1YfDdD8U6cEXrCYUZ0lG6pimGOo0ImmaUVIkmZSJZAXJecTyOgxFQXiREcCAMxZnCcF5HOeE06hgRRw7u+Ca4iI+yReDux3km8Fova9I7Pzku28cvbLVQTPni/Z8ikaLdrfvNOK99F1o+A0smbdXZLDXxV6AThwHWd1vV7pbrmzZIzbK2Gp1c2cUZ021gymR1WtwUps+4h+su/Os4/Df4Xi02ilsj1XHaP/BrP5Tk/5/c26fXdMud/KU7pgzD0942W6U7toltLYsv8IGmm7VB1PvD4NHFSWVBgAA
+          H4sIAAAAAAAC/61Uy27bMBC8+ytYHxILlmRJlkhJRYGkbdBDi6aHHg0IfCwTArJkkLQRI/C/l7LiRx4uEsA8SOByOLvkzlAoKVEQ3CmL6IRrasFMzNIuNQ14rSZual0A9ArEpKFWraBqNeU1VEJxq9qG6vVEgOFaLbqpCbVB7FxMA9UIeECUYZJmSYZZTKYpsGmEp9OM4CLJpEwkLXDOI5qzMBQF5kWGIYU0o3GW4DSP4xxzEhW0iOOU4pSRtIhRHEU4TQdBEJzv3IPxeHzGs19doQDHPkFj940j5OayQbTqeV4TVDVdgzZVh1jQrohKA3XApl5XR+SVpayGkYceB+h4hBoWNeUwupw1lz4azpo+PvT8A1CqB3csCA2/hznt497nQdD9a7DIgLWquTPoC5KtnlP7aTR83Cx0O1/YsmOslbHV4n5tFKd11dOUyOolzJqhf+B/4hldwIPV1HM5xv/J0S9uq/1AtsOuU2n3d/Lr9vbP1+tvP320bW9Z3lPdgDFlef3j5vffarfu9ZyuXLQrV0CjQLhid+R70ov9FS1dU0v0KFputk0DvXEFej56Bdk8u6Ye6x2nq9s7l0uDdBtEZdvKWKrt6NDCm2aldNvMobFl+R1WULeLbuIPxAceAy3Y/H1m3yGfzMwo5CTDSSbyRIpUZhGLM8JpyqTkjJGIRIAzLMMwTliecY4JYRGhfBrTzso5LiThEcMcWMETAfRDZt5X8y6z7tGdGadR5GM07n6kc+O8FWiLfumkI0W9Xtha7ekROMjNKtCu273qTmw6JZuZ0/xs6FTRkYRd7A3hOBCjBvbqGg4976D/N/O8VPr7PfCMbyfO3Ti/J54dzEHeynjKFv8AQBnFWAEHAAA=
           PATCH
           test "$(sha256sum "$patch" | cut -d ' ' -f 1)" = "$PATCH_SHA"
           git --no-optional-locks apply --index --check "$patch"
