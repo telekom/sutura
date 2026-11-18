@@ -116,9 +116,9 @@ def file_trace_metadata(headers):
         "time_ns": time.time_ns(),
         "paths": {},
     }
-    if len(headers) != 2:
+    if not 1 <= len(headers) <= 3:
         report["refusal"] = (
-            "expected exactly two candidate header paths; no inference from archive hints"
+            "expected one to three candidate header paths; no inference from archive hints"
         )
         return report
     nodes = {node for name in headers for node in (Path(name), *Path(name).parents)}
