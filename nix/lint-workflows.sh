@@ -20,6 +20,9 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
+# Offline check of the maintenance guard and writer; the check calls neither Git nor a downloader.
+nix shell --inputs-from . nixpkgs#python3 --command python3 -I devco/dependabot_npm.py self-check
+
 nix run .#zizmor -- .github/workflows .github/actions
 nix run .#actionlint
 

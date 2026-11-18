@@ -4,8 +4,8 @@
 # offline: `npm ci`, then `slidev build`. Install scripts are off.
 #
 # LIMIT: `npmDepsHash` pins the lock file's tarballs, not their advisories. `security-audit.yml`
-# runs `osv-scanner` over the lock; nothing in the offline nix legs does. Bump the hash with
-# `nix build .#slides` after any change to `package-lock.json`, and copy the hash it prints.
+# runs `osv-scanner` over the lock; nothing in the offline nix legs does. The trusted-base
+# Dependabot maintenance workflow refreshes this hash; ordinary CI still builds the deck.
 { pkgs }:
 let
   deck = "2026-introducing-sutura";
