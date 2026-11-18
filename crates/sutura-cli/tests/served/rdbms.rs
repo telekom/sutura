@@ -360,7 +360,10 @@ mod tests {
                  CREATE TABLE {s}.loose_apps (id numeric(12,2)); INSERT INTO {s}.loose_apps VALUES (1), (2); \
                  CREATE TABLE {s}.loose_events (id numeric(12,2))", s=fixture.schema,
             )).unwrap();
-            let base = fixture.native_settings(&tier, "").replace("table: events", "table: '*'");
+            let base = fixture
+                .native_settings(&tier, "")
+                .replace("table: events", "table: '*'")
+                .replace(crate::harness::LOOPBACK, crate::harness::AGENT_LOOPBACK);
             let extra = format!(
                 "    relationships:\n      - name: declared_link\n        from: {{table: {s}.loose_events, columns: [id]}}\n        to: {{table: {s}.loose_apps, columns: [id]}}\n        cardinality: many_to_one\n        check_target_uniqueness: {{max_rows: 2, max_bytes: 10000}}\n",
                 s = fixture.schema

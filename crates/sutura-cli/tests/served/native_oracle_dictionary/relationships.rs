@@ -65,7 +65,10 @@ fn served_oracle_relationships_require_enforced_complete_keys_and_bounded_declar
     );
     let settings = format!(
         "{}prompt:\n  list_physical_schema: true\n",
-        fixture.settings(&extra).replace("table: EVENTS", "table: '*'")
+        fixture
+            .settings(&extra)
+            .replace("table: EVENTS", "table: '*'")
+            .replace(LOOPBACK, crate::harness::AGENT_LOOPBACK)
     );
     let served = try_start_configured("oracle-relationships", &settings).expect("the bounded Oracle relationships load");
     let call =
