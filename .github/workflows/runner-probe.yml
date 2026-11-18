@@ -136,7 +136,7 @@ jobs:
           : "${SUTURA_BQ_PROJECT:?}" "${SUTURA_BQ_DATASET:?}" "${SUTURA_BIGQUERY_ADBC_DRIVER:?}"
           test -f "$GOOGLE_APPLICATION_CREDENTIALS"
           test -f "$SUTURA_BIGQUERY_ADBC_DRIVER"
-          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks nixpkgs#strace --command python3 -I ../devco/inbound_verifier_proof.py sql-mutations "$RUNNER_TEMP/finishing-plan.json"
+          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py sql-mutations "$RUNNER_TEMP/finishing-plan.json"
 
       - name: Remove credential
         if: always()

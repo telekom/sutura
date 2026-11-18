@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import time
 from pathlib import Path
 
 import tomllib
@@ -63,203 +62,12 @@ def exact(expected):
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == PLAN["source_tree"]
 
 
-def file_trace_sink(directory, stream):
-    directory = Path(directory)
-    kept = records = 0
-    incomplete = False
-    headers = set()
-    select = re.compile(
-        rb"zstd|EACCES|EPERM|\b(?:chdir|fchdir|clone|clone3|fork|vfork|copy_file_range|sendfile|fchmod|fchmodat|chmod|ftruncate)\("
-    )
-    with (directory / "filetrace.log").open("xb") as output:
-        while line := stream.readline(16385):
-            if len(line) > 16384 or not line.endswith(b"\n"):
-                incomplete = True
-                while line and not line.endswith(b"\n"):
-                    line = stream.readline(16385)
-                continue
-            if not select.search(line):
-                continue
-            if kept + len(line) > 64 * 1024 * 1024 or records >= 100000:
-                incomplete = True
-                continue  # ponytail: drain after saturation so the tracer never sees SIGPIPE.
-            output.write(line)
-            kept += len(line)
-            records += 1
-            for name in re.findall(rb'"(/[A-Za-z0-9_./+@=-]+/zstd\.h)"', line):
-                if b".." not in name.split(b"/") and len(headers) < 3:
-                    headers.add(name.decode("ascii"))
-    report = {
-        "complete": not incomplete,
-        "bytes": kept,
-        "records": records,
-        "header_paths": sorted(headers),
-        "path_scope": "candidates only; no failed-process correlation or OUT_DIR environment claim",
-    }
-    with (directory / "filetrace.log").open("rb") as captured:
-        report["sha256"] = hashlib.file_digest(captured, "sha256").hexdigest()
-    temporary = directory / "filetrace-sink.tmp"
-    temporary.write_text(json.dumps(report, indent=2) + "\n")
-    temporary.replace(directory / "filetrace-sink.json")
-
-
-def file_trace_metadata(headers):
-    report = {
-        "scope": "post-command collector over trace candidates, not correlated failed-process paths or the denied syscall instant",
-        "identity": {
-            "uid": os.getuid(),
-            "euid": os.geteuid(),
-            "gid": os.getgid(),
-            "egid": os.getegid(),
-            "groups": os.getgroups(),
-        },
-        "time_ns": time.time_ns(),
-        "paths": {},
-    }
-    if not 1 <= len(headers) <= 3:
-        report["refusal"] = (
-            "expected one to three candidate header paths; no inference from archive hints"
-        )
-        return report
-    nodes = {node for name in headers for node in (Path(name), *Path(name).parents)}
-    if len(nodes) > 128:
-        report["refusal"] = "metadata path cap exceeded"
-        return report
-    for node in sorted(nodes):
-        facts = {}
-        for label, follow in [("lstat", False), ("stat", True)]:
-            try:
-                value = node.stat(follow_symlinks=follow)
-                facts[label] = {
-                    key: getattr(value, "st_" + key)
-                    for key in (
-                        "mode",
-                        "uid",
-                        "gid",
-                        "ino",
-                        "dev",
-                        "size",
-                        "mtime_ns",
-                        "ctime_ns",
-                    )
-                }
-            except OSError as error:
-                facts[label] = {"errno": error.errno}
-        try:
-            facts["readlink"] = os.readlink(node)
-        except OSError as error:
-            facts["readlink"] = {"errno": error.errno}
-        facts["observer_effective_access"] = {
-            label: os.access(node, flag, effective_ids=True)
-            for label, flag in [
-                ("read", os.R_OK),
-                ("write", os.W_OK),
-                ("execute_or_search", os.X_OK),
-            ]
-        }
-        for name in ("system.posix_acl_access", "system.posix_acl_default"):
-            try:
-                value = os.getxattr(node, name)
-                facts[name] = {
-                    "hex": value[:512].hex(),
-                    "bytes": len(value),
-                    "truncated": len(value) > 512,
-                }
-            except OSError as error:
-                facts[name] = {"errno": error.errno}
-        report["paths"][str(node)] = facts
-    if len(json.dumps(report).encode()) > 2 * 1024 * 1024:
-        report["paths"] = {}
-        report["refusal"] = "metadata report cap exceeded after collection"
-    return report
-
-
-def file_trace_command(command):
-    tool = shutil.which("strace")
-    report = {
-        "tool": tool,
-        "tool_before_bootstrap": os.environ.get("SUTURA_PROOF_STRACE"),
-        "source_lock_sha256": digest(Path("flake.lock").read_bytes()),
-        "command": command,
-        "initial_cwd": str(Path.cwd()),
-        "limits": [
-            "No environment or file-content buffers are traced. OUT_DIR environment and build-process credentials are unobserved.",
-            "Selected trace retention is capped; total trace traffic, CPU and blocking filesystem calls are not bounded here.",
-            "Post-command stat/access/ACL reads follow symlinks and use collector identity; lstat/readlink describe links. No resolved-root confinement or failed-instant permission claim.",
-            "ACL/report truncation after collection is not an allocation bound. Cwd/syscall correlation needs independent review; missing, ambiguous or truncated records earn no metadata credit.",
-        ],
-    }
-    write("filetrace-preflight.json", report)
-    assert (
-        tool
-        and tool.startswith("/nix/store/")
-        and tool == report["tool_before_bootstrap"]
-    ), "pinned strace unavailable or changed; no untraced fallback"
-    version = subprocess.run(
-        [tool, "--version"], capture_output=True, text=True, timeout=5, check=False
-    )
-    report["version"] = version.stdout
-    report["version_exit"] = version.returncode
-    write("filetrace-preflight.json", report)
-    assert version.returncode == 0 and version.stdout.startswith(
-        "strace -- version 7.2\n"
-    ), "unexpected strace; no fallback"
-    calls = "open,openat,openat2,creat,chdir,fchdir,clone,clone3,fork,vfork,fstat,newfstatat,statx,fchmod,fchmodat,fchmodat2,chmod,ftruncate,copy_file_range,sendfile,read,write,pread64,pwrite64,readv,writev,preadv,pwritev,preadv2,pwritev2,ioctl"
-    raw = (
-        "read,write,pread64,pwrite64,readv,writev,preadv,pwritev,preadv2,pwritev2,ioctl"
-    )
-    prefix = [
-        tool,
-        "-f",
-        "-q",
-        "-ttt",
-        "-yy",
-        "-s",
-        "4096",
-        "-e",
-        "trace=" + calls,
-        "-e",
-        "raw=" + raw,
-    ]
-    report["trace_prefix"] = prefix
-    probe = subprocess.run(
-        prefix + ["-o", "/dev/null", "--", sys.executable, "-I", "-c", "pass"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    report["probe"] = {
-        "exit": probe.returncode,
-        "stderr": probe.stderr,
-        "stdout": probe.stdout,
-    }
-    write("filetrace-preflight.json", report)
-    assert probe.returncode == 0 and not probe.stderr, (
-        "strace/ptrace preflight refused; no fallback"
-    )
-    sink = shlex.join(
-        [
-            sys.executable,
-            "-I",
-            str(Path(__file__).resolve()),
-            "--file-trace-sink",
-            str(OUT.resolve()),
-        ]
-    )
-    report["invocation"] = prefix + ["-o", "|" + sink, "--", *command]
-    write("filetrace-preflight.json", report)
-    return report["invocation"]
-
-
 def execute(label, command):
     path = OUT / (label + ".log")
     print(label, command, flush=True)
-    traced = label == "discover" and mode == "sql-mutations"
-    invocation = file_trace_command(command) if traced else command
     with tempfile.TemporaryFile() as log:
         result = subprocess.run(
-            invocation, stdout=log, stderr=subprocess.STDOUT, check=False
+            command, stdout=log, stderr=subprocess.STDOUT, check=False
         )
         log.seek(0)
         text = log.read().decode(errors="replace")
@@ -281,46 +89,9 @@ def execute(label, command):
             "command": command,
             "exit": result.returncode,
             "log_sha256": digest(path.read_bytes()),
-            **(
-                {
-                    "exit_scope": "tracer status; forwarded command status only absent diagnostic refusal in filetrace-result.json"
-                }
-                if traced
-                else {}
-            ),
         },
     )
     print("exit", result.returncode, flush=True)
-    if traced:
-        receipt = OUT / "filetrace-sink.json"
-        deadline = time.monotonic() + 5
-        while not receipt.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        sink = (
-            json.loads(receipt.read_text())
-            if receipt.exists()
-            else {
-                "complete": False,
-                "refusal": "trace sink did not finish within five seconds",
-            }
-        )
-        refusal = (
-            bool(re.search(r"^strace:", text, re.MULTILINE))
-            or result.returncode < 0
-            or not sink["complete"]
-        )
-        write(
-            "filetrace-result.json",
-            {
-                "tracer_exit": result.returncode,
-                "command_status_scope": "forwarded by tracer only absent diagnostic refusal",
-                "diagnostic_refusal": refusal,
-                "sink": sink,
-            },
-        )
-        if result.returncode != 0 and not refusal:
-            write("filetrace-metadata.json", file_trace_metadata(sink["header_paths"]))
-        assert not refusal, "incomplete or refused trace; no retry or untraced fallback"
     return result.returncode, text
 
 
@@ -702,9 +473,6 @@ def fuzz_metadata_preflight(inherited_home):
 
 if __name__ == "__main__":
     assert os.environ.get("GITHUB_ACTIONS") == "true", "hosted execution only"
-    if sys.argv[1:2] == ["--file-trace-sink"]:
-        file_trace_sink(sys.argv[2], sys.stdin.buffer)
-        sys.exit(0)
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
@@ -735,8 +503,6 @@ if __name__ == "__main__":
     )
     assert not git("status", "--porcelain")
     if not os.environ.get("SUTURA_PROOF_BOUND"):
-        if mode == "sql-mutations":
-            os.environ["SUTURA_PROOF_STRACE"] = shutil.which("strace") or ""
         bootstrap(mode, plan_path)
         sys.exit(0)
     OUT = Path("target/inbound-verifier-proof") / mode
