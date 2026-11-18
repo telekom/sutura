@@ -93,20 +93,20 @@ jobs:
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/explicit-projection-mutations-1970-604ef22d
+          test "$GITHUB_REF" = refs/heads/ci/explicit-projection-mutations-1970-a2d9cd8d
           test "$OPERATION" = sql-mutations
-          test "$REQUEST_ID" = 604ef22d-43ad-40ac-a5e0-2fc8a3b4f1b6
-          test "$SOURCE_SHA" = 38de15bece6539352d4831d464188e386043593d
-          test "$SOURCE_TREE" = 5d6e0f3e6656d49ab7e221efb589e41d30f1c187
-          test "$COMPARISON_SHA" = 969afca89a6e8edb7ed09f42db033577e5558e56
+          test "$REQUEST_ID" = a2d9cd8d-965a-422a-9289-4e44f1ea920c
+          test "$SOURCE_SHA" = f3fc15632ea5e0f6b6c1e2df78e7da664ddcb9b0
+          test "$SOURCE_TREE" = e9635d02892ced3a6c68951bafd91c8b13250da3
+          test "$COMPARISON_SHA" = 38de15bece6539352d4831d464188e386043593d
           [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test "$(sha256sum devco/inbound_verifier_proof.py)" = "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707  devco/inbound_verifier_proof.py"
-          test "$(sha256sum devco/sql1909-finishing-mutations.json)" = "14216ae21045de3fadc093b69b938a06c9078cc846d1b1a53c296b3d3f4b9fbd  devco/sql1909-finishing-mutations.json"
-          test "$(sha256sum devco/sql1970-mutation-ownership.json)" = "c97b5a3783914098a19aa2be8b76c2e9a96b353208d3d7a006fbd8b2090a00da  devco/sql1970-mutation-ownership.json"
+          test "$(sha256sum devco/sql1909-finishing-mutations.json)" = "e49db8120609aea9e5fdd16955c91d7cb1f1b1947d006b89b489afcc32e19e60  devco/sql1909-finishing-mutations.json"
+          test "$(sha256sum devco/sql1970-mutation-ownership.json)" = "fc6b5c9464253a89cc1ce2e1a84d3b8b44f7accce711a3ad35ff4919e582872e  devco/sql1970-mutation-ownership.json"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'workflow_dispatch'

@@ -1,10 +1,10 @@
 {
   "status": "STATIC_REQUIREMENTS_NOT_RUNTIME_RESULTS",
-  "source_sha": "38de15bece6539352d4831d464188e386043593d",
-  "source_tree": "5d6e0f3e6656d49ab7e221efb589e41d30f1c187",
-  "comparison_sha": "969afca89a6e8edb7ed09f42db033577e5558e56",
-  "request_id": "604ef22d-43ad-40ac-a5e0-2fc8a3b4f1b6",
-  "helper_ref": "ci/explicit-projection-mutations-1970-604ef22d",
+  "source_sha": "f3fc15632ea5e0f6b6c1e2df78e7da664ddcb9b0",
+  "source_tree": "e9635d02892ced3a6c68951bafd91c8b13250da3",
+  "comparison_sha": "38de15bece6539352d4831d464188e386043593d",
+  "request_id": "a2d9cd8d-965a-422a-9289-4e44f1ea920c",
+  "helper_ref": "ci/explicit-projection-mutations-1970-a2d9cd8d",
   "runner_sha256": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707",
   "runner_limit": "Existing own_sites accepts any panic inside the named function. Independent review must additionally match the exact meaningful assertion slices below, expected failure and source diagnostics; setup/helper/compile/refusal/timeout/skipped outcomes receive no kill credit.",
   "cells": {
@@ -47,20 +47,20 @@
       "path": "crates/sutura-exec-datafusion/src/combine/statement/tests.rs",
       "function": "duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
       "start_line": 79,
-      "end_line": 115,
-      "function_sha256": "6a615999cca36597bd4c8c188525b1414bd5ce3a36ce02b55e93802d84ad0193",
-      "file_sha256": "b1cbed62d5283c80cc6ddd3b30e8bfb2dab38bbb9afac678d269ed374f2d3586",
+      "end_line": 148,
+      "function_sha256": "d2b4b83a99461f6651311bbf4385b5a5931d17a897d17bf616ad5ca02a265e41",
+      "file_sha256": "5e49e683da9c71ddd6e722b17ecbe9a1116451dbc5fd23e15e6bc2a0c9a9b37a",
       "assertions": [
-        {"first_line": 89, "last_line": 92, "kind": "explicit_answer_assertion", "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"},
-        {"first_line": 94, "last_line": 94, "kind": "assertion", "text": "            assert_eq!(rows.columns(), [\"customer_id\", \"customer_id\", \"c0\", \"MiXeD\"]);"},
-        {"first_line": 95, "last_line": 98, "kind": "assertion", "text": "            assert_eq!(\n                source_labels(legs.statements.first().expect(\"a source statement\")),\n                [\"c0\", \"c1\", \"c2\", \"c3\"]\n            );"},
-        {"first_line": 99, "last_line": 99, "kind": "assertion", "text": "            assert_eq!(rows, legs.as_one(&sql), \"positions and multiplicities: {sql}\");"},
-        {"first_line": 100, "last_line": 100, "kind": "assertion", "text": "            assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\")])]);"},
-        {"first_line": 101, "last_line": 101, "kind": "assertion", "text": "            assert_eq!(legs.ran, [named(\"crm\")]);"},
-        {"first_line": 107, "last_line": 110, "kind": "explicit_answer_assertion", "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"},
-        {"first_line": 112, "last_line": 112, "kind": "assertion", "text": "    assert_eq!(rows, legs.as_one(AREAS));"},
-        {"first_line": 113, "last_line": 113, "kind": "assertion", "text": "    assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\"), named(\"geo\")])]);"},
-        {"first_line": 114, "last_line": 114, "kind": "assertion", "text": "    assert_eq!(legs.ran.len(), 2);"}
+        {"first_line": 122, "last_line": 125, "kind": "explicit_answer_assertion", "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"},
+        {"first_line": 127, "last_line": 127, "kind": "assertion", "text": "            assert_eq!(rows.columns(), [\"customer_id\", \"customer_id\", \"c0\", \"MiXeD\"]);"},
+        {"first_line": 128, "last_line": 131, "kind": "assertion", "text": "            assert_eq!(\n                source_labels(statements.first().expect(\"a source statement\")),\n                [\"c0\", \"c1\", \"c2\", \"c3\"]\n            );"},
+        {"first_line": 132, "last_line": 132, "kind": "assertion", "text": "            assert_eq!(rows, legs.as_one(&sql), \"positions and multiplicities: {sql}\");"},
+        {"first_line": 133, "last_line": 133, "kind": "assertion", "text": "            assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\")])]);"},
+        {"first_line": 134, "last_line": 134, "kind": "assertion", "text": "            assert_eq!(legs.ran, [named(\"crm\")]);"},
+        {"first_line": 140, "last_line": 143, "kind": "explicit_answer_assertion", "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"},
+        {"first_line": 145, "last_line": 145, "kind": "assertion", "text": "    assert_eq!(rows, legs.as_one(AREAS));"},
+        {"first_line": 146, "last_line": 146, "kind": "assertion", "text": "    assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\"), named(\"geo\")])]);"},
+        {"first_line": 147, "last_line": 147, "kind": "assertion", "text": "    assert_eq!(legs.ran.len(), 2);"}
       ]
     },
     "native_duplicate_outputs": {
@@ -193,12 +193,7 @@
           "line_shift_from_head": -2,
           "function_sha256": "73157501248982d0764fe2d53df8c214392354cf862d0c1669d12126eb827976",
           "assertions": [
-            {
-              "first_line": 100,
-              "last_line": 100,
-              "kind": "expected_error_assertion",
-              "text": "            let cause = checked(sql).expect_err(\"no wildcard source projection is admitted\");"
-            }
+            {"first_line": 100, "last_line": 100, "kind": "expected_error_assertion", "text": "            let cause = checked(sql).expect_err(\"no wildcard source projection is admitted\");"}
           ]
         },
         "guard_before_open": {
@@ -210,36 +205,11 @@
           "line_shift_from_head": -2,
           "function_sha256": "f38991e1551e96ec79ee7485aa5f3b05016cddad17c4fb64ca2f66949ef146ce",
           "assertions": [
-            {
-              "first_line": 154,
-              "last_line": 154,
-              "kind": "assertion",
-              "text": "            assert!(matches!(result, Err(StatementStopped::NotPlanned)), \"{result:?}\");"
-            },
-            {
-              "first_line": 155,
-              "last_line": 155,
-              "kind": "assertion",
-              "text": "            assert_eq!(legs.opened, 0);"
-            },
-            {
-              "first_line": 156,
-              "last_line": 156,
-              "kind": "assertion",
-              "text": "            assert_eq!(legs.ran, 0);"
-            },
-            {
-              "first_line": 165,
-              "last_line": 165,
-              "kind": "assertion",
-              "text": "        assert_eq!(legs.opened, 1);"
-            },
-            {
-              "first_line": 166,
-              "last_line": 166,
-              "kind": "assertion",
-              "text": "        assert_eq!(legs.ran, 0);"
-            }
+            {"first_line": 154, "last_line": 154, "kind": "assertion", "text": "            assert!(matches!(result, Err(StatementStopped::NotPlanned)), \"{result:?}\");"},
+            {"first_line": 155, "last_line": 155, "kind": "assertion", "text": "            assert_eq!(legs.opened, 0);"},
+            {"first_line": 156, "last_line": 156, "kind": "assertion", "text": "            assert_eq!(legs.ran, 0);"},
+            {"first_line": 165, "last_line": 165, "kind": "assertion", "text": "        assert_eq!(legs.opened, 1);"},
+            {"first_line": 166, "last_line": 166, "kind": "assertion", "text": "        assert_eq!(legs.ran, 0);"}
           ]
         }
       },
@@ -257,36 +227,11 @@
           "line_shift_from_head": 1,
           "function_sha256": "f38991e1551e96ec79ee7485aa5f3b05016cddad17c4fb64ca2f66949ef146ce",
           "assertions": [
-            {
-              "first_line": 157,
-              "last_line": 157,
-              "kind": "assertion",
-              "text": "            assert!(matches!(result, Err(StatementStopped::NotPlanned)), \"{result:?}\");"
-            },
-            {
-              "first_line": 158,
-              "last_line": 158,
-              "kind": "assertion",
-              "text": "            assert_eq!(legs.opened, 0);"
-            },
-            {
-              "first_line": 159,
-              "last_line": 159,
-              "kind": "assertion",
-              "text": "            assert_eq!(legs.ran, 0);"
-            },
-            {
-              "first_line": 168,
-              "last_line": 168,
-              "kind": "assertion",
-              "text": "        assert_eq!(legs.opened, 1);"
-            },
-            {
-              "first_line": 169,
-              "last_line": 169,
-              "kind": "assertion",
-              "text": "        assert_eq!(legs.ran, 0);"
-            }
+            {"first_line": 157, "last_line": 157, "kind": "assertion", "text": "            assert!(matches!(result, Err(StatementStopped::NotPlanned)), \"{result:?}\");"},
+            {"first_line": 158, "last_line": 158, "kind": "assertion", "text": "            assert_eq!(legs.opened, 0);"},
+            {"first_line": 159, "last_line": 159, "kind": "assertion", "text": "            assert_eq!(legs.ran, 0);"},
+            {"first_line": 168, "last_line": 168, "kind": "assertion", "text": "        assert_eq!(legs.opened, 1);"},
+            {"first_line": 169, "last_line": 169, "kind": "assertion", "text": "        assert_eq!(legs.ran, 0);"}
           ]
         }
       },
@@ -300,70 +245,20 @@
           "binary": "sutura-exec-datafusion",
           "full_test": "combine::statement::tests::duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
           "start_line": 79,
-          "end_line": 115,
+          "end_line": 148,
           "line_shift_from_head": 0,
-          "function_sha256": "6a615999cca36597bd4c8c188525b1414bd5ce3a36ce02b55e93802d84ad0193",
+          "function_sha256": "d2b4b83a99461f6651311bbf4385b5a5931d17a897d17bf616ad5ca02a265e41",
           "assertions": [
-            {
-              "first_line": 89,
-              "last_line": 92,
-              "kind": "explicit_answer_assertion",
-              "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"
-            },
-            {
-              "first_line": 94,
-              "last_line": 94,
-              "kind": "assertion",
-              "text": "            assert_eq!(rows.columns(), [\"customer_id\", \"customer_id\", \"c0\", \"MiXeD\"]);"
-            },
-            {
-              "first_line": 95,
-              "last_line": 98,
-              "kind": "assertion",
-              "text": "            assert_eq!(\n                source_labels(legs.statements.first().expect(\"a source statement\")),\n                [\"c0\", \"c1\", \"c2\", \"c3\"]\n            );"
-            },
-            {
-              "first_line": 99,
-              "last_line": 99,
-              "kind": "assertion",
-              "text": "            assert_eq!(rows, legs.as_one(&sql), \"positions and multiplicities: {sql}\");"
-            },
-            {
-              "first_line": 100,
-              "last_line": 100,
-              "kind": "assertion",
-              "text": "            assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\")])]);"
-            },
-            {
-              "first_line": 101,
-              "last_line": 101,
-              "kind": "assertion",
-              "text": "            assert_eq!(legs.ran, [named(\"crm\")]);"
-            },
-            {
-              "first_line": 107,
-              "last_line": 110,
-              "kind": "explicit_answer_assertion",
-              "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"
-            },
-            {
-              "first_line": 112,
-              "last_line": 112,
-              "kind": "assertion",
-              "text": "    assert_eq!(rows, legs.as_one(AREAS));"
-            },
-            {
-              "first_line": 113,
-              "last_line": 113,
-              "kind": "assertion",
-              "text": "    assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\"), named(\"geo\")])]);"
-            },
-            {
-              "first_line": 114,
-              "last_line": 114,
-              "kind": "assertion",
-              "text": "    assert_eq!(legs.ran.len(), 2);"
-            }
+            {"first_line": 122, "last_line": 125, "kind": "explicit_answer_assertion", "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"},
+            {"first_line": 127, "last_line": 127, "kind": "assertion", "text": "            assert_eq!(rows.columns(), [\"customer_id\", \"customer_id\", \"c0\", \"MiXeD\"]);"},
+            {"first_line": 128, "last_line": 131, "kind": "assertion", "text": "            assert_eq!(\n                source_labels(statements.first().expect(\"a source statement\")),\n                [\"c0\", \"c1\", \"c2\", \"c3\"]\n            );"},
+            {"first_line": 132, "last_line": 132, "kind": "assertion", "text": "            assert_eq!(rows, legs.as_one(&sql), \"positions and multiplicities: {sql}\");"},
+            {"first_line": 133, "last_line": 133, "kind": "assertion", "text": "            assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\")])]);"},
+            {"first_line": 134, "last_line": 134, "kind": "assertion", "text": "            assert_eq!(legs.ran, [named(\"crm\")]);"},
+            {"first_line": 140, "last_line": 143, "kind": "explicit_answer_assertion", "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"},
+            {"first_line": 145, "last_line": 145, "kind": "assertion", "text": "    assert_eq!(rows, legs.as_one(AREAS));"},
+            {"first_line": 146, "last_line": 146, "kind": "assertion", "text": "    assert_eq!(legs.opened, [BTreeSet::from([named(\"crm\"), named(\"geo\")])]);"},
+            {"first_line": 147, "last_line": 147, "kind": "assertion", "text": "    assert_eq!(legs.ran.len(), 2);"}
           ]
         }
       },
@@ -381,42 +276,12 @@
           "line_shift_from_head": 0,
           "function_sha256": "b768ef85b75108c477abc4b2399fa98d6e6e73095c2dd7d8762f1513a259c2e6",
           "assertions": [
-            {
-              "first_line": 669,
-              "last_line": 672,
-              "kind": "explicit_answer_assertion",
-              "text": "            panic!(\n                \"native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}\",\n                legs.engines.opened, legs.engines.ran\n            )"
-            },
-            {
-              "first_line": 674,
-              "last_line": 674,
-              "kind": "assertion",
-              "text": "        assert_eq!(rows.columns(), [\"sales_area\", \"sales_area\"]);"
-            },
-            {
-              "first_line": 675,
-              "last_line": 678,
-              "kind": "assertion",
-              "text": "        assert_eq!(\n            source_labels(legs.statements.first().expect(\"a native source statement\")),\n            [\"c0\", \"c1\"]\n        );"
-            },
-            {
-              "first_line": 687,
-              "last_line": 687,
-              "kind": "assertion",
-              "text": "        assert_eq!(rows.rows(), expected);"
-            },
-            {
-              "first_line": 688,
-              "last_line": 688,
-              "kind": "assertion",
-              "text": "        assert_eq!(legs.engines.opened, [BTreeSet::from([named(\"geo\")])]);"
-            },
-            {
-              "first_line": 689,
-              "last_line": 689,
-              "kind": "assertion",
-              "text": "        assert_eq!(legs.statements.len(), 1);"
-            }
+            {"first_line": 669, "last_line": 672, "kind": "explicit_answer_assertion", "text": "            panic!(\n                \"native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}\",\n                legs.engines.opened, legs.engines.ran\n            )"},
+            {"first_line": 674, "last_line": 674, "kind": "assertion", "text": "        assert_eq!(rows.columns(), [\"sales_area\", \"sales_area\"]);"},
+            {"first_line": 675, "last_line": 678, "kind": "assertion", "text": "        assert_eq!(\n            source_labels(legs.statements.first().expect(\"a native source statement\")),\n            [\"c0\", \"c1\"]\n        );"},
+            {"first_line": 687, "last_line": 687, "kind": "assertion", "text": "        assert_eq!(rows.rows(), expected);"},
+            {"first_line": 688, "last_line": 688, "kind": "assertion", "text": "        assert_eq!(legs.engines.opened, [BTreeSet::from([named(\"geo\")])]);"},
+            {"first_line": 689, "last_line": 689, "kind": "assertion", "text": "        assert_eq!(legs.statements.len(), 1);"}
           ]
         }
       },
@@ -434,36 +299,11 @@
           "line_shift_from_head": 0,
           "function_sha256": "da9825c0bcc1a1984f8d80089d3e0799975e1fccc9e60e6ce67c0e5d964aa5e0",
           "assertions": [
-            {
-              "first_line": 299,
-              "last_line": 305,
-              "kind": "assertion",
-              "text": "                assert!(\n                    matches!(\n                        answer,\n                        Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText)))\n                    ),\n                    \"{dialect:?} {sql}: {answer:?}\"\n                );"
-            },
-            {
-              "first_line": 306,
-              "last_line": 309,
-              "kind": "assertion",
-              "text": "                assert!(\n                    legs.engines.opened.is_empty(),\n                    \"a local numeric operation must not open credentials\"\n                );"
-            },
-            {
-              "first_line": 310,
-              "last_line": 310,
-              "kind": "assertion",
-              "text": "                assert!(legs.statements.is_empty(), \"a local numeric operation must not run\");"
-            },
-            {
-              "first_line": 316,
-              "last_line": 316,
-              "kind": "assertion",
-              "text": "                assert_eq!(actual, expected, \"{dialect:?} {sql}: {:?}\", legs.statements);"
-            },
-            {
-              "first_line": 317,
-              "last_line": 317,
-              "kind": "assertion",
-              "text": "                assert_eq!(legs.statements.len(), 1, \"one numeric source statement: {sql}\");"
-            }
+            {"first_line": 299, "last_line": 305, "kind": "assertion", "text": "                assert!(\n                    matches!(\n                        answer,\n                        Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText)))\n                    ),\n                    \"{dialect:?} {sql}: {answer:?}\"\n                );"},
+            {"first_line": 306, "last_line": 309, "kind": "assertion", "text": "                assert!(\n                    legs.engines.opened.is_empty(),\n                    \"a local numeric operation must not open credentials\"\n                );"},
+            {"first_line": 310, "last_line": 310, "kind": "assertion", "text": "                assert!(legs.statements.is_empty(), \"a local numeric operation must not run\");"},
+            {"first_line": 316, "last_line": 316, "kind": "assertion", "text": "                assert_eq!(actual, expected, \"{dialect:?} {sql}: {:?}\", legs.statements);"},
+            {"first_line": 317, "last_line": 317, "kind": "assertion", "text": "                assert_eq!(legs.statements.len(), 1, \"one numeric source statement: {sql}\");"}
           ]
         }
       },
@@ -481,24 +321,9 @@
           "line_shift_from_head": 0,
           "function_sha256": "c8ecb010c06aa043bfaca4c78ba83fbf358aec5d1d76409c6b6d92a279090765",
           "assertions": [
-            {
-              "first_line": 150,
-              "last_line": 150,
-              "kind": "assertion",
-              "text": "        assert!(matches!(answer, Some(Ok(_))), \"{} at {dialect:?}: {answer:?}\", case.name);"
-            },
-            {
-              "first_line": 151,
-              "last_line": 155,
-              "kind": "assertion",
-              "text": "        assert!(\n            !recorded.statements.is_empty(),\n            \"{} must produce source statements\",\n            case.name\n        );"
-            },
-            {
-              "first_line": 161,
-              "last_line": 161,
-              "kind": "snapshot_assertion",
-              "text": "    settings(name).bind(|| insta::assert_snapshot!(\"planned_statement_shapes\", corpus));"
-            }
+            {"first_line": 150, "last_line": 150, "kind": "assertion", "text": "        assert!(matches!(answer, Some(Ok(_))), \"{} at {dialect:?}: {answer:?}\", case.name);"},
+            {"first_line": 151, "last_line": 155, "kind": "assertion", "text": "        assert!(\n            !recorded.statements.is_empty(),\n            \"{} must produce source statements\",\n            case.name\n        );"},
+            {"first_line": 161, "last_line": 161, "kind": "snapshot_assertion", "text": "    settings(name).bind(|| insta::assert_snapshot!(\"planned_statement_shapes\", corpus));"}
           ]
         },
         "native_datafusion": {
@@ -510,24 +335,9 @@
           "line_shift_from_head": 0,
           "function_sha256": "ffa22a2f4e78e0c029a50e1de5da02ad802521cd93be772ec1658895559677d7",
           "assertions": [
-            {
-              "first_line": 446,
-              "last_line": 449,
-              "kind": "assertion",
-              "text": "    assert_eq!(\n        dialect, expected_dialect,\n        \"the native engine and its renderer must share a dialect\"\n    );"
-            },
-            {
-              "first_line": 490,
-              "last_line": 496,
-              "kind": "assertion",
-              "text": "            assert_eq!(\n                executing.observed_scans,\n                executing.expected_scans,\n                \"{} at {}: each expected native leg must run exactly once\",\n                case.name,\n                W::NAME\n            );"
-            },
-            {
-              "first_line": 590,
-              "last_line": 590,
-              "kind": "snapshot_assertion",
-              "text": "    settings(W::NAME).bind(|| insta::assert_snapshot!(\"planned_statement_rows\", output));"
-            }
+            {"first_line": 446, "last_line": 449, "kind": "assertion", "text": "    assert_eq!(\n        dialect, expected_dialect,\n        \"the native engine and its renderer must share a dialect\"\n    );"},
+            {"first_line": 490, "last_line": 496, "kind": "assertion", "text": "            assert_eq!(\n                executing.observed_scans,\n                executing.expected_scans,\n                \"{} at {}: each expected native leg must run exactly once\",\n                case.name,\n                W::NAME\n            );"},
+            {"first_line": 590, "last_line": 590, "kind": "snapshot_assertion", "text": "    settings(W::NAME).bind(|| insta::assert_snapshot!(\"planned_statement_rows\", output));"}
           ]
         }
       },
@@ -545,24 +355,9 @@
           "line_shift_from_head": 0,
           "function_sha256": "c8ecb010c06aa043bfaca4c78ba83fbf358aec5d1d76409c6b6d92a279090765",
           "assertions": [
-            {
-              "first_line": 150,
-              "last_line": 150,
-              "kind": "assertion",
-              "text": "        assert!(matches!(answer, Some(Ok(_))), \"{} at {dialect:?}: {answer:?}\", case.name);"
-            },
-            {
-              "first_line": 151,
-              "last_line": 155,
-              "kind": "assertion",
-              "text": "        assert!(\n            !recorded.statements.is_empty(),\n            \"{} must produce source statements\",\n            case.name\n        );"
-            },
-            {
-              "first_line": 161,
-              "last_line": 161,
-              "kind": "snapshot_assertion",
-              "text": "    settings(name).bind(|| insta::assert_snapshot!(\"planned_statement_shapes\", corpus));"
-            }
+            {"first_line": 150, "last_line": 150, "kind": "assertion", "text": "        assert!(matches!(answer, Some(Ok(_))), \"{} at {dialect:?}: {answer:?}\", case.name);"},
+            {"first_line": 151, "last_line": 155, "kind": "assertion", "text": "        assert!(\n            !recorded.statements.is_empty(),\n            \"{} must produce source statements\",\n            case.name\n        );"},
+            {"first_line": 161, "last_line": 161, "kind": "snapshot_assertion", "text": "    settings(name).bind(|| insta::assert_snapshot!(\"planned_statement_shapes\", corpus));"}
           ]
         },
         "shapes_datafusion": {
@@ -574,24 +369,9 @@
           "line_shift_from_head": 0,
           "function_sha256": "c8ecb010c06aa043bfaca4c78ba83fbf358aec5d1d76409c6b6d92a279090765",
           "assertions": [
-            {
-              "first_line": 150,
-              "last_line": 150,
-              "kind": "assertion",
-              "text": "        assert!(matches!(answer, Some(Ok(_))), \"{} at {dialect:?}: {answer:?}\", case.name);"
-            },
-            {
-              "first_line": 151,
-              "last_line": 155,
-              "kind": "assertion",
-              "text": "        assert!(\n            !recorded.statements.is_empty(),\n            \"{} must produce source statements\",\n            case.name\n        );"
-            },
-            {
-              "first_line": 161,
-              "last_line": 161,
-              "kind": "snapshot_assertion",
-              "text": "    settings(name).bind(|| insta::assert_snapshot!(\"planned_statement_shapes\", corpus));"
-            }
+            {"first_line": 150, "last_line": 150, "kind": "assertion", "text": "        assert!(matches!(answer, Some(Ok(_))), \"{} at {dialect:?}: {answer:?}\", case.name);"},
+            {"first_line": 151, "last_line": 155, "kind": "assertion", "text": "        assert!(\n            !recorded.statements.is_empty(),\n            \"{} must produce source statements\",\n            case.name\n        );"},
+            {"first_line": 161, "last_line": 161, "kind": "snapshot_assertion", "text": "    settings(name).bind(|| insta::assert_snapshot!(\"planned_statement_shapes\", corpus));"}
           ]
         }
       },
@@ -609,54 +389,14 @@
           "line_shift_from_head": 0,
           "function_sha256": "2f4a8cb1ae3d64a19179378ce97ac6b04cb6b7a8e97b516d6757e34da150f76a",
           "assertions": [
-            {
-              "first_line": 149,
-              "last_line": 149,
-              "kind": "assertion",
-              "text": "        assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), \"{answer:?}\");"
-            },
-            {
-              "first_line": 160,
-              "last_line": 160,
-              "kind": "assertion",
-              "text": "        assert_eq!(select.projection.len(), 4, \"{sql}\");"
-            },
-            {
-              "first_line": 167,
-              "last_line": 171,
-              "kind": "assertion",
-              "text": "                assert_eq!(\n                    expression,\n                    format!(\"\\\"sutura_lob_output\\\".\\\"c{index}\\\"\"),\n                    \"native NUMBER extrema must not become LOB expressions: {sql}\"\n                );"
-            },
-            {
-              "first_line": 173,
-              "last_line": 176,
-              "kind": "assertion",
-              "text": "                assert!(\n                    expression.contains(\"DBMS_LOB.\\\"SUBSTR\\\"\"),\n                    \"LOB output must remain bounded: {sql}\"\n                );"
-            },
-            {
-              "first_line": 177,
-              "last_line": 177,
-              "kind": "assertion",
-              "text": "                assert!(expression.contains(\"...[truncated]\"), \"LOB output retains its marker: {sql}\");"
-            },
-            {
-              "first_line": 179,
-              "last_line": 179,
-              "kind": "assertion",
-              "text": "                assert!(expression.contains(payload), \"LOB output retains its byte ceiling: {sql}\");"
-            },
-            {
-              "first_line": 182,
-              "last_line": 185,
-              "kind": "assertion",
-              "text": "        assert!(\n            sql.contains(\"REGEXP_REPLACE\"),\n            \"source redaction must remain before operators: {sql}\"\n        );"
-            },
-            {
-              "first_line": 186,
-              "last_line": 186,
-              "kind": "assertion",
-              "text": "        assert!(!sql.contains(';'), \"the native statement cannot contain a delimiter: {sql}\");"
-            }
+            {"first_line": 149, "last_line": 149, "kind": "assertion", "text": "        assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), \"{answer:?}\");"},
+            {"first_line": 160, "last_line": 160, "kind": "assertion", "text": "        assert_eq!(select.projection.len(), 4, \"{sql}\");"},
+            {"first_line": 167, "last_line": 171, "kind": "assertion", "text": "                assert_eq!(\n                    expression,\n                    format!(\"\\\"sutura_lob_output\\\".\\\"c{index}\\\"\"),\n                    \"native NUMBER extrema must not become LOB expressions: {sql}\"\n                );"},
+            {"first_line": 173, "last_line": 176, "kind": "assertion", "text": "                assert!(\n                    expression.contains(\"DBMS_LOB.\\\"SUBSTR\\\"\"),\n                    \"LOB output must remain bounded: {sql}\"\n                );"},
+            {"first_line": 177, "last_line": 177, "kind": "assertion", "text": "                assert!(expression.contains(\"...[truncated]\"), \"LOB output retains its marker: {sql}\");"},
+            {"first_line": 179, "last_line": 179, "kind": "assertion", "text": "                assert!(expression.contains(payload), \"LOB output retains its byte ceiling: {sql}\");"},
+            {"first_line": 182, "last_line": 185, "kind": "assertion", "text": "        assert!(\n            sql.contains(\"REGEXP_REPLACE\"),\n            \"source redaction must remain before operators: {sql}\"\n        );"},
+            {"first_line": 186, "last_line": 186, "kind": "assertion", "text": "        assert!(!sql.contains(';'), \"the native statement cannot contain a delimiter: {sql}\");"}
           ]
         }
       },
@@ -670,16 +410,11 @@
           "binary": "sutura-exec-datafusion",
           "full_test": "combine::statement::tests::duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
           "start_line": 79,
-          "end_line": 115,
+          "end_line": 148,
           "line_shift_from_head": 0,
-          "function_sha256": "6a615999cca36597bd4c8c188525b1414bd5ce3a36ce02b55e93802d84ad0193",
+          "function_sha256": "d2b4b83a99461f6651311bbf4385b5a5931d17a897d17bf616ad5ca02a265e41",
           "assertions": [
-            {
-              "first_line": 89,
-              "last_line": 92,
-              "kind": "explicit_answer_assertion",
-              "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"
-            }
+            {"first_line": 122, "last_line": 125, "kind": "explicit_answer_assertion", "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"}
           ]
         }
       },
@@ -697,16 +432,11 @@
           "binary": "sutura-exec-datafusion",
           "full_test": "combine::statement::tests::duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
           "start_line": 79,
-          "end_line": 115,
+          "end_line": 148,
           "line_shift_from_head": 0,
-          "function_sha256": "6a615999cca36597bd4c8c188525b1414bd5ce3a36ce02b55e93802d84ad0193",
+          "function_sha256": "d2b4b83a99461f6651311bbf4385b5a5931d17a897d17bf616ad5ca02a265e41",
           "assertions": [
-            {
-              "first_line": 89,
-              "last_line": 92,
-              "kind": "explicit_answer_assertion",
-              "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"
-            }
+            {"first_line": 122, "last_line": 125, "kind": "explicit_answer_assertion", "text": "                panic!(\n                    \"duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}\",\n                    legs.opened, legs.ran\n                )"}
           ]
         }
       },
@@ -723,16 +453,11 @@
           "binary": "sutura-exec-datafusion",
           "full_test": "combine::statement::tests::duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
           "start_line": 79,
-          "end_line": 115,
+          "end_line": 148,
           "line_shift_from_head": 0,
-          "function_sha256": "6a615999cca36597bd4c8c188525b1414bd5ce3a36ce02b55e93802d84ad0193",
+          "function_sha256": "d2b4b83a99461f6651311bbf4385b5a5931d17a897d17bf616ad5ca02a265e41",
           "assertions": [
-            {
-              "first_line": 107,
-              "last_line": 110,
-              "kind": "explicit_answer_assertion",
-              "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"
-            }
+            {"first_line": 140, "last_line": 143, "kind": "explicit_answer_assertion", "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"}
           ]
         }
       },
@@ -750,16 +475,11 @@
           "binary": "sutura-exec-datafusion",
           "full_test": "combine::statement::tests::duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
           "start_line": 79,
-          "end_line": 115,
+          "end_line": 148,
           "line_shift_from_head": 0,
-          "function_sha256": "6a615999cca36597bd4c8c188525b1414bd5ce3a36ce02b55e93802d84ad0193",
+          "function_sha256": "d2b4b83a99461f6651311bbf4385b5a5931d17a897d17bf616ad5ca02a265e41",
           "assertions": [
-            {
-              "first_line": 107,
-              "last_line": 110,
-              "kind": "explicit_answer_assertion",
-              "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"
-            }
+            {"first_line": 140, "last_line": 143, "kind": "explicit_answer_assertion", "text": "        panic!(\n            \"all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}\",\n            legs.opened, legs.ran\n        )"}
           ]
         }
       },
@@ -781,12 +501,7 @@
           "line_shift_from_head": 0,
           "function_sha256": "b768ef85b75108c477abc4b2399fa98d6e6e73095c2dd7d8762f1513a259c2e6",
           "assertions": [
-            {
-              "first_line": 669,
-              "last_line": 672,
-              "kind": "explicit_answer_assertion",
-              "text": "            panic!(\n                \"native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}\",\n                legs.engines.opened, legs.engines.ran\n            )"
-            }
+            {"first_line": 669, "last_line": 672, "kind": "explicit_answer_assertion", "text": "            panic!(\n                \"native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}\",\n                legs.engines.opened, legs.engines.ran\n            )"}
           ]
         }
       },
@@ -808,12 +523,7 @@
           "line_shift_from_head": 0,
           "function_sha256": "b768ef85b75108c477abc4b2399fa98d6e6e73095c2dd7d8762f1513a259c2e6",
           "assertions": [
-            {
-              "first_line": 669,
-              "last_line": 672,
-              "kind": "explicit_answer_assertion",
-              "text": "            panic!(\n                \"native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}\",\n                legs.engines.opened, legs.engines.ran\n            )"
-            }
+            {"first_line": 669, "last_line": 672, "kind": "explicit_answer_assertion", "text": "            panic!(\n                \"native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}\",\n                legs.engines.opened, legs.engines.ran\n            )"}
           ]
         }
       },
@@ -834,36 +544,11 @@
           "line_shift_from_head": 0,
           "function_sha256": "d70dcd7ef1afb70980948b20b8602d0918fcfc9410accb99ad3b5d5ed80ee212",
           "assertions": [
-            {
-              "first_line": 53,
-              "last_line": 53,
-              "kind": "assertion",
-              "text": "    assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), \"{answer:?}\");"
-            },
-            {
-              "first_line": 57,
-              "last_line": 60,
-              "kind": "assertion",
-              "text": "    assert!(\n        sql.contains(\"DBMS_LOB.\\\"SUBSTR\\\"\") && sql.contains(\"...[truncated]\"),\n        \"the emitted LOB output must be bounded: {sql}\"\n    );"
-            },
-            {
-              "first_line": 61,
-              "last_line": 64,
-              "kind": "assertion",
-              "text": "    assert!(\n        sql.contains(\"CHR(59)\"),\n        \"the generated ASCII pattern must retain its semicolon without a delimiter: {sql}\"\n    );"
-            },
-            {
-              "first_line": 65,
-              "last_line": 68,
-              "kind": "assertion",
-              "text": "    assert!(\n        !sql.contains(';'),\n        \"the Oracle raw reader refuses a delimiter even inside the generated pattern: {sql}\"\n    );"
-            },
-            {
-              "first_line": 69,
-              "last_line": 74,
-              "kind": "assertion",
-              "text": "    assert_eq!(\n        Parser::parse_sql(&GenericDialect, sql)\n            .expect(\"the generated pattern remains a SQL expression\")\n            .len(),\n        1\n    );"
-            }
+            {"first_line": 53, "last_line": 53, "kind": "assertion", "text": "    assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), \"{answer:?}\");"},
+            {"first_line": 57, "last_line": 60, "kind": "assertion", "text": "    assert!(\n        sql.contains(\"DBMS_LOB.\\\"SUBSTR\\\"\") && sql.contains(\"...[truncated]\"),\n        \"the emitted LOB output must be bounded: {sql}\"\n    );"},
+            {"first_line": 61, "last_line": 64, "kind": "assertion", "text": "    assert!(\n        sql.contains(\"CHR(59)\"),\n        \"the generated ASCII pattern must retain its semicolon without a delimiter: {sql}\"\n    );"},
+            {"first_line": 65, "last_line": 68, "kind": "assertion", "text": "    assert!(\n        !sql.contains(';'),\n        \"the Oracle raw reader refuses a delimiter even inside the generated pattern: {sql}\"\n    );"},
+            {"first_line": 69, "last_line": 74, "kind": "assertion", "text": "    assert_eq!(\n        Parser::parse_sql(&GenericDialect, sql)\n            .expect(\"the generated pattern remains a SQL expression\")\n            .len(),\n        1\n    );"}
           ]
         },
         "native_lob": {
@@ -875,54 +560,14 @@
           "line_shift_from_head": 0,
           "function_sha256": "2f4a8cb1ae3d64a19179378ce97ac6b04cb6b7a8e97b516d6757e34da150f76a",
           "assertions": [
-            {
-              "first_line": 149,
-              "last_line": 149,
-              "kind": "assertion",
-              "text": "        assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), \"{answer:?}\");"
-            },
-            {
-              "first_line": 160,
-              "last_line": 160,
-              "kind": "assertion",
-              "text": "        assert_eq!(select.projection.len(), 4, \"{sql}\");"
-            },
-            {
-              "first_line": 167,
-              "last_line": 171,
-              "kind": "assertion",
-              "text": "                assert_eq!(\n                    expression,\n                    format!(\"\\\"sutura_lob_output\\\".\\\"c{index}\\\"\"),\n                    \"native NUMBER extrema must not become LOB expressions: {sql}\"\n                );"
-            },
-            {
-              "first_line": 173,
-              "last_line": 176,
-              "kind": "assertion",
-              "text": "                assert!(\n                    expression.contains(\"DBMS_LOB.\\\"SUBSTR\\\"\"),\n                    \"LOB output must remain bounded: {sql}\"\n                );"
-            },
-            {
-              "first_line": 177,
-              "last_line": 177,
-              "kind": "assertion",
-              "text": "                assert!(expression.contains(\"...[truncated]\"), \"LOB output retains its marker: {sql}\");"
-            },
-            {
-              "first_line": 179,
-              "last_line": 179,
-              "kind": "assertion",
-              "text": "                assert!(expression.contains(payload), \"LOB output retains its byte ceiling: {sql}\");"
-            },
-            {
-              "first_line": 182,
-              "last_line": 185,
-              "kind": "assertion",
-              "text": "        assert!(\n            sql.contains(\"REGEXP_REPLACE\"),\n            \"source redaction must remain before operators: {sql}\"\n        );"
-            },
-            {
-              "first_line": 186,
-              "last_line": 186,
-              "kind": "assertion",
-              "text": "        assert!(!sql.contains(';'), \"the native statement cannot contain a delimiter: {sql}\");"
-            }
+            {"first_line": 149, "last_line": 149, "kind": "assertion", "text": "        assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), \"{answer:?}\");"},
+            {"first_line": 160, "last_line": 160, "kind": "assertion", "text": "        assert_eq!(select.projection.len(), 4, \"{sql}\");"},
+            {"first_line": 167, "last_line": 171, "kind": "assertion", "text": "                assert_eq!(\n                    expression,\n                    format!(\"\\\"sutura_lob_output\\\".\\\"c{index}\\\"\"),\n                    \"native NUMBER extrema must not become LOB expressions: {sql}\"\n                );"},
+            {"first_line": 173, "last_line": 176, "kind": "assertion", "text": "                assert!(\n                    expression.contains(\"DBMS_LOB.\\\"SUBSTR\\\"\"),\n                    \"LOB output must remain bounded: {sql}\"\n                );"},
+            {"first_line": 177, "last_line": 177, "kind": "assertion", "text": "                assert!(expression.contains(\"...[truncated]\"), \"LOB output retains its marker: {sql}\");"},
+            {"first_line": 179, "last_line": 179, "kind": "assertion", "text": "                assert!(expression.contains(payload), \"LOB output retains its byte ceiling: {sql}\");"},
+            {"first_line": 182, "last_line": 185, "kind": "assertion", "text": "        assert!(\n            sql.contains(\"REGEXP_REPLACE\"),\n            \"source redaction must remain before operators: {sql}\"\n        );"},
+            {"first_line": 186, "last_line": 186, "kind": "assertion", "text": "        assert!(!sql.contains(';'), \"the native statement cannot contain a delimiter: {sql}\");"}
           ]
         }
       },
