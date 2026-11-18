@@ -6,11 +6,14 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import uuid
 from pathlib import Path
+
+os.environ["GIT_OPTIONAL_LOCKS"] = "0"
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "source"
@@ -33,16 +36,17 @@ POLICY = {
 }
 OUTPUTS = {
     "core": SHAPES + [ROWS[engine] for engine in ENGINES[:4]] + list(POLICY.values()),
-    "cube": [SHAPES[-1], ROWS["cube"]],
+    "cube": [SHAPES[-1], ROWS["cube"], POLICY["cube"]],
     "oracle-verified": [SHAPES[-2], ROWS["oracle"], POLICY["oracle"]],
-    "oracle-native": [ROWS["oracle"]],
+    "oracle-native": [ROWS["oracle"], POLICY["oracle"]],
     "bigquery": [SHAPES[-3], ROWS["bigquery"], POLICY["bigquery"]],
 }
 ALLOWED = set().union(*map(set, OUTPUTS.values()))
 CORE_FILTER = (
     "package(=sutura-app) & binary(=golden) & "
     "(test(/^statements::(datafusion|duckdb|postgres|clickhouse|bigquery|oracle|cube)::(pins_planned_source_statements|pins_bounded_redacted_text_sql)$/)"
-    " | test(/^statements::engines::(datafusion|duckdb|postgres|clickhouse)::every_planned_shape_answers_at_the_native_engine$/))"
+    " | test(/^statements::engines::(datafusion|duckdb|postgres|clickhouse)::every_planned_shape_answers_at_the_native_engine$/)"
+    " | test(/^statements::engines::(datafusion|duckdb|postgres|clickhouse)::text_policy_expressions_obey_the_existing_value_contract$/))"
 )
 
 
@@ -61,7 +65,11 @@ def dump(path, value):
 
 
 def git(*args, cwd=SOURCE):
-    return subprocess.check_output(["git", *args], cwd=cwd).decode().strip()
+    return (
+        subprocess.check_output(["git", "--no-optional-locks", *args], cwd=cwd)
+        .decode()
+        .strip()
+    )
 
 
 def binding():
@@ -158,9 +166,17 @@ def apply_source():
     )
     require(sha(data) == value["source_patch_sha256"], "Source patch hash mismatch")
     subprocess.run(
-        ["git", "apply", "--index", "--check", "-"], input=data, cwd=SOURCE, check=True
+        ["git", "--no-optional-locks", "apply", "--index", "--check", "-"],
+        input=data,
+        cwd=SOURCE,
+        check=True,
     )
-    subprocess.run(["git", "apply", "--index", "-"], input=data, cwd=SOURCE, check=True)
+    subprocess.run(
+        ["git", "--no-optional-locks", "apply", "--index", "-"],
+        input=data,
+        cwd=SOURCE,
+        check=True,
+    )
     require(
         git("write-tree") == value["source_tree"] and not git("diff", "--name-only"),
         "Source postimage mismatch",
@@ -168,8 +184,20 @@ def apply_source():
 
 
 def planned(engine):
-    venue = engine if engine in ("oracle", "cube", "bigquery") else "native"
-    return f"statements::engines::{engine}::every_planned_shape_answers_at_the_{venue}_engine"
+    kind = engine if engine in ("oracle", "cube", "bigquery") else "native"
+    return f"statements::engines::{engine}::every_planned_shape_answers_at_the_{kind}_engine"
+
+
+def policy(engine):
+    return f"statements::{engine}::pins_bounded_redacted_text_sql"
+
+
+def expressions(engine):
+    prefix = engine + "_" if engine in ("oracle", "cube", "bigquery") else ""
+    return f"statements::engines::{engine}::{prefix}text_policy_expressions_obey_the_existing_value_contract"
+
+
+LOB_CELL = "statements::text::oracle_lob_expressions_use_full_redacted_text_and_only_bound_text_outputs"
 
 
 def passed(log, name, runner):
@@ -193,17 +221,16 @@ def check_results(lane, log):
                 for engine in ENGINES
             ]
             + [planned(engine) for engine in ENGINES[:4]]
-            + [
-                f"statements::{engine}::pins_bounded_redacted_text_sql"
-                for engine in ENGINES
-            ]
+            + [policy(engine) for engine in ENGINES]
+            + [expressions(engine) for engine in ENGINES[:4]]
         )
         if lane == "core"
-        else [planned("oracle" if lane.startswith("oracle") else lane)]
+        else (
+            [planned("oracle"), policy("oracle"), expressions("oracle"), LOB_CELL]
+            if lane.startswith("oracle")
+            else [planned(lane), policy(lane), expressions(lane)]
+        )
     )
-    if lane in ("bigquery", "oracle-verified"):
-        engine = "oracle" if lane == "oracle-verified" else lane
-        names.append(f"statements::{engine}::pins_bounded_redacted_text_sql")
     for name in names:
         require(passed(log, name, runner), "Missing exactly-once actual PASS: " + name)
     systems = (
@@ -226,8 +253,8 @@ def check_results(lane, log):
             not re.search(r"\bexempt:|\bSKIPPED\b", log), "Core exemption/skip refused"
         )
         require(
-            re.search(r"\b18 tests run: 18 passed\b", log),
-            "Core did not run exactly 18 selected cells",
+            re.search(r"\b22 tests run: 22 passed\b", log),
+            "Core did not run exactly 22 selected cells",
         )
     if lane == "cube":
         for name in (
@@ -285,6 +312,8 @@ def read_artifact(directory):
         expected.add("provision.log")
     if name == "core":
         expected.add("nextest-help.log")
+    if name.startswith("oracle"):
+        expected |= {"venue-original.sh", "venue-command.sh", "venue-context.json"}
     if name == "oracle-native":
         expected |= {
             phase + "/" + file
@@ -304,6 +333,54 @@ def changed_paths():
     return set(git("diff", "--name-only").splitlines()) | set(
         git("ls-files", "--others", "--exclude-standard").splitlines()
     )
+
+
+def oracle_command(name, out):
+    # Same generated-app wrapper seam as the existing finishing helper's bootstrap.
+    app_name = (
+        "oracle-acceptance" if name == "oracle-verified" else "oracle-native-acceptance"
+    )
+    installable = f".#apps.x86_64-linux.{app_name}.program"
+    app = Path(
+        subprocess.check_output(
+            ["nix", "eval", "--raw", installable], cwd=SOURCE
+        ).decode()
+    )
+    dependencies = json.loads(
+        subprocess.check_output(
+            ["nix", "eval", "--json", "--apply", "builtins.getContext", installable],
+            cwd=SOURCE,
+        )
+    )
+    require(
+        len(dependencies) == 1 and all(path.endswith(".drv") for path in dependencies),
+        "Unknown app context",
+    )
+    subprocess.run(["nix-store", "--realise", *dependencies], cwd=SOURCE, check=True)
+    original = app.read_text()
+    script = (
+        "oracle-app-cells.sh" if name == "oracle-verified" else "oracle-native-probe.sh"
+    )
+    needle = "bash nix/" + script
+    require(
+        original.count(needle) == (1 if name == "oracle-verified" else 2),
+        "Oracle app callsite drift",
+    )
+    selector = ROOT / ".github" / script
+    wrapper = original.replace(needle, "bash " + shlex.quote(str(selector)))
+    (out / "venue-original.sh").write_text(original)
+    (out / "venue-command.sh").write_text(wrapper)
+    dump(
+        out / "venue-context.json",
+        {
+            "app": str(app),
+            "dependencies": dependencies,
+            "original_sha256": sha(original.encode()),
+            "wrapper_sha256": sha(wrapper.encode()),
+            "selector_sha256": sha(selector.read_bytes()),
+        },
+    )
+    return ["bash", str(out / "venue-command.sh")]
 
 
 def lane(name, out):
@@ -354,6 +431,8 @@ def lane(name, out):
         "oracle-native": ["nix", "run", ".#oracle-native-acceptance"],
         "bigquery": ["nix", "run", ".#bigquery-conformance", "--", "--no-capture"],
     }[name]
+    if name.startswith("oracle"):
+        command = oracle_command(name, out)
     phases = {}
     for phase, setting in (("update", "always"), ("no-update", "no")):
         evidence = out / phase
@@ -388,7 +467,7 @@ def lane(name, out):
             check_results(name, corpus)
             require(
                 re.search(
-                    r"^test result: ok\. 1 passed; 0 failed; 0 ignored;",
+                    r"^test result: ok\. 4 passed; 0 failed; 0 ignored;",
                     corpus,
                     re.MULTILINE,
                 ),
@@ -405,7 +484,11 @@ def lane(name, out):
                 "No-update venue mutated its exact lane tree",
             )
         else:
-            subprocess.run(["git", "add", "--", *OUTPUTS[name]], cwd=SOURCE, check=True)
+            subprocess.run(
+                ["git", "--no-optional-locks", "add", "--", *OUTPUTS[name]],
+                cwd=SOURCE,
+                check=True,
+            )
         for path in OUTPUTS[name]:
             source = SOURCE / path
             require(
@@ -505,7 +588,11 @@ def collect(incoming, out):
         require(not target.is_symlink(), "Source symlink refused")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-    subprocess.run(["git", "add", "--", *sorted(merged)], cwd=SOURCE, check=True)
+    subprocess.run(
+        ["git", "--no-optional-locks", "add", "--", *sorted(merged)],
+        cwd=SOURCE,
+        check=True,
+    )
     require(
         set(
             git(
@@ -516,7 +603,15 @@ def collect(incoming, out):
         "Non-generated collector delta",
     )
     patch = subprocess.check_output(
-        ["git", "diff", "--cached", "--binary", binding()["source_tree"]], cwd=SOURCE
+        [
+            "git",
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--binary",
+            binding()["source_tree"],
+        ],
+        cwd=SOURCE,
     )
     (out / "generated.patch").write_bytes(patch)
     dump(
@@ -574,61 +669,20 @@ def receipt(out):
 
 
 def self_check():
-    for engine, expected in (
-        (
-            "oracle",
-            "statements::engines::oracle::every_planned_shape_answers_at_the_oracle_engine",
-        ),
-        (
-            "cube",
-            "statements::engines::cube::every_planned_shape_answers_at_the_cube_engine",
-        ),
-        (
-            "bigquery",
-            "statements::engines::bigquery::every_planned_shape_answers_at_the_bigquery_engine",
-        ),
-    ):
-        assert planned(engine) == expected, "Wrong planned corpus name: " + engine
-        lane = "oracle-native" if engine == "oracle" else engine
-        actual = (
-            f"        PASS [   0.010s] (1/1) sutura-app::golden {expected}\n"
-            if engine == "bigquery"
-            else f"test {expected} ... ok\n"
-        )
-        if engine == "cube":
-            actual += (
-                "test tests::the_live_cube_serves_the_recorded_definitions ... ok\n"
-            )
-            actual += "test catalogs::cube::the_catalog_is_pinned_as_a_whole ... ok\n"
-        expected_names = [expected]
-        if engine == "bigquery":
-            policy = f"statements::{engine}::pins_bounded_redacted_text_sql"
-            actual += f"        PASS [   0.010s] (2/2) sutura-app::golden {policy}\n"
-            expected_names.append(policy)
-        assert check_results(lane, actual) == expected_names
-        wrong = actual.replace(f"at_the_{engine}_engine", "at_the_native_engine")
-        try:
-            check_results(lane, wrong)
-        except SystemExit:
-            pass
-        else:
-            raise AssertionError("Wrong native suffix accepted: " + engine)
     names = [
         f"statements::{engine}::pins_planned_source_statements" for engine in ENGINES
     ]
     names += [planned(engine) for engine in ENGINES[:4]]
-    names += [
-        f"statements::{engine}::pins_bounded_redacted_text_sql" for engine in ENGINES
-    ]
+    names += [policy(engine) for engine in ENGINES]
+    names += [expressions(engine) for engine in ENGINES[:4]]
     log = "\n".join(
-        f"        PASS [   0.010s] ({index:2}/18) sutura-app::golden {name}"
+        f"        PASS [   0.010s] ({index:2}/22) sutura-app::golden {name}"
         for index, name in enumerate(names, 1)
     )
-    log += "\nSummary [1s] 18 tests run: 18 passed, 100 skipped\n"
-    assert len(check_results("core", log)) == 18
+    log += "\nSummary [1s] 22 tests run: 22 passed, 100 skipped\n"
+    assert len(check_results("core", log)) == 22
     for bad in (
         log.replace("PASS", "FAIL", 1),
-        log.replace("pins_bounded_redacted_text_sql", "missing_policy", 1),
         log + "exempt: postgres from Unavailable\n",
     ):
         try:
@@ -637,13 +691,18 @@ def self_check():
             pass
         else:
             raise AssertionError("False native proof accepted")
-    live = f"        PASS [   0.010s] (1/1) sutura-app::golden {planned('bigquery')}\n"
-    live += "        PASS [   0.010s] (2/2) sutura-app::golden statements::bigquery::pins_bounded_redacted_text_sql\n"
+    live = "".join(
+        f"        PASS [   0.010s] ({index}/3) sutura-app::golden {name}\n"
+        for index, name in enumerate(
+            [planned("bigquery"), policy("bigquery"), expressions("bigquery")], 1
+        )
+    )
     live += "exempt: bigquery from DryRun - unrelated capability cell\n"
     live += "exempt: bigquery from KeyProbe - unrelated capability cell\n"
     assert check_results("bigquery", live) == [
         planned("bigquery"),
-        "statements::bigquery::pins_bounded_redacted_text_sql",
+        policy("bigquery"),
+        expressions("bigquery"),
     ]
     for notice in ("Unavailable", "SUTURA_ONLY_SYSTEMS"):
         try:
@@ -655,6 +714,17 @@ def self_check():
             pass
         else:
             raise AssertionError("Native availability/narrowing exemption accepted")
+    oracle = [planned("oracle"), policy("oracle"), expressions("oracle"), LOB_CELL]
+    lines = [f"test {name} ... ok\n" for name in oracle]
+    for lane in ("oracle-verified", "oracle-native"):
+        assert check_results(lane, "".join(lines)) == oracle
+        for bad in ("".join(lines[:-1]), "".join(lines + lines[-1:])):
+            try:
+                check_results(lane, bad)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("Missing/duplicate Oracle LOB cell accepted")
     assert (
         len(SHAPES + list(ROWS.values()) + list(POLICY.values()))
         == len(set(SHAPES + list(ROWS.values()) + list(POLICY.values())))
@@ -664,6 +734,18 @@ def self_check():
     assert (
         ROWS["oracle"] in OUTPUTS["oracle-native"]
         and ROWS["oracle"] in OUTPUTS["oracle-verified"]
+    )
+    assert (
+        planned("oracle")
+        == "statements::engines::oracle::every_planned_shape_answers_at_the_oracle_engine"
+    )
+    assert (
+        planned("cube")
+        == "statements::engines::cube::every_planned_shape_answers_at_the_cube_engine"
+    )
+    assert (
+        planned("bigquery")
+        == "statements::engines::bigquery::every_planned_shape_answers_at_the_bigquery_engine"
     )
     print("collector self-check passed")
 
