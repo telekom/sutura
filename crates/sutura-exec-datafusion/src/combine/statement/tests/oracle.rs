@@ -417,6 +417,71 @@ fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dial
 }
 
 #[test]
+fn a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect() {
+    use datafusion::datasource::{MemTable, provider_as_source};
+    use datafusion::logical_expr::{JoinType, LogicalPlan, LogicalPlanBuilder, col};
+
+    let batch = regions();
+    let source = provider_as_source(Arc::new(
+        MemTable::try_new(batch.schema(), vec![vec![batch]]).expect("a source table"),
+    ));
+    let left = LogicalPlanBuilder::scan("dim_region", Arc::clone(&source), None)
+        .expect("a left scan")
+        .alias("l")
+        .expect("a left alias")
+        .build()
+        .expect("a left plan");
+    let right = LogicalPlanBuilder::scan("dim_region", source, None)
+        .expect("a right scan")
+        .build()
+        .expect("a right plan");
+    let LogicalPlan::TableScan(mut right) = right else {
+        panic!("a table scan");
+    };
+    right.fetch = Some(1);
+    let right = LogicalPlanBuilder::from(LogicalPlan::TableScan(right))
+        .alias("r")
+        .expect("a right alias")
+        .build()
+        .expect("an aliased fetched scan");
+    let plan = LogicalPlanBuilder::from(left)
+        .join_on(right, JoinType::Inner, [col("l.region").eq(col("r.region"))])
+        .expect("an equality join")
+        .project(vec![
+            col("l.region").alias("left_region"),
+            col("r.region").alias("right_region"),
+        ])
+        .expect("a labelled projection")
+        .build()
+        .expect("a joined source plan");
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let sql = super::super::unparsed(&plan, dialect).expect("the joined plan unparses");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let rows = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("a source statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        assert_eq!(rows.rows().len(), 1, "{dialect:?}: the joined scan lost its fetch: {sql}");
+        assert_eq!(
+            rows,
+            legs.engines
+                .as_one("select region as left_region, region as right_region from dim_region limit 1"),
+            "{dialect:?}: {sql}"
+        );
+    }
+}
+
+#[test]
 fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect() {
     let _logging = tracing::subscriber::set_default(
         tracing_subscriber::fmt()
