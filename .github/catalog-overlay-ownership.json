@@ -1,0 +1,355 @@
+{
+  "last-column-prose-source-overrides-first": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::ordered_prose_overlays_keep_dictionary_structure_and_count_unexposed_columns"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        251,
+        290
+      ],
+      "own_assertion_range": [
+        273,
+        276
+      ],
+      "own_source": "        assert_eq!(\n            table.column_metadata(\"id\").and_then(crate::ColumnMetadata::description),\n            Some(\"First id\")\n        );",
+      "required_failure": "Some(\"First id\") expected; found later source prose",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "ignored-column-count-becomes-zero": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::ordered_prose_overlays_keep_dictionary_structure_and_count_unexposed_columns"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        251,
+        290
+      ],
+      "own_assertion_range": [
+        270,
+        270
+      ],
+      "own_source": "        assert_eq!(ignored, 2);",
+      "required_failure": "ignored count 2 expected; found 0",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "overlay-folds-schema-case": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::overlay_physical_identity_does_not_fold_case_or_drop_catalog_qualifiers"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        293,
+        310
+      ],
+      "own_assertion_range": [
+        301,
+        301
+      ],
+      "own_source": "        assert_eq!(ignored, 2);",
+      "required_failure": "ignored count 2 expected; exact physical identity lost",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "overlay-discards-catalog-qualifier": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::overlay_physical_identity_does_not_fold_case_or_drop_catalog_qualifiers"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        293,
+        310
+      ],
+      "own_assertion_range": [
+        301,
+        301
+      ],
+      "own_source": "        assert_eq!(ignored, 2);",
+      "required_failure": "ignored count 2 expected; catalog qualifier lost",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "projection-accepts-repeated-table": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::description_projection_refuses_duplicate_keys_caps_and_control_characters"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        313,
+        339
+      ],
+      "own_assertion_range": [
+        316,
+        319
+      ],
+      "own_source": "        assert!(matches!(\n            DescriptionOverlay::from_dictionary(&repeated, bounds(100, 10000)),\n            Err(DescriptionError::DuplicateTable { .. })\n        ));",
+      "required_failure": "DuplicateTable expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "projection-accepts-repeated-column": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::description_projection_refuses_duplicate_keys_caps_and_control_characters"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        313,
+        339
+      ],
+      "own_assertion_range": [
+        320,
+        323
+      ],
+      "own_source": "        assert!(matches!(\n            DescriptionOverlay::from_dictionary(&dictionary(\"public\", &[(\"id\", \"One\"), (\"id\", \"Two\")]), bounds(100, 10000)),\n            Err(DescriptionError::Duplicate { .. })\n        ));",
+      "required_failure": "Duplicate column expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "projection-ignores-row-bound": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::description_projection_refuses_duplicate_keys_caps_and_control_characters"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        313,
+        339
+      ],
+      "own_assertion_range": [
+        324,
+        330
+      ],
+      "own_source": "        assert!(matches!(\n            DescriptionOverlay::from_dictionary(\n                &dictionary(\"public\", &[(\"id\", \"Prose\"), (\"extra\", \"Prose\")]),\n                bounds(1, 10000)\n            ),\n            Err(DescriptionError::Rows { .. })\n        ));",
+      "required_failure": "Rows error expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "projection-ignores-byte-bound": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::description_projection_refuses_duplicate_keys_caps_and_control_characters"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        313,
+        339
+      ],
+      "own_assertion_range": [
+        331,
+        334
+      ],
+      "own_source": "        assert!(matches!(\n            DescriptionOverlay::from_dictionary(&dictionary(\"public\", &[(\"id\", \"Prose\")]), bounds(100, 1)),\n            Err(DescriptionError::Bytes { .. })\n        ));",
+      "required_failure": "Bytes error expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "projection-strips-control-before-validation": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::description_projection_refuses_duplicate_keys_caps_and_control_characters"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        313,
+        339
+      ],
+      "own_assertion_range": [
+        335,
+        338
+      ],
+      "own_source": "        assert!(matches!(\n            DescriptionOverlay::from_dictionary(&dictionary(\"public\", &[(\"id\", \"Bad\\u{1b}prose\")]), bounds(100, 10000)),\n            Err(DescriptionError::Prose { .. })\n        ));",
+      "required_failure": "Prose error expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "catalog-projection-drops-column-prose": [
+    {
+      "identity": [
+        "sutura-catalog-rdbms",
+        "descriptions::tests::a_catalog_projection_uses_physical_names_and_discards_the_contributors_structure"
+      ],
+      "path": "crates/sutura-catalog-rdbms/src/descriptions.rs",
+      "file_sha256": "2c7af78092ab25ddb6cd6d497c7d24fe9564fbeb2c60bfca5ca15f3b8de6b435",
+      "function_range": [
+        342,
+        373
+      ],
+      "own_assertion_range": [
+        368,
+        371
+      ],
+      "own_source": "        assert_eq!(\n            table.column_metadata(\"id\").and_then(crate::ColumnMetadata::description),\n            Some(\"Catalog documentation.\")\n        );",
+      "required_failure": "Catalog documentation expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "mapping-ignores-raw-SQL-field": [
+    {
+      "identity": [
+        "sutura-config",
+        "catalog::tests::a_separate_description_mapping_is_parsed_as_prose_only_with_a_closed_predicate"
+      ],
+      "path": "crates/sutura-config/src/catalog.rs",
+      "file_sha256": "656f1ef5b9c981447c24f90a93d59777a9ba48e682c8214f8162dd0fdc67e82f",
+      "function_range": [
+        927,
+        945
+      ],
+      "own_assertion_range": [
+        940,
+        944
+      ],
+      "own_source": "        load(&text.replace(\n            \"live_row_predicate: {column: deleted, operator: equals, value: 'N'}\",\n            \"live_row: \\\"deleted = 'N'\\\"\",\n        ))\n        .expect_err(\"raw SQL is not a declared mapping field\");",
+      "required_failure": "raw SQL is not a declared mapping field; expect_err",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "catalog-reference-validation-bypassed": [
+    {
+      "identity": [
+        "sutura-config",
+        "settings::tests::rdbms_catalog::description_references_refuse_unknown_self_and_cyclic_sources"
+      ],
+      "path": "crates/sutura-config/src/settings/tests/rdbms_catalog.rs",
+      "file_sha256": "cbddfc2027f1ee8af67567267ec707e02e9c22fef5632e2770cdc741d2eee6d7",
+      "function_range": [
+        470,
+        489
+      ],
+      "own_assertion_range": [
+        474,
+        474
+      ],
+      "own_source": "        load(&text).expect_err(\"an unknown or self reference must refuse\");",
+      "required_failure": "unknown or self reference must refuse; expect_err",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "prose-catalog-becomes-serving-structure": [
+    {
+      "identity": [
+        "sutura-config",
+        "catalog::tests::referenced_catalogs_are_prose_only_and_unrelated_contributors_are_retained"
+      ],
+      "path": "crates/sutura-config/src/catalog.rs",
+      "file_sha256": "656f1ef5b9c981447c24f90a93d59777a9ba48e682c8214f8162dd0fdc67e82f",
+      "function_range": [
+        948,
+        960
+      ],
+      "own_assertion_range": [
+        956,
+        959
+      ],
+      "own_source": "        assert_eq!(\n            structural.each().map(|entry| entry.name().as_str()).collect::<Vec<_>>(),\n            [\"dict\", \"third\"]\n        );",
+      "required_failure": "structural names dict and third expected, prose source excluded",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "served-projection-does-not-apply-overlays": [
+    {
+      "identity": [
+        "sutura-cli::served",
+        "rdbms::tests::native::a_served_postgres_dictionary_layers_remote_prose_without_widening_sql"
+      ],
+      "path": "crates/sutura-cli/tests/served/rdbms.rs",
+      "file_sha256": "44db548c2c7b06b2ddf2afd75d641f811d33f2c7a47c8780976de46c47e2653d",
+      "function_range": [
+        265,
+        341
+      ],
+      "own_assertion_range": [
+        321,
+        321
+      ],
+      "own_source": "            assert_eq!(id[\"description\"], \"Business event identifier.\");",
+      "required_failure": "Business event identifier expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    },
+    {
+      "identity": [
+        "sutura-cli::served",
+        "native_oracle_dictionary::descriptions::a_served_oracle_dictionary_layers_a_separate_read_only_description_table"
+      ],
+      "path": "crates/sutura-cli/tests/served/native_oracle_dictionary/descriptions.rs",
+      "file_sha256": "319797f5c2244a533b4d6a1e0da41d35c6cea334f6272bda0c35c659e697ba91",
+      "function_range": [
+        5,
+        105
+      ],
+      "own_assertion_range": [
+        85,
+        85
+      ],
+      "own_source": "    assert_eq!(id[\"description\"], \"Documented event identifier.\");",
+      "required_failure": "Documented event identifier expected",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ],
+  "mapping-borrows-structural-login": [
+    {
+      "identity": [
+        "sutura-cli::served",
+        "rdbms::tests::native::a_served_postgres_dictionary_layers_remote_prose_without_widening_sql"
+      ],
+      "path": "crates/sutura-cli/tests/served/rdbms.rs",
+      "file_sha256": "44db548c2c7b06b2ddf2afd75d641f811d33f2c7a47c8780976de46c47e2653d",
+      "function_range": [
+        265,
+        341
+      ],
+      "own_assertion_range": [
+        314,
+        314
+      ],
+      "own_source": "                .expect(\"the separately granted documentation reader starts the deployment\");",
+      "required_failure": "own positive startup expect with actual permission denied for table docs in Err",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    },
+    {
+      "identity": [
+        "sutura-cli::served",
+        "native_oracle_dictionary::descriptions::a_served_oracle_dictionary_layers_a_separate_read_only_description_table"
+      ],
+      "path": "crates/sutura-cli/tests/served/native_oracle_dictionary/descriptions.rs",
+      "file_sha256": "319797f5c2244a533b4d6a1e0da41d35c6cea334f6272bda0c35c659e697ba91",
+      "function_range": [
+        5,
+        105
+      ],
+      "own_assertion_range": [
+        77,
+        77
+      ],
+      "own_source": "        .expect(\"the separately granted documentation reader starts the deployment\");",
+      "required_failure": "own positive startup expect with actual ORA-00942 in Err",
+      "not_accepted": "compile/setup/helper/listener timeout/skip/exemption/other assertion; own function-range match alone is insufficient"
+    }
+  ]
+}

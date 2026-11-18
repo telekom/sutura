@@ -1,0 +1,19 @@
+{
+  "source_sha": "ed35580e44f366e1f7993c542f3873d505f3efaf",
+  "source_tree": "df2079f52c3604e83eebdf9ba22d65c7893115ad",
+  "comparison_sha": "f454275025078c6611bd3e3dcd4b89c931ce5656",
+  "request_id": "ec2ac797-64fd-4d87-8568-65148cc4e596",
+  "helper_files": {
+    ".github/catalog-overlay-ownership.json": "47f46d0505bcec588e6078bd0d3f0e6a689f4ea0ef9880cf89904856c7d67eae",
+    ".github/catalog-overlay-proof.just": "794d82e4ac110cf50f55336c461391e93b92168af2e8a1ef1a01b19c8afeb7ee",
+    ".github/catalog-overlay-venue.py": "f16782a0abc642e54733aad881bb830ceade9935f53d5ecc8a1a7b5fef32e36d",
+    ".github/inbound_verifier_proof.py": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707",
+    ".github/oracle-catalog-overlay-legacy-probe.sh": "a92539c1b1a3c90cc3ec84563708e0ddadf2c12eb9dadf7a42bbc4da84b9b878",
+    "nix/oracle-login-fixtures.sh": "bd5a15d9c113d9ad8d358a3c6d5ceda9bd2656ca9ff1d1c1f394effcef6b8817",
+    ".github/oracle-catalog-overlay-native-probe.sh": "7345b7f9b6f0e1add23a42b8719bd33421610648f35f466e5da03fa1398213d9",
+    ".github/oracle-catalog-overlay-proof.sh": "c7125a85ccb5b703622cd6b31154f7c5e9c166fa39b97623199eb39343ad9d80",
+    ".github/sql1909-finishing-mutations.json": "7829e14b8347a2df7da5044303f35d7a85000c7ed021e679766730cf84d5d90f",
+    ".github/workflows/format.yml": "9e29ad3c1e77afaa1554814025dd2bd9bd08ae7037342e537ae554fd5abcad9c"
+  },
+  "source_parent_sha": "1314575129cf176f54a9cfce029d70148e3b9c6c"
+}

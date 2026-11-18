@@ -114,5 +114,5 @@ cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --featu
   "$oracle_test_filter" -- --ignored --nocapture
 
 if [ "${SUTURA_ORACLE_BASE_PROOF:-0}" != 1 ]; then
-  bash nix/oracle-raw-cells.sh "$name" "$service" "$legacy_user"
+  bash "${SUTURA_CATALOG_HELPER_DIR:?}/oracle-catalog-overlay-proof.sh" "$name" "$service" "$legacy_user"
 fi
