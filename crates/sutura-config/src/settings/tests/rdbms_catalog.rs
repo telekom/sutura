@@ -470,7 +470,7 @@ fn oracle_unbounded_number_policy_is_explicit_and_refuses_other_representations_
 fn a_separate_description_mapping_is_parsed_as_prose_only_with_a_closed_predicate() {
     let text = overlay("rdbms", ENTRY, Some(CONNECTION));
     let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: deleted, operator: equals, value: 'N'}}\n"
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: deleted, operator: equals, value: 'N'}}\n"
     );
     let settings = load(&text).expect("a checked standalone mapping loads");
     let entry = settings.catalogs().each().next().unwrap();

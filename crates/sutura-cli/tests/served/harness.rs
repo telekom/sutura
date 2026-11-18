@@ -717,10 +717,15 @@ pub(crate) fn start(case: &str) -> Served {
 // `terminate` or a panicking assertion - reaps it. Reaping here would mean waiting for the service
 // to exit before asking it anything.
 pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
-    try_start_configured(case, settings)
-        .unwrap_or_else(|startup| panic!("the service never reported a listener:\n{}", startup.join("\n")))
+    start_configured_with_driver(case, settings, None)
 }
 
+#[cfg(all(
+    feature = "rdbms",
+    feature = "sql",
+    feature = "agent",
+    any(feature = "postgres", feature = "oracle")
+))]
 pub(crate) fn try_start_configured(case: &str, settings: &str) -> Result<Served, Vec<String>> {
     try_start_configured_with_environment(case, settings, None, &[], &[])
 }
