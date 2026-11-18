@@ -116,6 +116,10 @@ fn federating(
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<DeclaredPrincipalBroker, String> {
     match source.caller_identity() {
+        Some(sutura_config::sources::caller_identity::CallerIdentity::CallerGoogleToken(reason)) => {
+            tracing::warn!(source=%alias,acknowledged_because=%reason,"OPT-IN GOOGLE TOKEN FORWARDING: only google_tokeninfo admission is accepted; the caller's own token reaches BigQuery without refresh");
+            return Ok(broker.caller_google_token(alias.clone()));
+        }
         Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(login)) => {
             return Ok(broker.federating(
                 alias.clone(),

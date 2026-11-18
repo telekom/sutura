@@ -178,7 +178,7 @@ fn served(case: &str, idp: &FakeServer) -> Served {
             .security()
             .inbound()
             .first()
-            .map(sutura_config::InboundVerifier::identity)
+            .and_then(sutura_config::InboundVerifier::identity)
             .expect("a direct deployment"),
     )
     .expect("a published key set builds a gate");

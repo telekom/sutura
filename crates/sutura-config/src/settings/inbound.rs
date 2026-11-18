@@ -208,20 +208,25 @@ fn transit_lifetime(seconds: u64, accepted: bool) -> Result<ProofLifetime, Setti
 /// Normalizes the legacy object or the named list to complete verifier declarations.
 pub(super) fn parse_verifiers(
     written: Option<&RawInboundDeclarations>,
+    google: &crate::google_endpoints::GoogleEndpoints,
 ) -> Result<Vec<crate::inbound::InboundVerifier>, SettingsError> {
     match written {
         None => Ok(Vec::new()),
-        Some(RawInboundDeclarations::Legacy(entry)) => Ok(vec![parse_verifier(entry, None)?]),
+        Some(RawInboundDeclarations::Legacy(entry)) => Ok(vec![parse_verifier(entry, None, google)?]),
         Some(RawInboundDeclarations::Named(entries)) if entries.is_empty() => Err(SettingsError::InboundListEmpty),
         Some(RawInboundDeclarations::Named(entries)) => entries
             .iter()
             .enumerate()
-            .map(|(index, entry)| parse_verifier(entry, Some(index)))
+            .map(|(index, entry)| parse_verifier(entry, Some(index), google))
             .collect(),
     }
 }
 
-fn parse_verifier(written: &RawInbound, index: Option<usize>) -> Result<crate::inbound::InboundVerifier, SettingsError> {
+fn parse_verifier(
+    written: &RawInbound,
+    index: Option<usize>,
+    google: &crate::google_endpoints::GoogleEndpoints,
+) -> Result<crate::inbound::InboundVerifier, SettingsError> {
     use crate::inbound::{InboundVerifier, McpPath};
     use sutura_domain::identity::VerifierId;
 
@@ -235,6 +240,27 @@ fn parse_verifier(written: &RawInbound, index: Option<usize>) -> Result<crate::i
         None if index.is_none() => McpPath::conventional(),
         None => return Err(SettingsError::InboundEntryKeyMissing { index, key: "path" }),
     };
+    if let Some(kind) = written.verifier.as_deref() {
+        if kind != "google_tokeninfo" {
+            return Err(SettingsError::GoogleVerifier {
+                cause: crate::inbound::google::InvalidGoogleVerifier::Inapplicable { key: "verifier" },
+            });
+        }
+        let policy = crate::inbound::google::GoogleTokenInfo::parse(written, google.tokeninfo())
+            .map_err(|cause| SettingsError::GoogleVerifier { cause })?;
+        return Ok(InboundVerifier::with_google(id, path, policy));
+    }
+    if written.client_id.is_some()
+        || written.hosted_domains.is_some()
+        || written.required_scopes.is_some()
+        || written.tokeninfo_endpoint.is_some()
+    {
+        return Err(SettingsError::GoogleVerifier {
+            cause: crate::inbound::google::InvalidGoogleVerifier::Required {
+                key: "verifier: google_tokeninfo",
+            },
+        });
+    }
     let identity = parse_inbound(written).map_err(|cause| match index {
         Some(index) => SettingsError::InboundEntry {
             index,

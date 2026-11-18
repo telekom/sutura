@@ -8,7 +8,7 @@ use crate::raw::RawGoogleEndpoints;
 pub struct GoogleApiEndpoint(String);
 
 impl GoogleApiEndpoint {
-    fn parse(key: &'static str, raw: &str) -> Result<Self, InvalidGoogleEndpoint> {
+    pub(crate) fn parse(key: &'static str, raw: &str) -> Result<Self, InvalidGoogleEndpoint> {
         let refused = || InvalidGoogleEndpoint { key, cause: None };
         let url = url::Url::parse(raw).map_err(|cause| InvalidGoogleEndpoint { key, cause: Some(cause) })?;
         if raw.trim() != raw
