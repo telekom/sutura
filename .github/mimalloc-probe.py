@@ -243,7 +243,7 @@ def probe(out):
         "MI_DEFAULT_GUARDED_SAMPLE_RATE=0",
     ):
         require(flag in build_log, "Missing actual cc build flag: " + flag)
-    bundled = list(target.glob("release/build/libmimalloc-sys-*/out/libmimalloc.a"))
+    bundled = list(target.glob("release/build/libmimalloc-sys/*/out/libmimalloc.a"))
     require(len(bundled) == 1, "Expected exactly one fallback archive")
     expression = (
         "let flake = builtins.getFlake "
