@@ -36,10 +36,10 @@ jobs:
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
       WORKFLOW_SHA: ${{ github.workflow_sha }}
       MAIN_PARENT: f454275025078c6611bd3e3dcd4b89c931ce5656
-      SOURCE_PARENT: 12dc44dc22bf2e57208df231940a872aef98d388
-      EXPECTED_TREE: 53bb3701f435c422965337578f8eea9ed856d008
-      MESSAGE_SHA: 921b4766671012f341eecd47ef3be079579e38af3878d89fc9cb8a9c7a0f9802
-      PATCH_SHA: 52e18074c36c43e5c3866c22d045e3b09c7e0fed14ce18daee9862d1972cf23b
+      SOURCE_PARENT: eeafa71fd3209df271031e75183db28e03cb9b97
+      EXPECTED_TREE: 89df0e538823821733cd2395e60c00bfc8567f99
+      MESSAGE_SHA: 0c784b72ceef13181151675f46f873ff597088e0b2eb2ba06d47e0cf537a5986
+      PATCH_SHA: e97342422c4f2ddffbf813a3ea9dd7921469be8d75c4dd57f1da042f8370908a
       SOURCE_BRANCH: feat/catalog-overlays-actual-main-concierge0811-r3
       GIT_OPTIONAL_LOCKS: "0"
       NO_COLOR: "1"
@@ -55,7 +55,7 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/catalog-overlay-source-bundle-concierge0811-r1
+          test "$GITHUB_REF" = refs/heads/ci/catalog-overlay-fixture-tools-concierge0811-r1
           [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
@@ -64,11 +64,11 @@ jobs:
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
           test "$CONSUMER" = catalog-overlay
-          test "$REQUEST_ID" = bbe53a28-7ee7-4eec-b84f-d44f8c6574e4
+          test "$REQUEST_ID" = b2d10885-2062-4c7f-a30a-78e09cf11851
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 12dc44dc22bf2e57208df231940a872aef98d388
+          ref: eeafa71fd3209df271031e75183db28e03cb9b97
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -93,13 +93,13 @@ jobs:
           git --no-optional-locks switch -c "$SOURCE_BRANCH"
           patch="$EVIDENCE/source.patch"
           base64 --decode <<'PATCH' | gzip --decompress > "$patch"
-          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
+          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
           PATCH
           test "$(sha256sum "$patch" | cut -d ' ' -f 1)" = "$PATCH_SHA"
           git --no-optional-locks apply --index --check "$patch"
           git --no-optional-locks apply --index "$patch"
           test "$(git --no-optional-locks rev-parse HEAD)" = "$SOURCE_PARENT"
-          printf 'fix: provision catalog overlay fixture boundaries\n' > "$EVIDENCE/commit-message.txt"
+          printf 'fix: enable catalog description fixture tools\n' > "$EVIDENCE/commit-message.txt"
           test "$(sha256sum "$EVIDENCE/commit-message.txt" | cut -d ' ' -f 1)" = "$MESSAGE_SHA"
           test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
           git --no-optional-locks diff --exit-code
@@ -180,7 +180,6 @@ jobs:
               'structural gates'
               'cargo check (changed packages only)'
               'copy/paste detection (jscpd)'
-              'shell scripts'
               'detect hardcoded secrets (CI is authoritative)'
               'conventional commit subject'
           )
