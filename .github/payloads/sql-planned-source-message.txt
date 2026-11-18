@@ -1,0 +1,3 @@
+fix(sql): make source projections explicit before dispatch
+
+Closes #1970
