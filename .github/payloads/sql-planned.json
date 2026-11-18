@@ -1,12 +1,12 @@
 {
   "status": "READY_FOR_EXACT_REVIEW",
-  "main": "0beaf6988adedad10304746f26de26646631f71f",
-  "base": "0beaf6988adedad10304746f26de26646631f71f",
-  "source_tree": "a1ddcc41926a37dd719dd2c415eb758794080b17",
-  "source_patch_sha256": "4e8bd0dd9be1275d91e1781f4a6c9ac5f7ab1416d21f587319a6483b2154a8ff",
-  "source_freeze_sha256": "2ac307041e4d332f0459146aafcecb01ab6645cb212ecad143c125fee8e9d5aa",
-  "source_review_sha256": "9a2d39eb0b4e3e6909df47e925100413d4f400ae7a492013e7ad0a664cb91f0e",
-  "helper_ref": "ci/explicit-projections-generation-1970-current-concierge0811-r1",
-  "request_id": "b1f40671-ad8c-46f7-9fbf-74794ad570c0",
-  "source_branch": "fix/explicit-source-projections-1970-generated-concierge0811-r1"
+  "main": "f454275025078c6611bd3e3dcd4b89c931ce5656",
+  "base": "f454275025078c6611bd3e3dcd4b89c931ce5656",
+  "source_tree": "1bddccf801e60ce5f6a5e9055d86468fb7958131",
+  "source_patch_sha256": "d174fcbbe491b99f59d34adf042d783a4fe6b4f9020711bc538e08d97901f463",
+  "source_freeze_sha256": "95757bbc660e5db63e7bcd743d1105f8c3ddd49524f8b16b171f6d5c913c74f7",
+  "source_review_sha256": "56f26954e9d223bae8b408bf709daea76238a3d83b4ad8cf1581bb399bc53942",
+  "helper_ref": "ci/explicit-projections-generation-1970-actual-main-concierge0811-r2",
+  "request_id": "b8c4d791-a8cb-481e-aa1a-2081b00da35b",
+  "source_branch": "fix/explicit-source-projections-1970-generated-concierge0811-r2"
 }
