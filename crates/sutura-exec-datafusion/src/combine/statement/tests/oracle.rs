@@ -644,7 +644,7 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
     )];
     for predicate in [r#"a."sales_area" = 9"#, r#"a."sales_area" = 1000"#] {
         let statement = RawStatement::parse(format!(
-            r#"SELECT a."sales_area", b."sales_area" FROM "dim_region" a JOIN "dim_region" b ON a."sales_area" + 1 = b."sales_area" WHERE {predicate}"#
+            r#"SELECT a."sales_area", b."sales_area" FROM "dim_region" a JOIN "dim_region" b ON a."sales_area" < b."sales_area" WHERE b."sales_area" = 10 AND {predicate}"#
         )).expect("an admitted native numeric query");
         let mut legs = OracleLegs {
             engines: Engines::new(None),
