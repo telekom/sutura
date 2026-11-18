@@ -19,8 +19,15 @@ queries over a policy-bearing catalog.
 
 The declaration and pinned schema digests include policies. Conflicting declarations for one
 physical column refuse validation. Native dictionary allowlists carry policies so composition
-cannot weaken them. Policies require mapped text columns and a catalog without certified metrics;
-the certified execution path does not implement these transformations and must not bypass them.
+cannot weaken them. Policies require mapped text columns. Certified metrics may coexist with them
+when their declared reads are disjoint: schema pinning checks measure terms, required filters,
+time columns, every dimension path's columns and join keys, and cross-fact calendar links. Anchors
+use those same metric reads. Refusals name the metric and protected column. The check compares
+physical source/table/column identities across model aliases, conservatively treating unqualified
+and case-folded spellings as possible aliases. It can therefore refuse spellings an engine would
+resolve separately. Authored SQL has no closed column vocabulary, so any policy on its source
+refuses validation. Certified execution still applies no text transformation; adding a new read
+path requires extending this check.
 
 Database permissions remain the first defense. Neither a caller nor an account executing for them
 should ever have permission to read secrets they are not authorized to see. Use restricted views

@@ -1,0 +1,1 @@
+MetricReadsProtectedText { metric: MetricName("total"), model: ModelName("facts"), column: ColumnName("body") }
