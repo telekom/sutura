@@ -81,13 +81,13 @@
       "tests": [
         "native_wildcards"
       ],
-      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
-      "mutated_sha256": "6d9a8d0255237caeb8ddee74687aa67d8813502e1faebecbe3b024e093c59105",
+      "preimage_sha256": "402627d5b7b1add4354e11ada90f2046ed98d3652f48f746634dc98df3b2363e",
+      "mutated_sha256": "6dfb38777cfa344ac672d4beacaaeafc88fb26450b42841c915b22e426779aca",
       "edits": [
         {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
-          "before": "resolve::explicit_statement(native, &native_tables)",
-          "after": "resolve::statement(native, &native_tables)",
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/resolve.rs",
+          "before": "resolved(statement, tables, true)",
+          "after": "resolved(statement, tables, false)",
           "count": 1
         }
       ]
@@ -378,8 +378,8 @@
   "source_sha": "f3fc15632ea5e0f6b6c1e2df78e7da664ddcb9b0",
   "source_tree": "e9635d02892ced3a6c68951bafd91c8b13250da3",
   "comparison_sha": "38de15bece6539352d4831d464188e386043593d",
-  "request_id": "a2d9cd8d-965a-422a-9289-4e44f1ea920c",
-  "helper_ref": "ci/explicit-projection-mutations-1970-a2d9cd8d",
-  "ownership_sha256": "fc6b5c9464253a89cc1ce2e1a84d3b8b44f7accce711a3ad35ff4919e582872e",
+  "request_id": "57621da4-aaa8-40c2-81a7-49788d30bf84",
+  "helper_ref": "ci/explicit-projection-mutations-1970-57621da4",
+  "ownership_sha256": "1d9d616d0709127bdd01dec431dfc048f9b97a5a177f49b042cc2f177e228f1a",
   "runner_sha256": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707"
 }

@@ -3,8 +3,8 @@
   "source_sha": "f3fc15632ea5e0f6b6c1e2df78e7da664ddcb9b0",
   "source_tree": "e9635d02892ced3a6c68951bafd91c8b13250da3",
   "comparison_sha": "38de15bece6539352d4831d464188e386043593d",
-  "request_id": "a2d9cd8d-965a-422a-9289-4e44f1ea920c",
-  "helper_ref": "ci/explicit-projection-mutations-1970-a2d9cd8d",
+  "request_id": "57621da4-aaa8-40c2-81a7-49788d30bf84",
+  "helper_ref": "ci/explicit-projection-mutations-1970-57621da4",
   "runner_sha256": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707",
   "runner_limit": "Existing own_sites accepts any panic inside the named function. Independent review must additionally match the exact meaningful assertion slices below, expected failure and source diagnostics; setup/helper/compile/refusal/timeout/skipped outcomes receive no kill credit.",
   "cells": {
