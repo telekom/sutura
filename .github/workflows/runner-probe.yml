@@ -59,10 +59,10 @@ jobs:
           HELPER_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          [[ "$HELPER_REF" == refs/heads/ci/native-qualifier-probe-20261118-r3 ]]
-          [[ "$SOURCE_SHA" == efcdda71347736f64472ec7db122d985f9a17191 ]]
-          [[ "$SOURCE_TREE" == 34500d13646148cb0f2f962a4734aff29f8519f4 ]]
-          [[ "$COMPARISON_SHA" == b6a31c13bf5a8a20148557ebd1d2d278230579a5 ]]
+          [[ "$HELPER_REF" == refs/heads/ci/native-discovery-trace-20261118-r1 ]]
+          [[ "$SOURCE_SHA" == fd5d6ea23d014e70b6b542d82f1f472b3ddddd68 ]]
+          [[ "$SOURCE_TREE" == 41904bfb5c4dc49bcaff0acfad952b46c30d4e6a ]]
+          [[ "$COMPARISON_SHA" == abfd0bc5db39d405bbae2746b6ee1358b260414c ]]
           [[ "$(git --no-optional-locks rev-parse HEAD)" == "$SOURCE_SHA" ]]
           [[ "$(git --no-optional-locks rev-parse 'HEAD^{tree}')" == "$SOURCE_TREE" ]]
           [[ "$(git --no-optional-locks merge-base "$SOURCE_SHA" "$COMPARISON_SHA")" == "$COMPARISON_SHA" ]]
@@ -136,7 +136,7 @@ jobs:
           : "${SUTURA_BQ_PROJECT:?}" "${SUTURA_BQ_DATASET:?}" "${SUTURA_BIGQUERY_ADBC_DRIVER:?}"
           test -f "$GOOGLE_APPLICATION_CREDENTIALS"
           test -f "$SUTURA_BIGQUERY_ADBC_DRIVER"
-          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py sql-mutations "$RUNNER_TEMP/finishing-plan.json"
+          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks nixpkgs#strace --command python3 -I ../devco/inbound_verifier_proof.py sql-mutations "$RUNNER_TEMP/finishing-plan.json"
 
       - name: Remove credential
         if: always()
