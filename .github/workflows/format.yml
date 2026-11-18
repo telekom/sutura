@@ -93,9 +93,9 @@ jobs:
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/explicit-projection-mutations-1970-57621da4
+          test "$GITHUB_REF" = refs/heads/ci/explicit-projection-remaining-1970-af64619b
           test "$OPERATION" = sql-mutations
-          test "$REQUEST_ID" = 57621da4-aaa8-40c2-81a7-49788d30bf84
+          test "$REQUEST_ID" = af64619b-8cec-446d-bdee-b3edf953872b
           test "$SOURCE_SHA" = f3fc15632ea5e0f6b6c1e2df78e7da664ddcb9b0
           test "$SOURCE_TREE" = e9635d02892ced3a6c68951bafd91c8b13250da3
           test "$COMPARISON_SHA" = 38de15bece6539352d4831d464188e386043593d
@@ -105,8 +105,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test "$(sha256sum devco/inbound_verifier_proof.py)" = "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707  devco/inbound_verifier_proof.py"
-          test "$(sha256sum devco/sql1909-finishing-mutations.json)" = "626b748d098c4b16d90b84b6d49383729aef63443a7639e1abba5421e0f4d03b  devco/sql1909-finishing-mutations.json"
-          test "$(sha256sum devco/sql1970-mutation-ownership.json)" = "1d9d616d0709127bdd01dec431dfc048f9b97a5a177f49b042cc2f177e228f1a  devco/sql1970-mutation-ownership.json"
+          test "$(sha256sum devco/sql1909-finishing-mutations.json)" = "8da86e5d3a81905ad5e7774488b1d5ac7662960a8889687a16cc9ff4b0afb4bd  devco/sql1909-finishing-mutations.json"
+          test "$(sha256sum devco/sql1970-mutation-ownership.json)" = "5559e64a7f614c4a66dbdfd09a89724a731867c6a07aa24b739fd1f1bc59d53f  devco/sql1970-mutation-ownership.json"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'workflow_dispatch'

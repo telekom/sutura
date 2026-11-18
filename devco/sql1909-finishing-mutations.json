@@ -1,103 +1,10 @@
 {
   "mutants": [
     {
-      "label": "ignore-final-select-and-expression-guard-verdict",
-      "package": "sutura-exec-datafusion",
-      "tests": [
-        "guard_ast",
-        "guard_before_open"
-      ],
-      "preimage_sha256": "8125ed262cc4dae92e6888de6b5a98ad9dd562f871a2de5f913e9a01c9b1369f",
-      "mutated_sha256": "d422344306c155ab94039089284c69dbf15566d12c9ed6591907cd743202ed4b",
-      "edits": [
-        {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
-          "before": "    if let ControlFlow::Break(cause) = statements.visit(&mut Explicit) {\n        return Err(cause);\n    }",
-          "after": "    let _ = statements.visit(&mut Explicit);",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "label": "open-before-checking-every-final-statement",
-      "package": "sutura-exec-datafusion",
-      "tests": [
-        "guard_before_open"
-      ],
-      "preimage_sha256": "8125ed262cc4dae92e6888de6b5a98ad9dd562f871a2de5f913e9a01c9b1369f",
-      "mutated_sha256": "babd15b8004c7003f138a1fa26df637b382703eef234a71d6682f33bae836382",
-      "edits": [
-        {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
-          "before": "    for statement in statements {",
-          "after": "    legs.open(sources).map_err(StatementStopped::Leg)?;\n    for statement in statements {",
-          "count": 1
-        },
-        {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
-          "before": "    legs.open(sources).map_err(StatementStopped::Leg)\n}",
-          "after": "    Ok(())\n}",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "label": "restore-duplicate-normal-output-without-source-labels",
-      "package": "sutura-exec-datafusion",
-      "tests": [
-        "normal_duplicate_outputs"
-      ],
-      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
-      "mutated_sha256": "385b435237ad9fdd1ac1cb7a58ae541790508fb6f4682902db1df0f605ff8def",
-      "edits": [
-        {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
-          "before": "whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner())",
-          "after": "whole && !full_lobs",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "label": "restore-native-duplicate-output-without-source-labels",
-      "package": "sutura-exec-datafusion",
-      "tests": [
-        "native_duplicate_outputs"
-      ],
-      "preimage_sha256": "6e6bebfcf4994655fbe69a7ab49e7b0a93cf75925207d12f717236cddef12298",
-      "mutated_sha256": "62da6eec9a26a0da4f7ae28a9825cf5068e847896730e27aeeabdadc376dfa4d",
-      "edits": [
-        {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement.rs",
-          "before": "read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema)",
-          "after": "read.iter().any(text::oracle_lobs)",
-          "count": 1
-        }
-      ]
-    },
-    {
-      "label": "leave-original-native-projection-wildcards-unexpanded",
-      "package": "sutura-exec-datafusion",
-      "tests": [
-        "native_wildcards"
-      ],
-      "preimage_sha256": "402627d5b7b1add4354e11ada90f2046ed98d3652f48f746634dc98df3b2363e",
-      "mutated_sha256": "6dfb38777cfa344ac672d4beacaaeafc88fb26450b42841c915b22e426779aca",
-      "edits": [
-        {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement/resolve.rs",
-          "before": "resolved(statement, tables, true)",
-          "after": "resolved(statement, tables, false)",
-          "count": 1
-        }
-      ]
-    },
-    {
       "label": "restore-implicit-root-wildcard-projection",
-      "package": "sutura-app",
+      "package": "sutura-exec-datafusion",
       "tests": [
-        "shapes_datafusion",
-        "native_datafusion"
+        "bare_scan"
       ],
       "preimage_sha256": "01d85104e912f042b3e2c275778b2d53673495f05a47618fce7145c5f6567d2f",
       "mutated_sha256": "73db3c1b44918cd893fd8605c1ec3eb896e7b21b083d7650d1fbdbeef18755c6",
@@ -112,10 +19,9 @@
     },
     {
       "label": "restore-wildcard-before-alias-derive",
-      "package": "sutura-app",
+      "package": "sutura-exec-datafusion",
       "tests": [
-        "shapes_oracle",
-        "shapes_datafusion"
+        "alias_derive"
       ],
       "preimage_sha256": "01d85104e912f042b3e2c275778b2d53673495f05a47618fce7145c5f6567d2f",
       "mutated_sha256": "f22e1cda1ff880ff91440d6bd48749248a9416501ad7cdd43f59a8217541dabe",
@@ -279,26 +185,14 @@
     }
   ],
   "test_files": {
-    "guard_ast": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
-    "guard_before_open": "crates/sutura-exec-datafusion/src/combine/statement/projection.rs",
     "normal_duplicate_outputs": "crates/sutura-exec-datafusion/src/combine/statement/tests.rs",
     "native_duplicate_outputs": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
-    "native_wildcards": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
     "normal_lob": "crates/sutura-exec-datafusion/src/combine/statement/tests/text.rs",
     "native_lob": "crates/sutura-exec-datafusion/src/combine/statement/tests/text.rs",
-    "shapes_oracle": "crates/sutura-app/tests/golden/statements.rs",
-    "shapes_datafusion": "crates/sutura-app/tests/golden/statements.rs",
-    "native_datafusion": "crates/sutura-app/tests/golden/statements.rs"
+    "bare_scan": "crates/sutura-exec-datafusion/src/combine/statement/tests/scan_only.rs",
+    "alias_derive": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs"
   },
   "test_identities": {
-    "guard_ast": [
-      "sutura-exec-datafusion",
-      "combine::statement::projection::tests::the_final_source_guard_rejects_nested_projection_wildcards_only"
-    ],
-    "guard_before_open": [
-      "sutura-exec-datafusion",
-      "combine::statement::projection::tests::every_final_statement_is_checked_before_any_source_opens"
-    ],
     "normal_duplicate_outputs": [
       "sutura-exec-datafusion",
       "combine::statement::tests::duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata"
@@ -306,10 +200,6 @@
     "native_duplicate_outputs": [
       "sutura-exec-datafusion",
       "combine::statement::tests::oracle::native_numeric_duplicate_outputs_restore_names_and_distinct_positions"
-    ],
-    "native_wildcards": [
-      "sutura-exec-datafusion",
-      "combine::statement::tests::oracle::mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening"
     ],
     "normal_lob": [
       "sutura-exec-datafusion",
@@ -319,38 +209,22 @@
       "sutura-exec-datafusion",
       "combine::statement::tests::text::oracle_native_numeric_extrema_stay_exact_beside_bounded_lob_outputs"
     ],
-    "shapes_oracle": [
-      "sutura-app::golden",
-      "statements::oracle::pins_planned_source_statements"
+    "bare_scan": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::scan_only::every_column_of_one_source_runs_whole_at_it"
     ],
-    "shapes_datafusion": [
-      "sutura-app::golden",
-      "statements::datafusion::pins_planned_source_statements"
-    ],
-    "native_datafusion": [
-      "sutura-app::golden",
-      "statements::engines::datafusion::every_planned_shape_answers_at_the_native_engine"
+    "alias_derive": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::oracle::aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect"
     ]
   },
   "test_functions": {
-    "guard_ast": {
-      "name": "the_final_source_guard_rejects_nested_projection_wildcards_only",
-      "indent": "    "
-    },
-    "guard_before_open": {
-      "name": "every_final_statement_is_checked_before_any_source_opens",
-      "indent": "    "
-    },
     "normal_duplicate_outputs": {
       "name": "duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata",
       "indent": ""
     },
     "native_duplicate_outputs": {
       "name": "native_numeric_duplicate_outputs_restore_names_and_distinct_positions",
-      "indent": ""
-    },
-    "native_wildcards": {
-      "name": "mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening",
       "indent": ""
     },
     "normal_lob": {
@@ -361,16 +235,12 @@
       "name": "oracle_native_numeric_extrema_stay_exact_beside_bounded_lob_outputs",
       "indent": ""
     },
-    "shapes_oracle": {
-      "name": "pins_planned_statements_over",
+    "bare_scan": {
+      "name": "answered_at_geo",
       "indent": ""
     },
-    "shapes_datafusion": {
-      "name": "pins_planned_statements_over",
-      "indent": ""
-    },
-    "native_datafusion": {
-      "name": "runs_native_statement_corpus",
+    "alias_derive": {
+      "name": "aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect",
       "indent": ""
     }
   },
@@ -378,8 +248,8 @@
   "source_sha": "f3fc15632ea5e0f6b6c1e2df78e7da664ddcb9b0",
   "source_tree": "e9635d02892ced3a6c68951bafd91c8b13250da3",
   "comparison_sha": "38de15bece6539352d4831d464188e386043593d",
-  "request_id": "57621da4-aaa8-40c2-81a7-49788d30bf84",
-  "helper_ref": "ci/explicit-projection-mutations-1970-57621da4",
-  "ownership_sha256": "1d9d616d0709127bdd01dec431dfc048f9b97a5a177f49b042cc2f177e228f1a",
+  "request_id": "af64619b-8cec-446d-bdee-b3edf953872b",
+  "helper_ref": "ci/explicit-projection-remaining-1970-af64619b",
+  "ownership_sha256": "5559e64a7f614c4a66dbdfd09a89724a731867c6a07aa24b739fd1f1bc59d53f",
   "runner_sha256": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707"
 }
