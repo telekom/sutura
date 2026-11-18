@@ -1,19 +1,23 @@
-diff --git a/crates/sutura-catalog-rdbms/src/lib.rs b/crates/sutura-catalog-rdbms/src/lib.rs
---- a/crates/sutura-catalog-rdbms/src/lib.rs
-+++ b/crates/sutura-catalog-rdbms/src/lib.rs
-@@ -514,12 +514,12 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
-         )?;
-         Ok(DomainRelationship::new(
-             name,
--            origin_model,
-             target_model,
-+            origin_model,
-             JoinType::ManyToOne,
-             JoinKeys::single(JoinKey::Equal {
--                origin: origin_column,
--                target: target_column,
-+                origin: target_column,
-+                target: origin_column,
-             }),
-         ))
+diff --git a/crates/sutura-catalog-rdbms/src/relationships.rs b/crates/sutura-catalog-rdbms/src/relationships.rs
+--- a/crates/sutura-catalog-rdbms/src/relationships.rs
++++ b/crates/sutura-catalog-rdbms/src/relationships.rs
+@@ -192,16 +192,16 @@
+                 })
+         };
+         pairs.push(JoinKey::Equal {
+-            origin: parse(origin, &origin_table)?,
+-            target: parse(target, &target_table)?,
++            origin: parse(target, &target_table)?,
++            target: parse(origin, &origin_table)?,
+         });
      }
+     let name = relationship_name(relationship, &origin_table, &target_table)?;
+     let keys = JoinKeys::of(pairs).map_err(|cause| RdbmsError::RelationshipKeys { cause })?;
+     Ok(DomainRelationship::new(
+         name,
++        target_model,
+         origin_model,
+-        target_model,
+         JoinType::ManyToOne,
+         keys,
+     ))

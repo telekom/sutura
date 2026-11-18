@@ -32,13 +32,12 @@
 //! then quoted as identifiers, so neither can be the vehicle for SQL. The predicate
 //! operator comes from a closed set rendered as fixed text.
 //!
-//! # Foreign keys are unsupported in this first slice - and the reader does not pretend otherwise
+//! # Relationships
 //!
-//! The documented schema carries no foreign-key columns, so this reader emits a
-//! [`crate::Dictionary`] with **no [`crate::Relationship`]s**. That is a real, explicit limit,
-//! stated here. It is not an invented uniqueness assertion: single-column primary-key evidence is
-//! read per column (`is_primary_key`) and that alone is ever emitted; nothing in this reader
-//! fabricates a foreign key or a target-uniqueness claim on the reader's behalf.
+//! Native mode reads complete enforced primary/unique-key evidence in the same transaction.
+//! Documentation mode reads authored relationships only from an explicitly selected second view.
+//! Both metadata streams share the column read's row/byte budget; declarations are checked after
+//! selection, with an optional bounded data probe on the reader's first successful load.
 //!
 //! # Read-only, bounded
 //!
@@ -150,6 +149,7 @@ pub struct PostgresReader {
     conninfo: Conninfo,
     query: ReadQuery,
     bounds: DictionaryBounds,
+    relationships: Vec<crate::DeclaredRelationship>,
 }
 
 impl PostgresReader {
@@ -174,8 +174,10 @@ impl PostgresReader {
                 schema: documentation_schema,
                 environment,
                 predicate,
+                relationships_view: None,
             },
             bounds,
+            relationships: Vec::new(),
         })
     }
 
@@ -192,7 +194,19 @@ impl PostgresReader {
             conninfo,
             query: ReadQuery::native(selection),
             bounds: default_bounds(row_cap, byte_cap)?,
+            relationships: Vec::new(),
         })
+    }
+
+    pub fn with_relationships_view(mut self, view: Option<&str>) -> Result<Self, InvalidReaderConfig> {
+        self.query.with_relationships_view(view)?;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn with_relationships(mut self, relationships: Vec<crate::DeclaredRelationship>) -> Self {
+        self.relationships = relationships;
+        self
     }
 
     /// Selects a fixed prose-only projection on this reader's own read-only connection.
@@ -231,15 +245,118 @@ impl PostgresReader {
         for batch in select.execute().map_err(adbc)? {
             admit(&mut assembly, &batch.map_err(|cause| read_err(AdbcError::Batch(cause)))?)?;
         }
-        self.query
-            .finish(assembly.finish(), sutura_domain::warehouse::schema::TypeDialect::Postgres)
+        let mut constraints = crate::relationships::constraints::Constraints::default();
+        let documented = self.query.documented_relationships();
+        if let Some(sql) = self.query.relationships_statement(false, self.bounds) {
+            let mut select = connection.new_statement().map_err(adbc)?;
+            select.set_sql_query(sql).map_err(adbc)?;
+            if let Some(bound) = sutura_adbc::parameter_batch(if documented {
+                params.first().map_or(params.as_slice(), std::slice::from_ref)
+            } else {
+                &params
+            })
+            .map_err(|cause| read_err(AdbcError::Parameters(cause)))?
+            {
+                select.bind(bound).map_err(adbc)?;
+            }
+            for batch in select.execute().map_err(adbc)? {
+                let batch = batch.map_err(|cause| read_err(AdbcError::Batch(cause)))?;
+                assembly.bill(u64::try_from(batch.get_array_memory_size()).unwrap_or(u64::MAX))?;
+                let arrays = crate::relationships::constraints::FIELDS.map(|column| {
+                    batch
+                        .column_by_name(column)
+                        .and_then(|array| array.as_string_opt::<i32>())
+                        .ok_or_else(|| {
+                            read_err(UnexpectedColumn {
+                                column,
+                                expected: "text",
+                            })
+                        })
+                });
+                let arrays = arrays.into_iter().collect::<Result<Vec<_>, _>>()?;
+                for row in 0..batch.num_rows() {
+                    assembly.count_row()?;
+                    let values: [Option<String>; 13] = arrays
+                        .iter()
+                        .map(|array| array.is_valid(row).then(|| array.value(row).to_owned()))
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .map_err(|_cause| crate::DeclarationError::ProbeEvidence)?;
+                    let catalog = |name| -> Result<Option<String>, RdbmsError> {
+                        if !documented {
+                            return Ok(None);
+                        }
+                        let array = batch
+                            .column_by_name(name)
+                            .and_then(|array| array.as_string_opt::<i32>())
+                            .ok_or_else(|| {
+                                read_err(UnexpectedColumn {
+                                    column: name,
+                                    expected: "text",
+                                })
+                            })?;
+                        Ok(array.is_valid(row).then(|| array.value(row).to_owned()))
+                    };
+                    constraints.push_with_catalogs(values, catalog("origin_catalog")?, catalog("target_catalog")?)?;
+                }
+            }
+        }
+        let mut dictionary = assembly.finish();
+        let documented_declarations = constraints.apply(&mut dictionary)?;
+        let dictionary = self
+            .query
+            .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Postgres)?
+            .apply_relationship_declarations(
+                &self.relationships,
+                sutura_domain::warehouse::schema::TypeDialect::Postgres,
+                self.query.unbounded_number(),
+            )?;
+        let dictionary = dictionary.apply_relationship_declarations(
+            &documented_declarations,
+            sutura_domain::warehouse::schema::TypeDialect::Postgres,
+            self.query.unbounded_number(),
+        )?;
+        for declaration in &self.relationships {
+            if let Some((sql, bounds)) = declaration.probe_statement(false).zip(declaration.check()) {
+                let mut probe = crate::relationships::declared::Probe::new(bounds);
+                let mut select = connection.new_statement().map_err(adbc)?;
+                select.set_sql_query(sql).map_err(adbc)?;
+                for batch in select.execute().map_err(adbc)? {
+                    let batch = batch.map_err(|cause| read_err(AdbcError::Batch(cause)))?;
+                    let text = |column| {
+                        batch
+                            .column_by_name(column)
+                            .and_then(|array| array.as_string_opt::<i32>())
+                            .ok_or_else(|| {
+                                read_err(UnexpectedColumn {
+                                    column,
+                                    expected: "text",
+                                })
+                            })
+                    };
+                    let multiplicity = text("multiplicity")?;
+                    let bytes = text("key_bytes")?;
+                    for row in 0..batch.num_rows() {
+                        if multiplicity.is_null(row) || bytes.is_null(row) {
+                            return Err(crate::DeclarationError::ProbeEvidence.into());
+                        }
+                        probe.admit(multiplicity.value(row), bytes.value(row))?;
+                    }
+                }
+            }
+        }
+        Ok(dictionary)
     }
 }
 
 impl DictionaryReader for PostgresReader {
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
         let mut connection = self.driver.connect(&self.conninfo).map_err(read_err)?;
-        read_only(&mut connection, |connection| self.select(connection))
+        let dictionary = read_only(&mut connection, |connection| self.select(connection))?;
+        for declaration in &self.relationships {
+            declaration.mark_checked();
+        }
+        Ok(dictionary)
     }
 }
 

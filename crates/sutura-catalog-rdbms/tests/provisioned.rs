@@ -17,8 +17,8 @@
 //!
 //! # What is NOT here
 //!
-//! No foreign keys - this first slice declares the documentation schema carries none and never
-//! invents one, which the unit-level contract already states. The TLS cells live in
+//! The optional relationship view carries authored assertions; column rows alone invent none.
+//! Native foreign keys are exercised by the served PostgreSQL cell. The TLS cells live in
 //! `sutura-exec-postgres`'s own `tests/tls.rs` against the same tier; this suite checks the reader's
 //! channel shape (read-only transaction, parameter binding, documented schema) over the unix-socket
 //! plaintext connection the tier authenticates by `trust`, through the shared connector the reader
@@ -349,6 +349,104 @@ mod provisioned {
         assert_eq!(
             error.to_string(),
             "reading the dictionary failed: the dictionary stream reached the declared maximum of 1 rows",
+        );
+    }
+    #[test]
+    fn documented_postgres_relationships_load_from_a_bounded_second_view() {
+        let Some(tier) = tier() else { return };
+        let schema = fresh_fixture(&tier, "relationships");
+        tier.run_sql(&format!(
+            "INSERT INTO {schema}.columns (environment, schema_name, table_name, model_name, column_name, column_ordinal, column_type, is_primary_key, is_deleted) \
+             VALUES ('test','public','customers','customers','customer_id',1,'bigint',false,false); \
+             CREATE TABLE {schema}.relationships (environment text, relationship_name text, origin_catalog text, origin_schema text, origin_table text, origin_column text, target_catalog text, target_schema text, target_table text, target_column text, ordinal integer, key_arity integer, cardinality text, is_deleted boolean); \
+             INSERT INTO {schema}.relationships VALUES \
+             ('test','orders_customers',NULL,'public','orders','order_id',NULL,'public','customers','customer_id',1,1,'many_to_one',false), \
+             ('test','deleted_link',NULL,'public','orders','order_id',NULL,'public','customers','customer_id',1,1,'many_to_one',true), \
+             ('elsewhere','another_environment',NULL,'public','orders','order_id',NULL,'public','customers','customer_id',1,1,'many_to_one',false)"
+        ));
+        let reader = tier
+            .reader(&schema, None, None)
+            .with_relationships_view(Some("relationships"))
+            .unwrap();
+        let dictionary = reader.read_dictionary().unwrap();
+        assert_eq!(dictionary.relationships().len(), 1);
+        assert_eq!(dictionary.relationships()[0].name(), Some("orders_customers"));
+        assert_eq!(
+            dictionary.relationships()[0].pairs().collect::<Vec<_>>(),
+            [("order_id", "customer_id")]
+        );
+        tier.run_sql(&format!(
+            "UPDATE {schema}.relationships SET target_column='absent' WHERE relationship_name='orders_customers'"
+        ));
+        let cause = reader
+            .read_dictionary()
+            .expect_err("a documented link to an absent endpoint refuses");
+        assert!(
+            cause.to_string().contains("public.customers.absent is absent or excluded"),
+            "{cause}"
+        );
+        tier.run_sql(&format!("UPDATE {schema}.relationships SET target_column='customer_id', key_arity=2 WHERE relationship_name='orders_customers'"));
+        let cause = reader
+            .read_dictionary()
+            .expect_err("a truncated composite documented link refuses");
+        assert!(cause.to_string().contains("constraint metadata is incomplete"), "{cause}");
+    }
+    #[test]
+    fn postgres_uniqueness_checks_retry_every_target_until_the_complete_read_succeeds() {
+        use sutura_catalog_rdbms::{DeclaredRelationship, DictionaryBounds, Relationship, TableAddress};
+        let Some(tier) = tier() else { return };
+        let schema = fresh_fixture(&tier, "probe_retry");
+        tier.run_sql(&format!(
+            "CREATE TABLE {schema}.probe_first(id bigint); INSERT INTO {schema}.probe_first VALUES (1); \
+             CREATE TABLE {schema}.probe_second(id bigint); INSERT INTO {schema}.probe_second VALUES (2),(2); \
+             INSERT INTO {schema}.columns (environment,schema_name,table_name,model_name,column_name,column_ordinal,column_type,is_primary_key,is_deleted) \
+             VALUES ('test','{schema}','probe_first','probe_first','id',1,'bigint',false,false), \
+                    ('test','{schema}','probe_second','probe_second','id',1,'bigint',false,false)"
+        ));
+        let declaration = |table: &str| {
+            DeclaredRelationship::new(
+                Relationship::declared(
+                    Some(table.to_owned()),
+                    TableAddress::in_schema(String::from("public"), String::from("orders")),
+                    TableAddress::in_schema(schema.clone(), table.to_owned()),
+                    vec![(String::from("order_id"), String::from("id"))],
+                )
+                .unwrap(),
+                Some(DictionaryBounds::new(
+                    NonZeroU64::new(10).unwrap(),
+                    NonZeroU64::new(10000).unwrap(),
+                )),
+            )
+        };
+        let reader = tier
+            .reader(&schema, None, None)
+            .with_relationships(vec![declaration("probe_first"), declaration("probe_second")]);
+        let cause = reader.read_dictionary().expect_err("the second target has duplicate keys");
+        assert!(cause.to_string().contains("duplicate nonnull full keys"), "{cause}");
+        tier.run_sql(&format!("INSERT INTO {schema}.probe_first VALUES (1); DELETE FROM {schema}.probe_second; INSERT INTO {schema}.probe_second VALUES (2)"));
+        let cause = reader
+            .read_dictionary()
+            .expect_err("the previously successful first probe must run again after a failed complete read");
+        assert!(cause.to_string().contains("duplicate nonnull full keys"), "{cause}");
+        tier.run_sql(&format!(
+            "DELETE FROM {schema}.probe_first; INSERT INTO {schema}.probe_first VALUES (1)"
+        ));
+        assert_eq!(
+            reader
+                .read_dictionary()
+                .expect("both target probes now pass")
+                .relationships()
+                .len(),
+            2
+        );
+        tier.run_sql(&format!("INSERT INTO {schema}.probe_first VALUES (1)"));
+        assert_eq!(
+            reader
+                .read_dictionary()
+                .expect("a successful dictionary read caches the optional boot probes")
+                .relationships()
+                .len(),
+            2
         );
     }
 }

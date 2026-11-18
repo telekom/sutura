@@ -771,6 +771,10 @@ pub(crate) struct RawCatalog {
     #[serde(default)]
     pub(crate) connection: Option<RawCatalogConnection>,
     #[serde(default)]
+    pub(crate) relationships: Vec<crate::catalog::rdbms::RawRelationship>,
+    #[serde(default)]
+    pub(crate) relationships_view: Option<String>,
+    #[serde(default)]
     pub(crate) descriptions_from: Vec<crate::catalog::rdbms::descriptions::RawDescriptionSource>,
 }
 

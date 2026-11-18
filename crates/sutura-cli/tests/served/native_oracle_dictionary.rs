@@ -8,6 +8,9 @@
 #[cfg(feature = "agent")]
 #[path = "native_oracle_dictionary/descriptions.rs"]
 mod descriptions;
+#[cfg(feature = "agent")]
+#[path = "native_oracle_dictionary/relationships.rs"]
+mod relationships;
 #[path = "native_oracle_dictionary/types.rs"]
 mod types;
 

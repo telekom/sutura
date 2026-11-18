@@ -287,4 +287,137 @@ JEcF0XIa1gIgE3M4ixRwgpQcNQDe5W2BUZWG+7HGdQFw5Mz/20QHKgU=
             "the server, not the login, refused the missing view: {error:?}"
         );
     }
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn documented_oracle_relationships_load_from_a_bounded_second_view() {
+        let tier = Tier::here();
+        let setup = tier.connect();
+        install_fixture(&setup);
+        if let Err(cause) = setup.execute("DROP TABLE RELATIONSHIPS PURGE", &[]) {
+            assert!(cause.to_string().contains("ORA-00942"), "{cause}");
+        }
+        setup.execute("UPDATE COLUMNS SET column_type='NUMBER(10,0)'", &[]).unwrap();
+        setup.execute("INSERT INTO COLUMNS (environment,schema_name,table_name,model_name,column_name,column_ordinal,column_type,is_primary_key,is_deleted) VALUES ('test','public','customers','customers','customer_id',1,'NUMBER(10,0)',0,0)", &[]).unwrap();
+        setup.execute("CREATE TABLE RELATIONSHIPS (environment VARCHAR2(64), relationship_name VARCHAR2(64), origin_catalog VARCHAR2(64), origin_schema VARCHAR2(64), origin_table VARCHAR2(64), origin_column VARCHAR2(64), target_catalog VARCHAR2(64), target_schema VARCHAR2(64), target_table VARCHAR2(64), target_column VARCHAR2(64), ordinal NUMBER(10), key_arity NUMBER(10), cardinality VARCHAR2(32), is_deleted NUMBER(1))", &[]).unwrap();
+        for (environment, name, deleted) in [
+            ("test", "orders_customers", 0),
+            ("test", "deleted_link", 1),
+            ("elsewhere", "another_environment", 0),
+        ] {
+            setup.execute("INSERT INTO RELATIONSHIPS VALUES (:1,:2,NULL,'public','orders','order_id',NULL,'public','customers','customer_id',1,1,'many_to_one',:3)", &[&environment,&name,&deleted]).unwrap();
+        }
+        setup.commit().unwrap();
+        tier.await_read_only_snapshot();
+        let reader = tier
+            .reader(&tier.user, None, None)
+            .with_relationships_view(Some("relationships"))
+            .unwrap();
+        let dictionary = reader.read_dictionary().unwrap();
+        assert_eq!(dictionary.relationships().len(), 1);
+        assert_eq!(dictionary.relationships()[0].name(), Some("orders_customers"));
+        assert_eq!(
+            dictionary.relationships()[0].pairs().collect::<Vec<_>>(),
+            [("order_id", "customer_id")]
+        );
+        setup
+            .execute(
+                "UPDATE RELATIONSHIPS SET target_column='absent' WHERE relationship_name='orders_customers'",
+                &[],
+            )
+            .unwrap();
+        setup.commit().unwrap();
+        let cause = reader
+            .read_dictionary()
+            .expect_err("a documented link to an absent endpoint refuses");
+        assert!(
+            cause.to_string().contains("public.customers.absent is absent or excluded"),
+            "{cause}"
+        );
+        setup
+            .execute(
+                "UPDATE RELATIONSHIPS SET target_column='customer_id', key_arity=2 WHERE relationship_name='orders_customers'",
+                &[],
+            )
+            .unwrap();
+        setup.commit().unwrap();
+        let cause = reader
+            .read_dictionary()
+            .expect_err("a truncated documented composite link refuses");
+        assert!(cause.to_string().contains("constraint metadata is incomplete"), "{cause}");
+    }
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn oracle_uniqueness_checks_retry_every_target_until_the_complete_read_succeeds() {
+        use sutura_catalog_rdbms::{DeclaredRelationship, DictionaryBounds, Relationship, TableAddress};
+        let tier = Tier::here();
+        let setup = tier.connect();
+        let physical_schema = tier.user.to_ascii_uppercase();
+        install_fixture(&setup);
+        setup.execute("UPDATE COLUMNS SET column_type='NUMBER(10,0)'", &[]).unwrap();
+        for table in ["PROBE_FIRST", "PROBE_SECOND"] {
+            if let Err(cause) = setup.execute(&format!("DROP TABLE {table} PURGE"), &[]) {
+                assert!(cause.to_string().contains("ORA-00942"), "{cause}");
+            }
+            setup.execute(&format!("CREATE TABLE {table}(ID NUMBER(10,0))"), &[]).unwrap();
+            setup.execute(&format!("INSERT INTO COLUMNS (environment,schema_name,table_name,model_name,column_name,column_ordinal,column_type,is_primary_key,is_deleted) VALUES ('test','{physical_schema}','{table}','{table}','ID',1,'NUMBER(10,0)',0,0)"), &[]).unwrap();
+            setup.execute(&format!("INSERT INTO {table} VALUES(1)"), &[]).unwrap();
+        }
+        setup.execute("INSERT INTO PROBE_SECOND VALUES(1)", &[]).unwrap();
+        setup.commit().unwrap();
+        tier.await_read_only_snapshot();
+        let declaration = |table: &str| {
+            DeclaredRelationship::new(
+                Relationship::declared(
+                    Some(table.to_owned()),
+                    TableAddress::in_schema(String::from("public"), String::from("orders")),
+                    TableAddress::in_schema(physical_schema.clone(), table.to_owned()),
+                    vec![(String::from("order_id"), String::from("ID"))],
+                )
+                .unwrap(),
+                Some(DictionaryBounds::new(
+                    NonZeroU64::new(10).unwrap(),
+                    NonZeroU64::new(10000).unwrap(),
+                )),
+            )
+        };
+        let reader = tier
+            .reader(&tier.user, None, None)
+            .with_relationships(vec![declaration("PROBE_FIRST"), declaration("PROBE_SECOND")]);
+        let cause = reader.read_dictionary().expect_err("the second target has duplicate keys");
+        assert!(cause.to_string().contains("duplicate nonnull full keys"), "{cause}");
+        for sql in [
+            "INSERT INTO PROBE_FIRST VALUES(1)",
+            "DELETE FROM PROBE_SECOND",
+            "INSERT INTO PROBE_SECOND VALUES(1)",
+        ] {
+            setup.execute(sql, &[]).unwrap();
+        }
+        setup.commit().unwrap();
+        let cause = reader
+            .read_dictionary()
+            .expect_err("the previously successful first probe must run again after a failed complete read");
+        assert!(cause.to_string().contains("duplicate nonnull full keys"), "{cause}");
+        for sql in ["DELETE FROM PROBE_FIRST", "INSERT INTO PROBE_FIRST VALUES(1)"] {
+            setup.execute(sql, &[]).unwrap();
+        }
+        setup.commit().unwrap();
+        assert_eq!(
+            reader
+                .read_dictionary()
+                .expect("both target probes now pass")
+                .relationships()
+                .len(),
+            2
+        );
+        setup.execute("INSERT INTO PROBE_FIRST VALUES(1)", &[]).unwrap();
+        setup.commit().unwrap();
+        assert_eq!(
+            reader
+                .read_dictionary()
+                .expect("a successful dictionary read caches the optional boot probes")
+                .relationships()
+                .len(),
+            2
+        );
+    }
 }

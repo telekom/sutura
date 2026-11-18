@@ -487,3 +487,33 @@ fn description_references_refuse_unknown_self_and_cyclic_sources() {
         "description catalog reference must name another declared rdbms or datahub catalog without a reference cycle",
     );
 }
+
+#[test]
+fn rdbms_relationship_declarations_require_exact_complete_typed_shapes_and_bounded_checks() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    relationships:\n      - from: {table: public.events, columns: [tenant, app_id]}\n        to: {table: public.apps, columns: [tenant, id]}\n        cardinality: many_to_one\n        check_target_uniqueness: {max_rows: 100, max_bytes: 10000}\n";
+    let settings = load(&format!("{base}{declaration}")).unwrap();
+    let entry = settings.catalogs().each().next().unwrap();
+    let relation = entry.rdbms().unwrap().relationships().first().unwrap();
+    assert_eq!(
+        relation
+            .from()
+            .columns()
+            .iter()
+            .map(sutura_domain::model::ColumnName::as_str)
+            .collect::<Vec<_>>(),
+        ["tenant", "app_id"]
+    );
+    assert_eq!(relation.to().table().to_string(), "public.apps");
+    assert_eq!(relation.check().unwrap().max_rows().get(), 100);
+    for invalid in [
+        declaration.replace("many_to_one", "one_to_many"),
+        declaration.replace("columns: [tenant, id]", "columns: [id]"),
+        declaration.replace("columns: [tenant, id]", "columns: [id, id]"),
+        declaration.replace("public.apps", "apps"),
+        declaration.replace("max_rows: 100", "max_rows: 0"),
+        declaration.replace("cardinality: many_to_one", "cardinality: many_to_one\n        sql: select 1"),
+    ] {
+        load(&format!("{base}{invalid}")).expect_err("an invalid relationship declaration refuses");
+    }
+}
