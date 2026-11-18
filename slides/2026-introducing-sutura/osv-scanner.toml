@@ -1,10 +1,7 @@
-# Advisories with no fixed release. Both are a crash on attacker-controlled input; at build time
-# the only input is this directory's own files, and the built deck ships neither package.
+# Advisories with no fixed release. Each entry expires so the scan fails again and the ignore is
+# reviewed. At build time the only input is this directory's own files.
 
 [[IgnoredVulns]]
-id = "GHSA-vfj7-8cjw-p6xm"
-reason = "braces 3.0.3, no fix: deeply nested glob patterns; the build globs only its own paths"
-
-[[IgnoredVulns]]
-id = "GHSA-hp3w-g68c-fv3c"
-reason = "sprintf-js 1.0.3, no fix: attacker format strings; reached only via js-yaml on our frontmatter"
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2026-12-31
+reason = "picomatch ReDoS via repeated extglobs; every release <= 4.0.7 is affected and none is patched. 4.0.7 (vite, @slidev/cli, unplugin, tinyglobby, vue-router's build plugin) and 2.3.2 (micromatch, anymatch, readdirp) are build tooling matching the deck's own globs; the deck's runtime imports neither. Remove when picomatch ships a fix."
