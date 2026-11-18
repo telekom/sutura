@@ -2,9 +2,9 @@
   "mutants": [
     {
       "label": "drop-fetch-by-reentering-simple-scan-extraction",
-      "package": "sutura-app",
+      "package": "sutura-exec-datafusion",
       "tests": [
-        "native_datafusion_fetch"
+        "direct_aliased_fetched_scan_join"
       ],
       "preimage_sha256": "965a66e85aa20dd956a934eca7b9de5c768dae2dac86e1d89afa16f73cf1aa65",
       "mutated_sha256": "c7f110182e1be93b04deda0bcbddfeb1302255543fc57f50ce6f78aa08c25aad",
@@ -128,7 +128,8 @@
     "native_duckdb": "crates/sutura-app/tests/golden/statements.rs",
     "native_postgres": "crates/sutura-app/tests/golden/statements.rs",
     "native_clickhouse": "crates/sutura-app/tests/golden/statements.rs",
-    "offline_cube_join_guard": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs"
+    "offline_cube_join_guard": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
+    "direct_aliased_fetched_scan_join": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs"
   },
   "test_identities": {
     "native_datafusion_fetch": [
@@ -206,6 +207,10 @@
     "offline_cube_join_guard": [
       "sutura-exec-datafusion",
       "combine::statement::tests::oracle::mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dialect"
+    ],
+    "direct_aliased_fetched_scan_join": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::oracle::a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect"
     ]
   },
   "test_functions": {
@@ -283,6 +288,10 @@
     },
     "offline_cube_join_guard": {
       "name": "mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dialect",
+      "indent": ""
+    },
+    "direct_aliased_fetched_scan_join": {
+      "name": "a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect",
       "indent": ""
     }
   },
