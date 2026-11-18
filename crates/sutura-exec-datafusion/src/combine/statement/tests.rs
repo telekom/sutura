@@ -77,6 +77,24 @@ fn source_labels(sql: &str) -> Vec<String> {
 
 #[test]
 fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
+    struct Recording<'a> {
+        engines: &'a mut Engines,
+        statements: &'a mut Vec<String>,
+    }
+
+    impl StatementLegs for Recording<'_> {
+        type Stop = SourceName;
+
+        fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+            self.engines.open(sources)
+        }
+
+        fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+            self.statements.push(statement.as_str().to_owned());
+            self.engines.run(source, statement)
+        }
+    }
+
     for predicate in ["c.customer_id < 4", "c.customer_id = 1000"] {
         for suffix in ["", " order by c.customer_id limit 200"] {
             let sql = format!(
@@ -84,7 +102,22 @@ fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
                  from dim_customer c join dim_customer d on c.customer_id + 1 = d.customer_id where {predicate}{suffix}"
             );
             let mut legs = Engines::new(None);
-            let answer = asked(&sql, false, UNBOUNDED, &mut legs);
+            let mut statements = Vec::new();
+            let statement = RawStatement::parse(&sql).expect("a test statement is a statement");
+            let tables = tables();
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    false,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut Recording {
+                    engines: &mut legs,
+                    statements: &mut statements,
+                },
+            );
             let Some(Ok(rows)) = answer else {
                 panic!(
                     "duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}",
@@ -93,7 +126,7 @@ fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
             };
             assert_eq!(rows.columns(), ["customer_id", "customer_id", "c0", "MiXeD"]);
             assert_eq!(
-                source_labels(legs.statements.first().expect("a source statement")),
+                source_labels(statements.first().expect("a source statement")),
                 ["c0", "c1", "c2", "c3"]
             );
             assert_eq!(rows, legs.as_one(&sql), "positions and multiplicities: {sql}");
@@ -238,7 +271,6 @@ struct Engines {
     stopping: Option<SourceName>,
     opened: Vec<BTreeSet<SourceName>>,
     ran: Vec<SourceName>,
-    statements: Vec<String>,
 }
 
 impl Engines {
@@ -254,7 +286,6 @@ impl Engines {
             stopping: stopping.map(named),
             opened: Vec::new(),
             ran: Vec::new(),
-            statements: Vec::new(),
         }
     }
 
@@ -281,7 +312,6 @@ impl StatementLegs for Engines {
         if !explicit_source_projection(statement.as_str()) {
             return Err(source.clone());
         }
-        self.statements.push(statement.as_str().to_owned());
         self.ran.push(source.clone());
         if self.stopping.as_ref() == Some(source) {
             return Err(source.clone());
