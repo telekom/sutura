@@ -165,7 +165,8 @@ def apply_source():
 
 
 def planned(engine):
-    return f"statements::engines::{engine}::every_planned_shape_answers_at_the_native_engine"
+    venue = engine if engine in ("oracle", "cube", "bigquery") else "native"
+    return f"statements::engines::{engine}::every_planned_shape_answers_at_the_{venue}_engine"
 
 
 def passed(log, name, runner):
@@ -562,6 +563,40 @@ def receipt(out):
 
 
 def self_check():
+    for engine, expected in (
+        (
+            "oracle",
+            "statements::engines::oracle::every_planned_shape_answers_at_the_oracle_engine",
+        ),
+        (
+            "cube",
+            "statements::engines::cube::every_planned_shape_answers_at_the_cube_engine",
+        ),
+        (
+            "bigquery",
+            "statements::engines::bigquery::every_planned_shape_answers_at_the_bigquery_engine",
+        ),
+    ):
+        assert planned(engine) == expected, "Wrong planned corpus name: " + engine
+        lane = "oracle-native" if engine == "oracle" else engine
+        actual = (
+            f"        PASS [   0.010s] (1/1) sutura-app::golden {expected}\n"
+            if engine == "bigquery"
+            else f"test {expected} ... ok\n"
+        )
+        if engine == "cube":
+            actual += (
+                "test tests::the_live_cube_serves_the_recorded_definitions ... ok\n"
+            )
+            actual += "test catalogs::cube::the_catalog_is_pinned_as_a_whole ... ok\n"
+        assert check_results(lane, actual) == [expected]
+        wrong = actual.replace(f"at_the_{engine}_engine", "at_the_native_engine")
+        try:
+            check_results(lane, wrong)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Wrong native suffix accepted: " + engine)
     names = [
         f"statements::{engine}::pins_planned_source_statements" for engine in ENGINES
     ]
