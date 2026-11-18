@@ -465,3 +465,25 @@ fn oracle_unbounded_number_policy_is_explicit_and_refuses_other_representations_
         assert!(matches!(error.reason(), SettingsError::Sources { .. }), "{error:?}");
     }
 }
+
+#[test]
+fn description_references_refuse_unknown_self_and_cyclic_sources() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    for catalog in ["missing", "dict"] {
+        let text = format!("{base}    descriptions_from: [{{catalog: {catalog}}}]\n");
+        load(&text).expect_err("an unknown or self reference must refuse");
+    }
+    let first = format!("{base}    descriptions_from: [{{catalog: second}}]\n");
+    let entry = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let second = entry
+        .split_once("catalogs:\n")
+        .unwrap()
+        .1
+        .replace("name: dict", "name: second");
+    let cyclic = format!("{first}{second}    descriptions_from: [{{catalog: dict}}]\n");
+    load(&cyclic).expect_err("cyclic prose references must refuse");
+    assert_names(
+        &refusal(&cyclic),
+        "description catalog reference must name another declared rdbms or datahub catalog without a reference cycle",
+    );
+}

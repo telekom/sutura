@@ -5,6 +5,9 @@
 //! Native dictionary metadata and planned SQL over a private Oracle fixture. This is catalog
 //! selection under a shared login; raw pass-through SQL still follows that login's database grants.
 
+#[cfg(feature = "agent")]
+#[path = "native_oracle_dictionary/descriptions.rs"]
+mod descriptions;
 #[path = "native_oracle_dictionary/types.rs"]
 mod types;
 
@@ -50,6 +53,7 @@ struct Fixture {
     owner: oracledb::Connection,
     schema: String,
     reader: String,
+    extra_readers: Vec<String>,
     connection: String,
     root: PathBuf,
 }
@@ -130,6 +134,7 @@ impl Fixture {
             owner,
             schema,
             reader,
+            extra_readers: Vec::new(),
             connection,
             root,
         }
@@ -148,7 +153,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         drop(self.owner.close());
-        for user in [&self.reader, &self.schema] {
+        for user in self.extra_readers.iter().chain([&self.reader, &self.schema]) {
             drop(self.admin.execute(&format!("DROP USER {user} CASCADE"), &[]));
         }
         drop(std::fs::remove_dir_all(&self.root));

@@ -3,7 +3,7 @@
 use super::{OpenedCatalogs, flatten, open_one_markdown_catalog, open_one_rdbms_catalog};
 use sutura_domain::pinned::PinnedDefinitions;
 
-pub(super) type Rdbms = sutura_catalog_rdbms::RdbmsCatalog<sutura_catalog_rdbms::AnyDictionaryReader>;
+pub(super) type Rdbms = sutura_catalog_rdbms::RdbmsCatalog<super::descriptions::Reader>;
 
 pub(super) fn open(catalogs: &sutura_config::Catalogs) -> Result<OpenedCatalogs, String> {
     super::refuse_oracle_dictionaries(catalogs, cfg!(feature = "oracle"))?;

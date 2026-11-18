@@ -195,6 +195,18 @@ impl PostgresReader {
         })
     }
 
+    /// Selects a fixed prose-only projection on this reader's own read-only connection.
+    pub fn with_description_mapping(
+        mut self,
+        mapping: crate::descriptions::MappedDescriptions,
+        row_cap: Option<NonZeroU64>,
+        byte_cap: Option<NonZeroU64>,
+    ) -> Result<Self, InvalidReaderConfig> {
+        self.bounds = checked_bounds("descriptions", mapping.predicate(), row_cap, byte_cap)?;
+        self.query = ReadQuery::Descriptions(mapping);
+        Ok(self)
+    }
+
     #[must_use]
     pub const fn bounds(&self) -> DictionaryBounds {
         self.bounds

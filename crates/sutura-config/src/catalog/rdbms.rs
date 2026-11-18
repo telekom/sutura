@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 use sutura_domain::catalog::{Audience, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection};
 use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
 
+pub(crate) mod descriptions;
+pub use descriptions::{DescriptionMapping, DescriptionSource, InvalidDescriptionSource};
 mod selection;
 pub(crate) use selection::RawColumnRule;
 use selection::native_selection;
@@ -52,6 +54,7 @@ pub struct RdbmsSettings {
     selection: Option<DictionarySelection>,
     audience: Option<Audience>,
     connection: CatalogConnection,
+    descriptions_from: Vec<DescriptionSource>,
 }
 
 impl RdbmsSettings {
@@ -128,6 +131,7 @@ impl RdbmsSettings {
                 .transpose()
                 .map_err(|cause| InvalidRdbmsCatalog::Audience { cause })?,
             connection,
+            descriptions_from: descriptions::parse(name, &raw.descriptions_from)?,
         })
     }
 
@@ -135,6 +139,10 @@ impl RdbmsSettings {
     #[must_use]
     pub const fn environment(&self) -> Option<&CatalogEnvironment> {
         self.environment.as_ref()
+    }
+
+    pub fn descriptions_from(&self) -> &[DescriptionSource] {
+        &self.descriptions_from
     }
 
     pub const fn native_selection(&self) -> Option<&DictionarySelection> {
@@ -701,6 +709,11 @@ fn absolute(key: &'static str, written: &str) -> Result<PathBuf, InvalidConnecti
 /// Why an rdbms catalog's own keys are not usable.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidRdbmsCatalog {
+    #[error("invalid description source: {cause}")]
+    Descriptions {
+        #[source]
+        cause: InvalidDescriptionSource,
+    },
     #[error("invalid column text policy: {cause}")]
     TextPolicy {
         cause: sutura_domain::catalog::InvalidTextPolicy,

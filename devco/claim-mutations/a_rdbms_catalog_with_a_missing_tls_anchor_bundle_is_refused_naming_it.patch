@@ -1,8 +1,7 @@
-diff --git a/crates/sutura-cli/src/catalog.rs b/crates/sutura-cli/src/catalog.rs
-index 101c6a20c..3015ccd6d 100644
---- a/crates/sutura-cli/src/catalog.rs
-+++ b/crates/sutura-cli/src/catalog.rs
-@@ -489,8 +489,7 @@ fn postgres_dictionary_reader(
+diff --git a/crates/sutura-cli/src/catalog/rdbms.rs b/crates/sutura-cli/src/catalog/rdbms.rs
+--- a/crates/sutura-cli/src/catalog/rdbms.rs
++++ b/crates/sutura-cli/src/catalog/rdbms.rs
+@@ -123,8 +123,7 @@
      };
      let channel = match (declared.as_ref(), pair.as_ref()) {
          (None, _) => Channel::Plaintext,
