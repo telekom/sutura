@@ -61,7 +61,10 @@ fn a_served_oracle_dictionary_layers_a_separate_read_only_description_table() {
             .replace('\n', "\n      "),
         fixture.schema
     );
-    let settings = format!("{}prompt:\n  list_physical_schema: true\n", fixture.settings(&extra));
+    let settings = format!(
+        "{}prompt:\n  list_physical_schema: true\n",
+        fixture.settings(&extra).replace(LOOPBACK, crate::harness::AGENT_LOOPBACK)
+    );
     let denied = settings.replace(&format!("user: {docs_reader}\n"), &format!("user: {}\n", fixture.reader));
     let log = refused_to_start(
         Environment::Development,

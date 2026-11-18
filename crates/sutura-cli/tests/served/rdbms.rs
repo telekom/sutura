@@ -300,6 +300,7 @@ mod tests {
                 fixture
                     .native_settings(&tier, &extra)
                     .replace(&format!("user: \"{}\"", tier.user), &format!("user: \"{base_reader}\""))
+                    .replace(crate::harness::LOOPBACK, crate::harness::AGENT_LOOPBACK)
             );
             let denied = settings.replace(&format!("user: {docs_reader}\n"), &format!("user: {base_reader}\n"));
             let log = refused_to_start(
