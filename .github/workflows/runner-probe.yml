@@ -36,10 +36,10 @@ jobs:
       EXPECTED_HELPER_SHA: ${{ inputs.expected_helper_sha }}
       WORKFLOW_SHA: ${{ github.workflow_sha }}
       MAIN_PARENT: f454275025078c6611bd3e3dcd4b89c931ce5656
-      SOURCE_PARENT: 969afca89a6e8edb7ed09f42db033577e5558e56
-      EXPECTED_TREE: 5d6e0f3e6656d49ab7e221efb589e41d30f1c187
-      MESSAGE_SHA: 3b3a0189bef72b1d2bdf07d2880b39ee09fabd69e17ab2e8b7694010a40d1d24
-      PATCH_SHA: d5bcd1c51be7ec9bd866760cb0021cb6f4b4103343f45afaa2522675a6b041a6
+      SOURCE_PARENT: 38de15bece6539352d4831d464188e386043593d
+      EXPECTED_TREE: e9635d02892ced3a6c68951bafd91c8b13250da3
+      MESSAGE_SHA: 53f469aa23052dc3bd738e154916ec7602aa7b29449ecb986035a5a4b484bb37
+      PATCH_SHA: 8523e8fcc403af965aa48baef7ced8a74f9afa6abeaef72e8542c680c5449b17
       SOURCE_BRANCH: fix/explicit-source-projections-1970-generated-r4-concierge0811-r1
       GIT_OPTIONAL_LOCKS: "0"
       NO_COLOR: "1"
@@ -55,7 +55,7 @@ jobs:
           unset BASH_ENV CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND
           test "$GITHUB_REPOSITORY" = telekom/sutura
           test "$GITHUB_RUN_ATTEMPT" = 1
-          test "$GITHUB_REF" = refs/heads/ci/source-projections-fixture-export-4ee0c170
+          test "$GITHUB_REF" = refs/heads/ci/source-projections-recording-export-5710be4c
           [[ "$EXPECTED_HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_HELPER_SHA"
           test "$WORKFLOW_SHA" = "$EXPECTED_HELPER_SHA"
@@ -64,11 +64,11 @@ jobs:
           test -z "${SKIP:-}${PREK_SKIP:-}${PRE_COMMIT_ALLOW_NO_CONFIG:-}"
           test -z "${GIT_CONFIG_COUNT:-}${GIT_CONFIG_PARAMETERS:-}"
           test "$CONSUMER" = source-projections
-          test "$REQUEST_ID" = 4ee0c170-88e6-4d4d-8839-edb27bf31088
+          test "$REQUEST_ID" = 5710be4c-05a4-424b-8ba9-5d5212cba7ee
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 969afca89a6e8edb7ed09f42db033577e5558e56
+          ref: 38de15bece6539352d4831d464188e386043593d
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -93,14 +93,31 @@ jobs:
           git --no-optional-locks switch -c "$SOURCE_BRANCH"
           patch="$EVIDENCE/source.patch"
           base64 --decode <<'PATCH' | gzip --decompress > "$patch"
-          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
+          H4sIAAAAAAAC/7VXW0/jRhR+z684m0qsrTgmca4EQldb6FMLKnSrqghZw3jMetc3ZsYChPLfe2Z8d8xWW1o/OPb4zLl+55sTL/B9GI/vAwnkkHIimTgUmcw4
+          GbMnRscekcTPRJDEh4LTQ5pEd0HMDoVEyYjF8hA3SGFzAXdv2j4IYo89AVl7qzVdL45mS3/uH608uprOyGq29hYztprSFV36PllQ2557R+xo6s8WDlvQhbeY
+          4oc1WdMFWzmzpUPXk9nMn9MVTCeT5Xw+GI/Hb4xwMBqN3hrlhw8wXq2sJYzw7swB3/0YRJJxytyQ3LFQGOIh3MCBkNyE8Sn8wejJteRBfH8KLwMYwA83Stvt
+          QG30sjQMKFpxCxVJJtNMCpejSMKZy54IlW5MIibcNBGBRB+FS2LPZVEqn92ISaK8N0xUPgK80G5GJVwxmnAPrZ68J6flN3Wx+B5jE+jhewJRJuE8X7BqkSru
+          hlQjjEJyNxjlD0GUhnBd7vmF3QvwE970wG15IJ9ThvJJClu41mFfYHzHpTp1YWqSlMXGgTItWOhbRY6VRx9/54xdM3lSbz7Vqb5iIgvliWFacI17NhtlpGVa
+          R4ef7CILtrZSqDZruV3HGZ71+IKu1B5YddZw/Yo8VglpuobrV8mj+Gf/6hLYaSY+G9W7TYSLJTZMWyZu8hgzzzDN429EqFzP/W242A61jDiPFkuXcuZpWEIQ
+          w82Q2jRDOEaMu4EHJzAfWtBZ3Ko2nQxvFcSrvKEmkfl+8JSrUbsAIcE43D1De38YRMhgTleFukKGaX8I0QQqjIh8Z+guXM+tFYymE8dynKIN/9tugr3L50kE
+          XhC5pedA4UuCsbXWPEjiTnQjmKL7Xmvt8TPjDF6qVO9e8lzthm3LWNy9dCgkhqrPtmX3bjYxezQukpih/LgrT2LxiJ5tgYivCJgDTKcFPgkFYuLTxcfLTxdn
+          52cWHJR6u4AqbdaoRF3ICLnVPulKEgWbzbDZpIQLpl0wbfaUMiqNIQFFiY1NgQBSvw77LEhyFzLlR/7Q60UV9xkW9WdN8D/l3M4L1xsuFKyP4MyC0BND0863
+          u5UfRtuCuqrAfsswAtSf690XVNdBpcl6RSCP5ZWvecH6v9VV7P+ueA4rf4ZHXu7lX+dXlxbU7wrbrmBUGMuJafZo6VvTgKl4vktk+ydOia9XnGydO2289ezY
+          ddb6GuUau824/GpwJF3TVA2QIwKPadbX4imJA4oE0+cdDCt+gYJYsCkQtsiwG3hBQO/wJzew+XF3XOR8+6JfOIn109DS7HU00+zlLPHnfyevXSczRAjGpcse
+          3unE2DQJsygW6txEsq85StN853Wi7r8Gf7Kz4a35ut42B+nitmYkhYLmIecHXMhWO+byTRLoQ2Bn8vpuhXtFvilCpFN9d/R9Nrz9Nil3MmpplKujGgk55zpU
+          UxUNUeghdEIZqJLjmmoODSDFdAoezmyt8OGspjhq4kIx1BVkX9YXK5Om2HgbuEyV4uZAVISWY3Cjx7e+uamUQ3jmQi0V425XtqZAnBlwnNXTX+2Y9n6hz2Zn
+          vcy974h0er6MoXyyI5IaCuZetz6NYAr67giUUVRfx6/RS6+K3aD8ycNYT1UYs6nTCGN/zu0JLPDhHQJPF7ds55QnXxCJWKaeYW6vZTnDfycxnHNeDG82DRWW
+          zCbydnV8/2pobA+MmLxi26sGMa7CUFEqoujJR8bZbnOuzfd+Vzh/A0QAiTPCDgAA
           PATCH
           test "$(sha256sum "$patch" | cut -d ' ' -f 1)" = "$PATCH_SHA"
           git --no-optional-locks apply --index --check "$patch"
           git --no-optional-locks apply --index "$patch"
           test "$(git --no-optional-locks rev-parse HEAD)" = "$SOURCE_PARENT"
           base64 --decode <<'MESSAGE' > "$EVIDENCE/commit-message.txt"
-          dGVzdChzcWwpOiBjb3ZlciBkdXBsaWNhdGUgb3V0cHV0cyB3aXRoIG5hdGl2ZSBudW1lcmljIGNvbXBhcmlzb25zCg==
+          dGVzdChzcWwpOiBrZWVwIHN0YXRlbWVudCByZWNvcmRpbmcgbG9jYWwgdG8gZHVwbGljYXRlIG91dHB1dHMKCkxpdmUtQ2VsbDogZXZlcnlfcGxhbm5lZF9z
+          aGFwZV9hbnN3ZXJzX2F0X3RoZV9vcmFjbGVfZW5naW5lIG9yYWNsZSBvcmFjbGUtdGllcgpMaXZlLUNlbGw6IGV2ZXJ5X3BsYW5uZWRfc2hhcGVfYW5zd2Vy
+          c19hdF90aGVfY3ViZV9lbmdpbmUgY3ViZSBjaS1jdWJlLXRpZXIKTGl2ZS1DZWxsOiBldmVyeV9wbGFubmVkX3NoYXBlX2Fuc3dlcnNfYXRfdGhlX2JpZ3F1
+          ZXJ5X2VuZ2luZSBiaWdxdWVyeSBiaWdxdWVyeS1jb25mb3JtYW5jZQo=
           MESSAGE
           test "$(sha256sum "$EVIDENCE/commit-message.txt" | cut -d ' ' -f 1)" = "$MESSAGE_SHA"
           test "$(git --no-optional-locks write-tree)" = "$EXPECTED_TREE"
