@@ -60,9 +60,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$HELPER_REF" == refs/heads/ci/native-discovery-trace-20261118-r1 ]]
-          [[ "$SOURCE_SHA" == fd5d6ea23d014e70b6b542d82f1f472b3ddddd68 ]]
-          [[ "$SOURCE_TREE" == 41904bfb5c4dc49bcaff0acfad952b46c30d4e6a ]]
-          [[ "$COMPARISON_SHA" == abfd0bc5db39d405bbae2746b6ee1358b260414c ]]
+          [[ "$SOURCE_SHA" == 88094ecc3666d399ab05b28f3245673d1cd43217 ]]
+          [[ "$SOURCE_TREE" == a8fa629e1ece10dbb38313d37c3431c3d90690e4 ]]
+          [[ "$COMPARISON_SHA" == 9b1bc9f40e03f7b50e843592f51130eb0aa2a44f ]]
           [[ "$(git --no-optional-locks rev-parse HEAD)" == "$SOURCE_SHA" ]]
           [[ "$(git --no-optional-locks rev-parse 'HEAD^{tree}')" == "$SOURCE_TREE" ]]
           [[ "$(git --no-optional-locks merge-base "$SOURCE_SHA" "$COMPARISON_SHA")" == "$COMPARISON_SHA" ]]
