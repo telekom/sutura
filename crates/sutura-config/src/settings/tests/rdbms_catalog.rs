@@ -465,3 +465,57 @@ fn oracle_unbounded_number_policy_is_explicit_and_refuses_other_representations_
         assert!(matches!(error.reason(), SettingsError::Sources { .. }), "{error:?}");
     }
 }
+
+#[test]
+fn a_separate_description_mapping_is_parsed_as_prose_only_with_a_closed_predicate() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: deleted, operator: equals, value: 'N'}}\n"
+    );
+    let settings = load(&text).expect("a checked standalone mapping loads");
+    let entry = settings.catalogs().each().next().unwrap();
+    let sources = entry.rdbms().unwrap().descriptions_from();
+    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = sources.first().unwrap() else {
+        panic!("a mapping")
+    };
+    assert_eq!(mapping.table().to_string(), "inventory.column_docs");
+    assert_eq!(mapping.predicate().unwrap().value(), Some("N"));
+    load(&text.replace(
+        "live_row_predicate: {column: deleted, operator: equals, value: 'N'}",
+        "live_row: \"deleted = 'N'\"",
+    ))
+    .expect_err("raw SQL is not a declared mapping field");
+}
+
+#[test]
+fn description_references_refuse_unknown_self_and_cyclic_sources() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    for catalog in ["missing", "dict"] {
+        let text = format!("{base}    descriptions_from: [{{catalog: {catalog}}}]\n");
+        load(&text).expect_err("an unknown or self reference must refuse");
+    }
+    let first = format!("{base}    descriptions_from: [{{catalog: second}}]\n");
+    let entry = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let second = entry
+        .split_once("catalogs:\n")
+        .unwrap()
+        .1
+        .replace("name: dict", "name: second");
+    load(&format!("{first}{second}    descriptions_from: [{{catalog: dict}}]\n"))
+        .expect_err("cyclic prose references must refuse");
+}
+
+#[test]
+fn referenced_catalogs_are_prose_only_and_unrelated_contributors_are_retained() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let first = format!("{base}    descriptions_from: [{{catalog: second}}]\n");
+    let entry = base.split_once("catalogs:\n").unwrap().1;
+    let second = entry.replace("name: dict", "name: second");
+    let third = entry.replace("name: dict", "name: third");
+    let settings = load(&format!("{first}{second}{third}")).expect("declared prose reference");
+    let structural = settings.catalogs().structural_catalogs().unwrap();
+    assert_eq!(
+        structural.each().map(|entry| entry.name().as_str()).collect::<Vec<_>>(),
+        ["dict", "third"]
+    );
+}

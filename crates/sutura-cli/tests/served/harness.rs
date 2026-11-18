@@ -717,7 +717,12 @@ pub(crate) fn start(case: &str) -> Served {
 // `terminate` or a panicking assertion - reaps it. Reaping here would mean waiting for the service
 // to exit before asking it anything.
 pub(crate) fn start_configured(case: &str, settings: &str) -> Served {
-    start_configured_with_driver(case, settings, None)
+    try_start_configured(case, settings)
+        .unwrap_or_else(|startup| panic!("the service never reported a listener:\n{}", startup.join("\n")))
+}
+
+pub(crate) fn try_start_configured(case: &str, settings: &str) -> Result<Served, Vec<String>> {
+    try_start_configured_with_environment(case, settings, None, &[], &[])
 }
 
 /// Restore only the explicitly supplied ADBC driver path after the harness scrubs ambient settings.
@@ -727,7 +732,6 @@ pub(crate) fn start_configured_with_driver(case: &str, settings: &str, driver: O
 
 /// The same, with every inherited variable whose name starts with one of `dropped` removed and
 /// each of `extra` set - for a case that decides what the child may reach beyond the loopback.
-#[expect(clippy::zombie_processes, reason = "the returned `Served` waits on it in `Drop`")]
 pub(crate) fn start_configured_with_environment(
     case: &str,
     settings: &str,
@@ -735,6 +739,17 @@ pub(crate) fn start_configured_with_environment(
     extra: &[(&str, &str)],
     dropped: &[&str],
 ) -> Served {
+    try_start_configured_with_environment(case, settings, driver, extra, dropped)
+        .unwrap_or_else(|startup| panic!("the service never reported a listener:\n{}", startup.join("\n")))
+}
+
+fn try_start_configured_with_environment(
+    case: &str,
+    settings: &str,
+    driver: Option<&str>,
+    extra: &[(&str, &str)],
+    dropped: &[&str],
+) -> Result<Served, Vec<String>> {
     let config_dir = written(case, settings);
     let mut command = command(&config_dir, Environment::Development);
     if let Some(driver) = driver {
@@ -746,9 +761,14 @@ pub(crate) fn start_configured_with_environment(
         }
     }
     command.envs(extra.iter().copied());
-    let mut child = command.spawn().expect("the composed binary starts");
-    let stdout = child.stdout.take().expect("standard output was piped");
-    let stderr = child.stderr.take().expect("standard error was piped");
+    let mut child = command
+        .spawn()
+        .map_err(|error| vec![format!("the composed binary did not start: {error}")])?;
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        drop(child.kill());
+        drop(child.wait());
+        return Err(vec![String::from("the composed binary's output was not piped")]);
+    };
     let (sender, lines) = channel();
     let second = sender.clone();
     // KEPT rather than dropped: `Served::terminate` joins them, which is what makes `Served::log`
@@ -763,13 +783,21 @@ pub(crate) fn start_configured_with_environment(
     let deadline = Instant::now() + START_BUDGET;
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
-        let line = lines
-            .recv_timeout(left)
-            .unwrap_or_else(|cause| panic!("the service never reported a listener ({cause}):\n{}", startup.join("\n")));
+        let line = match lines.recv_timeout(left) {
+            Ok(line) => line,
+            Err(error) => {
+                drop(child.kill());
+                drop(child.wait());
+                joined(readers);
+                startup.extend(lines.try_iter());
+                startup.push(format!("listener startup stopped: {error}"));
+                return Err(startup);
+            }
+        };
         let bound = bound_address(&line);
         startup.push(line);
         if let Some(address) = bound {
-            return Served {
+            return Ok(Served {
                 child,
                 address,
                 startup,
@@ -777,7 +805,7 @@ pub(crate) fn start_configured_with_environment(
                 readers,
                 config_dir,
                 reaped: false,
-            };
+            });
         }
     }
 }

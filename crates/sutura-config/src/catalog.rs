@@ -547,6 +547,37 @@ impl Catalogs {
                 });
             }
         }
+        if let Some(first) = entries.first() {
+            rdbms::descriptions::check_references(&entries).map_err(|cause| InvalidCatalogSettings::Rdbms {
+                name: first.name().clone(),
+                cause,
+            })?;
+        }
+        Ok(Self { entries })
+    }
+
+    /// The serving contributors, excluding only names explicitly referenced for prose.
+    /// References stay resolved against the original registry when readers are opened.
+    pub fn structural_catalogs(&self) -> Result<Self, InvalidCatalogSettings> {
+        let referenced: std::collections::BTreeSet<_> = self
+            .entries
+            .iter()
+            .filter_map(CatalogSettings::rdbms)
+            .flat_map(rdbms::RdbmsSettings::descriptions_from)
+            .filter_map(|source| match source {
+                rdbms::DescriptionSource::Catalog(name) => Some(name),
+                rdbms::DescriptionSource::Table(_) => None,
+            })
+            .collect();
+        let entries: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|entry| !referenced.contains(entry.name()))
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return Err(InvalidCatalogSettings::EmptyCatalog);
+        }
         Ok(Self { entries })
     }
 

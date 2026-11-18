@@ -172,6 +172,7 @@ mod tests {
             data: DataDir,
             schema: String,
             admin: FixtureAdmin,
+            roles: Vec<String>,
         }
 
         impl Native {
@@ -196,6 +197,7 @@ mod tests {
                     data: DataDir::prepared(&format!("{case}-fixture")),
                     schema,
                     admin,
+                    roles: Vec::new(),
                 }
             }
 
@@ -238,6 +240,9 @@ mod tests {
         impl Drop for Native {
             fn drop(&mut self) {
                 drop(self.admin.run(&format!("DROP SCHEMA {} CASCADE", self.schema)));
+                for role in &self.roles {
+                    drop(self.admin.run(&format!("DROP ROLE {role}")));
+                }
             }
         }
 
@@ -253,6 +258,85 @@ mod tests {
             let reply = served.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
             assert_eq!(reply.status, 200, "{}", reply.body);
             reply.json()
+        }
+
+        #[cfg(feature = "agent")]
+        #[test]
+        fn a_served_postgres_dictionary_layers_remote_prose_without_widening_sql() {
+            let Some(tier) = discover_tier() else { return };
+            let mut fixture = Native::new("description-overlay", &tier);
+            fixture
+                .admin
+                .run(&format!(
+                    "CREATE TABLE {0}.docs (owner text, object_name text, field_name text, prose text, live text); \
+        INSERT INTO {0}.docs VALUES ('{0}', 'events', 'id', 'Business event identifier.', 'Y'), \
+        ('{0}', 'events', 'secret', 'Must stay excluded.', 'Y'), ('{0}', 'events', 'ghost', 'Unknown column.', 'Y'), \
+        ('{0}', 'events', 'id', 'Deleted documentation.', 'N')",
+                    fixture.schema
+                ))
+                .unwrap();
+            let base_reader = format!("{}_base", fixture.schema);
+            let docs_reader = format!("{}_docs", fixture.schema);
+            fixture.roles.extend([base_reader.clone(), docs_reader.clone()]);
+            let password_sql = tier.password.replace('\'', "''");
+            fixture.admin.run(&format!(
+                "CREATE ROLE {base_reader} LOGIN PASSWORD '{password_sql}'; CREATE ROLE {docs_reader} LOGIN PASSWORD '{password_sql}'; \
+                 GRANT USAGE ON SCHEMA {schema} TO {base_reader}, {docs_reader}; \
+                 GRANT SELECT ON {schema}.events TO {base_reader}; GRANT SELECT ON {schema}.docs TO {docs_reader}",
+                schema = fixture.schema,
+            )).unwrap();
+            let password = fixture.data.0.join("password");
+            let extra = format!(
+                "    descriptions_from:\n      - connection:\n          host: 127.0.0.1\n          port: {}\n          database: {}\n          user: {}\n          password_file: {}\n          transport_mode: verified\n          transport_anchors: {}\n        table: {}.docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: live, operator: equals, value: Y}}\n",
+                tier.port,
+                tier.database,
+                docs_reader,
+                password.display(),
+                tier.anchor,
+                fixture.schema
+            );
+            let settings = format!(
+                "{}prompt:\n  list_physical_schema: true\n",
+                fixture
+                    .native_settings(&tier, &extra)
+                    .replace(&format!("user: \"{}\"", tier.user), &format!("user: \"{base_reader}\""))
+            );
+            let denied = settings.replace(&format!("user: {docs_reader}\n"), &format!("user: {base_reader}\n"));
+            let log = refused_to_start(
+                Environment::Development,
+                written("postgres-description-base-denied", &denied),
+                &[],
+            )
+            .join("\n");
+            assert!(log.contains("permission denied for table docs"), "{log}");
+            let served = crate::harness::try_start_configured("postgres-description-overlay", &settings)
+                .expect("the separately granted documentation reader starts the deployment");
+            let call = serde_json::json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"describe_catalog","arguments":{}}});
+            let listing = served.mcp(Some(TOKEN), &call.to_string()).json();
+            let columns = listing["result"]["structuredContent"]["models"][0]["columns"]
+                .as_array()
+                .unwrap();
+            let id = columns.iter().find(|column| column["name"] == "id").unwrap();
+            assert_eq!(id["description"], "Business event identifier.");
+            assert!(
+                columns
+                    .iter()
+                    .all(|column| column["name"] != "secret" && column["name"] != "ghost")
+            );
+            let selected = ran(&served, &format!("select * from {}.events", fixture.schema));
+            assert_eq!(selected.status, 200, "{}", selected.body);
+            assert_eq!(selected.json()["columns"], serde_json::json!(["id", "month"]));
+            assert_eq!(
+                ran(&served, &format!("select secret from {}.events", fixture.schema)).status,
+                422
+            );
+            let log = served.awaiting("description overlay load completed");
+            assert!(
+                log.iter()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .any(|event| event["msg"] == "description overlay load completed" && event["ignored_columns"] == 2),
+                "{log:?}"
+            );
         }
 
         #[test]

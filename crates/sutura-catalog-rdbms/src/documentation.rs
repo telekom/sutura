@@ -63,6 +63,7 @@ pub(crate) fn default_bounds(
 /// The two fixed read shapes. Native mode carries no documentation-view selectors.
 #[derive(Debug, Clone)]
 pub(crate) enum ReadQuery {
+    Descriptions(crate::descriptions::MappedDescriptions),
     View {
         schema: String,
         environment: String,
@@ -88,7 +89,7 @@ impl ReadQuery {
         dialect: sutura_domain::warehouse::schema::TypeDialect,
     ) -> Result<Dictionary, RdbmsError> {
         match self {
-            Self::View { .. } => Ok(dictionary),
+            Self::View { .. } | Self::Descriptions(_) => Ok(dictionary),
             Self::Native {
                 selection,
                 unbounded_number,
@@ -99,12 +100,14 @@ impl ReadQuery {
     pub(crate) fn environment(&self) -> &str {
         match self {
             Self::View { environment, .. } => environment,
+            Self::Descriptions(_) => "descriptions",
             Self::Native { .. } => "native",
         }
     }
 
     pub(crate) fn binds(&self) -> Vec<String> {
         match self {
+            Self::Descriptions(mapping) => mapping.binds(),
             Self::Native { selection, .. } => selection
                 .include()
                 .iter()
@@ -125,6 +128,7 @@ impl ReadQuery {
     pub(crate) fn postgres_statement(&self, bounds: DictionaryBounds) -> String {
         let limit = bounds.max_rows().get().saturating_add(1);
         match self {
+            Self::Descriptions(mapping) => mapping.statement(false, limit),
             Self::Native { selection, .. } => crate::native::sql::postgres(selection.include().len(), limit),
             Self::View { schema, predicate, .. } => {
                 let predicate = match predicate {
@@ -146,6 +150,7 @@ impl ReadQuery {
     #[cfg(feature = "live-oracle")]
     pub(crate) fn oracle_statement(&self, bounds: DictionaryBounds) -> String {
         match self {
+            Self::Descriptions(mapping) => mapping.statement(true, bounds.max_rows().get().saturating_add(1)),
             Self::Native { selection, .. } => {
                 crate::native::sql::oracle(selection.include().len(), bounds.max_rows().get().saturating_add(1))
             }

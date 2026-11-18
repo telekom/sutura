@@ -184,3 +184,59 @@ claim about database installations.
 The catalog signs in with its own login, `connection.user`. It never uses the credential of a data
 system, because a catalog read has no caller. Each read opens one connection and one read-only
 transaction, and rolls it back.
+
+## Descriptions from another source
+
+`descriptions_from` on an RDBMS catalog layers prose onto the selected dictionary columns.
+Entries are ordered: the first nonempty description wins, then the dictionary's own comment.
+The join uses the exact physical catalog (when present), schema, table and column. Names are
+not case-folded and catalog prefixes are not removed. Unknown and excluded columns are ignored;
+the load log records `ignored_columns`. Duplicate physical keys within one source refuse loading.
+Prose never changes columns, types, exclusions, audience, text policies or the execution allowlist.
+The catalog digest includes the resulting prose.
+
+A source can name another declared RDBMS or DataHub catalog:
+
+```yaml
+descriptions_from:
+  - catalog: documentation
+```
+
+An explicitly referenced catalog contributes descriptions only; it does not add its models or
+metrics to the serving catalog. Unrelated catalog entries keep their usual role and mixed-kind
+restrictions. References must resolve without a cycle (maximum depth 32 and 256 expanded references per consumer), and the binary must
+link the referenced reader. Each RDBMS catalog accepts at most 32 description sources.
+
+A plain table needs no special documentation view. Declare its own read-only connection and map
+its columns; use `live_row_predicate`, a closed predicate with bound values, rather than SQL:
+
+```yaml
+descriptions_from:
+  - connection:
+      host: 127.0.0.1
+      database: documentation
+      user: reader
+      password_file: /run/secrets/documentation
+      transport_mode: plaintext
+    table: inventory.column_docs
+    key: { schema: object_owner, table: object_name, column: field_name }
+    description: description
+    live_row_predicate: { column: is_deleted, operator: equals, value: "N" }
+    max_dictionary_rows: 10000
+    max_dictionary_bytes: 8388608
+```
+
+The mapping's connection supports the same PostgreSQL and Oracle transport declarations as the
+catalog's connection. Identifiers are quoted exactly as written; an Oracle mapping normally uses
+uppercase names for unquoted database columns. `key.catalog` is optional and required when the
+served dictionary carries that physical component. A mapping without it matches only addresses
+without a catalog component. Table comments can also come from referenced catalogs.
+
+Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
+accounting and the existing description byte, line and control-character checks. PostgreSQL's
+byte refusal runs after libpq has materialized its result; Oracle bills decoded cursor rows.
+These limits do not bound database scan work or elapsed query time. Referenced catalogs keep
+their own read bounds and their prose projection is additionally bounded by the consuming
+RDBMS catalog. Reloads read the description sources again before publishing a new pinned bundle.
+`prompt.list_physical_schema: true` exposes column descriptions through `describe_catalog`;
+`prompt.catalog_prose: omitted` continues to withhold them.
