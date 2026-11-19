@@ -31,7 +31,7 @@ fn read_back(sql: &str, dialect: TypeDialect) -> Vec<String> {
     values
 }
 
-const DIALECTS: [TypeDialect; 7] = [
+pub(super) const DIALECTS: [TypeDialect; 7] = [
     TypeDialect::BigQuery,
     TypeDialect::ClickHouse,
     TypeDialect::Postgres,

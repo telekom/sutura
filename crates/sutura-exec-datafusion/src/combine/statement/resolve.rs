@@ -17,6 +17,8 @@ pub(super) enum Refused {
     UnknownTable,
     UnknownColumn,
     Unsupported(SqlConstruct),
+    /// A name holds a backslash or a quote character, which no source statement carries.
+    UnquotableName,
 }
 
 type Resolved<T> = Result<T, Refused>;

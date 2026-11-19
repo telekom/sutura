@@ -1,4 +1,4 @@
-//! String literals written as the source they are sent to reads them back.
+//! String literals and names written as the source they are sent to reads them back.
 
 use core::fmt::Display;
 use std::ops::ControlFlow;
@@ -6,6 +6,7 @@ use std::ops::ControlFlow;
 use datafusion::common::plan_datafusion_err;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::sql::sqlparser::ast::{Value, ValueWithSpan, VisitMut, VisitorMut};
+use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
 /// `text` quoted so `dialect` reads it back unchanged. `BigQuery` and `ClickHouse` read a backslash in a
@@ -25,6 +26,18 @@ pub(super) fn literal(text: &str, dialect: TypeDialect) -> String {
     }
     quoted.push('\'');
     quoted
+}
+
+/// Whether `name` holds no backslash and no quote character. `sqlparser` quotes a name by the same
+/// rule as a literal, which does not read back exactly once a name holds one, so such a name is
+/// refused; the vendored unparser refuses every name it builds by the same test.
+pub(super) fn quotable(name: &str) -> bool {
+    !name.contains(['\\', '"', '`', '\''])
+}
+
+/// Whether `table`'s path and every column name are [`quotable`].
+pub(super) fn quotable_table(table: &StatementTable) -> bool {
+    quotable(&table.table().to_string()) && table.schema().fields().iter().all(|field| quotable(field.name()))
 }
 
 /// `node`'s text with every string literal written by [`literal`] for `dialect`. `sqlparser` never

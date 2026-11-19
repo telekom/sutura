@@ -24,9 +24,11 @@ mod rewrite;
 mod utils;
 
 use self::dialect::{DefaultDialect, Dialect};
+use datafusion_common::{Result, plan_err};
 use crate::unparser::extension_unparser::UserDefinedLogicalNodeUnparser;
 pub use expr::expr_to_sql;
 pub use plan::plan_to_sql;
+use std::cell::Cell;
 use std::sync::Arc;
 pub mod dialect;
 pub mod extension_unparser;
@@ -58,6 +60,9 @@ pub struct Unparser<'a> {
     dialect: &'a dyn Dialect,
     pretty: bool,
     extension_unparsers: Vec<Arc<dyn UserDefinedLogicalNodeUnparser>>,
+    /// Set once a name holds a backslash or a quote character, which `sqlparser` does
+    /// not quote exactly in every dialect. Every later unparse with this `Unparser` fails.
+    unquotable: Cell<bool>,
 }
 
 impl<'a> Unparser<'a> {
@@ -66,6 +71,7 @@ impl<'a> Unparser<'a> {
             dialect,
             pretty: false,
             extension_unparsers: vec![],
+            unquotable: Cell::new(false),
         }
     }
 
@@ -128,6 +134,21 @@ impl<'a> Unparser<'a> {
         self.extension_unparsers = extension_unparsers;
         self
     }
+
+    /// Records `name` for [`Self::quotable`] when it holds a backslash or a quote character.
+    pub(super) fn admit_name(&self, name: &str) {
+        if name.contains(['\\', '"', '`', '\'']) {
+            self.unquotable.set(true);
+        }
+    }
+
+    /// `unparsed`, refused once any name this `Unparser` built could not be quoted exactly.
+    pub(super) fn quotable<T>(&self, unparsed: Result<T>) -> Result<T> {
+        if self.unquotable.get() {
+            return plan_err!("a name holds a backslash or a quote character");
+        }
+        unparsed
+    }
 }
 
 impl Default for Unparser<'_> {
@@ -136,6 +157,7 @@ impl Default for Unparser<'_> {
             dialect: &DefaultDialect {},
             pretty: false,
             extension_unparsers: vec![],
+            unquotable: Cell::new(false),
         }
     }
 }

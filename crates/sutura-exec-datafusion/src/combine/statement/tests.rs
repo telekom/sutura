@@ -24,6 +24,8 @@ use crate::combine::DataFusionCombiner;
 
 #[cfg(test)]
 mod literals;
+#[cfg(test)]
+mod names;
 mod oracle;
 #[cfg(test)]
 mod registration;

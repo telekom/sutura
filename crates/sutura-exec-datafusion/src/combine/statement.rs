@@ -97,11 +97,7 @@ where
         within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
             .ok_or(StatementStopped::DeadlineExceeded)?
             .map_err(|cause| match cause {
-                PlanningStopped::Refused(resolve::Refused::UnknownTable) => StatementStopped::UnknownTable,
-                PlanningStopped::Refused(resolve::Refused::UnknownColumn) => StatementStopped::UnknownColumn,
-                PlanningStopped::Refused(resolve::Refused::Unsupported(construct)) => {
-                    StatementStopped::UnsupportedSyntax(construct)
-                }
+                PlanningStopped::Refused(refused) => stopped(refused),
                 PlanningStopped::Engine(cause) => {
                     let fallback = unplanned("the statement did not plan", &cause);
                     if field_not_found(&cause) {
@@ -137,6 +133,9 @@ where
             .into_iter()
             .filter(|table| scans.contains(table.table()))
             .collect();
+        if !read.iter().all(literal::quotable_table) {
+            return Err(stopped(resolve::Refused::UnquotableName));
+        }
         let text = oracle::native(native)
             .and_then(|()| text::apply(native, &read, TypeDialect::Oracle))
             .and_then(|()| {
@@ -662,6 +661,12 @@ async fn planned(
             )
         })
         .count();
+    if tokens
+        .iter()
+        .any(|token| matches!(token, Token::Word(Word { quote_style: Some(_), value, .. }) if !literal::quotable(value)))
+    {
+        return Err(PlanningStopped::Refused(resolve::Refused::UnquotableName));
+    }
     if operators > MOST_OPERATORS {
         return Err(PlanningStopped::Engine(plan_datafusion_err!(
             "the statement has {operators} operators, more than {MOST_OPERATORS}"
@@ -726,6 +731,16 @@ async fn planned(
     let native_schema = Arc::clone(plan.schema().inner());
     let frame = context.execute_logical_plan(plan).await?;
     Ok((frame.into_optimized_plan()?, numeric_operations, native_schema))
+}
+
+/// What the caller reads for a statement refused before planning.
+const fn stopped<S>(refused: resolve::Refused) -> StatementStopped<S> {
+    match refused {
+        resolve::Refused::UnknownTable => StatementStopped::UnknownTable,
+        resolve::Refused::UnknownColumn => StatementStopped::UnknownColumn,
+        resolve::Refused::Unsupported(construct) => StatementStopped::UnsupportedSyntax(construct),
+        resolve::Refused::UnquotableName => StatementStopped::UnsupportedSyntax(SqlConstruct::Query),
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -100,7 +100,9 @@ impl Unparser<'_> {
         // size the stack-growing trampoline engages too late and the OS stack
         // overflows on deeply nested expressions (issue #23056). The size
         // mirrors the planner's stack-growth usage in `query.rs`.
-        crate::stack::maybe_grow(|| self.expr_to_sql_with_nesting(expr))
+        self.quotable(crate::stack::maybe_grow(|| {
+            self.expr_to_sql_with_nesting(expr)
+        }))
     }
 
     /// Recursive entry point shared by the public [`Self::expr_to_sql`] and the
@@ -982,6 +984,7 @@ impl Unparser<'_> {
 
     /// This function can create an identifier with or without quotes based on the dialect rules
     pub(super) fn new_ident_quoted_if_needs(&self, ident: String) -> Ident {
+        self.admit_name(&ident);
         let quote_style = self.dialect.identifier_quote_style(&ident);
         Ident {
             value: ident,
@@ -991,6 +994,7 @@ impl Unparser<'_> {
     }
 
     pub(super) fn new_ident_without_quote_style(&self, str: String) -> Ident {
+        self.admit_name(&str);
         Ident {
             value: str,
             quote_style: None,
