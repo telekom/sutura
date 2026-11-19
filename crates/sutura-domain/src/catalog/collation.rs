@@ -130,9 +130,12 @@ impl Collation {
             .map_or(Self::Unknown, |text| Self::decoded(text))
     }
 
-    /// Records this collation on a field being pinned. [`Self::Unknown`] writes nothing, so a
-    /// field with no collation fact hashes as it always did.
-    pub(crate) fn pin_onto(&self, field: &mut arrow_schema::Field) {
+    /// Records this collation on a field being pinned; [`Self::of_field`] reads it back.
+    /// [`Self::Unknown`] writes nothing, so a field with no collation fact hashes as it always did.
+    ///
+    /// Public so a cell in another crate can build a pinned field that carries a collation. The
+    /// pin itself writes it only for a `Utf8` column, from the catalog's column or the dialect.
+    pub fn pin_onto(&self, field: &mut arrow_schema::Field) {
         if let Some(text) = self.encoded() {
             field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), text);
         }
