@@ -135,6 +135,15 @@ struct UnexpectedColumn {
     expected: &'static str,
 }
 
+/// The constraint statement named a different number of columns than the reader decodes - a
+/// statement defect, not evidence about any relationship.
+#[derive(Debug, thiserror::Error)]
+#[error("the constraint statement returned {found} columns where {expected} are decoded")]
+struct ConstraintColumnCount {
+    found: usize,
+    expected: usize,
+}
+
 /// A live [`crate::DictionaryReader`] over a Postgres documentation schema.
 ///
 /// Owns the driver and the connection string a composition root built from the declared channel,
@@ -281,7 +290,12 @@ impl PostgresReader {
                         .map(|array| array.is_valid(row).then(|| array.value(row).to_owned()))
                         .collect::<Vec<_>>()
                         .try_into()
-                        .map_err(|_cause| crate::DeclarationError::ProbeEvidence)?;
+                        .map_err(|values: Vec<_>| {
+                            read_err(ConstraintColumnCount {
+                                found: values.len(),
+                                expected: crate::relationships::constraints::FIELDS.len(),
+                            })
+                        })?;
                     let catalog = |name| -> Result<Option<String>, RdbmsError> {
                         if !documented {
                             return Ok(None);

@@ -20,11 +20,35 @@ pub(crate) const FIELDS: [&str; 13] = [
     "target_kind",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum Fault {
+    #[error("a field is absent or malformed")]
+    Field,
+    #[error("an ordinal lies outside its arity")]
+    Ordinal,
+    #[error("the record or target kind is not recognised")]
+    Kind,
+    #[error("rows of one constraint disagree on its header")]
+    Header,
+    #[error("an ordinal repeats")]
+    RepeatedOrdinal,
+    #[error("its members do not cover the declared arity")]
+    Incomplete,
+    #[error("the table already has a primary key")]
+    DuplicatePrimaryKey,
+}
+
 #[derive(Debug, thiserror::Error)]
-#[error("native constraint metadata is incomplete, repeated or inconsistent")]
-struct InvalidConstraint;
-fn invalid() -> RdbmsError {
-    RdbmsError::Read(Box::new(InvalidConstraint))
+#[error("native constraint `{constraint}` is invalid: {fault}")]
+pub(crate) struct InvalidConstraint {
+    constraint: String,
+    pub(crate) fault: Fault,
+}
+fn invalid(constraint: &str, fault: Fault) -> RdbmsError {
+    RdbmsError::Read(Box::new(InvalidConstraint {
+        constraint: constraint.to_owned(),
+        fault,
+    }))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -72,18 +96,20 @@ impl Constraints {
             arity,
             target_kind,
         ] = values;
-        let required = |value: Option<String>| value.filter(|value| !value.is_empty()).ok_or_else(invalid);
-        let arity = required(arity)?.parse::<usize>().map_err(|_cause| invalid())?;
-        let ordinal = required(ordinal)?.parse::<usize>().map_err(|_cause| invalid())?;
+        let label = name.clone().unwrap_or_default();
+        let invalid = |fault| invalid(&label, fault);
+        let required = |value: Option<String>| value.filter(|value| !value.is_empty()).ok_or_else(|| invalid(Fault::Field));
+        let arity = required(arity)?.parse::<usize>().map_err(|_cause| invalid(Fault::Field))?;
+        let ordinal = required(ordinal)?.parse::<usize>().map_err(|_cause| invalid(Fault::Field))?;
         if arity == 0 || ordinal == 0 || ordinal > arity {
-            return Err(invalid());
+            return Err(invalid(Fault::Ordinal));
         }
         let kind = required(kind)?;
         let declared = kind == "d";
         let foreign = match kind.as_str() {
             "p" => false,
             "f" | "d" => true,
-            _ => return Err(invalid()),
+            _ => return Err(invalid(Fault::Kind)),
         };
         let (target, target_kind) = if foreign {
             let target = TableAddress::new(target_catalog, required(target_schema)?, required(target_table)?);
@@ -91,14 +117,14 @@ impl Constraints {
                 "p" if !declared => Some(SingleColumnTargetUniqueness::PrimaryKey),
                 "u" if !declared => Some(SingleColumnTargetUniqueness::UniqueConstraint),
                 "d" if declared => None,
-                _ => return Err(invalid()),
+                _ => return Err(invalid(Fault::Kind)),
             };
             (Some(target), kind)
         } else {
             (None, None)
         };
         if foreign && (target_column.as_ref().is_none_or(String::is_empty) || key_column.as_ref().is_none_or(String::is_empty)) {
-            return Err(invalid());
+            return Err(invalid(Fault::Field));
         }
         let header = Header {
             name: required(name)?,
@@ -115,7 +141,7 @@ impl Constraints {
             }),
             Entry::Occupied(slot) => {
                 if slot.get().header != header {
-                    return Err(invalid());
+                    return Err(invalid(Fault::Header));
                 }
                 slot.into_mut()
             }
@@ -125,7 +151,7 @@ impl Constraints {
             .insert(ordinal, (required(column)?, target_column, key_column))
             .is_some()
         {
-            return Err(invalid());
+            return Err(invalid(Fault::RepeatedOrdinal));
         }
         Ok(())
     }
@@ -133,15 +159,16 @@ impl Constraints {
     pub(crate) fn apply(self, dictionary: &mut Dictionary) -> Result<Vec<crate::DeclaredRelationship>, RdbmsError> {
         let mut declared = Vec::new();
         for key in self.0.into_values() {
+            let invalid = |fault| invalid(&key.header.name, fault);
             if key.members.len() != key.header.arity || key.members.keys().copied().ne(1..=key.header.arity) {
-                return Err(invalid());
+                return Err(invalid(Fault::Incomplete));
             }
             if let Some(target) = key.header.target {
                 let mut pairs = Vec::new();
                 let mut target_key = Vec::new();
                 for (origin, target, referenced) in key.members.into_values() {
-                    pairs.push((origin, target.ok_or_else(invalid)?));
-                    target_key.push(referenced.ok_or_else(invalid)?);
+                    pairs.push((origin, target.ok_or_else(|| invalid(Fault::Field))?));
+                    target_key.push(referenced.ok_or_else(|| invalid(Fault::Field))?);
                 }
                 if key.header.declared {
                     declared.push(crate::DeclaredRelationship::new(
@@ -149,7 +176,7 @@ impl Constraints {
                         None,
                     ));
                 } else {
-                    let kind = key.header.target_kind.ok_or_else(invalid)?;
+                    let kind = key.header.target_kind.ok_or_else(|| invalid(Fault::Kind))?;
                     dictionary.relationships.push(Relationship::from_foreign_key(
                         Some(key.header.name),
                         key.header.origin,
@@ -165,7 +192,7 @@ impl Constraints {
                 .find(|table| table.address() == &key.header.origin)
             {
                 if !table.primary_key.is_empty() {
-                    return Err(invalid());
+                    return Err(invalid(Fault::DuplicatePrimaryKey));
                 }
                 table.primary_key = key.members.into_values().map(|(column, _, _)| column).collect();
             }

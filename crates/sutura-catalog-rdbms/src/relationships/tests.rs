@@ -177,7 +177,7 @@ fn boot_uniqueness_evidence_refuses_duplicates_and_a_row_past_either_bound() {
 #[cfg(feature = "live")]
 #[test]
 fn native_constraint_assembly_refuses_incomplete_and_inconsistent_ordinals() {
-    use super::constraints::Constraints;
+    use super::constraints::{Constraints, Fault, InvalidConstraint};
     let row = |ordinal: &str, column: &str| {
         [
             Some("p"),
@@ -202,17 +202,31 @@ fn native_constraint_assembly_refuses_incomplete_and_inconsistent_ordinals() {
     let mut actual = Dictionary::new(vec![table("apps", &[("tenant", "bigint"), ("id", "bigint")])], Vec::new());
     complete.apply(&mut actual).unwrap();
     assert_eq!(actual.tables()[0].primary_key(), ["tenant", "id"]);
+    let fault = |error: RdbmsError| match error {
+        RdbmsError::Read(cause) => {
+            let cause = cause.downcast::<InvalidConstraint>().expect("a constraint refusal");
+            assert!(cause.to_string().contains("apps_pk"), "{cause}");
+            cause.fault
+        }
+        other => panic!("not a constraint refusal: {other}"),
+    };
     let mut partial = Constraints::default();
     partial.push(row("1", "tenant")).unwrap();
-    partial
-        .apply(&mut dictionary())
-        .expect_err("an incomplete composite key refuses");
+    let mut keyless = Dictionary::new(vec![table("apps", &[("tenant", "bigint"), ("id", "bigint")])], Vec::new());
+    assert_eq!(fault(partial.apply(&mut keyless).unwrap_err()), Fault::Incomplete);
+    let mut doubled = Constraints::default();
+    doubled.push(row("1", "tenant")).unwrap();
+    doubled.push(row("2", "id")).unwrap();
+    assert_eq!(
+        fault(doubled.apply(&mut dictionary()).unwrap_err()),
+        Fault::DuplicatePrimaryKey
+    );
     let mut repeated = Constraints::default();
     repeated.push(row("1", "tenant")).unwrap();
-    repeated.push(row("1", "id")).expect_err("a repeated ordinal refuses");
+    assert_eq!(fault(repeated.push(row("1", "id")).unwrap_err()), Fault::RepeatedOrdinal);
     let mut mixed = Constraints::default();
     mixed.push(row("1", "tenant")).unwrap();
     let mut changed = row("2", "id");
     changed[4] = Some(String::from("another_table"));
-    mixed.push(changed).expect_err("one constraint id cannot change its table");
+    assert_eq!(fault(mixed.push(changed).unwrap_err()), Fault::Header);
 }
