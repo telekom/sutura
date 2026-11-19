@@ -20,10 +20,10 @@ fn bundle() -> PinnedDefinitions {
         .with_audience(audience)
     };
     let restricted = Audience::Restricted(AudienceGrant::parse(BTreeSet::from([AudienceId::parse("finance").unwrap()])).unwrap());
-    let relationship = |name: &str, target| {
+    let relationship = |name: &str, origin, target| {
         Relationship::new(
             RelationshipName::parse(name).unwrap(),
-            ModelName::parse("events").unwrap(),
+            ModelName::parse(origin).unwrap(),
             ModelName::parse(target).unwrap(),
             JoinType::ManyToOne,
             JoinKeys::of(
@@ -41,11 +41,13 @@ fn bundle() -> PinnedDefinitions {
         vec![
             model("events", Audience::Open),
             model("apps", Audience::Open),
-            model("hidden_apps", restricted),
+            model("hidden_apps", restricted.clone()),
+            model("hidden_origin", restricted),
         ],
         vec![
-            relationship("events_apps", "apps"),
-            relationship("events_hidden", "hidden_apps"),
+            relationship("events_apps", "events", "apps"),
+            relationship("events_hidden", "events", "hidden_apps"),
+            relationship("hidden_origin_apps", "hidden_origin", "apps"),
         ],
         Vec::new(),
     )
@@ -84,18 +86,27 @@ fn described_relationships_keep_composite_keys_and_hide_an_invisible_endpoint() 
         "{text}"
     );
     assert!(text.contains("key tenant = tenant") && text.contains("key id = id"), "{text}");
-    assert!(!text.contains("events_hidden") && !text.contains("hidden_apps"), "{text}");
+    assert!(
+        !text.contains("events_hidden") && !text.contains("hidden_apps") && !text.contains("hidden_origin"),
+        "{text}"
+    );
     let prompt = sutura_app::prompt::physical_schema(&view, CatalogProse::Omitted);
     assert!(
         prompt.contains("Relationship `events_apps`: `events` -> `apps` (`many_to_one`)"),
         "{prompt}"
     );
     assert!(
-        !prompt.contains("events_hidden") && !prompt.contains("hidden_apps"),
+        !prompt.contains("events_hidden") && !prompt.contains("hidden_apps") && !prompt.contains("hidden_origin"),
         "{prompt}"
     );
     let disabled = serde_json::to_value(CatalogContent::of(&view, CatalogProse::Omitted, None)).unwrap();
-    assert!(disabled.get("relationships").is_none());
+    assert!(
+        disabled["models"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|model| model.get("relationships").is_none())
+    );
     let full = CatalogContent::of_with_physical_schema(&ScopedView::everything(&bundle), CatalogProse::Omitted, None, true);
     assert_eq!(
         serde_json::to_value(full).unwrap()["models"]
@@ -104,6 +115,6 @@ fn described_relationships_keep_composite_keys_and_hide_an_invisible_endpoint() 
             .iter()
             .map(|model| model["relationships"].as_array().unwrap().len())
             .sum::<usize>(),
-        2
+        3
     );
 }
