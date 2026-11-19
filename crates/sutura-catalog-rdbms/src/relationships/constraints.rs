@@ -193,51 +193,26 @@ pub(crate) fn documentation_statement(schema: &str, view: &str, oracle: bool, li
         "key_arity::text"
     };
     let columns = [
-        "relationship_name",
-        "relationship_name",
-        "origin_schema",
-        "origin_table",
-        "origin_column",
-        "target_schema",
-        "target_table",
-        "target_column",
-        "target_column",
+        ("relationship_name", "constraint_id"),
+        ("relationship_name", "constraint_name"),
+        ("origin_schema", "schema_name"),
+        ("origin_table", "table_name"),
+        ("origin_column", "origin_column"),
+        ("target_schema", "target_schema"),
+        ("target_table", "target_table"),
+        ("target_column", "target_column"),
+        ("target_column", "target_key_column"),
     ]
-    .map(column)
+    .map(|(name, alias)| format!("{} AS {alias}", column(name)))
     .join(", ");
-    let catalogs = ["origin_catalog", "target_catalog"].map(column).join(", ");
+    let catalogs = ["origin_catalog", "target_catalog"]
+        .map(|name| format!("{} AS {name}", column(name)))
+        .join(", ");
     if oracle {
         format!(
-            "SELECT CASE WHEN cardinality = 'many_to_one' THEN 'd' ELSE 'invalid' END, {columns}, {ordinal}, {arity}, 'd', {catalogs} FROM {source} WHERE environment = :1 AND is_deleted = 0 ORDER BY relationship_name, ordinal FETCH FIRST {limit} ROWS ONLY"
+            "SELECT CASE WHEN r.cardinality = 'many_to_one' THEN 'd' ELSE 'invalid' END AS record_kind, {columns}, {ordinal} AS ordinal, {arity} AS arity, 'd' AS target_kind, {catalogs} FROM {source} r WHERE r.environment = :1 AND r.is_deleted = 0 ORDER BY r.relationship_name, r.ordinal FETCH FIRST {limit} ROWS ONLY"
         )
     } else {
-        let aliases = [
-            "constraint_id",
-            "constraint_name",
-            "schema_name",
-            "table_name",
-            "origin_column",
-            "target_schema",
-            "target_table",
-            "target_column",
-            "target_key_column",
-        ];
-        let columns = [
-            "relationship_name",
-            "relationship_name",
-            "origin_schema",
-            "origin_table",
-            "origin_column",
-            "target_schema",
-            "target_table",
-            "target_column",
-            "target_column",
-        ]
-        .into_iter()
-        .zip(aliases)
-        .map(|(name, alias)| format!("{name}::text AS {alias}"))
-        .collect::<Vec<_>>()
-        .join(", ");
         format!(
             "SELECT (CASE WHEN cardinality = 'many_to_one' THEN 'd' ELSE 'invalid' END)::text AS record_kind, {columns}, {ordinal} AS ordinal, {arity} AS arity, 'd'::text AS target_kind, {catalogs} FROM {source} WHERE environment = $1 AND is_deleted = false ORDER BY relationship_name, ordinal LIMIT {limit}"
         )
