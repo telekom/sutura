@@ -45,14 +45,20 @@ contain no full term, and start and end with characters absent from that term. T
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.
 
-The current eligible comparison arms are DataFusion's binary `LIKE` and Oracle native CLOB/NCLOB
-`LIKE`, with an optional `UPPER` around that column on Oracle. Cube's local policy execution is not
-an eligible arm and keeps redacted-only execution. Oracle
-uses its binary character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary
-`NLS_SORT` permits raw row rejection; every other value, including NULL, retains all rows. No
-session setting is changed. Non-LOB Oracle columns and other source dialects retain redacted-only
-execution because their pinned schemas do not establish binary comparison semantics. This is a
-generic policy with conservative engine eligibility, not universal acceleration.
+The current eligible comparison arms are DataFusion's binary `LIKE`, Oracle native CLOB/NCLOB
+`LIKE` with an optional `UPPER` around that column, and `DuckDB` text pinned `binary`. Cube's local
+policy execution is not an eligible arm and keeps redacted-only execution. Oracle uses its binary
+character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary `NLS_SORT`
+permits raw row rejection; every other value, including NULL, retains all rows. No session setting
+is changed. `DuckDB`'s `LIKE` consults a column's `NOCASE` or `NOACCENT` collation, and
+`REGEXP_REPLACE` over the column keeps it (measured on 2.0.0; an ICU locale or `NFC` collation did
+not change `LIKE`, and neither did `default_collation`). Its catalog views report a collated column
+as plain `VARCHAR`, so the pin is the author's `collation: binary` on that column. A named,
+unreadable or missing collation keeps redacted-only execution, and a column declared `binary` that
+is not is the author's error: no run-time check reads the engine. Non-LOB Oracle columns and other
+source dialects retain redacted-only execution because their pinned schemas do not establish binary
+comparison semantics. This is a generic policy with conservative engine eligibility, not universal
+acceleration.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone

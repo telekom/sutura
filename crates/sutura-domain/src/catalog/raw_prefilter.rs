@@ -13,6 +13,10 @@ pub enum PrefilterCapability {
     DataFusion,
     /// A CLOB column read under a binary session sort.
     Oracle,
+    /// A column pinned [`Collation::Binary`](super::Collation::Binary). `DuckDB`'s `LIKE` consults a
+    /// column's `NOCASE` or `NOACCENT` collation, and the `REGEXP_REPLACE` over it keeps that
+    /// collation, so a collated column is no binary comparison on either side of the condition.
+    DuckDb,
 }
 
 impl PrefilterCapability {
@@ -21,10 +25,15 @@ impl PrefilterCapability {
         match dialect {
             TypeDialect::DataFusion => Some(Self::DataFusion),
             TypeDialect::Oracle => Some(Self::Oracle),
-            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::Postgres | TypeDialect::ClickHouse | TypeDialect::BigQuery => {
-                None
-            }
+            TypeDialect::DuckDb => Some(Self::DuckDb),
+            TypeDialect::Cube | TypeDialect::Postgres | TypeDialect::ClickHouse | TypeDialect::BigQuery => None,
         }
+    }
+
+    /// Whether the condition is necessary only for a column the pin says compares byte for byte.
+    #[must_use]
+    pub const fn needs_binary_column(self) -> bool {
+        matches!(self, Self::DuckDb)
     }
 }
 
