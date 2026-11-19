@@ -43,6 +43,9 @@ pub(crate) fn oracle(count: usize, limit: u64) -> String {
     )
 }
 
+/// `conenforced` exists only from PostgreSQL 18; before it every constraint is enforced, so the
+/// missing key reads as true.
+///
 /// Every row is one ordinal member of a complete enforced key. The referenced index must be
 /// immediate, valid, nonpartial and without expressions; a unique index alone is not a constraint.
 pub(crate) fn postgres_constraints(count: usize, limit: u64) -> String {
@@ -58,9 +61,9 @@ pub(crate) fn postgres_constraints(count: usize, limit: u64) -> String {
               AND u.conindid = f.conindid AND u.contype IN ('p', 'u') \
          JOIN pg_catalog.pg_index i ON i.indexrelid = CASE WHEN f.contype = 'p' THEN f.conindid ELSE u.conindid END \
          WHERE ({schemas}) AND f.contype IN ('p', 'f') \
-           AND f.conenforced AND f.convalidated AND NOT f.condeferrable \
+           AND COALESCE((to_jsonb(f)->>'conenforced')::boolean, true) AND f.convalidated AND NOT f.condeferrable \
            AND i.indisvalid AND i.indisunique AND i.indimmediate AND i.indpred IS NULL AND i.indexprs IS NULL \
-           AND (f.contype = 'p' OR (u.conenforced AND u.convalidated AND NOT u.condeferrable \
+           AND (f.contype = 'p' OR (COALESCE((to_jsonb(u)->>'conenforced')::boolean, true) AND u.convalidated AND NOT u.condeferrable \
                 AND cardinality(f.confkey) = cardinality(u.conkey) \
                 AND f.confkey @> u.conkey AND f.confkey <@ u.conkey))) \
          SELECT f.contype::text AS record_kind, f.oid::text AS constraint_id, f.conname::text AS constraint_name, \
