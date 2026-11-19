@@ -8,6 +8,11 @@ models:
     source: local
     table: dim_customer
     columns:
+      customer_id:
+        name: customer_id
+        data_type: string
+        description: "The business key a person would quote, for example C0001."
+        nullable: ~
       customer_key:
         name: customer_key
         data_type: number
@@ -115,6 +120,11 @@ models:
         name: usage_date
         data_type: time
         description: The day this row of usage was recorded on.
+        nullable: ~
+      voice_min:
+        name: voice_min
+        data_type: number
+        description: Voice minutes recorded on this usage row.
         nullable: ~
     primary_key:
       - subscription_key

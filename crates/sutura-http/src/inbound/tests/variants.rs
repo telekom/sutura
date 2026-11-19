@@ -209,7 +209,7 @@ async fn established_reading_roles(extra: &str) -> Result<crate::inbound::Verifi
             .security()
             .inbound()
             .first()
-            .map(sutura_config::InboundVerifier::identity)
+            .and_then(sutura_config::InboundVerifier::identity)
             .expect("an inbound identity"),
         &jwks(KID, &pair),
     );

@@ -20,9 +20,9 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Column, ColumnRefusal, Description, Dimension, DimensionValue, InconsistentDefinitions,
-    InvalidComparison, InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidSharedCalendars, InvalidViaChain,
-    JoinKey, JoinKeys, Metric, Model, Relationship, SharedCalendars, ViaChain,
+    Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidComparison,
+    InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidSharedCalendars, InvalidViaChain, JoinKey, JoinKeys,
+    MaxTextBytes, Metric, Model, RawPrefilter, Redaction, Relationship, SharedCalendars, TextPolicy, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
@@ -248,15 +248,21 @@ pub enum ColumnEntryDoc {
         description: Option<String>,
         #[serde(default)]
         nullable: Option<bool>,
+        #[serde(default)]
+        max_text_bytes: Option<MaxTextBytes>,
+        #[serde(default)]
+        redact: Vec<Redaction>,
+        #[serde(default)]
+        raw_prefilter: Option<RawPrefilter>,
     },
 }
 
 impl ColumnEntryDoc {
     /// # Errors
     ///
-    /// [`ColumnRefusal`], if the long form's `description:` is present and not usable. A `type:`
-    /// that is not usable is dropped rather than refused - see this type's own doc.
-    fn into_domain(self) -> Result<Column, ColumnRefusal> {
+    /// [`InvalidModelDocument`], if the description or text policy is invalid. An unusable
+    /// `type:` is dropped rather than refused - see this type's own doc.
+    fn into_domain(self) -> Result<Column, InvalidModelDocument> {
         match self {
             Self::Short(name) => Ok(Column::from(name)),
             Self::Long {
@@ -264,7 +270,23 @@ impl ColumnEntryDoc {
                 r#type,
                 description,
                 nullable,
-            } => Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable),
+                max_text_bytes,
+                redact,
+                raw_prefilter,
+            } => {
+                let text = TextPolicy::parse(max_text_bytes, redact, raw_prefilter).map_err(|cause| {
+                    InvalidModelDocument::TextPolicy {
+                        column: name.clone(),
+                        cause,
+                    }
+                })?;
+                Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable)
+                    .map(|column| column.with_text_policy(text))
+                    .map_err(|refusal| {
+                        let (column, cause) = refusal.into_parts();
+                        InvalidModelDocument::ColumnDescription { column, cause }
+                    })
+            }
         }
     }
 }
@@ -302,6 +324,11 @@ pub struct ModelDoc {
 /// Why a model document could not become a domain [`Model`].
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidModelDocument {
+    #[error("column {column} has an invalid text policy: {cause}")]
+    TextPolicy {
+        column: ColumnName,
+        cause: sutura_domain::catalog::InvalidTextPolicy,
+    },
     #[error("model {model}'s audience declaration is not usable as one")]
     Audience {
         model: ModelName,
@@ -336,10 +363,7 @@ impl ModelDoc {
                 })?;
         let mut columns = Vec::with_capacity(self.columns.len());
         for entry in self.columns {
-            columns.push(entry.into_domain().map_err(|refusal| {
-                let (column, cause) = refusal.into_parts();
-                InvalidModelDocument::ColumnDescription { column, cause }
-            })?);
+            columns.push(entry.into_domain()?);
         }
         let mut model = Model::new(self.name, self.source, self.table, columns, description);
         if let Some(audience) = audience {
@@ -753,3 +777,6 @@ mod tests;
 #[cfg(test)]
 #[path = "document/relationship_tests.rs"]
 mod relationship_tests;
+
+#[cfg(test)]
+mod raw_prefilter_tests;

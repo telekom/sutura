@@ -6,7 +6,7 @@ mod tests {
     use sutura_domain::identity::Secret;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_exec_cube::CubeTransport as _;
-    use sutura_exec_cube::http::{Endpoint, HttpCube, HttpCubeError, LOAD_PATH, META_PATH, ReadBounds};
+    use sutura_exec_cube::http::{Endpoint, HttpCube, HttpCubeError, LOAD_PATH, META_PATH, ReadBounds, SQL_PATH};
     use sutura_http_client::test_support::{FakeServer, Scripted};
 
     const TOKEN: &str = "cube-token-canary-93ab";
@@ -61,6 +61,39 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(requests[0].body()).expect("the body is JSON"),
             serde_json::json!({ "query": query })
         );
+    }
+
+    #[test]
+    fn planned_sql_uses_the_rest_bearer_and_utc_without_a_shared_sql_login() {
+        let answer = "{\"schema\":[]}\n{\"data\":[]}\n";
+        let server = FakeServer::start(vec![Scripted::status(200, answer)]);
+        let query = "SELECT COUNT(*) FROM fct_usage_daily";
+        let body = transport(&server).sql(query, &token(), deadline()).expect("SQL response");
+        assert_eq!(body, answer.as_bytes());
+        let requests = server.finish();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].request_line(), format!("POST {SQL_PATH} HTTP/1.1"));
+        assert_eq!(requests[0].authorization(), Some(format!("Bearer {TOKEN}").as_str()));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(requests[0].body()).expect("JSON request"),
+            serde_json::json!({ "query": query, "timezone": "UTC" })
+        );
+    }
+
+    #[test]
+    fn planned_sql_responses_are_bounded_before_decoding() {
+        let server = FakeServer::start(vec![Scripted::status(200, &"x".repeat(1024))]);
+        let transport = HttpCube::new(
+            Endpoint::parse(&server.endpoint()).expect("loopback endpoint"),
+            ReadBounds::parse(10, 64).expect("positive bounds"),
+            None,
+        );
+        let error = transport
+            .sql("SELECT COUNT(*) FROM fct_usage_daily", &token(), deadline())
+            .unwrap_err();
+        assert!(matches!(error, HttpCubeError::TooLarge { cap: 64 }));
+        assert!(transport.result_did_not_fit(&error));
+        assert_eq!(server.finish().len(), 1);
     }
 
     #[test]

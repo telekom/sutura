@@ -9,9 +9,10 @@
 //!
 //! - **It has one constructor**, [`VerifiedCaller::established`], and it is `pub(crate)`. Nothing
 //!   outside this crate can make one at all.
-//! - **Inside this crate, the only caller of that constructor is
-//!   [`crate::inbound::token::TokenValidator::verify`]** - after a signature check against a pinned
-//!   asymmetric algorithm, an issuer, an expiry and this deployment's own audience.
+//! - **The callers are the JWT validator and the Google-tokeninfo verifier** - after the pinned
+//!   signature policy or the declared Google audience, authorized-party, expiry, scope and email
+//!   policy. The latter derives three surface read scopes from `BigQuery`'s read-only scope; it never
+//!   accepts an arbitrary sutura scope from Google.
 //! - **It implements neither `Deserialize` nor `Serialize`**, which is the same mechanism
 //!   `sutura_domain::identity::principal` uses for the chain itself: there is no code that could turn
 //!   caller-supplied bytes into one. A `compile_fail` doctest on [`VerifiedCaller`] asserts it, with a

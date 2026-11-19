@@ -93,8 +93,8 @@ lint:
     # The cheap structural gates, seconds not minutes.
     cargo run -q -p xtask -- hygiene
 
-# Run the tests, or with a nextest filterset only the tests it selects.
-test $filter='':
+# Run tests with an optional nextest filterset and Cargo profile.
+test $filter='' $profile='':
     #!/usr/bin/env bash
     set -euo pipefail
     # The SAME nixpkgs Postgres `checks.nextest` uses, so the postgres cells RUN here rather than skip.
@@ -107,11 +107,11 @@ test $filter='':
     # other lanes' own `just test`/`just validate` share these cores, and `checks.nextest`'s nix
     # sandbox (what CI runs) declares no such thing, so it stays on the strict number by default.
     export SUTURA_DEV_RELAXED_TOLERANCE=1
-    cargo nextest run --workspace --all-features ${filter:+-E "$filter"}
-    [ -n "$filter" ] || cargo test --doc --workspace --all-features
+    cargo nextest run --workspace --all-features ${filter:+-E "$filter"} ${profile:+--cargo-profile "$profile"}
+    [ -n "$filter" ] || cargo test --doc --workspace --all-features ${profile:+--profile "$profile"}
 
-# `just test` restricted by one nextest filterset, e.g. `just test-only 'test(/^acceptance::/)'`; an empty one runs everything.
-test-only filter: (test filter)
+# `just test` restricted by one nextest filterset and optional Cargo profile; an empty filterset runs everything.
+test-only filter profile='': (test filter profile)
 
 # NOT a gate: not in `just validate`, not in `just gates`, not in `ci` - `github.com/telekom/
 # sutura#915`. A benchmark that fails a build on noise is worse than no benchmark; this produces a
@@ -863,13 +863,15 @@ dev-up-cube:
 cube-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "cube-acceptance: scope sutura-catalog-cube, sutura-cli and sutura-app - the live Cube tier: the metadata API read through"
+    echo "cube-acceptance: scope sutura-exec-cube, sutura-catalog-cube, sutura-cli and sutura-app - the live Cube tier: the metadata API read through"
     echo "cube-acceptance: src/http.rs's HttpMetaReader (hence --features http), and a token the tier did not sign refused."
     echo "cube-acceptance: then examples/cube through a composed \`sutura mcp\` against the same tier."
     echo "cube-acceptance: then examples/metrics-layer served as two callers, through its DataHub fake, Keycloak and Cube."
     echo "cube-acceptance: then sutura-app's golden and differential cells for the cube data system, against the same tier."
+    echo "cube-acceptance: also the executor's planned SQL and HTTP transport cells."
     echo "cube-acceptance: run \`just test\` for the whole workspace's suite; this target is NOT part of it."
     cargo run -q -p xtask -- dev-up --with cube
+    cargo test -p sutura-exec-cube --all-features --lib --test http -- --nocapture
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-cli --features cube --test mcp -- cube:: --ignored --nocapture
     SUTURA_DEV_REQUIRE_TIER=1 cargo test -p sutura-cli --features cube,datahub --test served -- metrics_layer:: --ignored --nocapture

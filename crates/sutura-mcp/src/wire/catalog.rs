@@ -19,6 +19,8 @@
               outside the item's attributes), so it is scoped to the one module that derives it"
 )]
 
+use std::collections::BTreeMap;
+
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::Grain;
 use sutura_domain::pinned::view::ScopedView;
@@ -125,6 +127,7 @@ pub struct ModelContent {
     #[serde(skip_serializing_if = "Carried::is_absent")]
     description: Carried,
     columns: Vec<ColumnContent>,
+    relationships: Vec<RelationshipContent>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -132,6 +135,24 @@ pub struct ColumnContent {
     name: String,
     #[serde(skip_serializing_if = "Carried::is_absent")]
     description: Carried,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RelationshipContent {
+    name: String,
+    from: String,
+    to: String,
+    cardinality: &'static str,
+    keys: Vec<JoinKeyContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    comparison: Option<&'static str>,
+}
+#[derive(Debug, serde::Serialize)]
+pub struct JoinKeyContent {
+    from: String,
+    to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grain: Option<String>,
 }
 
 /// One metric, as much of it as a caller needs to ask a valid question.
@@ -219,10 +240,33 @@ impl CatalogContent {
         // a deployment that withholds catalog prose withholds it from the knowledge tool too.
         let knowledge = sutura_app::prompt::catalog_knowledge(view, prose);
         let models = list_physical_schema.then(|| {
+            let mut relationships = BTreeMap::<_, Vec<_>>::new();
+            for relationship in view.relationships() {
+                relationships
+                    .entry(relationship.origin_model())
+                    .or_default()
+                    .push(RelationshipContent {
+                        name: relationship.name().as_str().to_owned(),
+                        from: relationship.origin_model().as_str().to_owned(),
+                        to: relationship.target_model().as_str().to_owned(),
+                        cardinality: relationship.join_type().as_str(),
+                        keys: relationship
+                            .keys()
+                            .iter()
+                            .map(|key| JoinKeyContent {
+                                from: key.origin().as_str().to_owned(),
+                                to: key.target().as_str().to_owned(),
+                                grain: key.grain().map(|grain| grain.as_str().to_owned()),
+                            })
+                            .collect(),
+                        comparison: relationship.comparison().map(sutura_domain::plan::LinkKind::word),
+                    });
+            }
             view.models()
                 .map(|model| ModelContent {
                     name: String::from(model.name().as_str()),
                     table: model.table().to_string(),
+                    relationships: relationships.remove(model.name()).unwrap_or_default(),
                     description: Carried::under(prose, model.description()),
                     columns: model
                         .columns()
@@ -320,6 +364,32 @@ impl CatalogContent {
                         push_prose(&mut out, description, "    description:");
                     }
                 }
+                for relationship in &model.relationships {
+                    out.push_str("\n  relationship ");
+                    out.push_str(&relationship.name);
+                    out.push_str(": ");
+                    out.push_str(&relationship.from);
+                    out.push_str(" -> ");
+                    out.push_str(&relationship.to);
+                    out.push_str(" (");
+                    out.push_str(relationship.cardinality);
+                    out.push(')');
+                    for key in &relationship.keys {
+                        out.push_str("\n    key ");
+                        out.push_str(&key.from);
+                        out.push_str(" = ");
+                        out.push_str(&key.to);
+                        if let Some(grain) = &key.grain {
+                            out.push_str(" (origin truncated to ");
+                            out.push_str(grain);
+                            out.push(')');
+                        }
+                    }
+                    if let Some(comparison) = relationship.comparison {
+                        out.push_str("\n    comparison as ");
+                        out.push_str(comparison);
+                    }
+                }
             }
         }
         if !self.knowledge.is_empty() {
@@ -413,3 +483,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod relationships;

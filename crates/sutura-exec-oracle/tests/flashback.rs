@@ -198,6 +198,128 @@ mod acceptance {
         read.to_rows().expect("Oracle's answer decodes to rows").rows().to_vec()
     }
 
+    /// Verifies the fixture has distinct keys in bucket zero and returns its last key.
+    fn skewed_keys(session: &oracledb::Connection, table: &str, expected: i64) -> i64 {
+        let mut cursor = session
+            .query(
+                &format!(
+                    "SELECT COUNT(*), COUNT(DISTINCT \"customer_key\"), \
+                     MIN(ORA_HASH(\"customer_key\", 1)), MAX(ORA_HASH(\"customer_key\", 1)), \
+                     MAX(\"customer_key\") FROM \"{table}\""
+                ),
+                &[],
+            )
+            .expect("the fixture's key counts read");
+        let row = cursor.next().expect("one aggregate row").expect("the counts read");
+        let values: Vec<i64> = (0..5).map(|index| row.get::<i64>(index).expect("an integer count")).collect();
+        assert_eq!(values[..4], [expected, expected, 0, 0], "distinct keys in bucket zero");
+        println!("oracle-partition-row-cap: fixture rows={expected} distinct={expected} bucket=0");
+        values[4]
+    }
+
+    /// A bucket at the fixed million-row boundary reads; one further distinct key at a fresh
+    /// snapshot is refused. The roomy byte budget keeps this a row-limit measurement.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn a_partition_at_one_million_distinct_keys_reads_and_one_more_is_refused() {
+        const TABLE: &str = "flashback_row_cap";
+        let tier = tier();
+        let session = tier.session(&tier.user, &tier.password);
+        drop_table(&session, TABLE);
+        execute(
+            &session,
+            &format!("CREATE TABLE \"{TABLE}\" (\"customer_key\" NUMBER(10,0), \"region\" VARCHAR2(16))"),
+        );
+        execute(
+            &session,
+            &format!(
+                "INSERT INTO \"{TABLE}\" (\"customer_key\", \"region\") \
+                 SELECT candidate_key, 'north' FROM (SELECT LEVEL candidate_key FROM DUAL CONNECT BY LEVEL <= 3000000) \
+                 WHERE ORA_HASH(candidate_key, 1) = 0 AND ROWNUM <= 1000001"
+            ),
+        );
+        let extra = skewed_keys(&session, TABLE, 1_000_001);
+        session
+            .execute(&format!("DELETE FROM \"{TABLE}\" WHERE \"customer_key\" = :1"), &[&extra])
+            .expect("one extra distinct key is held back");
+        session.commit().expect("the million keys commit");
+        skewed_keys(&session, TABLE, 1_000_000);
+        execute(
+            &session,
+            &format!("BEGIN DBMS_STATS.SET_TABLE_STATS(USER, '\"{TABLE}\"', numrows => 1200000, avgrlen => 32); END;"),
+        );
+        std::thread::sleep(Duration::from_secs(8));
+        let tables = BTreeSet::from([QualifiedTable::new(None, TableName::parse(TABLE).expect("a table"))]);
+        let warehouse = OracleWarehouse::connect(
+            corpus::source(),
+            corpus::posture(),
+            Dial::new(
+                &tier.host,
+                tier.port,
+                "FREEPDB1",
+                Channel::Verified {
+                    anchors_pem: &tier.anchors,
+                },
+            ),
+            &tier.user,
+            &tier.password,
+            ResultBudget::of_bytes(core::num::NonZeroUsize::new(512 * 1024 * 1024).expect("512 mebibytes")),
+        )
+        .expect("the adapter opens the provisioned Oracle")
+        .with_flashback(&tables)
+        .expect("the probe passes");
+        let leg = lookup(TABLE);
+        let partition = || {
+            let planned = warehouse
+                .split_by_estimate(
+                    &leg,
+                    &corpus::presented(),
+                    deadline(120),
+                    core::num::NonZeroU64::MIN,
+                    core::num::NonZeroUsize::new(1_000_000).expect("one million"),
+                    core::num::NonZeroUsize::new(2).expect("two"),
+                )
+                .expect("the split reads the dictionary and a fresh snapshot");
+            let Planned::Split(split) = planned else {
+                panic!("the synthetic estimate splits two ways: {planned:?}");
+            };
+            assert_eq!(split.partitions().len(), 2, "{split:?}");
+            split.partitions()[0].to_bytes()
+        };
+        let first = partition();
+        let boundary = warehouse
+            .read_partition(&leg, &first, deadline(120))
+            .expect("exactly one million distinct keys read");
+        assert_eq!(boundary.rows(), 1_000_000, "the exact boundary is not truncated");
+        println!("oracle-partition-row-cap: boundary returned rows={}", boundary.rows());
+        drop(boundary);
+        session
+            .execute(
+                &format!("INSERT INTO \"{TABLE}\" (\"customer_key\", \"region\") VALUES (:1, 'north')"),
+                &[&extra],
+            )
+            .expect("the extra distinct key inserts");
+        session.commit().expect("the extra key commits");
+        skewed_keys(&session, TABLE, 1_000_001);
+        std::thread::sleep(Duration::from_secs(8));
+        let fresh = partition();
+        assert_ne!(first, fresh, "overflow must be read at a fresh snapshot");
+        let refused = warehouse.read_partition(&leg, &fresh, deadline(120));
+        drop_table(&session, TABLE);
+        match refused {
+            Err(cause) => {
+                assert!(warehouse.result_did_not_fit(&cause), "the row limit is a refusal: {cause}");
+                assert_eq!(cause.to_string(), "a partition returned more than the 1000000-row limit");
+                println!("oracle-partition-row-cap: overflow refused as result_too_large");
+            }
+            Ok(read) => {
+                println!("oracle-partition-row-cap: overflow returned rows={}", read.rows());
+                assert_eq!(read.rows(), 1_000_001, "the base must return the whole oversized bucket");
+                panic!("a partition with 1000001 distinct keys must be refused");
+            }
+        }
+    }
+
     /// **The measurement.** Every row the leg reads whole at the split comes back from exactly one
     /// bucket, the two with no key from bucket 0 alone - and after the table changes, every bucket
     /// still reads the table as it was at the snapshot.
@@ -577,6 +699,7 @@ mod acceptance {
     /// `NULL` in every row are declared fixed, so the split describes `Int64` and `Utf8`, and every
     /// bucket answers exactly that schema. Typed by its cells, the all-`NULL` text column would read
     /// as `Int64`, so a partition read that ignored the declaration answers another schema here.
+    /// The database's cursor counters distinguish a describe from executing or fetching the SELECT.
     /// The same split is refused a describe at a source that was not probed.
     #[test]
     #[ignore = "requires just oracle-acceptance"]
@@ -608,10 +731,33 @@ mod acceptance {
             .expect("the probe passes");
         let leg = lookup(TABLE);
         let split = split(&warehouse, &leg);
+        let query = sutura_sql::generate_leg_as_of(&leg, split.scn(), Some(split.partitions()[0].bucket()))
+            .expect("the first partition renders");
+        let administrator = tier.session("SYSTEM", &tier.password);
+        let observed = || {
+            let row = administrator
+                .query_row(
+                    "SELECT COUNT(*), NVL(SUM(EXECUTIONS), 0), NVL(SUM(FETCHES), 0) FROM SYS.V_$SQL \
+                     WHERE SQL_TEXT = :1 AND PARSING_SCHEMA_NAME = :2",
+                    &[&query.sql(), &tier.schema()],
+                )
+                .expect("the database reports the exact partition SELECT's cursor counters");
+            (
+                row.get::<i64>(0).expect("the cursor count"),
+                row.get::<i64>(1).expect("the execution count"),
+                row.get::<i64>(2).expect("the fetch count"),
+            )
+        };
+        assert_eq!(observed(), (0, 0, 0), "the fresh snapshot SELECT has not been parsed");
         let described = warehouse
             .describe_split(&leg, &split, deadline(60))
             .expect("the first partition is described")
             .expect("an integer key and a text column are fixed");
+        let parsed = observed();
+        assert!(
+            parsed.0 > 0 && parsed.1 == 0 && parsed.2 == 0,
+            "describing the partition must parse its SELECT without executing or fetching it: {parsed:?}"
+        );
         let kinds: Vec<arrow_schema::DataType> = described.fields().iter().map(|field| field.data_type().clone()).collect();
         assert_eq!(
             kinds,
@@ -624,6 +770,11 @@ mod acceptance {
                 .expect("a fresh partition reads");
             assert_eq!(read.schema(), &described, "bucket {partition:?} answered another schema");
         }
+        let read = observed();
+        assert!(
+            read.1 > 0 && read.2 > 0,
+            "reading the same partition must advance its execution and fetch counters: {read:?}"
+        );
         let unprobed = tier
             .adapter(&tier.user, &tier.password)
             .describe_split(&leg, &split, deadline(60));

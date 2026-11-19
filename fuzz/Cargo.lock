@@ -2292,13 +2292,13 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "11.1.0"
+version = "12.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e75fe14a82d81e5f5af639997db37d8b96045938a7ac6ab18cdbe1c7467e05e1"
+checksum = "f347a975eb5fa8f5c4eadce6c1152c11c326cf32cf839fb64ff12d5cb8f4ce8b"
 dependencies = [
  "aws-lc-rs",
- "base64 0.22.1",
- "getrandom 0.2.17",
+ "base64 0.23.1",
+ "getrandom 0.4.3",
  "js-sys",
  "serde",
  "serde_json",
@@ -3015,21 +3015,18 @@ dependencies = [
 
 [[package]]
 name = "rand_core"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
-dependencies = [
- "getrandom 0.2.17",
-]
-
-[[package]]
-name = "rand_core"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
  "getrandom 0.3.4",
 ]
+
+[[package]]
+name = "rand_core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "raw-cpuid"
@@ -3152,9 +3149,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.15.1"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96"
+checksum = "102f35f7de7b06d8c61f1cff6592f5253e0dea431c74867aad5dfd70f44663fb"
 dependencies = [
  "zeroize",
 ]
@@ -3368,11 +3365,11 @@ dependencies = [
 
 [[package]]
 name = "signature"
-version = "2.2.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
+checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
 dependencies = [
- "rand_core 0.6.4",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -3496,7 +3493,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "sutura-app"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "sutura-domain",
  "sutura-semantic",
@@ -3506,7 +3503,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-bounded-read"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "rustix",
  "thiserror 2.0.21",
@@ -3514,7 +3511,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-local"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "rustix",
  "serde",
@@ -3526,7 +3523,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-config"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "config",
  "rustls-pki-types",
@@ -3540,7 +3537,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-domain"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "arrow-array",
  "arrow-ord",
@@ -3555,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-flight"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "arrow-array",
  "arrow-flight",
@@ -3587,7 +3584,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -3620,7 +3617,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http-client"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "base64 0.23.1",
  "serde",
@@ -3633,7 +3630,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-runtime"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "sutura-config",
  "sutura-domain",
@@ -3647,7 +3644,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-semantic"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "sutura-domain",
  "thiserror 2.0.21",
@@ -3655,7 +3652,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-sql"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "arrow-schema",
  "polyglot-sql",
@@ -3667,7 +3664,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-tls"
-version = "0.13.1"
+version = "0.16.0"
 dependencies = [
  "rustls-native-certs",
  "rustls-pki-types",

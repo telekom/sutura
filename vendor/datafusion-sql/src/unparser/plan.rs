@@ -275,12 +275,18 @@ impl Unparser<'_> {
             return Ok(*body);
         }
 
-        // If no projection is set, add a wildcard projection to the select
-        // which will be translated to `SELECT *` in the SQL statement
+        // Keep the plan's declared output even when optimization removed its projection.
         if !select_builder.already_projected() {
-            select_builder.projection(vec![ast::SelectItem::Wildcard(
-                ast::WildcardAdditionalOptions::default(),
-            )]);
+            let expressions = if plan.schema().fields().is_empty() {
+                self.empty_projection_fallback()
+            } else {
+                plan.schema().columns().into_iter().map(Expr::Column).collect()
+            };
+            select_builder.projection(
+                expressions.iter()
+                    .map(|expression| self.select_item_to_sql(expression))
+                    .collect::<Result<Vec<_>>>()?,
+            );
         }
 
         let mut twj = select_builder.pop_from().unwrap();
@@ -313,7 +319,11 @@ impl Unparser<'_> {
         select: &mut SelectBuilder,
         fully_absorbed: bool,
     ) -> Result<bool> {
-        let mut exprs = p.expr.clone();
+        let mut exprs = if p.expr.is_empty() {
+            self.empty_projection_fallback()
+        } else {
+            p.expr.clone()
+        };
 
         // If an Unnest node is found within the select, find and unproject the unnest column
         let flatten_alias = select.current_flatten_alias();
@@ -514,6 +524,20 @@ impl Unparser<'_> {
         lateral: bool,
         columns: Vec<Ident>,
     ) -> Result<()> {
+        // A wrapper must export the qualifier its parent expressions render.
+        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
+        if let Some(table_ref) = qualifier
+            && (matches!(table_ref, TableReference::Bare { .. })
+                || !self.dialect.full_qualified_col())
+            && plan.schema().iter().all(|(name, _)| name == qualifier)
+        {
+            return self.derive(
+                plan,
+                relation,
+                Some(self.new_table_alias(table_ref.table().to_string(), columns)),
+                lateral,
+            );
+        }
         if self.dialect.requires_derived_table_alias() || !columns.is_empty() {
             self.derive(
                 plan,
@@ -630,6 +654,7 @@ impl Unparser<'_> {
 
     fn project_window_output(
         &self,
+        input_columns: &[Expr],
         window_expr: &[Expr],
         select: &mut SelectBuilder,
         agg: Option<&Aggregate>,
@@ -637,9 +662,10 @@ impl Unparser<'_> {
         let mut items = if select.already_projected() {
             select.pop_projections()
         } else {
-            vec![ast::SelectItem::Wildcard(
-                ast::WildcardAdditionalOptions::default(),
-            )]
+            input_columns
+                .iter()
+                .map(|column| self.select_item_to_sql(column))
+                .collect::<Result<Vec<_>>>()?
         };
 
         items.extend(
@@ -697,13 +723,18 @@ impl Unparser<'_> {
             alias_name: TableReference::bare(input_alias),
             rewrite_unqualified: true,
         };
+        let input_columns = input_schema
+            .columns()
+            .into_iter()
+            .map(|column| Expr::Column(column).rewrite(&mut alias_rewriter).data())
+            .collect::<Result<Vec<_>>>()?;
         let window_expr = window
             .window_expr
             .iter()
             .map(|expr| expr.clone().rewrite(&mut alias_rewriter).data())
             .collect::<Result<Vec<_>>>()?;
 
-        self.project_window_output(&window_expr, select, None)
+        self.project_window_output(&input_columns, &window_expr, select, None)
     }
 
     fn extract_join_input_table_scan_filters(
@@ -1005,15 +1036,18 @@ impl Unparser<'_> {
                 let found_agg =
                     self.reconstruct_select_statement(plan, p, select, fully_absorbed)?;
 
-                // Whether to bother emitting the absorbed clauses: only
-                // if there's an Aggregate either claimed in this SELECT
-                // or about to live in a derived subquery below us. If
-                // there's nothing aggregate-like to fold over, fall
-                // through and let the normal recursion handle the
-                // Projection's input.
+                // A complete chain over a scan or join belongs in this SELECT;
+                // wrapping it would leave the projection's table qualifiers out of scope.
                 let agg_below =
                     !fully_absorbed && find_agg_node_within_select(plan, true).is_some();
-                if !(found_agg || agg_below) {
+                let mut scan = cur;
+                while let LogicalPlan::Filter(filter) = scan {
+                    scan = filter.input.as_ref();
+                }
+                let scan_below = fully_absorbed
+                    && (matches!(scan, LogicalPlan::TableScan(scan) if scan.fetch.is_none())
+                        || matches!(scan, LogicalPlan::Join(_)));
+                if !(found_agg || agg_below || scan_below) {
                     return self.select_to_sql_recursively(
                         p.input.as_ref(),
                         query,
@@ -1322,6 +1356,11 @@ impl Unparser<'_> {
                 self.select_to_sql_recursively(input, query, select, relation)
             }
             LogicalPlan::Join(join) => {
+                let is_exists = matches!(
+                    join.join_type,
+                    JoinType::LeftSemi | JoinType::LeftAnti | JoinType::LeftMark
+                        | JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark
+                );
                 let mut table_scan_filters = vec![];
                 let (left_plan, right_plan) = match join.join_type {
                     JoinType::RightSemi | JoinType::RightAnti => {
@@ -1334,10 +1373,14 @@ impl Unparser<'_> {
                 // The outer projection plan will handle projecting the correct columns.
                 let already_projected = select.already_projected();
 
-                let left_plan = Self::extract_join_input_table_scan_filters(
-                    left_plan,
-                    &mut table_scan_filters,
-                )?;
+                let left_plan = if is_exists {
+                    Arc::clone(left_plan)
+                } else {
+                    Self::extract_join_input_table_scan_filters(
+                        left_plan,
+                        &mut table_scan_filters,
+                    )?
+                };
                 let left_plan = if already_projected {
                     Self::unwrap_qualified_passthrough_join_projection(left_plan)
                 } else {
@@ -1358,13 +1401,28 @@ impl Unparser<'_> {
                     None
                 };
 
-                let right_plan = Self::extract_join_input_table_scan_filters(
-                    right_plan,
-                    &mut table_scan_filters,
-                )?;
+                let right_plan = if is_exists {
+                    Arc::clone(right_plan)
+                } else {
+                    Self::extract_join_input_table_scan_filters(
+                        right_plan,
+                        &mut table_scan_filters,
+                    )?
+                };
 
+                // The inner query owns its predicates and row window; neither may leak outward.
+                let mut exists_select = SelectBuilder::default();
+                exists_select.push_from(TableWithJoinsBuilder::default());
+                let mut exists_query = Some(QueryBuilder::default());
                 let mut right_relation = RelationBuilder::default();
-                if already_projected
+                if is_exists {
+                    self.select_to_sql_recursively(
+                        right_plan.as_ref(),
+                        &mut exists_query,
+                        &mut exists_select,
+                        &mut right_relation,
+                    )?;
+                } else if already_projected
                     && let Some(nested_relation) = self
                         .qualified_passthrough_join_projection_to_nested_relation(
                             right_plan.as_ref(),
@@ -1411,12 +1469,13 @@ impl Unparser<'_> {
                     | JoinType::RightSemi
                     | JoinType::RightAnti
                     | JoinType::RightMark => {
-                        let mut query_builder = QueryBuilder::default();
-                        let mut from = TableWithJoinsBuilder::default();
-                        let mut exists_select: SelectBuilder = SelectBuilder::default();
+                        let Some(mut query_builder) = exists_query else {
+                            return internal_err!("EXISTS requires a query context");
+                        };
+                        let mut from = exists_select.pop_from().unwrap_or_default();
                         from.relation(right_relation);
                         exists_select.push_from(from);
-                        if let Some(filter) = &join.filter {
+                        if let Some(filter) = &join_filters {
                             exists_select.selection(Some(self.expr_to_sql(filter)?));
                         }
                         for (left, right) in &join.on {
@@ -1463,7 +1522,12 @@ impl Unparser<'_> {
                                 select.selection(Some(exists_expr));
                             }
                         }
-                        if let Some(projection) = left_projection {
+                        if let Some(mut projection) = left_projection {
+                            if projection.is_empty() {
+                                projection = left_plan.schema().columns().into_iter()
+                                    .map(|column| self.select_item_to_sql(&Expr::Column(column)))
+                                    .collect::<Result<Vec<_>>>()?;
+                            }
                             select.projection(projection);
                         }
                     }
@@ -1512,6 +1576,29 @@ impl Unparser<'_> {
                     select.already_projected(),
                 )?;
 
+                if !select.already_projected()
+                    && (unparsed_table_scan.is_none()
+                        || matches!(&unparsed_table_scan, Some(LogicalPlan::Limit(_))))
+                {
+                    select.projection(
+                        plan_alias.schema.columns().into_iter()
+                            .map(|column| self.select_item_to_sql(&Expr::Column(column)))
+                            .collect::<Result<Vec<_>>>()?,
+                    );
+                }
+
+                // A scan fetch is an inner row window, not a replacement for the caller's limit.
+                if let Some(unparsed) = &unparsed_table_scan
+                    && matches!(unparsed, LogicalPlan::Limit(_))
+                {
+                    return self.derive(
+                        unparsed,
+                        relation,
+                        Some(self.new_table_alias(plan_alias.alias.table().to_string(), columns)),
+                        false,
+                    );
+                }
+
                 // If the (possibly rewritten) inner plan builds its own
                 // SELECT clauses (e.g. Aggregate adds GROUP BY, Window adds
                 // OVER, etc.) and unparse_table_scan_pushdown couldn't reduce it,
@@ -1555,13 +1642,6 @@ impl Unparser<'_> {
                     );
                 }
 
-                // if the child plan is a TableScan with pushdown operations, we don't need to
-                // create an additional subquery for it
-                if !select.already_projected() && unparsed_table_scan.is_none() {
-                    select.projection(vec![ast::SelectItem::Wildcard(
-                        ast::WildcardAdditionalOptions::default(),
-                    )]);
-                }
                 let plan = unparsed_table_scan.unwrap_or_else(|| plan.clone());
                 if !columns.is_empty()
                     && !self.dialect.supports_column_alias_in_table_alias()
@@ -1687,7 +1767,19 @@ impl Unparser<'_> {
                 )?;
 
                 if project_window_output {
-                    self.project_window_output(&window.window_expr, select, agg)?;
+                    let input_columns = window
+                        .input
+                        .schema()
+                        .columns()
+                        .into_iter()
+                        .map(Expr::Column)
+                        .collect::<Vec<_>>();
+                    self.project_window_output(
+                        &input_columns,
+                        &window.window_expr,
+                        select,
+                        agg,
+                    )?;
                 }
 
                 Ok(())
@@ -2091,6 +2183,7 @@ impl Unparser<'_> {
         matches!(
             plan,
             LogicalPlan::Aggregate(_)
+                | LogicalPlan::Filter(_)
                 | LogicalPlan::Window(_)
                 | LogicalPlan::Sort(_)
                 | LogicalPlan::Limit(_)

@@ -10,7 +10,49 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use sutura_domain::catalog::{Audience, AudienceGrant, InvalidAudienceGrant};
 use sutura_domain::model::{AudienceId, InvalidIdentifier};
+
+#[derive(serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub(crate) enum RawAudience {
+    Open(String),
+    Restricted { restricted: BTreeSet<String> },
+}
+
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidCatalogAudience {
+    #[error("an audience scalar must be `open`")]
+    NotOpen,
+    #[error("a restricted audience identifier is invalid")]
+    Identifier {
+        #[source]
+        cause: InvalidIdentifier,
+    },
+    #[error("a restricted audience grant is invalid")]
+    Grant {
+        #[source]
+        cause: InvalidAudienceGrant,
+    },
+}
+
+impl RawAudience {
+    pub(crate) fn parse(&self) -> Result<Audience, InvalidCatalogAudience> {
+        match self {
+            Self::Open(written) if written == "open" => Ok(Audience::Open),
+            Self::Open(_) => Err(InvalidCatalogAudience::NotOpen),
+            Self::Restricted { restricted } => {
+                let identifiers = restricted
+                    .iter()
+                    .map(|raw| AudienceId::parse(raw).map_err(|cause| InvalidCatalogAudience::Identifier { cause }))
+                    .collect::<Result<_, _>>()?;
+                AudienceGrant::parse(identifiers)
+                    .map(Audience::Restricted)
+                    .map_err(|cause| InvalidCatalogAudience::Grant { cause })
+            }
+        }
+    }
+}
 
 /// Why a mapping this operator wrote is not a usable one.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]

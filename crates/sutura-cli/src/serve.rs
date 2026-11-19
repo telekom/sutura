@@ -450,6 +450,7 @@ pub(crate) fn run() -> Result<(), String> {
         sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(&service.definitions()), &attached)
             .map_err(|changed| changed.to_string())?;
     }
+    tracing::info!(google_endpoints = ?settings.google_endpoints(), "Google API destinations");
     tracing::info!(
         definition_version = %pinned.version(),
         metrics = pinned.definitions().metrics().len(),
@@ -597,13 +598,13 @@ fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>,
             Err(flatten(sutura_config::SettingsError::NotFitToServe { refusals }))
         };
     }
-    let anchors = settings.security().outbound().map(crate::sources::anchors_of);
-    let gate =
-        sutura_http::InboundGate::from_verifiers_trusting(settings.security().inbound(), anchors.as_ref()).map_err(flatten)?;
+    let outbound = crate::sources::resolve_outbound_anchors(settings)?;
+    let gate = sutura_http::InboundGate::from_verifiers_with_outbound(settings.security().inbound(), outbound.as_ref())
+        .map_err(flatten)?;
     if gate.is_some() {
         tracing::info!(
             verifiers = settings.security().inbound().len(),
-            "leg 1 is armed: the key sets were read and caller tokens will be verified against them"
+            "leg 1 is armed: JWT key sets were read; Google access tokens use bounded tokeninfo requests"
         );
     }
     Ok(gate)

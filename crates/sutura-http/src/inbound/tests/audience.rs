@@ -34,7 +34,7 @@ async fn an_entra_shaped_token_grants_exactly_its_scp_or_roles_and_only_where_de
                 .security()
                 .inbound()
                 .first()
-                .map(sutura_config::InboundVerifier::identity)
+                .and_then(sutura_config::InboundVerifier::identity)
                 .expect("an inbound identity"),
             &jwks(KID, &pair),
         )
@@ -113,7 +113,7 @@ fn a_direct_audience_leaves_the_published_resource_https() {
             .security()
             .inbound()
             .first()
-            .map(sutura_config::InboundVerifier::identity)
+            .and_then(sutura_config::InboundVerifier::identity)
             .expect("an inbound identity"),
         &jwks(KID, &key_pair()),
     );

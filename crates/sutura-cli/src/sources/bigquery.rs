@@ -69,8 +69,6 @@ pub(super) fn open(
     _request_timeout: sutura_config::RequestTimeout,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Opened, String> {
-    crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
-
     // Matched rather than read off accessors every kind would have to have, for the reason the files
     // arm gives at the same shape: the dispatcher has already decided which arm this is, and a second
     // openable kind should arrive as a compile error at this line too.
@@ -122,17 +120,16 @@ pub(super) fn open(
     sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
         .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
     let billing = crate::bigquery_driver::job_billing(source, billing)?;
-    let engine = sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
+    let engine = sutura_exec_bigquery::BigQueryWarehouse::new(
         source.clone(),
         identity.posture().clone(),
         billing,
-        driver,
-        // `Disabled`, and the match above is what makes that the whole truth here rather than a
-        // default: this command refuses `impersonation-at-source` by name, so the only posture that
-        // reaches this line is the shared one - the deployment's own application default
-        // credentials, which is mandatory for that posture and impersonates nothing.
-        sutura_exec_bigquery::adbc::Impersonation::Disabled,
-        max_bytes_billed,
+        sutura_exec_bigquery::adbc::AdbcBigQuery::new(
+            driver,
+            sutura_exec_bigquery::adbc::Impersonation::Disabled,
+            max_bytes_billed,
+        )
+        .at_endpoints(crate::bigquery_driver::endpoints(registry.google_endpoints(), outbound)?),
     );
     Ok(Opened::BigQuery(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
@@ -415,56 +412,39 @@ mod tests {
 
     #[test]
     #[cfg(feature = "bigquery")]
-    fn a_declared_outbound_bundle_beside_a_bigquery_source_is_refused_rather_than_ignored() {
-        // **The regression the ADBC adoption opened, closed.** The deleted HTTP transport read
-        // `security.outbound`: a declared bundle REPLACED the compiled-in roots. The ADBC driver
-        // takes neither a bundle nor a client identity, so serving this source under one would widen
-        // trust behind a declaration saying the opposite. Refused before the driver is resolved -
-        // which is why this reads the outbound refusal and not the missing-driver one the cell above
-        // expects from the same entry.
-        let bundle = sutura_tls::Declared::new(
-            sutura_tls::Anchors::Bundle(std::path::PathBuf::from("/nonexistent/sutura-outbound-anchors.pem")),
-            None,
-        );
-        let error = open_engine(
-            &bundle_naming("warehouse"),
-            &declaring_bigquery("shared-service-user", ""),
-            runtime(),
-            timeout(),
-            None,
-            Some(&bundle),
-        )
-        .map(|_| ())
-        .expect_err("a declared bundle the driver would not honour does not serve");
-        assert!(
-            error.contains("security.outbound"),
-            "the refusal names the declaration: {error}"
-        );
-        assert!(error.contains("trust-anchor bundle"), "it says what was declared: {error}");
-        assert!(error.contains("sources.warehouse"), "it names the source: {error}");
-        assert!(
-            !error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
-            "refused before the driver is resolved: {error}"
-        );
-
-        // The control, and the half that stops this passing on a refuse-everything check: the
-        // host's own store with no identity promises nothing the driver does not already stand for,
-        // so the same entry goes on to the driver refusal.
-        let system = sutura_tls::Declared::new(sutura_tls::Anchors::System, None);
-        let error = open_engine(
-            &bundle_naming("warehouse"),
-            &declaring_bigquery("shared-service-user", ""),
-            runtime(),
-            timeout(),
-            None,
-            Some(&system),
-        )
-        .map(|_| ())
-        .expect_err("still no driver in this test");
-        assert!(
-            error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
-            "the system store alone is accepted and the next refusal is the driver's: {error}"
-        );
+    fn bigquery_outbound_trust_reaches_driver_resolution_instead_of_the_old_blanket_refusal() {
+        // This source-opening seam has no driver. It proves the declaration is accepted, while
+        // the native-driver fake transport cells prove the selected roots and identity arrive.
+        let declarations = [
+            sutura_tls::Declared::new(
+                sutura_tls::Anchors::Bundle(std::path::PathBuf::from("/etc/sutura/google-roots.pem")),
+                None,
+            ),
+            sutura_tls::Declared::new(
+                sutura_tls::Anchors::System,
+                Some(sutura_tls::Identity::new(
+                    std::path::PathBuf::from("/etc/sutura/google-client.pem"),
+                    std::path::PathBuf::from("/etc/sutura/google-client.key"),
+                )),
+            ),
+            sutura_tls::Declared::new(sutura_tls::Anchors::System, None),
+        ];
+        for declaration in &declarations {
+            let error = open_engine(
+                &bundle_naming("warehouse"),
+                &declaring_bigquery("shared-service-user", ""),
+                runtime(),
+                timeout(),
+                None,
+                Some(declaration),
+            )
+            .map(|_| ())
+            .expect_err("this venue has no driver");
+            assert!(
+                error.contains("SUTURA_BIGQUERY_ADBC_DRIVER"),
+                "accepted trust must reach driver resolution: {error}"
+            );
+        }
     }
 
     #[test]

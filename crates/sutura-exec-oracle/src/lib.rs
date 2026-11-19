@@ -70,10 +70,11 @@ use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqu
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBatches, RowSet, Warehouse};
-use sutura_oracle_connect::{DialError, PrepareError};
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
+#[cfg(feature = "fixtures")]
+use crate::fixture::FixtureError;
 use crate::parameters::OracleParam;
 
 mod batches;
@@ -83,7 +84,7 @@ mod raw;
 /// A lookup leg read in partitions, each at one snapshot - `github.com/telekom/sutura#828`.
 mod split;
 
-pub use split::{InvalidDescriptor, PartitionDescriptor, Planned, SplitLeg};
+pub use split::{InvalidDescriptor, MOST_PARTITION_ROWS, PartitionDescriptor, Planned, SplitLeg};
 
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
@@ -148,13 +149,11 @@ pub enum OracleError {
         cause: MalformedRowSet,
     },
     /// The collected result would cost more than this adapter's materialisation budget to hold.
-    ///
-    /// The sibling of [`Self::Shape`] for the byte budget the port's
-    /// [`result_did_not_fit`](sutura_domain::warehouse::Warehouse::result_did_not_fit) reads: a
-    /// result refused for crossing it is *the result did not fit*, never a data-system failure, so
-    /// a caller is refused rather than told to retry.
     #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
     OverBudget { most_bytes: usize },
+    /// A partition's fetched and decoded rows exceed the limit, before its final typed output.
+    #[error("a partition returned more than the {most_rows}-row limit")]
+    PartitionTooManyRows { most_rows: usize },
     /// The driver's batches did not match the schema it announced - a driver defect.
     #[error("the driver's answer did not match the schema it announced")]
     Unannounced {
@@ -285,6 +284,7 @@ pub enum OracleError {
 
 /// An Oracle connection, behind the [`Warehouse`] port.
 pub struct OracleWarehouse {
+    unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
     routing: Routing,
     /// The materialisation budget this adapter bounds every collected result with, derived by the
     /// composition root from the same working-set ceiling that sizes the in-process engine. There
@@ -349,41 +349,6 @@ impl core::fmt::Debug for TokenSessions {
     }
 }
 
-impl TokenSessions {
-    /// The driver's configuration for `dial`: its address, its channel and anchors, the dial bound, and a refused redirect.
-    ///
-    /// # Errors
-    ///
-    /// [`OracleError::PacketTraceOn`] while the driver's packet trace is switched on,
-    /// [`OracleError::TrustAnchors`] for anchors that are not usable certificates, and
-    /// [`OracleError::Connect`] for an address the driver cannot parse.
-    pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
-        dial.config().map(Self).map_err(|refused| match refused {
-            DialError::PacketTraceOn(on) => OracleError::PacketTraceOn(on),
-            DialError::Prepare(PrepareError::TrustAnchors(cause)) => OracleError::TrustAnchors { cause: cause.into() },
-            DialError::Prepare(PrepareError::Address(cause)) => connect_err(cause),
-        })
-    }
-
-    /// Opens one session that authenticates with `token`. Dropping it closes the session.
-    ///
-    /// # Errors
-    ///
-    /// [`OracleError::RedirectRefused`] for a listener that redirects, and [`OracleError::Connect`]
-    /// for every other refused dial or login. Neither carries the token.
-    pub fn open(&self, token: &Secret) -> Result<oracledb::Connection, OracleError> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the asker's token is what this session authenticates with, so it is handed to the \
-                      driver once, here; nothing on this path logs or formats it"
-        )]
-        let token = String::from(token.expose_secret());
-        #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
-        let session = oracledb::connect(self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token)));
-        session.map_err(connect_err)
-    }
-}
-
 /// Which session a question runs on.
 #[derive(Debug, Clone, Copy)]
 enum Session<'leg> {
@@ -421,6 +386,13 @@ fn session_for<'leg>(
 }
 
 impl OracleWarehouse {
+    /// Declares the catalog's representation; the driver always fetches NUMBER without a float conversion.
+    #[must_use]
+    pub const fn with_unbounded_number(mut self, policy: Option<sutura_domain::warehouse::schema::UnboundedNumber>) -> Self {
+        self.unbounded_number = policy;
+        self
+    }
+
     /// Opens one connection to the listener `dial` names, under the declared user.
     ///
     /// A redirect from the listener is refused before authentication as
@@ -439,9 +411,11 @@ impl OracleWarehouse {
         let config = dialled.0.clone().set_credentials(user, password);
         #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
         let connection = oracledb::connect(config.clone()).map_err(connect_err)?;
+        datetime::pin_utc(&connection, None)?;
         let raw_config = matches!(posture, sutura_domain::source::SourcePosture::SharedServiceUser { .. }).then_some(config);
         let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource).then_some(dialled);
         Ok(Self {
+            unbounded_number: None,
             routing: Routing {
                 source,
                 posture,
@@ -456,8 +430,8 @@ impl OracleWarehouse {
     }
 
     /// A connection config's host/port/credential for the fixture tier - the counterpart of
-    /// `sutura_exec_postgres::adbc::Conninfo` - over TLS verified against the credential's anchors,
-    /// the tier's own certificate authority. `service_name` is fixed at
+    /// `sutura_exec_postgres::adbc::Conninfo` - over the credential's channel: verified TLS by
+    /// default, native encryption only for an explicitly native fixture. `service_name` is fixed at
     /// `FREEPDB1`, the community image's own pluggable database, which is not a secret the tier
     /// publishes - it is the image's name for itself.
     #[cfg(feature = "fixtures")]
@@ -477,18 +451,34 @@ impl OracleWarehouse {
         Self::connect(
             source,
             posture,
-            Dial::new(
-                host,
-                port,
-                fixture::SERVICE_NAME,
-                Channel::Verified {
-                    anchors_pem: credential.anchors_pem(),
-                },
-            ),
+            Dial::new(host, port, fixture::SERVICE_NAME, credential.channel()),
             credential.user(),
             credential.password().expose_secret(),
             result_budget,
         )
+    }
+
+    /// A real CLOB/NCLOB past the first SQL window, beside ordinary text and an exact NUMBER.
+    /// Fixed fixture rows keep the policy-expression venue independent of the CSV type inference.
+    #[cfg(feature = "fixtures")]
+    pub fn load_text_policy_fixture(&self) -> Result<(), FixtureError> {
+        let guard = fixture::snapshot::lock(self);
+        for sql in [
+            r#"DROP TABLE IF EXISTS "policy_text" PURGE"#,
+            r#"CREATE TABLE "policy_text" ("id" NUMBER(19,0), "label" VARCHAR2(4000), "script" CLOB, "national" NCLOB, "native_number" NUMBER)"#,
+            r#"INSERT INTO "policy_text" VALUES (1, RPAD('public', 300, 'x'), TO_CLOB(RPAD('x', 4000, 'x')) || TO_CLOB(' secret END tail'), TO_NCLOB(RPAD('x', 4000, 'x')) || TO_NCLOB(' secret END tail'), 123456789012345678901234567890)"#,
+            r#"INSERT INTO "policy_text" VALUES (2, 'short', TO_CLOB('secret END'), TO_NCLOB('secret END'), 2)"#,
+        ] {
+            self.connection.execute(sql, &[]).map_err(|cause| FixtureError::Statement {
+                subject: String::from("creating the text-policy fixture"),
+                cause: DriverError::from(cause),
+            })?;
+        }
+        self.connection.commit().map_err(|cause| FixtureError::Statement {
+            subject: String::from("committing the text-policy fixture"),
+            cause: DriverError::from(cause),
+        })?;
+        fixture::snapshot::await_read_only(&guard, "policy_text")
     }
 
     /// This adapter, its lookup legs split by flashback query (`split: flashback`), once its boot
@@ -551,13 +541,17 @@ impl OracleWarehouse {
     /// The rows of the partition `descriptor` names of `leg`, at its snapshot as the service user,
     /// once the database answered that the snapshot is no older than `deadline`'s budget. Takes no
     /// presented identity and does not authenticate the descriptor: the task grant does both.
+    /// Collects at most [`MOST_PARTITION_ROWS`] plus one, refusing the extra row after fetch and
+    /// decode, before the final typed output. A fetched batch can be larger; this is no prefetch
+    /// or process-memory bound.
     ///
     /// # Errors
     ///
     /// [`OracleError::FlashbackNotDeclared`], [`OracleError::MalformedDescriptor`] and
     /// [`OracleError::PartitionRender`] before any round trip; then [`OracleError::SnapshotStale`],
-    /// [`OracleError::SnapshotGone`], [`OracleError::NotOfItsColumnType`], a spent deadline, and
-    /// the database's failure.
+    /// [`OracleError::SnapshotGone`], [`OracleError::PartitionTooManyRows`],
+    /// [`OracleError::OverBudget`], [`OracleError::NotOfItsColumnType`], a spent deadline, and the
+    /// database's failure.
     pub fn read_partition(&self, leg: &LegPlan, descriptor: &[u8], deadline: Deadline) -> Result<ResultBatches, OracleError> {
         split::read_partition(self, leg, descriptor, deadline)
     }
@@ -608,7 +602,7 @@ impl OracleWarehouse {
         let connection = match session {
             Session::Boot => &self.connection,
             Session::Caller { sessions, token } => {
-                opened = sessions.open(token)?;
+                opened = sessions.open_before(token, Some(deadline))?;
                 &opened
             }
         };
@@ -811,6 +805,10 @@ impl Warehouse for OracleWarehouse {
         Some(TypeDialect::Oracle)
     }
 
+    fn unbounded_number(&self) -> Option<sutura_domain::warehouse::schema::UnboundedNumber> {
+        self.unbounded_number
+    }
+
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let query = generate(plan.plan(), Dialect::Oracle).map_err(|cause| OracleError::Render { cause })?;
         self.run((query.sql(), query.params())).map(AnchorRows::of)
@@ -835,9 +833,12 @@ impl Warehouse for OracleWarehouse {
             || matches!(*error, OracleError::Execute { ref cause } if cause.has_ora_code(1031) || cause.has_ora_code(1456))
     }
 
-    /// The materialisation budget is a result refusal; other failures retain their own mapping.
+    /// The materialisation budget and fixed partition row limit are result refusals; other failures retain their own mapping.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(*error, OracleError::OverBudget { .. })
+        matches!(
+            *error,
+            OracleError::OverBudget { .. } | OracleError::PartitionTooManyRows { .. }
+        )
     }
 }
 

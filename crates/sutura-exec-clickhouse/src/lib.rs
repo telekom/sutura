@@ -57,12 +57,10 @@
 //! `kind: clickhouse` source behind its default-off `clickhouse` feature, which `nix/shipped.nix`
 //! now enables, once the `github.com/telekom/sutura#955` join-nulls fix landed.
 //!
-//! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default).
-//!
-//! **No `dry_run` override.** The ADBC driver has no cheap "prepare, do not run" step this adapter
-//! could ask for without paying most of the cost of running the statement, so this stays at the
-//! port's own default (`Ok(PreFlight::NotAsked)`) - the same honest absence
-//! `Warehouse::dry_run`'s own doc names for an adapter where checking is not cheaper than running.
+//! **No unplanned SQL passthrough.** `Warehouse::execute_raw` remains unavailable. The SQL tool
+//! uses `Warehouse::execute_planned_statement` after query-only planning over scoped pinned tables
+//! and columns, under the same identity, settings, deadline and result budget as metrics. This is
+//! a library trust contract; the adapter does not independently establish the plan's scope.
 
 pub mod adbc;
 mod deadline;

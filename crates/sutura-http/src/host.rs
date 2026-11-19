@@ -50,7 +50,7 @@ impl HostAllowlist {
             return None;
         }
         let resource = settings.security().inbound().iter().filter_map(|inbound| {
-            let requirement = inbound.requirement();
+            let requirement = inbound;
             requirement
                 .resource()
                 .map_or_else(|| requirement.audience().host(), ResourceIdentifier::host)

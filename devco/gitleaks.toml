@@ -134,3 +134,12 @@ id = "jwk-private-key"
 description = "A JWK with its private member d"
 regex = '''"d"\s*:\s*"([A-Za-z0-9_-]{40,})"'''
 keywords = ['"d"']
+
+# The native Google transport test refuses this dummy credential-bearing destination.
+[[allowlists]]
+description = "Invalid native Google destination fixture"
+condition = "AND"
+targetRules = ["generic-credential-uri"]
+paths = ['''^nix/bigquery-adbc-google-endpoints-tests\.patch$''']
+regexTarget = "match"
+regexes = ['''^https://user:private-token@sts\.googleapis\.com/v1/token"$''']

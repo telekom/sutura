@@ -710,7 +710,7 @@ mod adbc_execute_as_legs {
             )
         }
 
-        fn table() -> TableName {
+        fn bucket_table() -> TableName {
             TableName::parse("bucket_lookup").expect("a table")
         }
 
@@ -721,16 +721,16 @@ mod adbc_execute_as_legs {
                     MetricName::parse("amount_total").expect("a metric"),
                     DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
                 ),
-                table: StatementTables::only(table()),
+                table: StatementTables::only(bucket_table()),
                 keys: vec![
-                    keyed("id", column(&table(), "id")),
-                    keyed("region", column(&table(), "region")),
+                    keyed("id", column(&bucket_table(), "id")),
+                    keyed("region", column(&bucket_table(), "region")),
                 ],
                 bindings: PlanBindings::parse(Vec::new(), Vec::new()).expect("no bindings"),
             }
         }
 
-        fn load(tier: &Tier) {
+        fn load_bucket_fixture(tier: &Tier) {
             let path = std::env::temp_dir().join(format!("sutura-ch-buckets-{}.csv", std::process::id()));
             let mut csv = String::from("id,region\n");
             for id in 0..32 {
@@ -750,7 +750,7 @@ mod adbc_execute_as_legs {
                 budget(),
             )
             .expect("the fixture database opens");
-            loader.load_conformance_csv(&table(), &path).expect("the lookup loads");
+            loader.load_conformance_csv(&bucket_table(), &path).expect("the lookup loads");
             std::fs::remove_file(path).expect("the scratch CSV is removed");
         }
 
@@ -763,7 +763,7 @@ mod adbc_execute_as_legs {
             let Some(tier) = Tier::here("buckets") else {
                 return;
             };
-            load(&tier);
+            load_bucket_fixture(&tier);
             std::hint::black_box(<AdbcClickHouseWarehouse as BaseOptIn>::with_hash_buckets);
             let warehouse = tier
                 .at(LEGS, SourcePosture::ImpersonationAtSource)

@@ -650,11 +650,14 @@
           deps-native-ci = crossPackages."sutura-${shipped.hostRustTarget}-ci".cargoArtifacts;
           deps-native-release = shipped.nativeBinaries.sutura.cargoArtifacts;
           deps-musl-release = crossPackages.sutura-x86_64-unknown-linux-musl.cargoArtifacts;
+          # The release checks also build both ARM targets; the CI-profile cache is distinct.
+          deps-aarch64-gnu-release = crossPackages.sutura-aarch64-unknown-linux-gnu.cargoArtifacts;
+          deps-aarch64-musl-release = crossPackages.sutura-aarch64-unknown-linux-musl.cargoArtifacts;
 
-          # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
+          # The gate binary on its own, so CI can run the `classify` app with
           # nothing but `nix` on the runner.
           #
-          # `ciArtifacts`: this binary is what CI runs as `nix run .#xtask -- classify`, and
+          # `ciArtifacts`: this binary is what CI's `classify` app runs, and
           # `classify` is the FIRST step, so on a cold cache whatever it waits for is on the
           # critical path before the pipeline can decide what to run. That step was 23.9 minutes
           # on the push that added the engine. At opt-level 0 it is a fraction of that, and it is
@@ -1465,7 +1468,7 @@
               exec cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
             ) || status=$?
             bash nix/oracle-split-cells.sh --profile ci || status=$?
-            cargo test --profile ci -p sutura-cli --features oracle,rdbms,sql --test served native_oracle_dictionary:: -- --ignored --nocapture || status=$?
+            cargo test --profile ci -p sutura-cli --features agent,oracle,rdbms,sql --test served native_oracle_dictionary:: -- --ignored --nocapture || status=$?
             bash nix/oracle-app-cells.sh --profile ci || status=$?
             exit "$status"
           '');
@@ -1550,7 +1553,8 @@
         # metadata API read through `HttpMetaReader` against the recorded answer, a token the tier
         # did not sign refused, `examples/cube` answered through a composed `sutura mcp`,
         # `examples/metrics-layer` served as two callers through its `DataHub` fake, Keycloak and Cube, and
-        # `sutura-app`'s golden and differential cells for the `cube` data system - failing rather
+        # `sutura-app`'s golden and differential cells for the `cube` data system, plus the
+        # executor's planned SQL and HTTP transport cells - failing rather
         # than skipping, under `SUTURA_DEV_REQUIRE_TIER=1`.
         # The `ci-cube-tier` CI job runs it; `just cube-acceptance` is its by-hand twin, and nothing
         # checks that the two agree. An app for `apps.openmetadata-acceptance`'s reason. No teardown:
@@ -1565,6 +1569,7 @@
             ${cargoWarmStart}
             cargo run -q -p xtask -- dev-up --with cube
             export SUTURA_DEV_REQUIRE_TIER=1
+            cargo test --profile ci -p sutura-exec-cube --all-features --lib --test http -- --nocapture
             cargo test --profile ci -p sutura-catalog-cube --features http --test provisioned -- --ignored --nocapture
             cargo test --profile ci -p sutura-cli --features cube --test mcp -- cube:: --ignored --nocapture
             cargo test --profile ci -p sutura-cli --features cube,datahub --test served -- metrics_layer:: --ignored --nocapture
@@ -1824,7 +1829,7 @@
           program = "${cargoWrapper}/bin/sutura-cargo";
         };
         # `nix run .#xtask` - every subcommand this repository already calls this way from
-        # `ci.yml` and `release.yml` (`classify`, `check-attribution`,
+        # `ci.yml` and `release.yml` (`check-attribution`,
         # `attribution`, `crap-delta`), and now `hygiene` from `version-bump.yml`. An EXPLICIT
         # app rather than the one `nix run` synthesises implicitly from `packages.xtask`'s own
         # `meta.mainProgram`, because several of those subcommands shell out to `cargo metadata`
@@ -1840,6 +1845,14 @@
           program = builtins.toString (pkgs.writeShellScript "sutura-xtask" ''
             export PATH="${toolchain}/bin:${jscpd}/bin:$PATH"
             exec ${self.packages.${system}.xtask}/bin/xtask "$@"
+          '');
+        };
+        # Classification reads git and the checkout, so it need not realise the general wrapper's
+        # copy detector. The same xtask binary and its shared cargo artifacts still build on a miss.
+        apps.classify = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-classify" ''
+            exec ${self.packages.${system}.xtask}/bin/xtask classify "$@"
           '');
         };
         # `just api`. The writer for what `checks.api-docs` proves generates.

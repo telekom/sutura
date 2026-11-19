@@ -93,7 +93,6 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                                    | Declare `verification_identity`, or remove the anchor                                       |
 | `tools.run_sql.enabled: true`, `security.identity: multi-user`, and a listed source not an acknowledged shared one                | List only acknowledged shared sources, use `single-user`, or leave the tool off             |
 | `tools.run_sql.enabled: true` and no `tools.run_sql.sources`, or a listed alias with no source or no raw statements               | List the sources the tool runs over, each one whose adapter runs a raw statement            |
-| A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                                  | Remove them from `security.outbound`, or serve that source from a deployment without them   |
 | A feature that the build lacks (`tls`, `agent`, `sql`, or a data system or catalog adapter)                                       | The message names the feature. Use a build that has it                                      |
 | `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                                                | Lower the wait                                                                              |
 | A peer in `server.nodes.others` with an unknown `role`, or `role: "serving"`                                                      | Use `worker` or `reading-worker`                                                            |
@@ -207,14 +206,91 @@ where the deployment has one source. The row cap of a certified answer applies, 
 The page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
 [DuckDB](integrations/data-systems/duckdb.md), [Oracle](integrations/data-systems/oracle.md#raw-sql).
 
+**Database permissions are the first defense against secret disclosure.** The asking user's
+database identity, and any shared account that executes for them, must never have permission to
+read secrets they are not authorized to see. Grant access to restricted views that omit sensitive
+columns or redact them in the database; deny access to their underlying tables and to functions
+that expose the original values. This applies to every supported data system. Catalog exclusions
+and text redaction are a second layer of defense, never a reason to grant access to secrets.
+
+Masking returned text alone does not protect search: predicates, ordering and aggregates can reveal
+information about the original value. A redacted view must apply its transformation before those
+operations. Pattern rules can miss a secret or fail to match a new format; exercise them against
+representative data and keep the underlying permissions restricted even when those checks pass.
+
+Cube's SQL planner cannot execute regex replacement. For Cube, the runtime fetches bounded source
+rows and applies the policy locally before query predicates, ordering, joins and aggregates. Raw
+values therefore enter the process; source row caps, memory limits or deadlines can refuse queries
+that would otherwise push down. Other data systems apply their policies in source-side views.
+
+Text policies require a build with SQL planning. In a Markdown physical model, declare them on a
+text column:
+
+```yaml
+columns:
+  - name: SCRIPT
+    type: CLOB
+    max_text_bytes: 8192
+    redact:
+      - pattern: "(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+"
+        replace: "IDENTIFIED BY ***"
+```
+
+[An optional raw search prefilter](raw-text-search.md) requires a per-column acknowledgement of
+secret-dependent timing and conservative proof; redacted text still decides every answer.
+
+For a native `rdbms` dictionary, put the same settings in `column_rules` on its catalog entry,
+with `column: SCRIPT*` selecting column names by dictionary pattern. This admits Oracle CLOB and
+NCLOB columns only when a bound is present. Without a bound, native dictionaries still refuse
+those columns and the Oracle row reader still refuses raw LOB values.
+
+The planned source statement wraps each protected table with a projection that redacts text,
+then bounds it, before the caller's projection, predicates, ordering, joins or aggregates.
+DuckDB, DataFusion, PostgreSQL, Cube, ClickHouse, BigQuery and Oracle use their native regex
+functions. An unplannable statement over a catalog with a policy is refused, including in a build
+without SQL planning; it cannot fall back to unmodified pass-through. Policies currently require
+mapped text columns in a physical-schema catalog without certified metrics. Conflicting policies
+for the same physical column, including an unprotected alias, refuse catalog validation.
+
+Rules run in declaration order, using the source engine's regex syntax. Only a leading `(?i)`
+flag is portable here; other `(?` constructs are refused. Replacements are literal: `$` and
+backslash are refused, so capture substitution is unavailable. There are at most eight rules per
+column, and patterns and replacements are at most 512 bytes. An invalid source regex fails the
+query; there is no retry against unredacted text. Matching remains the operator's responsibility:
+this example does not recognize every possible secret format.
+
+`max_text_bytes` ranges from 32 to 1048576. Truncation reserves four UTF-8 bytes per retained
+character and 14 bytes for the visible `...[truncated]` suffix. It can cut ASCII text well before
+the declared byte limit. Oracle additionally caps the effective bound at 4000 bytes and uses
+`DBMS_LOB.SUBSTR` to return scalar text. Null stays null; search and aggregates see the same cut
+text as a read. A redaction-only policy leaves text unbounded and does not enable Oracle LOB reads.
+
 `tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,
 or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
 on or off, over the tables that the catalog declares on the listed sources and the caller's view holds. It cuts the plan
-into one part for each source that the statement reads, and runs each part at its source under that source's posture.
-Anything but one query over such tables is refused with `statement_failed`, and that includes `select 1`. With the switch
+into supported parts, and runs each part at its source under that source's posture.
+Input uses DataFusion SQL, including `LIMIT` instead of `FETCH FIRST`. Double quotes select an exact
+identifier. Unquoted physical table and column names fold to uppercase at an Oracle source and
+lowercase at other sources; SQL aliases follow the planner's lowercase folding unless quoted.
+Physical metadata is preserved, so an Oracle table or column declared with mixed or lowercase names
+needs its exact quoted name. A name that resolves to different sources is refused.
+
+An unresolved admitted table is `unknown_table`, and an unresolved admitted column is `unknown_column`.
+Hidden tables have the same detail as absent tables; excluded columns have the same detail as absent
+columns. Recognized unsupported input is `unsupported_syntax` with a fixed construct description,
+including `select 1`, table functions and `FETCH FIRST`. A planned source part that fails without a
+more specific safe refusal is `source_failed`; other planning or local execution failures remain
+`statement_failed`. These details contain no engine or source error text. `describe_catalog` helps
+discover the admitted catalog; the operator can enable `prompt.list_physical_schema` to list physical
+names. These categories describe the planned path; a build without `sql` retains its source's generic
+`statement_failed` refusal.
+
+With the switch
 off, a statement that reads more than one source is refused with `plan_spans_more_than_one_source`. With it on, the join or
 aggregate over the parts runs in this deployment, and the answer names each source that it read and the posture that ran
-there. Planning and that local part stop at the request's deadline. What this does not bound:
+there. Cube joins combine locally even with one source and this switch off. Their supported child plans run at Cube;
+transferring more rows can reach the existing per-leg row, working-set or deadline limits sooner.
+Planning and that local part stop at the request's deadline. What this does not bound:
 
 - The local part runs in the deployment's memory, within the combiner's working set. It stops at the deadline only at its
   next batch, so one batch, or the final pass of a sort, runs to its end.

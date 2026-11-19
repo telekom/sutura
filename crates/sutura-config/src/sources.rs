@@ -73,11 +73,7 @@ use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_ke
 /// is a separate question, answered by that binary's features rather than here - [`Self::BigQuery`]
 /// says why the word is in the vocabulary either way.
 ///
-/// **It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
-/// rather than the enum. The composition root used to refuse any source not called `local`, on the
-/// argument that the engine has its own identity and does not borrow the catalog's. That argument was
-/// right while the catalog was the only signal - a catalog naming `production_warehouse` said nothing
-/// about what the deployment held - and it stops being right once the DEPLOYMENT declares each source:
+/// The deployment declares each source independently of its catalog:
 /// an operator who writes `sources.production_warehouse.kind: files` with a directory beside it has
 /// stated that this source is a directory of files, which is the statement the name comparison was
 /// standing in for. Under the old rule that deployment could not be served at all, and it is a
@@ -214,6 +210,7 @@ impl SourceKind {
 /// `Settings::parse` is reachable from this crate's own tests without the refusal having run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfiguredSource {
+    unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
     admitted_by: Option<std::collections::BTreeSet<sutura_domain::identity::VerifierId>>,
     placement: SourcePlacement,
     identity: Option<SourceIdentity>,
@@ -224,6 +221,11 @@ pub struct ConfiguredSource {
 }
 
 impl ConfiguredSource {
+    #[must_use]
+    pub const fn unbounded_number(&self) -> Option<sutura_domain::warehouse::schema::UnboundedNumber> {
+        self.unbounded_number
+    }
+
     /// Resolved names. `None` admits deployment-local contexts only; an empty set admits nobody.
     #[must_use]
     pub const fn admitted_by(&self) -> Option<&BTreeSet<VerifierId>> {
@@ -308,7 +310,8 @@ impl ConfiguredSource {
     pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig> {
         match self.caller_identity {
             Some(CallerIdentity::WorkloadIdentity(ref config)) => Some(config),
-            Some(CallerIdentity::GoogleLogin(_) | CallerIdentity::DomainDelegation(_)) | None => None,
+            Some(CallerIdentity::GoogleLogin(_) | CallerIdentity::DomainDelegation(_) | CallerIdentity::CallerGoogleToken(_))
+            | None => None,
         }
     }
 }
@@ -332,6 +335,12 @@ pub struct UnknownPosture {
 /// convenience, and nothing needs to clone a startup refusal.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidSourceRegistry {
+    #[error("`sources.{alias}.caller_google_token.acknowledged_because` must state the opt-in reason")]
+    CallerGoogleTokenReason {
+        alias: SourceName,
+        #[source]
+        cause: InvalidOperatorText,
+    },
     /// An Oracle-only transport or password declaration was refused.
     #[error("`sources.{alias}`: {cause}")]
     OracleTransport {
@@ -476,6 +485,8 @@ pub enum InvalidSourceRegistry {
         kind: SourceKind,
         key: &'static str,
     },
+    #[error("`sources.{alias}.unbounded_number` must be utf8, got {value}")]
+    UnboundedNumber { alias: SourceName, value: String },
     /// A declared cloud resource name is not usable.
     #[error("`sources.{alias}.{key}` is not a usable name")]
     ResourceName {
@@ -692,45 +703,24 @@ pub enum InvalidSourceRegistry {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceRegistry {
     by_alias: BTreeMap<SourceName, ConfiguredSource>,
+    google_endpoints: crate::google_endpoints::GoogleEndpoints,
 }
 
-/// An unparsed entry, private so settings parsing remains the only way into the registry.
-#[derive(Debug, Clone)]
-pub(crate) struct RawSourceEntry<'raw> {
-    /// The key, exactly as written, so a refusal can quote what the operator typed.
-    pub(crate) written: &'raw str,
-    pub(crate) kind: &'raw str,
-    pub(crate) data_dir: Option<&'raw str>,
-    pub(crate) billing_project: Option<&'raw str>,
-    pub(crate) dataset: Option<&'raw str>,
-    pub(crate) max_bytes_billed: Option<u64>,
-    pub(crate) posture: &'raw str,
-    pub(crate) acknowledged_because: Option<&'raw str>,
-    pub(crate) verification_identity: Option<&'raw str>,
-    pub(crate) workload_identity: Option<crate::raw::RawWorkloadIdentity>,
-    /// Whether the removed `impersonate` key is written - see [`InvalidSourceRegistry::ImpersonateRemoved`].
-    pub(crate) impersonate: bool,
-    /// Whether the removed `subjects` key is written - see [`InvalidSourceRegistry::SubjectsRemoved`].
-    pub(crate) subjects: bool,
-    pub(crate) delegation: Option<&'raw [crate::raw::RawDelegation]>,
-    pub(crate) host: Option<&'raw str>,
-    pub(crate) unix_socket: Option<&'raw str>,
-    pub(crate) port: Option<u16>,
-    pub(crate) database: Option<&'raw str>,
-    pub(crate) service_name: Option<&'raw str>,
-    pub(crate) endpoint: Option<&'raw str>,
-    pub(crate) token_file: Option<&'raw str>,
-    pub(crate) database_file: Option<&'raw str>,
-    pub(crate) user: Option<&'raw str>,
-    pub(crate) password_file: Option<&'raw str>,
-    pub(crate) transport_mode: Option<&'raw str>,
-    pub(crate) oracle_options: oracle_transport::RawOracleOptions<'raw>,
-    pub(crate) transport_anchors: Option<&'raw str>,
-    pub(crate) client_certificate: Option<&'raw str>,
-    pub(crate) client_key: Option<&'raw str>,
-}
+mod raw;
+pub(crate) use raw::RawSourceEntry;
 
 impl SourceRegistry {
+    pub(crate) fn with_google_endpoints(mut self, endpoints: crate::google_endpoints::GoogleEndpoints) -> Self {
+        self.google_endpoints = endpoints;
+        self
+    }
+
+    /// Process-wide destinations travel with the registry to every source opener, including reading workers.
+    #[must_use]
+    pub const fn google_endpoints(&self) -> &crate::google_endpoints::GoogleEndpoints {
+        &self.google_endpoints
+    }
+
     pub(crate) fn declare_admitted_by(
         &mut self,
         written: &str,
@@ -816,7 +806,10 @@ impl SourceRegistry {
             let configured = parse_entry(&alias, entry, blocks, billing.get(entry.written).copied(), mode)?;
             drop(by_alias.insert(alias, configured));
         }
-        Ok(Self { by_alias })
+        Ok(Self {
+            by_alias,
+            google_endpoints: crate::google_endpoints::GoogleEndpoints::default(),
+        })
     }
 
     /// [`Self::parse_declared`] with no `google_login` or `domain_delegation` block on any entry.
@@ -940,6 +933,7 @@ fn parse_entry(
         blocks,
     )?;
     Ok(ConfiguredSource {
+        unbounded_number: None,
         admitted_by: None,
         placement,
         identity,
@@ -987,3 +981,5 @@ fn parse_workload_identity(
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) mod type_mapping;

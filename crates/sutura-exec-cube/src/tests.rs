@@ -83,11 +83,22 @@ impl CubeTransport for Scripted {
             .map(|body| crate::Loaded::one(query, body))
     }
 
+    fn sql(&self, query: &str, token: &Secret, _deadline: Deadline) -> Answer<Self::Error> {
+        self.sent
+            .borrow_mut()
+            .push((text_of(token), Some(serde_json::json!({ "sql": query }))));
+        self.load.borrow_mut().pop_front().ok_or(Down)
+    }
+
     fn source_refused(&self, _error: &Self::Error) -> bool {
         false
     }
 
     fn deadline_exceeded(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
         false
     }
 }

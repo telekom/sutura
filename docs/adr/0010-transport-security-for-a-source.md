@@ -11,10 +11,9 @@ adapters are not.**
 **Corrected, 2026-09-24:** that status line predates its own amendments. What is built now: the
 configuration half, the Postgres channel, the DataHub reader's declared anchors and client identity
 (`github.com/telekom/sutura#911`), and rotation in `sutura-tls` - with the limit the fourth amendment
-states, that no test watches a real handshake adopt a rotated bundle. What is NOT: the BigQuery half.
-Its HTTP wire went with the ADBC adoption, the driver takes neither a bundle nor a client identity,
-and since `github.com/telekom/sutura#961` a declared bundle or identity beside a `bigquery` source is a
-startup refusal rather than a declaration silently not honoured.
+states, that no test watches a real handshake adopt a rotated bundle. The BigQuery HTTP wire went with ADBC adoption, and #961 then refused a declared bundle or client
+identity because the driver accepted neither. The final amendment below replaces that refusal with
+native-driver trust material and records what its fake venue cannot prove.
 
 Two separate things share this record because they are constantly confused for each other, and the
 confusion is the dangerous part: **mutual TLS authenticates the SERVICE to a source. It does not
@@ -477,3 +476,21 @@ Dictionary positives measure startup/catalog reads only. The 16-byte native auth
 fold remains unit/source-only, and other compiled AES/SHA-2 combinations have vector/unit coverage
 rather than live interoperability evidence. Parser fixtures and known-answer vectors cover their
 own inputs. No new Oracle per-caller identity venue is introduced by this decision.
+
+## Ninth amendment: Google private destinations and native-driver trust
+
+`google_endpoints` supplies explicit HTTPS Google API URLs to the native BigQuery driver, including
+both signJwt and its separate OAuth token exchange. The native driver now receives the deployment's
+outbound CA and client material; this replaces #961's blanket refusal for these declarations.
+A supplied CA bundle replaces system roots. A new connection reads the current files, up to 4 MiB
+per file, and existing connections retain their TLS configuration; no watcher rotates a connection
+already running. An undeclared bundle keeps the native driver's system trust store, whose equality
+to the Rust clients' roots is not asserted.
+
+Custom Storage endpoints use verified TLS with those roots and the selected hostname. Only an
+explicit numeric loopback emulator address uses plaintext. Fake transport and credential-detection
+ports observe the Google library's domain-delegation signJwt and token exchange and a dry-run
+query request; the driver rows for workload identity and Google login start with an issued caller
+token. They also inspect the supplied trust and the Storage credential protocol. These cells do
+not establish a real PSC route, a live Storage handshake, certificate rotation at a running job,
+or per-caller authorization at a database. sutura's pool exchange remains outside the native driver.

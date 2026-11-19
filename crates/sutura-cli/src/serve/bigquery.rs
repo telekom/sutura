@@ -27,7 +27,7 @@ pub(crate) fn open_bigquery(
     let mut engines: Option<sutura_app::Warehouses<super::BigQuerySource>> = None;
     for source in declared {
         let configured = super::configured_source(source, registry)?;
-        let engine = build_bigquery(source, configured, request_timeout, outbound)?;
+        let engine = build_bigquery(source, configured, registry.google_endpoints(), request_timeout, outbound)?;
         engines = Some(match engines {
             None => sutura_app::Warehouses::of(engine),
             Some(open) => open.and(engine).map_err(super::flatten)?,
@@ -87,10 +87,10 @@ pub(crate) fn open_bigquery(
 fn build_bigquery(
     source: &sutura_domain::model::SourceName,
     configured: &sutura_config::ConfiguredSource,
+    endpoints: &sutura_config::google_endpoints::GoogleEndpoints,
     _request_timeout: sutura_config::RequestTimeout,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<super::BigQuerySource, String> {
-    crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
     let sutura_config::SourcePlacement::BigQuery {
         ref billing,
         max_bytes_billed,
@@ -172,9 +172,10 @@ fn build_bigquery(
     // `sutura_config` refuses the key by name rather than carry a value that reaches nothing.
     let impersonation = impersonation_of(source, configured)?;
     let pooled = matches!(impersonation, sutura_exec_bigquery::adbc::Impersonation::ThroughPool(_));
-    let mut transport = sutura_exec_bigquery::adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed);
+    let mut transport = sutura_exec_bigquery::adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed)
+        .at_endpoints(crate::bigquery_driver::endpoints(endpoints, outbound)?);
     if pooled {
-        transport = transport.exchanging_through(Box::new(super::broker::pool_exchange(outbound)?));
+        transport = transport.exchanging_through(Box::new(super::broker::pool_exchange(outbound, endpoints.sts().as_str())?));
     }
     Ok(sutura_exec_bigquery::BigQueryWarehouse::new(
         source.clone(),
@@ -201,6 +202,9 @@ pub(super) fn impersonation_of(
         }
         Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(_)) => {
             sutura_exec_bigquery::adbc::Impersonation::GoogleLogin
+        }
+        Some(sutura_config::sources::caller_identity::CallerIdentity::CallerGoogleToken(_)) => {
+            sutura_exec_bigquery::adbc::Impersonation::CallerGoogleToken
         }
         Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(delegation)) => {
             sutura_exec_bigquery::adbc::Impersonation::DomainDelegation(
@@ -233,6 +237,21 @@ mod tests {
         assert_eq!(
             super::impersonation_of(&warehouse, configured),
             Ok(sutura_exec_bigquery::adbc::Impersonation::GoogleLogin)
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "bigquery")]
+    fn a_caller_google_token_source_is_composed_as_direct_google_jobs_query() {
+        let overlay = "security:\n  identity: multi-user\n  inbound:\n    - id: google\n      path: /google/mcp\n      mode: direct\n      verifier: google_tokeninfo\n      resource: https://sutura.example.com/google/mcp\n      authorization_server: https://accounts.google.com\n      client_id: dedicated.apps.googleusercontent.com\n      required_scopes: [https://www.googleapis.com/auth/bigquery.readonly]\nsources:\n  warehouse:\n    kind: bigquery\n    posture: impersonation-at-source\n    max_bytes_billed: 1073741824\n    admitted_by: [google]\n    caller_google_token:\n      acknowledged_because: a dedicated OAuth client belongs to this deployment\n";
+        let settings = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        )
+        .expect("Google direct deployment");
+        let warehouse = sutura_domain::model::SourceName::parse("warehouse").expect("source");
+        assert_eq!(
+            super::impersonation_of(&warehouse, settings.sources().get(&warehouse).expect("source")),
+            Ok(sutura_exec_bigquery::adbc::Impersonation::CallerGoogleToken)
         );
     }
 
@@ -425,7 +444,7 @@ mod tests {
                     .security()
                     .inbound()
                     .first()
-                    .map(sutura_config::InboundVerifier::identity)
+                    .and_then(sutura_config::InboundVerifier::identity)
                     .expect("a direct deployment"),
             )
             .expect("a gate");

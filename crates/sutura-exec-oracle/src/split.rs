@@ -48,12 +48,16 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches, RowSet, Value};
 use sutura_sql::{KeyBucket, Scn, generate_leg_as_of, generate_table_as_of};
 
-use crate::{OracleError, OracleWarehouse, Session};
+use crate::{OracleError, OracleWarehouse, Session, refuse_if_spent};
 
 pub(crate) mod columns;
 mod descriptor;
 
 pub use descriptor::{InvalidDescriptor, PartitionDescriptor};
+
+/// The most rows a partition may return. Collection retains one extra row to detect overflow;
+/// this check follows fetch/decode and does not bound a fetched batch or process memory.
+pub const MOST_PARTITION_ROWS: usize = 1_000_000;
 
 /// The root's statistics and its integer columns, in the session's own schema.
 const ROOT_IN_SCHEMA: &str = "SELECT t.NUM_ROWS, t.AVG_ROW_LEN, c.COLUMN_NAME FROM SYS.ALL_TABLES t LEFT \
@@ -211,11 +215,8 @@ pub(super) fn split_by_estimate(
     }
 }
 
-/// [`OracleWarehouse::describe_split`]: the first partition's statement, stopped before its first
-/// fetch, at a probed source only.
-///
-/// **The limit:** the statement runs, as the partition read does; the driver may still have the
-/// database produce a first round of rows before the read stops.
+/// [`OracleWarehouse::describe_split`]: parse and describe the first partition's generated SELECT
+/// without executing or fetching it, at a probed source only.
 pub(super) fn describe(
     warehouse: &OracleWarehouse,
     leg: &LegPlan,
@@ -232,10 +233,13 @@ pub(super) fn describe(
     };
     let query =
         generate_leg_as_of(leg, split.scn, Some(first.bucket())).map_err(|cause| OracleError::PartitionRender { cause })?;
-    let (_, declared) = warehouse
-        .run_declared(Session::Boot, (query.sql(), query.params()), deadline, Some(0))
-        .map_err(gone)?;
-    Ok(declared)
+    let _guard = warehouse.execution_lock.lock();
+    let remaining = refuse_if_spent(deadline)?;
+    warehouse
+        .connection
+        .set_call_timeout(Some(remaining))
+        .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
+    crate::batches::describe(&warehouse.connection, query.sql()).map_err(gone)
 }
 
 /// [`OracleWarehouse::read_partition`]. A partition whose columns are all declared fixed is
@@ -261,8 +265,18 @@ pub(super) fn read_partition(
         budget,
     )?;
     let (rows, declared) = warehouse
-        .run_declared(Session::Boot, (query.sql(), query.params()), deadline, None)
+        .run_declared(
+            Session::Boot,
+            (query.sql(), query.params()),
+            deadline,
+            Some(MOST_PARTITION_ROWS + 1),
+        )
         .map_err(gone)?;
+    if rows.rows().len() > MOST_PARTITION_ROWS {
+        return Err(OracleError::PartitionTooManyRows {
+            most_rows: MOST_PARTITION_ROWS,
+        });
+    }
     declared
         .map_or_else(
             || of_row_set(&rows).map_err(|cause| OracleError::Shape { cause }),

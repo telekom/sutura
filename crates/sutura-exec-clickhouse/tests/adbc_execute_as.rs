@@ -8,6 +8,7 @@
 
 #[cfg(test)]
 mod adbc_execute_as {
+    use std::collections::BTreeSet;
     use std::io::{ErrorKind, Read as _, Write as _};
     use std::net::{TcpListener, TcpStream};
     use std::path::Path;
@@ -18,12 +19,15 @@ mod adbc_execute_as {
     use sutura_dev::provisioned::{self, Provisioned};
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::identity::{Presented, PrincipalName, Secret};
-    use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, TableName};
+    use sutura_domain::model::{
+        Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, TableName,
+    };
     use sutura_domain::nonempty::NonEmpty;
     use sutura_domain::plan::{
         Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey, PlanMeasure, PlanPredicate,
         PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
     };
+    use sutura_domain::raw::RawStatement;
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content};
     use sutura_domain::warehouse::{ParamValue, ResultBatches, ResultBudget, RowSet, Value, Warehouse as _};
@@ -382,6 +386,31 @@ mod adbc_execute_as {
         assert_eq!(rows.rows(), case.expected().rows().len());
         let refused =
             run("adbc_switched", &signed_in_as("sutura_caller_b", &token)).expect_err("a token signs in only as its own `sub`");
+        assert!(at("adbc_switched").source_refused(&refused), "{refused}");
+
+        let statement =
+            RawStatement::parse("SELECT 'visible' AS visibility FROM conformance_events LIMIT 1").expect("bounded planned SQL");
+        let tables = BTreeSet::from([QualifiedTable::parse(corpus::TABLE).expect("the corpus table")]);
+        let planned = |database: &str, presented: &Presented| {
+            let warehouse = at(database);
+            assert!(!warehouse.accepts_raw_statements());
+            assert!(warehouse.execute_raw(&statement, presented, corpus::deadline()).is_none());
+            warehouse
+                .execute_planned_statement(&statement, &tables, presented, corpus::deadline())
+                .expect("planned SQL is supported")
+        };
+        for presented in [switched_to("sutura_switched"), signed_in_as("sutura_caller_a", &token)] {
+            let rows = planned("adbc_switched", &presented).expect("the caller reads its granted table");
+            assert_eq!(rows.rows(), &[vec![Value::Text(String::from("visible"))]]);
+        }
+        let refused = planned("adbc_service_only", &switched_to("sutura_switched"))
+            .expect_err("planned SQL cannot read a service-only table");
+        refused_for_lack_of(&at("adbc_service_only"), &refused, "ACCESS_DENIED");
+        let refused = planned("adbc_switched", &switched_to("sutura_switched_ungranted"))
+            .expect_err("planned SQL cannot switch without IMPERSONATE");
+        refused_for_lack_of(&at("adbc_switched"), &refused, "IMPERSONATE");
+        let refused = planned("adbc_switched", &signed_in_as("sutura_caller_b", &token))
+            .expect_err("planned SQL signs in only as the token subject");
         assert!(at("adbc_switched").source_refused(&refused), "{refused}");
     }
 

@@ -621,3 +621,44 @@ fn every_mapped_type_passes_the_schema_pass_and_float32_does_not() {
 const fn roomy() -> ResultBudget {
     ResultBudget::of_bytes(core::num::NonZeroUsize::MAX)
 }
+
+#[test]
+fn utc_microseconds_keep_the_exact_instant_and_nulls_through_the_result_schema() {
+    use arrow_array::TimestampMicrosecondArray;
+    let array: ArrayRef = Arc::new(
+        TimestampMicrosecondArray::from(vec![Some(-1), Some(0), Some(1_791_726_330_123_456), None]).with_timezone("UTC"),
+    );
+    let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new("seen", array.data_type().clone(), true)]));
+    let empty_rows: &[Vec<Value>] = &[];
+    assert_eq!(
+        ResultBatches::none_under(Arc::clone(&schema)).to_rows().unwrap().rows(),
+        empty_rows
+    );
+    let mut result = Accumulating::announcing(Arc::clone(&schema), 10, roomy());
+    result.push(RecordBatch::try_new(schema, vec![array]).unwrap()).unwrap();
+    assert_eq!(
+        result.finish().to_rows().unwrap().rows(),
+        &[
+            vec![Value::Text(String::from("1969-12-31T23:59:59.999999Z"))],
+            vec![Value::Text(String::from("1970-01-01T00:00:00Z"))],
+            vec![Value::Text(String::from("2026-10-11T13:45:30.123456Z"))],
+            vec![Value::Null],
+        ]
+    );
+    let outside = TimestampMicrosecondArray::from(vec![i64::MAX]).with_timezone("UTC");
+    assert!(matches!(
+        cell("seen", &outside, 0),
+        Err(UnreadableCell::UnsupportedType { .. })
+    ));
+    for kind in [
+        DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+        DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, Some("+01:00".into())),
+        DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, Some("UTC".into())),
+    ] {
+        let schema = Arc::new(Schema::new(vec![Field::new("seen", kind, true)]));
+        assert!(matches!(
+            ResultBatches::none_under(schema).to_rows(),
+            Err(UnreadableCell::UnsupportedType { .. })
+        ));
+    }
+}

@@ -977,10 +977,27 @@ fn get_dictionary_values(
 /// Read the data for a given block
 fn read_block<R: Read + Seek>(mut reader: R, block: &Block) -> Result<Buffer, ArrowError> {
     reader.seek(SeekFrom::Start(block.offset() as u64))?;
-    let body_len = block.bodyLength().to_usize().unwrap();
-    let metadata_len = block.metaDataLength().to_usize().unwrap();
-    let total_len = body_len.checked_add(metadata_len).unwrap();
-
+    let current_pos = reader.stream_position()?;
+    let file_len = reader.seek(SeekFrom::End(0))?;
+    let body_len = block.bodyLength().to_usize().ok_or_else(|| {
+        ArrowError::ParseError(format!("Invalid block body length: {}", block.bodyLength()))
+    })?;
+    let metadata_len = block.metaDataLength().to_usize().ok_or_else(|| {
+        ArrowError::ParseError(format!("Invalid block metadata length: {}", block.metaDataLength()))
+    })?;
+    let total_len = body_len.checked_add(metadata_len).ok_or_else(|| {
+        ArrowError::ParseError(format!("Block length overflow: body={body_len} metadata={metadata_len}"))
+    })?;
+    let remaining = file_len
+        .checked_sub(current_pos)
+        .and_then(|len| usize::try_from(len).ok())
+        .ok_or_else(|| ArrowError::ParseError(format!("Invalid block offset: {current_pos} exceeds file length {file_len}")))?;
+    if total_len > remaining {
+        return Err(ArrowError::ParseError(format!(
+            "Block extends past file end: need {total_len} bytes, only {remaining} available"
+        )));
+    }
+    reader.seek(SeekFrom::Start(current_pos))?;
     let mut buf = MutableBuffer::from_len_zeroed(total_len);
     reader.read_exact(&mut buf)?;
     Ok(buf.into())
@@ -1289,6 +1306,12 @@ impl FileReaderBuilder {
         reader.read_exact(&mut buffer)?;
 
         let footer_len = read_footer_length(buffer)?;
+        let file_len = reader.stream_position()?;
+        if footer_len as u64 > file_len.saturating_sub(10) {
+            return Err(ArrowError::ParseError(format!(
+                "Footer extends past file end: footer={footer_len} file={file_len}"
+            )));
+        }
 
         // read footer
         let mut footer_data = vec![0; footer_len];
@@ -1866,18 +1889,31 @@ pub(crate) enum IpcMessage {
     },
 }
 
-/// A low-level construct that reads [`Message::Message`]s from a reader while
-/// re-using a buffer for metadata. This is composed into [`StreamReader`].
+const IPC_READ_CHUNK: usize = 64 * 1024;
+
+/// Grow only as bytes arrive, so a truncated declaration cannot force its full allocation.
+fn read_message_bytes<R: Read>(reader: &mut R, len: usize) -> Result<MutableBuffer, ArrowError> {
+    let mut buf = MutableBuffer::new(0);
+    while buf.len() < len {
+        let start = buf.len();
+        let end = start.saturating_add(IPC_READ_CHUNK).min(len);
+        buf.resize(end, 0);
+        reader.read_exact(&mut buf[start..end])?;
+    }
+    Ok(buf)
+}
+
+/// A low-level construct that reads messages from a reader while re-using a metadata buffer.
 struct MessageReader<R> {
     reader: R,
-    buf: Vec<u8>,
+    buf: MutableBuffer,
 }
 
 impl<R: Read> MessageReader<R> {
     fn new(reader: R) -> Self {
         Self {
             reader,
-            buf: Vec::new(),
+            buf: MutableBuffer::new(0),
         }
     }
 
@@ -1897,15 +1933,15 @@ impl<R: Read> MessageReader<R> {
             return Ok(None);
         };
 
-        self.buf.resize(meta_len, 0);
-        self.reader.read_exact(&mut self.buf)?;
+        self.buf = read_message_bytes(&mut self.reader, meta_len)?;
 
         let message = crate::root_as_message(self.buf.as_slice()).map_err(|err| {
             ArrowError::ParseError(format!("Unable to get root as message: {err:?}"))
         })?;
 
-        let mut buf = MutableBuffer::from_len_zeroed(message.bodyLength() as usize);
-        self.reader.read_exact(&mut buf)?;
+        let body_len = usize::try_from(message.bodyLength())
+            .map_err(|_| ArrowError::ParseError(format!("Invalid body length: {}", message.bodyLength())))?;
+        let buf = read_message_bytes(&mut self.reader, body_len)?;
 
         Ok(Some((message, buf)))
     }
@@ -2153,6 +2189,50 @@ mod tests {
             batch_err.unwrap().to_string(),
             "Parser error: Invalid metadata length: -1"
         );
+    }
+
+    #[test]
+    fn test_footer_length_is_bounded_by_file_size() {
+        let mut input = i32::MAX.to_le_bytes().to_vec();
+        input.extend(crate::ARROW_MAGIC);
+        let error = FileReader::try_new(Cursor::new(input), None)
+            .err()
+            .expect("an impossible footer length is refused");
+        assert!(error.to_string().contains("Footer extends past file end"));
+    }
+
+    #[test]
+    fn test_truncated_huge_metadata_does_not_allocate_declared_length() {
+        let mut input = Vec::from(CONTINUATION_MARKER);
+        input.extend(i32::MAX.to_le_bytes());
+        input.extend([0; 8]);
+        let mut reader = MessageReader::new(Cursor::new(input));
+        assert!(reader.maybe_next().is_err());
+        assert!(reader.buf.is_empty());
+    }
+
+    #[test]
+    fn test_truncated_huge_body_does_not_allocate_declared_length() {
+        use flatbuffers::FlatBufferBuilder;
+
+        let mut fbb = FlatBufferBuilder::new();
+        let schema = crate::convert::IpcSchemaEncoder::new()
+            .schema_to_fb_offset(&mut fbb, &Schema::new(Vec::<Field>::new()));
+        let mut message = crate::MessageBuilder::new(&mut fbb);
+        message.add_version(MetadataVersion::V5);
+        message.add_header_type(crate::MessageHeader::Schema);
+        message.add_header(schema.as_union_value());
+        message.add_bodyLength(i64::MAX);
+        let root = message.finish();
+        fbb.finish(root, None);
+
+        let metadata = fbb.finished_data();
+        let mut input = Vec::from(CONTINUATION_MARKER);
+        input.extend((metadata.len() as i32).to_le_bytes());
+        input.extend(metadata);
+        input.extend([0; 8]);
+        let mut reader = MessageReader::new(Cursor::new(input));
+        assert!(reader.maybe_next().is_err());
     }
 
     #[test]

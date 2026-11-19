@@ -28,5 +28,23 @@ pub fn physical_schema(view: &ScopedView<'_>, prose: CatalogProse) -> String {
             }
         }
     }
+    for relationship in view.relationships() {
+        lines.push(format!(
+            "- Relationship `{}`: `{}` -> `{}` (`{}`)",
+            relationship.name(),
+            relationship.origin_model(),
+            relationship.target_model(),
+            relationship.join_type().as_str()
+        ));
+        for key in relationship.keys().iter() {
+            let grain = key
+                .grain()
+                .map_or_else(String::new, |grain| format!(" (origin truncated to {})", grain.as_str()));
+            lines.push(format!("  - Key: `{}` = `{}`{grain}", key.origin(), key.target()));
+        }
+        if let Some(comparison) = relationship.comparison() {
+            lines.push(format!("  - Comparison as {}", comparison.word()));
+        }
+    }
     lines.join("\n")
 }
