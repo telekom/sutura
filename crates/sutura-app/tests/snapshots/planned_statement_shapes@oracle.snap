@@ -2,6 +2,18 @@
 source: crates/sutura-app/tests/golden/statements.rs
 expression: corpus
 ---
+bare_join_left_filter_limit
+SELECT "a"."subscription_key" AS "c0", "b"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001) AND ("fct_usage_daily"."subscription_key" <= 1002)) AND ("fct_usage_daily"."voice_min" = 0.0))) "a" INNER JOIN "fct_subscription_monthly" "b" ON "a"."subscription_key" = "b"."subscription_key" WHERE (("b"."subscription_key" >= 1001) AND ("b"."subscription_key" <= 1002)) FETCH FIRST 200 ROWS ONLY
+
+bare_join_right_filter
+SELECT "a"."subscription_key" AS "c0", "b"."subscription_key" AS "c1" FROM "fct_usage_daily" "a" INNER JOIN (SELECT "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE ((("fct_subscription_monthly"."month" >= TIMESTAMP '2026-04-01 00:00:00') AND ("fct_subscription_monthly"."subscription_key" >= 1001)) AND ("fct_subscription_monthly"."subscription_key" <= 1002))) "b" ON "a"."subscription_key" = "b"."subscription_key" WHERE (("a"."subscription_key" >= 1001) AND ("a"."subscription_key" <= 1002))
+
+bare_join_explicit_alias
+SELECT "a"."subscription_key", "b"."subscription_key" AS "right_key" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001) AND ("fct_usage_daily"."subscription_key" <= 1002)) AND ("fct_usage_daily"."voice_min" = 0.0))) "a" INNER JOIN "fct_subscription_monthly" "b" ON "a"."subscription_key" = "b"."subscription_key" WHERE (("b"."subscription_key" >= 1001) AND ("b"."subscription_key" <= 1002)) FETCH FIRST 200 ROWS ONLY
+
+bare_join_ordered_limit
+SELECT "a"."subscription_key" AS "c0", "b"."subscription_key" AS "c1" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001) AND ("fct_usage_daily"."subscription_key" <= 1002)) AND ("fct_usage_daily"."voice_min" = 0.0))) "a" INNER JOIN "fct_subscription_monthly" "b" ON "a"."subscription_key" = "b"."subscription_key" WHERE (("b"."subscription_key" >= 1001) AND ("b"."subscription_key" <= 1002)) ORDER BY "a"."subscription_key" ASC NULLS LAST, "b"."subscription_key" ASC NULLS LAST FETCH FIRST 200 ROWS ONLY
+
 join_left_filter_limit
 SELECT CAST("a"."subscription_key" AS INTEGER) AS "left_key", CAST("b"."subscription_key" AS INTEGER) AS "right_key", CAST(EXTRACT(DAY FROM "a"."usage_date") AS INTEGER) AS "usage_day", CAST(EXTRACT(MONTH FROM "b"."month") AS INTEGER) AS "billing_month" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001) AND ("fct_usage_daily"."subscription_key" <= 1002)) AND ("fct_usage_daily"."voice_min" = 0.0))) "a" INNER JOIN "fct_subscription_monthly" "b" ON "a"."subscription_key" = "b"."subscription_key" WHERE (("b"."subscription_key" >= 1001) AND ("b"."subscription_key" <= 1002)) FETCH FIRST 200 ROWS ONLY
 
@@ -21,7 +33,7 @@ join_filter_without_limit
 SELECT CAST("a"."subscription_key" AS INTEGER) AS "left_key", CAST("b"."subscription_key" AS INTEGER) AS "right_key", CAST(EXTRACT(DAY FROM "a"."usage_date") AS INTEGER) AS "usage_day", CAST(EXTRACT(MONTH FROM "b"."month") AS INTEGER) AS "billing_month" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001) AND ("fct_usage_daily"."subscription_key" <= 1002)) AND ("fct_usage_daily"."voice_min" = 0.0))) "a" INNER JOIN "fct_subscription_monthly" "b" ON "a"."subscription_key" = "b"."subscription_key" WHERE (("b"."subscription_key" >= 1001) AND ("b"."subscription_key" <= 1002))
 
 join_nested_windows
-SELECT * FROM (SELECT CAST("a"."subscription_key" AS INTEGER) AS "left_key", CAST("b"."subscription_key" AS INTEGER) AS "right_key", CAST(EXTRACT(DAY FROM "a"."usage_date") AS INTEGER) AS "usage_day", CAST(EXTRACT(MONTH FROM "b"."month") AS INTEGER) AS "billing_month" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001) AND ("fct_usage_daily"."subscription_key" <= 1002)) AND ("fct_usage_daily"."voice_min" = 0.0))) "a" INNER JOIN "fct_subscription_monthly" "b" ON ("a"."subscription_key" + 1) = "b"."subscription_key" ORDER BY "usage_day" DESC NULLS FIRST, "billing_month" ASC NULLS LAST OFFSET 1 ROWS FETCH FIRST 8 ROWS ONLY) "q" ORDER BY "q"."billing_month" DESC NULLS FIRST, "q"."usage_day" ASC NULLS LAST OFFSET 2 ROWS FETCH FIRST 3 ROWS ONLY
+SELECT "q"."left_key", "q"."right_key", "q"."usage_day", "q"."billing_month" FROM (SELECT CAST("a"."subscription_key" AS INTEGER) AS "left_key", CAST("b"."subscription_key" AS INTEGER) AS "right_key", CAST(EXTRACT(DAY FROM "a"."usage_date") AS INTEGER) AS "usage_day", CAST(EXTRACT(MONTH FROM "b"."month") AS INTEGER) AS "billing_month" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ((("fct_usage_daily"."subscription_key" >= 1001) AND ("fct_usage_daily"."subscription_key" <= 1002)) AND ("fct_usage_daily"."voice_min" = 0.0))) "a" INNER JOIN "fct_subscription_monthly" "b" ON ("a"."subscription_key" + 1) = "b"."subscription_key" ORDER BY "usage_day" DESC NULLS FIRST, "billing_month" ASC NULLS LAST OFFSET 1 ROWS FETCH FIRST 8 ROWS ONLY) "q" ORDER BY "q"."billing_month" DESC NULLS FIRST, "q"."usage_day" ASC NULLS LAST OFFSET 2 ROWS FETCH FIRST 3 ROWS ONLY
 
 join_limited_input
 SELECT CAST("a"."subscription_key" AS INTEGER) AS "left_key", CAST("b"."subscription_key" AS INTEGER) AS "right_key", CAST(EXTRACT(DAY FROM "a"."usage_date") AS INTEGER) AS "usage_day", 0 AS "billing_month" FROM (SELECT "fct_usage_daily"."usage_date", "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."voice_min" = 0.0)) "a" INNER JOIN (SELECT "fct_subscription_monthly"."subscription_key" FROM "fct_subscription_monthly" WHERE ("fct_subscription_monthly"."subscription_key" = 1003) OFFSET 0 ROWS FETCH FIRST 2 ROWS ONLY) "b" ON ("a"."subscription_key" + 1) = "b"."subscription_key" FETCH FIRST 200 ROWS ONLY
@@ -75,10 +87,10 @@ count_star
 SELECT count(1) AS "n" FROM "fct_usage_daily"
 
 aliased_filter_limit
-SELECT CAST("k"."subscription_key" AS INTEGER) AS "key" FROM (SELECT * FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) "k" OFFSET 0 ROWS FETCH FIRST 2 ROWS ONLY) "k"
+SELECT CAST("k"."subscription_key" AS INTEGER) AS "key" FROM (SELECT "k"."subscription_key" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) "k" OFFSET 0 ROWS FETCH FIRST 2 ROWS ONLY) "k"
 
 aliased_filter_wide_limit
-SELECT CAST("k"."subscription_key" AS INTEGER) AS "key", CAST("k"."voice_min" AS INTEGER) AS "voice" FROM (SELECT * FROM (SELECT "fct_usage_daily"."subscription_key", "fct_usage_daily"."voice_min" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) "k" OFFSET 0 ROWS FETCH FIRST 2 ROWS ONLY) "k"
+SELECT CAST("k"."subscription_key" AS INTEGER) AS "key", CAST("k"."voice_min" AS INTEGER) AS "voice" FROM (SELECT "k"."subscription_key", "k"."voice_min" FROM (SELECT "fct_usage_daily"."subscription_key", "fct_usage_daily"."voice_min" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) "k" OFFSET 0 ROWS FETCH FIRST 2 ROWS ONLY) "k"
 
 aliased_ordered_filter_limit
 SELECT "key" FROM (SELECT CAST("k"."subscription_key" AS INTEGER) AS "key", "k"."subscription_key" FROM (SELECT "fct_usage_daily"."subscription_key" FROM "fct_usage_daily" WHERE ("fct_usage_daily"."subscription_key" = 1002)) "k" ORDER BY "k"."subscription_key" ASC NULLS LAST FETCH FIRST 2 ROWS ONLY)

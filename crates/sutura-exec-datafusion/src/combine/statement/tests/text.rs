@@ -17,24 +17,28 @@ fn oracle_lob_output_contains_no_statement_delimiter() {
         }
 
         fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+            if !explicit_source_projection(statement.as_str()) {
+                return Err(source.clone());
+            }
             self.0.push(String::from(statement.as_str()));
             Err(source.clone())
         }
     }
 
-    let schema = Schema::new(vec![Field::new("SCRIPT", DataType::Utf8, true).with_metadata(
-        std::collections::HashMap::from([
+    let schema = Schema::new(vec![
+        Field::new("ROW_ID", DataType::Int64, false),
+        Field::new("SCRIPT", DataType::Utf8, true).with_metadata(std::collections::HashMap::from([
             (String::from("sutura:oracle_lob"), String::from("clob")),
             (String::from("sutura:text_policy"), String::from(r#"{"max_text_bytes":4000}"#)),
-        ]),
-    )]);
+        ])),
+    ]);
     let tables = [StatementTable::new(
         named("geo"),
         QualifiedTable::parse("TEXT_EVENTS").unwrap(),
         TypeDialect::Oracle,
         Arc::new(schema),
     )];
-    let statement = RawStatement::parse(r#"SELECT "SCRIPT" FROM "TEXT_EVENTS""#).unwrap();
+    let statement = RawStatement::parse(r#"SELECT "SCRIPT", "ROW_ID" FROM "TEXT_EVENTS" ORDER BY "ROW_ID""#).unwrap();
     let mut legs = Captured(Vec::new());
     let answer = DataFusionCombiner::new().unwrap().answer_statement(
         StatementQuestion::new(
@@ -85,6 +89,9 @@ fn oracle_native_numeric_extrema_stay_exact_beside_bounded_lob_outputs() {
         }
 
         fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+            if !explicit_source_projection(statement.as_str()) {
+                return Err(source.clone());
+            }
             self.0.push(String::from(statement.as_str()));
             Err(source.clone())
         }

@@ -7,12 +7,15 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
+use polyglot_sql::ExpressionWalk as _;
+use polyglot_sql::builder::{self, Expr};
+use polyglot_sql::expressions::Expression;
 use sutura_domain::model::{ModelName, QualifiedTable, SourceName};
 use sutura_domain::plan::{FederationCombiner as _, StatementLegs, StatementQuestion, StatementTable};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::schema::TypeDialect;
-use sutura_domain::warehouse::{RawRows, RowSet, Value};
+use sutura_domain::warehouse::{RawRows, Real, RowSet, Value};
 use sutura_exec_datafusion::DataFusionCombiner;
 
 use crate::adapters::{DataSystemUnderTest, data_root, deadline, load_on, open, presented, runs_here, source};
@@ -26,6 +29,19 @@ mod text;
 use corpus::{CASES, Expected, FixtureRow, JoinRows, SubscriptionRow};
 
 const WORKING_SET: u64 = 1 << 30;
+
+fn explicit_source_projection(sql: &str) {
+    let parsed = polyglot_sql::parse_one(sql, polyglot_sql::DialectType::Generic)
+        .unwrap_or_else(|cause| panic!("the final source statement must parse: {cause}: {sql}"));
+    for node in parsed.dfs() {
+        if let Expression::Select(select) = node {
+            assert!(
+                select.expressions.iter().all(|item| !matches!(item, Expression::Star(_))),
+                "a final source SELECT must enumerate its projection: {sql}"
+            );
+        }
+    }
+}
 
 /// A renderer instrument: records source parts and returns empty, position-labelled rows.
 #[derive(Default)]
@@ -45,6 +61,7 @@ impl StatementLegs for Recorded {
     }
 
     fn run(&mut self, _source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        explicit_source_projection(statement.as_str());
         self.statements.push(statement.as_str().to_owned());
         let parsed = polyglot_sql::parse_one(statement.as_str(), polyglot_sql::DialectType::Generic).map_err(|_cause| ())?;
         let polyglot_sql::expressions::Expression::Select(select) = parsed else {
@@ -217,6 +234,7 @@ impl<W: DataSystemUnderTest> StatementLegs for Executing<'_, W> {
         if source != self.warehouse.source() || !self.expected_scans.contains(tables) {
             return Err(String::from("the native leg received an unexpected source or scan set"));
         }
+        explicit_source_projection(statement.as_str());
         self.observed_scans.push(tables.clone());
         self.warehouse
             .execute_planned_statement(statement, tables, &presented(), deadline())
@@ -258,7 +276,11 @@ fn joined_rows(shape: JoinRows, usage: &[FixtureRow], subscriptions: &[Subscript
         for right in subscriptions.iter().filter(|row| row.key == right_key).take(input_limit) {
             if matches!(
                 shape,
-                JoinRows::LeftFilter | JoinRows::OrderedWindow | JoinRows::NestedWindow | JoinRows::LimitedInput
+                JoinRows::LeftFilter
+                    | JoinRows::OrderedWindow
+                    | JoinRows::OrderedKeys
+                    | JoinRows::NestedWindow
+                    | JoinRows::LimitedInput
             ) && left.voice != 0.0
                 || matches!(shape, JoinRows::RightFilter) && right.month.as_str() < "2026-04-01"
             {
@@ -297,6 +319,9 @@ fn joined_rows(shape: JoinRows, usage: &[FixtureRow], subscriptions: &[Subscript
             rows = rows.into_iter().skip(2).take(5).collect();
         }
     }
+    if matches!(shape, JoinRows::OrderedKeys) {
+        rows.sort_by_key(|&(left, right, _day, _month)| (left, right));
+    }
     rows.into_iter()
         .map(|(left, right, day, month)| {
             vec![
@@ -327,7 +352,12 @@ fn fixture_rows() -> Vec<FixtureRow> {
         .collect()
 }
 
-fn expected(expected: Expected, fixture: &[FixtureRow], subscriptions: &[SubscriptionRow]) -> Vec<Vec<Value>> {
+fn expected(
+    expected: Expected,
+    fixture: &[FixtureRow],
+    subscriptions: &[SubscriptionRow],
+    dialect: TypeDialect,
+) -> Vec<Vec<Value>> {
     match expected {
         Expected::Keys(predicate) => fixture
             .iter()
@@ -362,6 +392,27 @@ fn expected(expected: Expected, fixture: &[FixtureRow], subscriptions: &[Subscri
                 .collect()
         }
         Expected::Joined(shape) => joined_rows(shape, fixture, subscriptions),
+        Expected::BareJoined { shape, .. } => joined_rows(shape, fixture, subscriptions)
+            .into_iter()
+            .map(|row| {
+                row.into_iter()
+                    .take(2)
+                    .map(|value| {
+                        if dialect == TypeDialect::Cube {
+                            let Value::Integer(key) = value else {
+                                panic!("a fixture key is integral")
+                            };
+                            Value::Real(
+                                Real::parse(f64::from(i32::try_from(key).expect("a small fixture key")))
+                                    .expect("a small fixture key is finite"),
+                            )
+                        } else {
+                            value
+                        }
+                    })
+                    .collect()
+            })
+            .collect(),
     }
 }
 
@@ -415,10 +466,10 @@ where
     for case in CASES {
         let statement = RawStatement::parse(case.sql(&path, &quoted(subscriptions.table()))).expect("a corpus query");
         let expected_scans = match case.expected {
-            Expected::Joined(_) if dialect == TypeDialect::Cube => {
+            Expected::Joined(_) | Expected::BareJoined { .. } if dialect == TypeDialect::Cube => {
                 admitted.iter().cloned().map(|table| BTreeSet::from([table])).collect()
             }
-            Expected::Joined(_) => vec![admitted.clone()],
+            Expected::Joined(_) | Expected::BareJoined { .. } => vec![admitted.clone()],
             _ => vec![BTreeSet::from([model.table().clone()])],
         };
         let mut executing = Executing {
@@ -433,7 +484,7 @@ where
         let Some(Ok(rows)) = answer else {
             panic!("{} at {}: {answer:?}", case.name, W::NAME);
         };
-        if matches!(case.expected, Expected::Joined(_)) {
+        if matches!(case.expected, Expected::Joined(_) | Expected::BareJoined { .. }) {
             executing.observed_scans.sort_unstable();
             executing.expected_scans.sort_unstable();
             assert_eq!(
@@ -446,7 +497,7 @@ where
         }
         let wanted = RowSet::new(
             case.expected.columns(),
-            expected(case.expected, &fixture, &subscription_fixture),
+            expected(case.expected, &fixture, &subscription_fixture, dialect),
         )
         .expect("rectangular fixture rows");
         let (columns, values) = rows.into_parts();
@@ -456,9 +507,75 @@ where
         if matches!(
             case.expected,
             Expected::Joined(JoinRows::OrderedWindow | JoinRows::NestedWindow)
+                | Expected::BareJoined {
+                    shape: JoinRows::OrderedKeys,
+                    ..
+                }
         ) {
             agree_on_order(&rows, &wanted, RealTolerance::DIFFERENTIAL)
                 .unwrap_or_else(|cause| panic!("{} at {}: {cause}", case.name, W::NAME));
+        }
+        if matches!(case.expected, Expected::BareJoined { .. }) && dialect != TypeDialect::Cube {
+            let native_dialect = match dialect {
+                TypeDialect::Oracle => polyglot_sql::DialectType::Oracle,
+                TypeDialect::BigQuery => polyglot_sql::DialectType::BigQuery,
+                TypeDialect::ClickHouse => polyglot_sql::DialectType::ClickHouse,
+                TypeDialect::DuckDb => polyglot_sql::DialectType::DuckDB,
+                TypeDialect::Postgres => polyglot_sql::DialectType::PostgreSQL,
+                TypeDialect::DataFusion | TypeDialect::Cube => polyglot_sql::DialectType::Generic,
+            };
+            let mut parsed = polyglot_sql::parse_one(statement.as_str(), polyglot_sql::DialectType::Generic)
+                .expect("one independent reference query parses");
+            // Engines disambiguate repeated bare names differently. Only the reference declares
+            // unique labels; the planned answer must still match the corpus's original labels.
+            let Expression::Select(select) = &mut parsed else {
+                panic!("the reference corpus declares a SELECT")
+            };
+            let reference_columns = (0..select.expressions.len())
+                .map(|index| format!("reference_{index}"))
+                .collect::<Vec<_>>();
+            select.expressions = std::mem::take(&mut select.expressions)
+                .into_iter()
+                .zip(&reference_columns)
+                .map(|(expression, name)| {
+                    let expression = match expression {
+                        Expression::Alias(alias) => alias.this,
+                        expression => expression,
+                    };
+                    let Expression::Alias(mut alias) = builder::alias(Expr(expression), name).into_inner() else {
+                        panic!("the reference builder declares an alias")
+                    };
+                    alias.alias.quoted = true;
+                    Expression::Alias(alias)
+                })
+                .collect();
+            let sql = polyglot_sql::generate(&parsed, native_dialect)
+                .expect("the independent reference query renders in the source dialect");
+            let direct = warehouse
+                .execute_planned_statement(
+                    &RawStatement::parse(sql).expect("a bounded reference query"),
+                    &admitted,
+                    &presented(),
+                    deadline(),
+                )
+                .expect("the native engine accepts planned statements")
+                .expect("the direct reference query executes");
+            let (columns, values) = direct.into_parts();
+            let direct = RowSet::new(columns, values).expect("rectangular reference rows");
+            let reference =
+                RowSet::new(reference_columns, wanted.rows().to_vec()).expect("the same fixture under reference labels");
+            agree_on_content(&reference, &direct, RealTolerance::DIFFERENTIAL)
+                .unwrap_or_else(|cause| panic!("{} direct at {}: {cause}", case.name, W::NAME));
+            if matches!(
+                case.expected,
+                Expected::BareJoined {
+                    shape: JoinRows::OrderedKeys,
+                    ..
+                }
+            ) {
+                agree_on_order(&reference, &direct, RealTolerance::DIFFERENTIAL)
+                    .unwrap_or_else(|cause| panic!("{} direct order at {}: {cause}", case.name, W::NAME));
+            }
         }
         writeln!(
             output,

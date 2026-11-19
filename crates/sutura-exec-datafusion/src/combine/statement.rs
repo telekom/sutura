@@ -79,6 +79,7 @@ use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
 
 mod oracle;
+mod projection;
 mod resolve;
 mod text;
 
@@ -89,6 +90,7 @@ where
 {
     let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause))?;
     let working_set = working_set_of(question.working_set_bytes());
+    let mut legs = projection::Guarded::new(legs);
     let fetched = Arc::new(Fetched::default());
     let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
     let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
@@ -130,7 +132,7 @@ where
         let [native] = native.as_mut_slice() else {
             return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
         };
-        let scans = resolve::statement(native, &native_tables)
+        let scans = resolve::explicit_statement(native, &native_tables)
             .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
         let read: Vec<_> = native_tables
             .into_iter()
@@ -139,16 +141,18 @@ where
         let text = oracle::native(native)
             .and_then(|sql| text::apply(sql, &read, TypeDialect::Oracle))
             .and_then(|sql| {
-                if read.iter().any(text::oracle_lobs) {
-                    text::bounded_native_oracle_rows(&sql, &native_schema, &read)
+                if read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema) {
+                    text::native_oracle_rows(&sql, &native_schema, &read)
                 } else {
                     Ok(sql)
                 }
             })
             .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
-        legs.open(&sources).map_err(StatementStopped::Leg)?;
-        return legs.run_planned(source, &native, &scans).map_err(StatementStopped::Leg);
+        legs.open(&sources, [&native])?;
+        let rows = legs.run_planned(source, &native, &scans)?;
+        return projection::output(&native_schema, rows)
+            .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
     }
     // A bare marked scan still needs fitting to its declared text representation.
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
@@ -157,15 +161,17 @@ where
         .map(|part| Ok((part.statement(whole, &tables)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
-    legs.open(&sources).map_err(StatementStopped::Leg)?;
+    legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
-        let rows = legs.run_planned(&part.source, statement, tables).map_err(|cause| {
-            tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
-            StatementStopped::Leg(cause)
+        let rows = legs.run_planned(&part.source, statement, tables).inspect_err(|stopped| {
+            if matches!(stopped, StatementStopped::Leg(_)) {
+                tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
+            }
         })?;
         if whole {
-            return Ok(rows);
+            return projection::output(part.plan.schema().inner(), rows)
+                .map_err(|cause| unplanned("the source output did not fit", &cause));
         }
         let batches =
             fitted(&rows, part.plan.schema().inner()).map_err(|cause| unplanned("a leg did not fit its part", &cause))?;
@@ -436,7 +442,7 @@ impl Part {
         if full_lobs && !whole {
             return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
         }
-        let text = if whole && !full_lobs {
+        let text = if whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner()) {
             unparsed(&self.plan, self.dialect)?
         } else {
             unparsed(&labelled(&self.plan)?, self.dialect)?
