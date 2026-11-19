@@ -273,10 +273,10 @@ start() {
   if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
     "SELECT 1 FROM pg_roles WHERE rolname='$user'" | grep -q 1; then
     psql -h "$pg" -p "$port" -U postgres -d postgres \
-      -v ON_ERROR_STOP=1 -c "CREATE ROLE \"$user\" LOGIN PASSWORD '$password'"
+      -v ON_ERROR_STOP=1 -c "CREATE ROLE \"$user\" LOGIN CREATEROLE PASSWORD '$password'"
   else
     psql -h "$pg" -p "$port" -U postgres -d postgres \
-      -v ON_ERROR_STOP=1 -c "ALTER ROLE \"$user\" WITH PASSWORD '$password'"
+      -v ON_ERROR_STOP=1 -c "ALTER ROLE \"$user\" WITH CREATEROLE PASSWORD '$password'"
   fi
   if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
     "SELECT 1 FROM pg_roles WHERE rolname='$mtls_user'" | grep -q 1; then

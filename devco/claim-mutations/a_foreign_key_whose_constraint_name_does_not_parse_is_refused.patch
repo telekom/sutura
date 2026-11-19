@@ -1,16 +1,15 @@
-diff --git a/crates/sutura-catalog-rdbms/src/lib.rs b/crates/sutura-catalog-rdbms/src/lib.rs
-index f2e6bf539..61a7302e8 100644
---- a/crates/sutura-catalog-rdbms/src/lib.rs
-+++ b/crates/sutura-catalog-rdbms/src/lib.rs
-@@ -497,8 +497,9 @@
-     ) -> Result<RelationshipName, RdbmsError> {
-         let mut prefix = if let Some(raw) = constraint {
-             RelationshipName::parse(raw)
--                .map_err(|cause| RdbmsError::RelationshipName {
--                    relationship: raw.to_owned(),
-+                .map_err(|cause| RdbmsError::ColumnName {
-+                    table: origin_table.to_string(),
-+                    column: origin_column.as_str().to_owned(),
-                     cause,
-                 })?
-                 .to_string()
+diff --git a/crates/sutura-catalog-rdbms/src/relationships.rs b/crates/sutura-catalog-rdbms/src/relationships.rs
+--- a/crates/sutura-catalog-rdbms/src/relationships.rs
++++ b/crates/sutura-catalog-rdbms/src/relationships.rs
+@@ -215,8 +215,9 @@
+     let constraint = relationship.name();
+     let mut prefix = if let Some(raw) = constraint {
+         RelationshipName::parse(raw)
+-            .map_err(|cause| RdbmsError::RelationshipName {
+-                relationship: raw.to_owned(),
++            .map_err(|cause| RdbmsError::ColumnName {
++                table: origin_table.to_string(),
++                column: relationship.origin_column().to_owned(),
+                 cause,
+             })?
+             .to_string()

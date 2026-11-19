@@ -165,7 +165,9 @@ pub(crate) fn select(
             .into());
         }
         table.column_metadata.retain(|column, _| columns.contains(column));
-        table.primary_key.retain(|column| columns.contains(column));
+        if table.primary_key.iter().any(|column| !columns.contains(column)) {
+            table.primary_key.clear();
+        }
         table.columns = columns;
         tables.push(table);
     }
@@ -182,7 +184,20 @@ pub(crate) fn select(
     if tables.is_empty() {
         return Err(RdbmsError::NoVisibleTables);
     }
-    Ok(Dictionary::new(tables, Vec::new()))
+    let relationships = dictionary
+        .relationships
+        .into_iter()
+        .filter(|relationship| {
+            let origin = tables.iter().find(|table| table.address() == relationship.origin_table());
+            let target = tables.iter().find(|table| table.address() == relationship.target_table());
+            origin.zip(target).is_some_and(|(origin, target)| {
+                relationship.pairs().all(|(left, right)| {
+                    origin.columns().iter().any(|column| column == left) && target.columns().iter().any(|column| column == right)
+                })
+            })
+        })
+        .collect();
+    Ok(Dictionary::new(tables, relationships))
 }
 
 /// A pinned bundle and the authority produced by the same native read.

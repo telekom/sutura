@@ -131,6 +131,7 @@ pub struct OracleReader {
     dial: PreparedDial,
     query: ReadQuery,
     bounds: DictionaryBounds,
+    relationships: Vec<crate::DeclaredRelationship>,
 }
 
 impl OracleReader {
@@ -156,6 +157,7 @@ impl OracleReader {
                 schema: documentation_schema.to_owned(),
                 environment,
                 predicate,
+                relationships_view: None,
             },
             bounds,
         )
@@ -204,7 +206,31 @@ impl OracleReader {
             dial,
             query,
             bounds,
+            relationships: Vec::new(),
         })
+    }
+
+    pub fn with_relationships_view(mut self, view: Option<&str>) -> Result<Self, InvalidReaderConfig> {
+        self.query.with_relationships_view(view)?;
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn with_relationships(mut self, relationships: Vec<crate::DeclaredRelationship>) -> Self {
+        self.relationships = relationships;
+        self
+    }
+
+    /// Selects a fixed prose-only projection on this reader's own read-only connection.
+    pub fn with_description_mapping(
+        mut self,
+        mapping: crate::descriptions::MappedDescriptions,
+        row_cap: Option<NonZeroU64>,
+        byte_cap: Option<NonZeroU64>,
+    ) -> Result<Self, InvalidReaderConfig> {
+        self.bounds = checked_bounds("descriptions", mapping.predicate(), row_cap, byte_cap)?;
+        self.query = ReadQuery::Descriptions(mapping);
+        Ok(self)
     }
 
     #[must_use]
@@ -250,19 +276,84 @@ impl DictionaryReader for OracleReader {
         let rows = connection
             .query(&self.query.oracle_statement(self.bounds), &params)
             .map_err(read_err)?;
-        let dictionary = assemble(
-            self.query.environment(),
-            self.bounds,
-            rows.map(|row| decode_row(&row.map_err(read_err)?)),
+        let mut assembly = Assembly::new(self.query.environment(), self.bounds);
+        for row in rows {
+            let row = decode_row(&row.map_err(read_err)?)?;
+            assembly.admit(row.decoded_len())?;
+            assembly.push(row)?;
+        }
+        let mut constraints = crate::relationships::constraints::Constraints::default();
+        let documented = self.query.documented_relationships();
+        if let Some(sql) = self.query.relationships_statement(true, self.bounds) {
+            for row in connection
+                .query(
+                    &sql,
+                    if documented {
+                        params.first().map_or(params.as_slice(), std::slice::from_ref)
+                    } else {
+                        &params
+                    },
+                )
+                .map_err(read_err)?
+            {
+                let row = row.map_err(read_err)?;
+                let values = (0..13)
+                    .map(|index| row.get::<Option<String>>(index).map_err(read_err))
+                    .collect::<Result<Vec<_>, _>>()?;
+                assembly.admit(values.iter().flatten().map(|value| value.len() as u64).sum())?;
+                let values: [Option<String>; 13] = values
+                    .try_into()
+                    .map_err(|_cause| RdbmsError::Read(Box::new(ConstraintColumns)))?;
+                let origin_catalog = if documented { row.get(13).map_err(read_err)? } else { None };
+                let target_catalog = if documented { row.get(14).map_err(read_err)? } else { None };
+                assembly.bill(
+                    origin_catalog.as_ref().map_or(0, |value: &String| value.len() as u64)
+                        + target_catalog.as_ref().map_or(0, |value: &String| value.len() as u64),
+                )?;
+                constraints.push_with_catalogs(values, origin_catalog, target_catalog)?;
+            }
+        }
+        let mut dictionary = assembly.finish();
+        let documented_declarations = constraints.apply(&mut dictionary)?;
+        let dictionary = self
+            .query
+            .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Oracle)?
+            .apply_relationship_declarations(
+                &self.relationships,
+                sutura_domain::warehouse::schema::TypeDialect::Oracle,
+                self.query.unbounded_number(),
+            )?;
+        let dictionary = dictionary.apply_relationship_declarations(
+            &documented_declarations,
+            sutura_domain::warehouse::schema::TypeDialect::Oracle,
+            self.query.unbounded_number(),
         )?;
+        for declaration in &self.relationships {
+            if let Some((sql, bounds)) = declaration.probe_statement(true).zip(declaration.check()) {
+                let mut probe = crate::relationships::declared::Probe::new(bounds);
+                for row in connection.query(&sql, &[]).map_err(read_err)? {
+                    let row = row.map_err(read_err)?;
+                    let multiplicity: String = row.get(0).map_err(read_err)?;
+                    let bytes: String = row.get(1).map_err(read_err)?;
+                    probe.admit(&multiplicity, &bytes)?;
+                }
+            }
+        }
         connection.rollback().map_err(read_err)?;
-        self.query
-            .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Oracle)
+        for declaration in &self.relationships {
+            declaration.mark_checked();
+        }
+        Ok(dictionary)
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("the native constraint projection has an unexpected column count")]
+struct ConstraintColumns;
+
 /// Gathers decoded rows under `bounds`, refusing at the first row that fails to decode or crosses
 /// a cap - so the read abandons its cursor there rather than after it.
+#[cfg(test)]
 fn assemble(
     environment: &str,
     bounds: DictionaryBounds,
