@@ -262,11 +262,15 @@ fn lineage(expression: &PlannedExpr, schema: &DFSchema) -> Lineage {
         PlannedExpr::Column(column) => schema
             .field_from_column(column)
             .map_or(Lineage::Unknown, |field| field_lineage(field)),
-        // A subquery's rows are not traced, nor is a column of the query around it.
-        PlannedExpr::ScalarSubquery(_)
-        | PlannedExpr::OuterReferenceColumn(..)
-        | PlannedExpr::Exists(_)
-        | PlannedExpr::InSubquery(_) => Lineage::Unknown,
+        // A scalar subquery is what its own plan's output field was marked, which this pass did
+        // before its parent; an unmarked field is unknown, as is a column of the query around it.
+        PlannedExpr::ScalarSubquery(subquery) => subquery
+            .subquery
+            .schema()
+            .fields()
+            .first()
+            .map_or(Lineage::Unknown, |field| field_lineage(field)),
+        PlannedExpr::OuterReferenceColumn(..) | PlannedExpr::Exists(_) | PlannedExpr::InSubquery(_) => Lineage::Unknown,
         // A call with no argument reads nothing.
         PlannedExpr::ScalarFunction(function) if function.args.is_empty() => Lineage::Free,
         other => {
@@ -342,6 +346,7 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
         .filter(|table| oracle_lobs(table))
         .flat_map(|table| table.schema().fields())
         .any(|field| field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob"));
+    let lobs = tables.iter().any(oracle_lobs);
     let labelled = super::projection::duplicate_names(schema);
     let columns = schema
         .fields()
@@ -349,7 +354,7 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
         .enumerate()
         .map(|(index, field)| {
             let column = format!("\"sutura_lob_output\".\"c{index}\"");
-            let value = match output_ceiling(field, bytes, national) {
+            let value = match lobs.then(|| output_ceiling(field, bytes, national)).flatten() {
                 Some(ceiling) => bounded_lob(&column, ceiling),
                 None => column,
             };
@@ -375,9 +380,10 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
 
 /// The byte ceiling of a text output of a LOB-bearing part, or `None` where the output is proven
 /// to derive from no LOB. An output whose lineage is unknown is bounded, under the national ceiling
-/// where any LOB of the part is a NCLOB.
-fn output_ceiling(field: &Field, bytes: u32, national: bool) -> Option<u32> {
-    if !is_text(field.data_type()) || field.metadata().contains_key("sutura:unbounded_number") {
+/// where any LOB of the part is a NCLOB. A `sutura:unbounded_number` key does not lift the bound:
+/// only a proven-free lineage does.
+pub(super) fn output_ceiling(field: &Field, bytes: u32, national: bool) -> Option<u32> {
+    if !is_text(field.data_type()) {
         return None;
     }
     match field_lineage(field) {

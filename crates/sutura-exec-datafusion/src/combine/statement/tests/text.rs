@@ -189,7 +189,7 @@ fn oracle_lob_bounds_hold_where_the_output_lineage_cannot_be_traced() {
         (
             r#"SELECT "LABEL", "LABEL" || (SELECT min("SCRIPT") FROM "TEXT_EVENTS") AS v FROM "TEXT_EVENTS""#,
             vec![1],
-            "1986",
+            "3986",
         ),
         (
             r#"SELECT initcap(substr("SCRIPT", 1, 3000)) AS v FROM "TEXT_EVENTS" GROUP BY ROLLUP(initcap(substr("SCRIPT", 1, 3000)))"#,
@@ -242,6 +242,39 @@ fn oracle_lob_bounds_hold_where_the_output_lineage_cannot_be_traced() {
             }
         }
     }
+}
+
+#[test]
+fn a_field_that_claims_an_unbounded_number_but_derives_from_a_lob_stays_bounded() {
+    use super::super::text::output_ceiling;
+
+    let field = |marks: &[(&str, &str)]| {
+        Field::new("v", DataType::Utf8, true).with_metadata(
+            marks
+                .iter()
+                .map(|(key, value)| (String::from(*key), String::from(*value)))
+                .collect(),
+        )
+    };
+    let number = ("sutura:unbounded_number", "utf8");
+    assert_eq!(
+        output_ceiling(&field(&[number, ("sutura:oracle_lob", "clob")]), 4000, false),
+        Some(4000)
+    );
+    assert_eq!(
+        output_ceiling(&field(&[number, ("sutura:oracle_lob", "nclob")]), 4000, false),
+        Some(2000)
+    );
+    assert_eq!(
+        output_ceiling(&field(&[number]), 4000, true),
+        Some(2000),
+        "unknown lineage is bounded"
+    );
+    assert_eq!(
+        output_ceiling(&field(&[number, ("sutura:oracle_lob_free", "true")]), 4000, true),
+        None,
+        "a proven-free native number is not clipped"
+    );
 }
 
 #[test]

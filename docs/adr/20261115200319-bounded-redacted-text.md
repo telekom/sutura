@@ -56,12 +56,13 @@ Oracle CLOB and NCLOB policies keep the full redacted value inside source SQL. `
 (rendered as Oracle `INSTR`) and `substr` windows therefore search and read beyond the first output
 window. Every text output of a LOB-bearing part is bounded after source operators, under the
 smallest bound of the part's LOB policies, unless the output is proven to derive from no LOB. The
-proof is positive: the only free leaves are a literal and a column of a scanned table that is not a
-LOB. Every computed value, of whatever type, inherits the widest lineage among all its operands,
+proof is positive: the only free leaves are a literal, a call that takes no argument, and a column
+of a scanned table that is not a LOB. A scalar subquery is what its own plan's output was proven to
+be, and a `sutura:unbounded_number` key never lifts the bound by itself. Every computed value, of whatever type, inherits the widest lineage among all its operands,
 conditions, filters and orderings included, so a numeric step such as `ascii(substr(..))` or a CASE
 over a LOB substring carries the LOB into any text it feeds; a numeric output itself is not
-text-bounded. Anything the pass cannot trace is bounded as a LOB would be: a scalar subquery, a
-correlated outer column and any other leaf. Typed output lineage is preserved before optimization,
+text-bounded. Anything the pass cannot trace is bounded as a LOB would be: a correlated
+outer column, a subquery whose output is unmarked and any other leaf. Typed output lineage is preserved before optimization,
 through projections, aggregates (grouping-set outputs included), windows, `DISTINCT ON` and union
 arms. A mark a later rewrite drops can only widen the bound, never narrow it. A `sutura:` metadata
 key a function computed is dropped, and `with_metadata`, the one admitted function that could write
