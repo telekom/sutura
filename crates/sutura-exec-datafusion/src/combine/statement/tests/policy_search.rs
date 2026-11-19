@@ -1,5 +1,4 @@
-//! What a part that reads a column under a text policy reports to its leg, and what a local part past
-//! the deadline reports when it did.
+//! What a part that reads a column under a text policy reports to its leg.
 
 use sutura_domain::plan::PolicyRead;
 
@@ -209,41 +208,25 @@ fn late(sql: &str, tables: &[StatementTable]) -> StatementAnswer<SourceName> {
     answered
 }
 
+/// No local-part stop names the policy: at Cube a filter on another column does not reach the source,
+/// and where the policy ran at its source the local join is not what the policy made slow.
 #[test]
-fn a_local_part_past_the_deadline_names_the_policy_where_a_part_runs_it_locally() {
-    let answered = late(&self_join(), &[region_table(TypeDialect::Cube, true)]);
-    assert!(
-        matches!(answered, Some(Err(StatementStopped::PolicySearchDeadlineExceeded))),
-        "{answered:?}"
-    );
-    let answered = late(&federated_cross_join(), &customers_and(region_table(TypeDialect::Cube, true)));
-    assert!(
-        matches!(answered, Some(Err(StatementStopped::PolicySearchDeadlineExceeded))),
-        "{answered:?}"
-    );
-}
-
-#[test]
-fn a_local_part_past_the_deadline_stays_generic_without_a_policy_column() {
-    let answered = late(&self_join(), &[region_table(TypeDialect::Cube, false)]);
-    assert!(
-        matches!(answered, Some(Err(StatementStopped::DeadlineExceeded))),
-        "{answered:?}"
-    );
-}
-
-/// The same statement and tables but for `geo`'s dialect: the policy ran at the source, so a local
-/// join that then timed out says nothing about the policy.
-#[test]
-fn a_local_join_that_times_out_after_a_policy_ran_at_its_source_stays_generic() {
-    let answered = late(
-        &federated_cross_join(),
-        &customers_and(region_table(TypeDialect::Postgres, true)),
-    );
-    assert!(
-        matches!(answered, Some(Err(StatementStopped::DeadlineExceeded))),
-        "{answered:?}"
-    );
+fn a_local_part_past_the_deadline_stays_generic_whether_or_not_it_read_a_policy_column() {
+    for (sql, tables) in [
+        (self_join(), vec![region_table(TypeDialect::Cube, true)]),
+        (self_join(), vec![region_table(TypeDialect::Cube, false)]),
+        (federated_cross_join(), customers_and(region_table(TypeDialect::Cube, true))),
+        (
+            federated_cross_join(),
+            customers_and(region_table(TypeDialect::Postgres, true)),
+        ),
+    ] {
+        let answered = late(&sql, &tables);
+        assert!(
+            matches!(answered, Some(Err(StatementStopped::DeadlineExceeded))),
+            "{answered:?}"
+        );
+    }
 }
 
 #[test]

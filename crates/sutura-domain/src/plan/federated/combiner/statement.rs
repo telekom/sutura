@@ -127,10 +127,11 @@ impl<'a> StatementQuestion<'a> {
 
 /// Whether a source part reads a column under a text policy, and where that policy runs.
 ///
-/// Decides what a part that ran past the deadline means: a part that never read masked text is a slow
-/// statement, and a part that did is one the policy made unfinishable. **The limit:** the
-/// engine reads it off the planned scans' projected columns, so a column the planner pruned is not
-/// read, and a part that reads a policy column only to project it is read all the same.
+/// Decides what a leg that ran past the deadline means: one that never read masked text is a slow
+/// statement, and one whose source applies the policy itself ([`Self::AtSource`]) is a search a filter
+/// on another column narrows. **The limit:** the engine reads it off the planned scans' projected
+/// columns, so a column the planner pruned is not read, and a part that reads a policy column only to
+/// project it is read all the same.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PolicyRead {
     /// No column under a text policy is read.
@@ -139,7 +140,8 @@ pub enum PolicyRead {
     /// answers are already masked and filtered.
     AtSource,
     /// A column under a text policy is read and the engine applies the policy to the rows after the
-    /// leg answers, so the local part of the plan does the masking.
+    /// leg answers, as at a Cube source. Cube is sent only bare scans for a protected table, so a
+    /// filter on another column does not narrow its answer, and no remedy is named for it.
     Locally,
 }
 
@@ -211,9 +213,6 @@ pub enum StatementStopped<S> {
     AnswerTooLarge,
     /// Planning or the local part of the plan ran past the request's deadline.
     DeadlineExceeded,
-    /// The local part of a plan ran past the request's deadline, and a part's text policy runs in
-    /// this process ([`PolicyRead::Locally`]), so the local part is what masks and filters the text.
-    PolicySearchDeadlineExceeded,
 }
 
 /// The combiner's answer to a statement: `None` where it plans none.

@@ -1,4 +1,4 @@
-//! What `answer_sql` makes of a part that ran out of room, by whether the combiner says it read a
+//! What `answer_sql` makes of a leg that ended in a refusal, by whether the combiner says it read a
 //! column under a text policy and where that policy runs.
 
 use std::collections::BTreeSet;
@@ -85,16 +85,8 @@ impl Warehouse for Planned {
     }
 }
 
-/// What the combiner says of the one part it plans.
-#[derive(Clone, Copy)]
-enum Says {
-    /// Its leg reads as `policy` says.
-    LegReads(PolicyRead),
-    /// Its local part ran past the deadline over a policy column.
-    LocalPartLateOverPolicy,
-}
-
-struct Combiner(Says);
+/// What the combiner says of the one leg it plans: whether it reads a policy column.
+struct Combiner(PolicyRead);
 
 impl FederationCombiner for Combiner {
     type Error = core::fmt::Error;
@@ -123,17 +115,14 @@ impl FederationCombiner for Combiner {
     where
         L: StatementLegs,
     {
-        let Says::LegReads(policy) = self.0 else {
-            return Some(Err(StatementStopped::PolicySearchDeadlineExceeded));
-        };
         let ran = legs
             .open(&BTreeSet::from([source()]))
-            .and_then(|()| legs.run_planned(&source(), question.statement(), &BTreeSet::new(), policy));
+            .and_then(|()| legs.run_planned(&source(), question.statement(), &BTreeSet::new(), self.0));
         Some(ran.map_err(StatementStopped::Leg))
     }
 }
 
-fn refused(says: Says, ends: Ends) -> RawRefusalReason {
+fn refused(read: PolicyRead, ends: Ends) -> RawRefusalReason {
     let warehouses = Warehouses::of(Planned {
         inner: RawCapableWarehouse::answering_rows(source(), shared(), 0),
         ends,
@@ -147,7 +136,7 @@ fn refused(says: Says, ends: Ends) -> RawRefusalReason {
         &statement,
         &CountingBroker::default(),
         &warehouses,
-        &Combiner(says),
+        &Combiner(read),
         &scope,
         1 << 20,
         test_deadline(),
@@ -169,44 +158,29 @@ fn deadline_exceeded() -> RawRefusalReason {
     }
 }
 
+/// Named where the source applies the policy itself, so a filter on another column narrows the scan.
+/// A Cube leg is sent only bare scans, so its timeout keeps the generic refusal until filters reach it.
 #[test]
-fn a_leg_past_its_deadline_is_named_only_when_it_read_a_policy_column() {
-    for read in [PolicyRead::AtSource, PolicyRead::Locally] {
-        assert_eq!(
-            refused(Says::LegReads(read), Ends::TimedOut),
-            RawRefusalReason::PolicySearchNeedsNarrowing,
-            "{read:?}"
-        );
-    }
+fn a_leg_past_its_deadline_is_named_only_where_the_source_applies_the_policy() {
     assert_eq!(
-        refused(Says::LegReads(PolicyRead::Unread), Ends::TimedOut),
-        deadline_exceeded()
+        refused(PolicyRead::AtSource, Ends::TimedOut),
+        RawRefusalReason::PolicySearchNeedsNarrowing
     );
+    for read in [PolicyRead::Locally, PolicyRead::Unread] {
+        assert_eq!(refused(read, Ends::TimedOut), deadline_exceeded(), "{read:?}");
+    }
 }
 
-/// A policy read renames a deadline and nothing else: a source's own size refusals, and the row cap,
-/// are what they were. A Cube source holding a protected table is sent only bare scans, so a filter
-/// could not narrow them.
+/// A policy read renames a source-side deadline and nothing else: a source's own size refusals, and the
+/// row cap, are what they were.
 #[test]
 fn a_policy_read_does_not_rename_a_size_refusal() {
     for read in [PolicyRead::Unread, PolicyRead::AtSource, PolicyRead::Locally] {
+        assert_eq!(refused(read, Ends::TooMuchData), RawRefusalReason::ResultTooLarge, "{read:?}");
         assert_eq!(
-            refused(Says::LegReads(read), Ends::TooMuchData),
-            RawRefusalReason::ResultTooLarge,
-            "{read:?}"
-        );
-        assert_eq!(
-            refused(Says::LegReads(read), Ends::Rows(past_the_cap())),
+            refused(read, Ends::Rows(past_the_cap())),
             RawRefusalReason::TooManyRows { limit: MAX_ROWS },
             "{read:?}"
         );
     }
-}
-
-#[test]
-fn a_local_part_past_the_deadline_over_a_policy_column_is_named() {
-    assert_eq!(
-        refused(Says::LocalPartLateOverPolicy, Ends::Rows(1)),
-        RawRefusalReason::PolicySearchNeedsNarrowing
-    );
 }

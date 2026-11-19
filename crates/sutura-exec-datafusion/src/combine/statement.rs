@@ -165,7 +165,6 @@ where
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
-    let policy_runs_locally = parts.iter().any(|part| part.policy == PolicyRead::Locally);
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
@@ -193,11 +192,7 @@ where
             .map_err(|cause| CombineError::Execute { cause })?;
         collected(frame, question.working_set_bytes(), working_set).await
     })
-    .ok_or(if policy_runs_locally {
-        StatementStopped::PolicySearchDeadlineExceeded
-    } else {
-        StatementStopped::DeadlineExceeded
-    })?;
+    .ok_or(StatementStopped::DeadlineExceeded)?;
     let answered = match local {
         Ok(answered) => answered,
         Err(CombineError::Exhausted { .. }) => return Err(StatementStopped::AnswerTooLarge),
@@ -414,8 +409,8 @@ struct Part {
     policy: PolicyRead,
 }
 
-/// Whether a scan of `plan` projects a column under a text policy. Cube's policy runs locally over
-/// the rows its leg answers, so there the leg's row cap counts rows before it.
+/// Whether a scan of `plan` projects a column under a text policy. Cube's policy runs here over the
+/// rows its leg answers, so a filter on another column does not reach Cube and does not narrow them.
 fn policy_read(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<PolicyRead> {
     let mut reads = false;
     plan.apply_with_subqueries(|node| {

@@ -245,7 +245,6 @@ where
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
         })),
-        Some(Err(StatementStopped::PolicySearchDeadlineExceeded)) => Ok(refusal(RawRefusalReason::PolicySearchNeedsNarrowing)),
         None => only(listed, warehouses).map_or_else(
             || Err(RunSqlError::Unplanned),
             |source| pass_through(&mut legs, statement, source),
@@ -453,7 +452,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
                 RawRefusalReason::ResultTooLarge
             } else if warehouse.deadline_exceeded(&cause) {
-                if policy.is_read() {
+                if policy == PolicyRead::AtSource {
                     RawRefusalReason::PolicySearchNeedsNarrowing
                 } else {
                     RawRefusalReason::DeadlineExceeded { budget_seconds }

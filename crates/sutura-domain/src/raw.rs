@@ -209,16 +209,18 @@ pub enum RawRefusalReason {
     /// Refused before any leg exists, so nothing reached a data system. Carries no source name: the
     /// caller already holds its own tool's source list.
     PlanSpansMoreThanOneSource,
-    /// A statement that reads a column under a text policy ran past the request's deadline: a part
-    /// at its source, or the local part of the plan when a part's policy runs here.
+    /// A statement part that reads a column under a text policy ran past the request's deadline at a
+    /// source that applies the policy itself.
     ///
     /// **A backstop, not a fix, and the limit stated with the claim.** The policy masks every row it
     /// reads before the statement's own predicate sees it, so a search with no other filter reads the
-    /// whole column. This refusal names that cause where a generic timeout would not; it does not
-    /// make the statement finish, and a statement over a policy column that is not a search is named
-    /// the same way. A filter on a column without a policy narrows it, except at a Cube source, whose
-    /// protected tables are read whole (`docs/raw-text-search.md`). **What it discloses:** that a
-    /// column the caller can already read carries a text policy, and nothing about the policy.
+    /// whole column, and a filter on a column without a policy narrows it. This refusal names that
+    /// cause where a generic timeout would not; it does not make the statement finish, and a statement
+    /// over a policy column that is not a search is named the same way. **Not given at Cube:** its
+    /// protected tables are read whole and filtered here, so the remedy cannot help, and a timeout
+    /// there stays [`Self::DeadlineExceeded`] until filters reach Cube (`docs/raw-text-search.md`).
+    /// **What it discloses:** that a column the caller can already read carries a text policy, and
+    /// nothing about the policy.
     PolicySearchNeedsNarrowing,
 }
 
