@@ -22,6 +22,8 @@ use tokio::runtime::Runtime;
 
 use crate::combine::DataFusionCombiner;
 
+#[cfg(test)]
+mod literals;
 mod oracle;
 #[cfg(test)]
 mod registration;

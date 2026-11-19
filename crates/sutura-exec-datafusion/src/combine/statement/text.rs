@@ -15,6 +15,8 @@ use sutura_domain::catalog::TextPolicy;
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
+use super::literal::{literal, spelled};
+
 const KEY: &str = "sutura:text_policy";
 const LOB_KEY: &str = "sutura:oracle_lob";
 
@@ -79,18 +81,22 @@ pub(super) fn bounded_oracle_rows(sql: &str, schema: &Schema, tables: &[Statemen
 
 /// Label the caller's original query with a CTE column list: its numeric expressions, aliases,
 /// wildcards and set operations stay native. Existing CTEs remain at the top level for Oracle.
-pub(super) fn bounded_native_oracle_rows(sql: &str, schema: &Schema, tables: &[StatementTable]) -> Result<String> {
-    let mut parsed = Parser::parse_sql(&GenericDialect, sql)?;
-    let Some(Statement::Query(mut query)) = parsed.pop() else {
+pub(super) fn bounded_native_oracle_rows(
+    statement: &mut Statement,
+    schema: &Schema,
+    tables: &[StatementTable],
+) -> Result<String> {
+    let Statement::Query(query) = statement else {
         return plan_err!("expected one native Oracle query");
     };
     let ordered = query.order_by.is_some();
-    let existing = query
-        .with
-        .take()
-        .map_or_else(|| String::from("WITH "), |with| format!("{with}, "));
+    let existing = match query.with.take() {
+        Some(mut with) => format!("{}, ", spelled(&mut with, TypeDialect::Oracle)?),
+        None => String::from("WITH "),
+    };
+    let query = spelled(query.as_mut(), TypeDialect::Oracle)?;
     let mut name = String::from("sutura_lob_values");
-    let folded = sql.to_ascii_lowercase();
+    let folded = format!("{existing}{query}").to_ascii_lowercase();
     while folded.contains(&name) {
         name.push('_');
     }
@@ -176,18 +182,14 @@ pub(super) fn protected(table: &StatementTable) -> bool {
     table.schema().fields().iter().any(|field| field.metadata().contains_key(KEY))
 }
 
-pub(super) fn apply(text: String, tables: &[StatementTable], dialect: TypeDialect) -> Result<String> {
+pub(super) fn apply(statement: &mut Statement, tables: &[StatementTable], dialect: TypeDialect) -> Result<()> {
     if !tables.iter().any(protected) {
-        return Ok(text);
+        return Ok(());
     }
-    let mut statements = Parser::parse_sql(&GenericDialect, &text)?;
-    let [statement] = statements.as_mut_slice() else {
-        return plan_err!("expected one source statement");
-    };
     if let ControlFlow::Break(cause) = statement.visit(&mut Views { tables, dialect }) {
         return Err(cause);
     }
-    Ok(statement.to_string())
+    Ok(())
 }
 
 struct Views<'a> {
@@ -294,33 +296,26 @@ const fn quote(dialect: TypeDialect) -> char {
     }
 }
 
-fn literal(text: &str, dialect: TypeDialect) -> String {
-    let text = text.replace('\'', "''");
-    let text = if matches!(dialect, TypeDialect::BigQuery | TypeDialect::ClickHouse) {
-        text.replace('\\', "\\\\")
-    } else {
-        text
-    };
-    format!("'{text}'")
-}
-
+/// The view is parsed here before the statement holding it is written for `dialect`, so its literals
+/// are written as this process reads them.
 fn expression(column: &str, policy: &TextPolicy, dialect: TypeDialect, bound_output: bool) -> String {
+    let parsed = TypeDialect::DataFusion;
     let mut value = column.to_owned();
     for rule in policy.redactions() {
         let pattern = rule.pattern();
-        let replacement = literal(rule.replacement(), dialect);
+        let replacement = literal(rule.replacement(), parsed);
         value = match dialect {
             TypeDialect::Oracle => {
                 let (pattern, flags) = pattern.strip_prefix("(?i)").map_or((pattern, "c"), |pattern| (pattern, "i"));
                 format!(
                     "REGEXP_REPLACE({value}, {}, {replacement}, 1, 0, '{flags}')",
-                    literal(pattern, dialect)
+                    literal(pattern, parsed)
                 )
             }
-            TypeDialect::ClickHouse => format!("replaceRegexpAll({value}, {}, {replacement})", literal(pattern, dialect)),
-            TypeDialect::BigQuery => format!("REGEXP_REPLACE({value}, {}, {replacement})", literal(pattern, dialect)),
+            TypeDialect::ClickHouse => format!("replaceRegexpAll({value}, {}, {replacement})", literal(pattern, parsed)),
+            TypeDialect::BigQuery => format!("REGEXP_REPLACE({value}, {}, {replacement})", literal(pattern, parsed)),
             TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::DataFusion => {
-                format!("REGEXP_REPLACE({value}, {}, {replacement}, 'g')", literal(pattern, dialect))
+                format!("REGEXP_REPLACE({value}, {}, {replacement}, 'g')", literal(pattern, parsed))
             }
         };
     }

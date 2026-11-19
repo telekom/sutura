@@ -24,7 +24,7 @@ fn oracle_temporal_constants_use_ansi_literals_without_session_format_casts() {
         .expect("literal columns project")
         .build()
         .expect("a literal plan builds");
-    let sql = super::super::oracle::unparsed(&plan).expect("the Oracle constants unparse");
+    let sql = super::super::unparsed(&plan, TypeDialect::Oracle, &[]).expect("the Oracle constants unparse");
     for literal in [
         "DATE '2026-01-01'",
         "TIMESTAMP '2026-01-01 00:00:00'",
@@ -463,7 +463,7 @@ fn a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect() {
         TypeDialect::BigQuery,
         TypeDialect::Oracle,
     ] {
-        let sql = super::super::unparsed(&plan, dialect).expect("the joined plan unparses");
+        let sql = super::super::unparsed(&plan, dialect, &[]).expect("the joined plan unparses");
         let mut legs = OracleLegs {
             engines: Engines::new(None),
             statements: Vec::new(),
@@ -523,7 +523,7 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             .expect("an outer projection")
             .build()
             .expect("a bounded source plan");
-        let sql = super::super::unparsed(&plan, dialect).expect("the source plan unparses");
+        let sql = super::super::unparsed(&plan, dialect, &[]).expect("the source plan unparses");
         let mut legs = OracleLegs {
             engines: Engines::new(None),
             statements: Vec::new(),
@@ -551,7 +551,7 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
                 .expect("a labelled output")
                 .build()
                 .expect("a sorted source plan");
-            let sql = super::super::unparsed(&sorted, dialect).expect("the sorted plan unparses");
+            let sql = super::super::unparsed(&sorted, dialect, &[]).expect("the sorted plan unparses");
             let rows = legs
                 .run(&named("geo"), &RawStatement::parse(&sql).expect("a source statement"))
                 .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));

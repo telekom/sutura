@@ -78,6 +78,7 @@ use tokio::runtime::Runtime;
 use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
 
+mod literal;
 mod oracle;
 mod resolve;
 mod text;
@@ -137,12 +138,12 @@ where
             .filter(|table| scans.contains(table.table()))
             .collect();
         let text = oracle::native(native)
-            .and_then(|sql| text::apply(sql, &read, TypeDialect::Oracle))
-            .and_then(|sql| {
+            .and_then(|()| text::apply(native, &read, TypeDialect::Oracle))
+            .and_then(|()| {
                 if read.iter().any(text::oracle_lobs) {
-                    text::bounded_native_oracle_rows(&sql, &native_schema, &read)
+                    text::bounded_native_oracle_rows(native, &native_schema, &read)
                 } else {
-                    Ok(sql)
+                    literal::spelled(native, TypeDialect::Oracle)
                 }
             })
             .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
@@ -437,14 +438,9 @@ impl Part {
             return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
         }
         let text = if whole && !full_lobs {
-            unparsed(&self.plan, self.dialect)?
+            unparsed(&self.plan, self.dialect, &read)?
         } else {
-            unparsed(&labelled(&self.plan)?, self.dialect)?
-        };
-        let text = if self.dialect == TypeDialect::Cube {
-            text
-        } else {
-            text::apply(text, &read, self.dialect)?
+            unparsed(&labelled(&self.plan)?, self.dialect, &read)?
         };
         let text = if full_lobs {
             text::bounded_oracle_rows(&text, self.plan.schema().inner(), &read)?
@@ -689,7 +685,13 @@ async fn planned(
         .with_allow_ddl(false)
         .with_allow_dml(false)
         .with_allow_statements(false);
-    let policy_sql = statement.to_string();
+    let local: Vec<_> = tables
+        .iter()
+        .filter(|table| table.dialect() == TypeDialect::Cube && text::protected(table))
+        .cloned()
+        .collect();
+    // Cube's text policies rewrite the resolved statement itself; no text is parsed a second time.
+    let policy = (!local.is_empty()).then(|| statement.clone());
     let plan = context
         .state()
         .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
@@ -701,28 +703,19 @@ async fn planned(
         Ok(TreeNodeRecursion::Continue)
     })?;
     // Validate caller functions before registering the policy-only regex replacement.
-    let local: Vec<_> = tables
-        .iter()
-        .filter(|table| table.dialect() == TypeDialect::Cube && text::protected(table))
-        .cloned()
-        .collect();
-    let plan = if local.is_empty() {
-        plan
-    } else {
+    let plan = if let Some(mut policy) = policy {
         let replace = SessionStateDefaults::default_scalar_functions()
             .into_iter()
             .find(|function| function.name() == "regexp_replace")
             .ok_or_else(|| plan_datafusion_err!("the text policy function is unavailable"))?;
         context.register_udf(replace.as_ref().clone());
-        let sql = text::apply(policy_sql, &local, TypeDialect::DataFusion)?;
-        let mut rewritten = Parser::parse_sql(&GenericDialect, &sql).map_err(DataFusionError::from)?;
-        let statement = rewritten
-            .pop()
-            .ok_or_else(|| plan_datafusion_err!("the text policy query is absent"))?;
+        text::apply(&mut policy, &local, TypeDialect::DataFusion)?;
         context
             .state()
-            .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
+            .statement_to_plan(EngineStatement::Statement(Box::new(policy)))
             .await?
+    } else {
+        plan
     };
     let plan = if numeric_operations && tables.iter().any(text::oracle_lobs) {
         text::native_number_outputs(plan)?
@@ -774,7 +767,9 @@ fn label(index: usize) -> String {
     format!("c{index}")
 }
 
-fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+/// `plan` as `dialect`'s text: `read`'s text policies applied, except at Cube, which applies them
+/// before its query operators, and then every string literal written as `dialect` reads it.
+fn unparsed(plan: &LogicalPlan, dialect: TypeDialect, read: &[StatementTable]) -> Planned<String> {
     if dialect == TypeDialect::Cube
         && plan
             .schema()
@@ -784,18 +779,14 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
     {
         return plan_err!("Cube cannot preserve this unsigned result type");
     }
-    let text = |spelling: &dyn Dialect| {
-        Unparser::new(spelling)
-            .plan_to_sql(plan)
-            .map(|statement| statement.to_string())
-    };
-    match dialect {
-        TypeDialect::DuckDb => text(&DuckDBDialect::new()),
-        TypeDialect::DataFusion => text(&DefaultDialect {}),
-        TypeDialect::Postgres | TypeDialect::Cube => text(&PostgreSqlDialect {}),
+    let unparse = |spelling: &dyn Dialect| Unparser::new(spelling).plan_to_sql(plan);
+    let mut statement = match dialect {
+        TypeDialect::DuckDb => unparse(&DuckDBDialect::new()),
+        TypeDialect::DataFusion => unparse(&DefaultDialect {}),
+        TypeDialect::Postgres | TypeDialect::Cube => unparse(&PostgreSqlDialect {}),
         TypeDialect::Oracle => oracle::unparsed(plan),
-        TypeDialect::BigQuery => text(&BigQueryDialect {}),
-        TypeDialect::ClickHouse => text(
+        TypeDialect::BigQuery => unparse(&BigQueryDialect {}),
+        TypeDialect::ClickHouse => unparse(
             &CustomDialectBuilder::new()
                 .with_identifier_quote_style('`')
                 .with_use_timestamp_for_date64(true)
@@ -804,7 +795,11 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
                 .with_character_length_style(CharacterLengthStyle::Length)
                 .build(),
         ),
+    }?;
+    if dialect != TypeDialect::Cube {
+        text::apply(&mut statement, read, dialect)?;
     }
+    literal::spelled(&mut statement, dialect)
 }
 
 /// A leg's rows as batches of its part's schema: its columns the part's labels in order, each cast

@@ -12,7 +12,7 @@ use datafusion::sql::sqlparser::ast::{
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle};
 
-pub(super) fn unparsed(plan: &LogicalPlan) -> Result<String> {
+pub(super) fn unparsed(plan: &LogicalPlan) -> Result<Statement> {
     let spelling = CustomDialectBuilder::new()
         .with_identifier_quote_style('"')
         .with_use_timestamp_for_date64(true)
@@ -22,18 +22,19 @@ pub(super) fn unparsed(plan: &LogicalPlan) -> Result<String> {
         .with_character_length_style(CharacterLengthStyle::Length)
         .build();
     let mut statement = Unparser::new(&spelling).plan_to_sql(plan)?;
-    spelled(&mut statement, true)
+    spelled(&mut statement, true)?;
+    Ok(statement)
 }
 
-pub(super) fn native(statement: &mut Statement) -> Result<String> {
+pub(super) fn native(statement: &mut Statement) -> Result<()> {
     spelled(statement, false)
 }
 
-fn spelled(statement: &mut Statement, generated: bool) -> Result<String> {
+fn spelled(statement: &mut Statement, generated: bool) -> Result<()> {
     if let ControlFlow::Break(error) = statement.visit(&mut Oracle { generated }) {
         return Err(error);
     }
-    Ok(statement.to_string())
+    Ok(())
 }
 
 struct Oracle {
