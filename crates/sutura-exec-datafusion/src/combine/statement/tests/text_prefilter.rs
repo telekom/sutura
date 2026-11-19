@@ -6,6 +6,7 @@ use std::ops::ControlFlow;
 use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
+use sutura_domain::catalog::COLLATION_METADATA_KEY;
 
 use super::*;
 
@@ -232,17 +233,87 @@ fn oracle_raw_lob_prefilter_resolves_full_and_basename_qualifiers_without_an_ali
 fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some());
-    for dialect in [
-        TypeDialect::Postgres,
-        TypeDialect::DuckDb,
-        TypeDialect::ClickHouse,
-        TypeDialect::BigQuery,
-    ] {
+    for dialect in [TypeDialect::DuckDb, TypeDialect::ClickHouse, TypeDialect::BigQuery] {
         assert!(
             raw_predicates(sql, table(dialect, &["[masked]"], true, false, true))
                 .iter()
                 .all(Option::is_none),
             "{dialect:?}"
+        );
+    }
+}
+
+/// `source` with `BODY` pinned as a read leaves it: `collation` is the pinned text, absent for unknown.
+fn collated(source: &StatementTable, collation: Option<&str>) -> StatementTable {
+    let fields = source
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut metadata = field.metadata().clone();
+            if let Some(collation) = collation.filter(|_| field.name() == "BODY") {
+                metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation));
+            }
+            field.as_ref().clone().with_metadata(metadata)
+        })
+        .collect::<Vec<_>>();
+    StatementTable::new(
+        source.source().clone(),
+        source.table().clone(),
+        source.dialect(),
+        Arc::new(Schema::new(fields)),
+    )
+}
+
+#[test]
+fn a_postgres_column_takes_the_raw_condition_only_where_the_dictionary_recorded_it_binary() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let source = || table(TypeDialect::Postgres, &["[masked]"], true, false, true);
+    let conditions = raw_predicates(sql, collated(&source(), Some("binary")));
+    let [Some(condition)] = conditions.as_slice() else {
+        panic!("one raw necessary condition: {conditions:?}");
+    };
+    assert_eq!(condition.to_string(), "(\"notes\".\"BODY\" LIKE '%TERM%')");
+    for collation in [
+        None,
+        Some("named:public.case_insensitive"),
+        Some("named:pg_catalog.und-x-icu"),
+        Some("other"),
+    ] {
+        assert!(
+            raw_predicates(sql, collated(&source(), collation))
+                .iter()
+                .all(Option::is_none),
+            "{collation:?}"
+        );
+    }
+    // An engine that fixes its comparison for every column needs no record of it.
+    assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some());
+}
+
+#[test]
+fn a_binary_postgres_column_keeps_every_barrier_and_has_no_upper_arm() {
+    let eligible = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    for replacements in [vec!["[TERM]"], vec!["T"], vec!["M"], vec!["[masked]", ""]] {
+        let source = table(TypeDialect::Postgres, &replacements, true, false, true);
+        assert!(
+            raw_predicates(eligible, collated(&source, Some("binary")))
+                .iter()
+                .all(Option::is_none),
+            "{replacements:?}"
+        );
+    }
+    for sql in [
+        "SELECT \"BODY\" FROM \"notes\" WHERE UPPER(\"BODY\") LIKE '%TERM%'",
+        "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" COLLATE \"C\" LIKE '%TERM%'",
+        "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" ILIKE '%TERM%'",
+    ] {
+        let source = table(TypeDialect::Postgres, &["[masked]"], true, false, true);
+        assert!(
+            raw_predicates(sql, collated(&source, Some("binary")))
+                .iter()
+                .all(Option::is_none),
+            "{sql}"
         );
     }
 }
