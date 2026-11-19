@@ -316,7 +316,9 @@ fn searches_in(planned: &[String], term: &str) -> usize {
         .sum()
 }
 
-/// Only an eligible arm may add one raw search, and exactly where the shape qualifies.
+/// Only an eligible arm may add one raw search, and exactly where the shape qualifies. The `UPPER`
+/// barrier query narrows with a string literal on `cohort`, a column no text policy proves is text,
+/// so it keeps the redacted-only statement on every dialect.
 fn assert_raw_condition(dialect: TypeDialect, profile: &str, upper: bool, (baseline, opted): (usize, usize)) {
     assert!(
         opted == baseline || (prefilter_capable(dialect) && opted == baseline + 1),
@@ -325,7 +327,7 @@ fn assert_raw_condition(dialect: TypeDialect, profile: &str, upper: bool, (basel
     match profile {
         "barrier" => assert_eq!(
             opted - baseline,
-            usize::from(prefilter_capable(dialect) && (dialect == TypeDialect::Oracle || !upper)),
+            usize::from(prefilter_capable(dialect) && !upper),
             "the raw condition is present exactly where the arm and shape qualify: {dialect:?} upper={upper}",
         ),
         "replacement-creates" | "deletion-bridge" => assert_eq!(

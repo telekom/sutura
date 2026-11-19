@@ -183,9 +183,8 @@ fn conjuncts<'a>(expression: &'a Expr, terms: &mut Vec<&'a Expr>) {
 /// Only a plain column compared with literals of its own type: no function, cast, arithmetic,
 /// subquery or column on both sides, so no row can make the source raise.
 fn cannot_raise(term: &Expr, table: &StatementTable, alias: Option<&Ident>, aliases: &[&str]) -> bool {
-    let against = |column: &Expr, literal: &Expr| {
-        plain(column, table, alias, aliases).is_some_and(|field| literal_of(literal, field.data_type()))
-    };
+    let against =
+        |column: &Expr, literal: &Expr| plain(column, table, alias, aliases).is_some_and(|field| literal_of(literal, field));
     match term {
         Expr::BinaryOp {
             left,
@@ -213,34 +212,48 @@ fn plain<'a>(expression: &Expr, table: &'a StatementTable, alias: Option<&Ident>
     table.schema().field_with_name(&column.value).ok()
 }
 
-fn literal_of(expression: &Expr, kind: &DataType) -> bool {
-    let number = matches!(
-        kind,
-        DataType::Int8
-            | DataType::Int16
-            | DataType::Int32
-            | DataType::Int64
-            | DataType::UInt8
-            | DataType::UInt16
-            | DataType::UInt32
-            | DataType::UInt64
-            | DataType::Float16
-            | DataType::Float32
-            | DataType::Float64
-            | DataType::Decimal128(..)
-            | DataType::Decimal256(..)
-    );
+/// A literal the source compares with this column without converting a stored value.
+///
+/// An Arrow `Utf8` field alone proves nothing: a type the dialect does not list falls back to
+/// `Utf8`, and an unbounded Oracle `NUMBER` is `Utf8` too, so a string literal could make the source
+/// convert stored values and raise on one row. Only a column carrying a text policy is proven
+/// declared text, because pinning refuses a policy on a fallback or unbounded-number column.
+fn literal_of(expression: &Expr, field: &Field) -> bool {
+    let kind = field.data_type();
+    let unsigned = matches!(kind, DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64);
+    let number = unsigned
+        || matches!(
+            kind,
+            DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::Float16
+                | DataType::Float32
+                | DataType::Float64
+                | DataType::Decimal128(..)
+                | DataType::Decimal256(..)
+        );
+    let metadata = field.metadata();
+    let text = matches!(kind, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
+        && metadata.contains_key("sutura:text_policy")
+        && !metadata.contains_key("sutura:unbounded_number")
+        && !metadata.contains_key("sutura:oracle_lob");
     match expression {
         Expr::Value(value) => match &value.value {
-            Value::SingleQuotedString(_) => matches!(kind, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View),
+            Value::SingleQuotedString(_) => text,
             Value::Number(..) => number,
             Value::Boolean(_) => *kind == DataType::Boolean,
             _ => false,
         },
-        Expr::UnaryOp {
-            op: UnaryOperator::Minus | UnaryOperator::Plus,
-            expr,
-        } => number && matches!(expr.as_ref(), Expr::Value(value) if matches!(value.value, Value::Number(..))),
+        Expr::UnaryOp { op, expr } => {
+            let signed = match op {
+                UnaryOperator::Minus => !unsigned,
+                UnaryOperator::Plus => true,
+                _ => false,
+            };
+            signed && number && matches!(expr.as_ref(), Expr::Value(value) if matches!(value.value, Value::Number(..)))
+        }
         _ => false,
     }
 }

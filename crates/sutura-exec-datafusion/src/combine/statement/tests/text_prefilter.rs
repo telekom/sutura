@@ -19,6 +19,7 @@ fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, en
         policy["max_text_bytes"] = serde_json::json!(128);
     }
     let mut metadata = HashMap::from([(String::from("sutura:text_policy"), policy.to_string())]);
+    let name_metadata = metadata.clone();
     if lob {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
@@ -30,8 +31,18 @@ fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, en
             Field::new("BODY", DataType::Utf8, true).with_metadata(metadata),
             Field::new("id", DataType::Int64, true),
             Field::new("label", DataType::Utf8, true),
+            Field::new("name", DataType::Utf8, true).with_metadata(name_metadata.clone()),
+            Field::new("amount", DataType::Utf8, true).with_metadata(with(&name_metadata, "sutura:unbounded_number", "utf8")),
+            Field::new("doc", DataType::Utf8, true).with_metadata(with(&name_metadata, "sutura:oracle_lob", "clob")),
+            Field::new("big", DataType::UInt64, true),
         ])),
     )
+}
+
+fn with(base: &HashMap<String, String>, key: &str, value: &str) -> HashMap<String, String> {
+    let mut metadata = base.clone();
+    drop(metadata.insert(String::from(key), String::from(value)));
+    metadata
 }
 
 fn parsed(sql: &str) -> Statement {
@@ -240,6 +251,8 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
 fn a_sibling_conjunct_that_can_raise_keeps_the_redacted_only_path() {
     let sql = |sibling: &str| format!("SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%' AND {sibling}");
     let enabled = || table(TypeDialect::DataFusion, &["[masked]"], true, false, true);
+    // `label` is a plain Utf8, which is also what an unlisted type or an unbounded NUMBER pins as,
+    // so only a column carrying a text policy (`name`) is proven text for a string literal.
     for plain in [
         "id = 5",
         "id <> 5",
@@ -247,11 +260,14 @@ fn a_sibling_conjunct_that_can_raise_keeps_the_redacted_only_path() {
         "5 < id",
         "id BETWEEN 1 AND 9",
         "id IN (1, 2, 3)",
-        "label = 'x'",
-        "label IN ('a', 'b')",
+        "name = 'x'",
+        "name IN ('a', 'b')",
         "label IS NOT NULL",
+        "amount IS NULL",
         "id IS NULL",
-        "(id = 5 AND label <> 'x')",
+        "big = 5",
+        "big >= +1",
+        "(id = 5 AND name <> 'x')",
     ] {
         assert!(raw_predicates(&sql(plain), enabled())[0].is_some(), "{plain}");
     }
@@ -260,6 +276,15 @@ fn a_sibling_conjunct_that_can_raise_keeps_the_redacted_only_path() {
         "CAST(label AS INT) = 1",
         "id = label",
         "label = 5",
+        "label = 'x'",
+        "label IN ('a', 'b')",
+        "amount = 'abc'",
+        "doc = 'x'",
+        "amount = 5",
+        "amount IN ('1', '2')",
+        "big = -1",
+        "big BETWEEN -1 AND 5",
+        "name = 5",
         "id = 'x'",
         "id IN (1, label)",
         "id IN (1, 'x')",

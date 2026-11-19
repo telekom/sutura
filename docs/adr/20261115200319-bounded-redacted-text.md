@@ -87,7 +87,7 @@ An optional `raw_prefilter` declaration records a nonempty bounded operator reas
 secret-dependent search timing. It does not permit a raw result decision. The compiler may add
 a raw necessary condition only for a positive conjunctive literal contains search in one table
 and scope, beside only conjuncts that cannot raise on any row (a plain column against literals
-of its own type), with proved comparison semantics and replacement barriers. Unknown shapes preserve
+of its own type, a string only against a text-policy column), with proved comparison semantics and replacement barriers. Unknown shapes preserve
 the original redacted-only path. Each nonempty replacement must contain no whole term and block
 both boundary overlaps; the proof composes over ordered replacements and the truncation marker
 where it is searched. No inference about arbitrary regex languages is required.

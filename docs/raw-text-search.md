@@ -31,7 +31,11 @@ Eligibility is deliberately narrow: one physical table, one query scope, a posit
 `column LIKE '%TERM%'`, and a nonempty ASCII alphanumeric term of at most 128 bytes. Every other
 conjunct beside it must be unable to raise on any row: a plain column compared (`=`, `<>`, `<`,
 `<=`, `>`, `>=`, `IS [NOT] NULL`, `IN`, `BETWEEN`) with literals of that column's own type, with no
-function, cast, arithmetic, subquery or second column. A source may test the raw text before a
+function, cast, arithmetic, subquery or second column. A string literal qualifies only against a
+column that carries a text policy: a type the dialect does not list, and an unbounded Oracle
+`NUMBER`, are pinned as text too, and the source could convert their stored values and raise on
+one row. A negative literal never qualifies against an unsigned column. Narrowing by a string on
+an ordinary text column therefore keeps redacted-only execution. A source may test the raw text before a
 sibling, so a sibling that can raise on one row would make "error" versus "empty answer" a result
 signal about that row's unredacted text. Any other sibling, including a second `LIKE`, keeps
 redacted-only execution. Joins, nested
