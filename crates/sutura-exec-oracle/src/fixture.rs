@@ -26,6 +26,7 @@ use crate::{DriverError, OracleError};
 
 mod cell;
 pub(crate) mod importer;
+pub(crate) mod snapshot;
 
 pub use cell::CellName;
 pub use importer::Unloadable;

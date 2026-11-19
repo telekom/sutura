@@ -1,5 +1,5 @@
 //! What a statement may not make the deployment build: a call to a scalar function whose output the
-//! caller grows in one call, or more operators than a shallow tree needs. Either is refused while
+//! caller grows in one call or whose metadata the text bound reads, or more operators than a shallow tree needs. Either is refused while
 //! planning, before any source opens; each is asked over one source, where it would otherwise run
 //! whole.
 
@@ -33,6 +33,14 @@ fn a_length_the_caller_spells_is_not_planned() {
         "select repeat(region, 2) from dim_region",
         "select lpad(region, 9, 'x') from dim_region",
         "select rpad(region, 9, 'x') from dim_region",
+    ]);
+}
+
+#[test]
+fn a_function_that_writes_the_text_bound_metadata_is_not_planned() {
+    refused(&[
+        "select with_metadata(region, 'sutura:unbounded_number', 'utf8') from dim_region",
+        "select with_metadata(region, 'sutura:oracle_lob_free', 'true') from dim_region",
     ]);
 }
 
