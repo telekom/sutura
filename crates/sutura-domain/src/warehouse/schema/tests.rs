@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use arrow_schema::{DataType, TimeUnit};
 
 use super::{PinnedSchemas, TypeDialect};
-use crate::catalog::{Column, ColumnType, Definitions, Description, JoinKey, JoinKeys, Model, Relationship};
+use crate::catalog::{Collation, Column, ColumnType, Definitions, Description, JoinKey, JoinKeys, Model, Relationship};
 use crate::model::{ColumnName, JoinType, ModelName, RelationshipName, SourceName, TableName};
 use crate::pinned::NotValidated;
 
@@ -544,5 +544,85 @@ fn cross_fact_text_policies_cover_shared_calendar_and_second_fact_dimension_link
                 )
             );
         }
+    }
+}
+
+fn collated(name: &str, declared: &str, collation: Collation) -> Column {
+    column(name, Some(declared)).with_collation(collation)
+}
+
+fn pin_notes(dialect: TypeDialect, columns: Vec<Column>) -> (PinnedSchemas, ModelName) {
+    let source = SourceName::parse("lake").expect("a test source is a source");
+    let definitions = Definitions::assemble(vec![model("notes", "lake", columns)], vec![], vec![]).expect("a test bundle holds");
+    let pinned = PinnedSchemas::pin(&definitions, &BTreeMap::from([(source, dialect)])).expect("a typed bundle pins");
+    (pinned, ModelName::parse("notes").expect("a test model is a model"))
+}
+
+fn pinned_collation(pinned: &PinnedSchemas, model: &ModelName, column: &str) -> Collation {
+    let schema = pinned.of(model).expect("the model is pinned");
+    Collation::of_field(schema.field_with_name(column).expect("the column is pinned"))
+}
+
+#[test]
+fn a_collation_change_moves_the_schema_digest_and_unknown_changes_nothing() {
+    let digest = |collation| pin_notes(TypeDialect::Postgres, vec![collated("body", "text", collation)]).0;
+    let (unknown, binary, ci, other) = (
+        digest(Collation::Unknown),
+        digest(Collation::Binary),
+        digest(Collation::named("und:ci")),
+        digest(Collation::named("und:ai")),
+    );
+    let digests = [unknown.digest(), binary.digest(), ci.digest(), other.digest()];
+    for (index, left) in digests.iter().enumerate() {
+        for right in &digests[index + 1..] {
+            assert_ne!(left, right, "each collation re-pins");
+        }
+    }
+    let bare = pin_notes(TypeDialect::Postgres, vec![column("body", Some("text"))]).0;
+    assert_eq!(bare.digest(), unknown.digest(), "no collation fact hashes as it always did");
+}
+
+#[test]
+fn a_pinned_text_column_carries_what_was_recorded_and_unknown_when_nothing_was() {
+    let columns = vec![
+        collated("exact", "text", Collation::Binary),
+        collated("folded", "text", Collation::named("und:ci")),
+        column("silent", Some("text")),
+        collated("count", "bigint", Collation::Binary),
+    ];
+    let (pinned, notes) = pin_notes(TypeDialect::Postgres, columns);
+    assert_eq!(pinned_collation(&pinned, &notes, "exact"), Collation::Binary);
+    assert_eq!(pinned_collation(&pinned, &notes, "folded"), Collation::named("und:ci"));
+    assert_eq!(pinned_collation(&pinned, &notes, "silent"), Collation::Unknown);
+    assert!(!pinned_collation(&pinned, &notes, "silent").is_binary());
+    assert_eq!(
+        pinned_collation(&pinned, &notes, "count"),
+        Collation::Unknown,
+        "a collation on a column that is not text is dropped"
+    );
+}
+
+#[test]
+fn an_engine_with_no_column_collation_pins_binary_over_whatever_a_catalog_declares() {
+    for dialect in [TypeDialect::DataFusion, TypeDialect::ClickHouse] {
+        let (pinned, notes) = pin_notes(
+            dialect,
+            vec![
+                collated("folded", "text", Collation::named("und:ci")),
+                column("silent", Some("text")),
+            ],
+        );
+        assert_eq!(pinned_collation(&pinned, &notes, "folded"), Collation::Binary, "{dialect:?}");
+        assert_eq!(pinned_collation(&pinned, &notes, "silent"), Collation::Binary, "{dialect:?}");
+    }
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let (pinned, notes) = pin_notes(dialect, vec![column("silent", Some("text"))]);
+        assert_eq!(pinned_collation(&pinned, &notes, "silent"), Collation::Unknown, "{dialect:?}");
     }
 }

@@ -14,15 +14,18 @@ use std::sync::Arc;
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use sha2::{Digest as _, Sha256};
 
-use crate::catalog::{Definitions, Metric, Model, Relationship};
+use crate::catalog::{COLLATION_METADATA_KEY, Collation, Definitions, Metric, Model, Relationship};
 use crate::definitions::nibble;
 use crate::model::{ColumnName, ModelName, SourceName};
 use crate::pinned::NotValidated;
 
 pub use types::{TypeDialect, UnboundedNumber};
 
-/// The digest of a [`PinnedSchemas`]: lower-case hex SHA-256 over each pinned model's name and,
-/// in order, each column's name, Arrow type, nullability and local-operator marker.
+/// The digest of a [`PinnedSchemas`].
+///
+/// Lower-case hex SHA-256 over each pinned model's name and, in order, each column's name, Arrow
+/// type, nullability, local-operator marker and, for a text column with one on record, its
+/// collation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct SchemaDigest(String);
 
@@ -159,6 +162,12 @@ impl PinnedSchemas {
                                 .map_or_else(String::new, |declared| declared.as_str().to_ascii_lowercase()),
                         );
                     }
+                }
+                if field.data_type() == &DataType::Utf8 {
+                    dialect
+                        .engine_collation()
+                        .unwrap_or_else(|| column.collation())
+                        .pin_onto(&mut field);
                 }
                 fields.push(field);
             }
@@ -346,6 +355,10 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
             if let Some(policy) = field.metadata().get("sutura:text_policy") {
                 part(&mut hash, "sutura:text_policy");
                 part(&mut hash, policy);
+            }
+            if let Some(collation) = Collation::of_field(field).encoded() {
+                part(&mut hash, COLLATION_METADATA_KEY);
+                part(&mut hash, &collation);
             }
             hash.update([
                 u8::from(field.is_nullable()),
