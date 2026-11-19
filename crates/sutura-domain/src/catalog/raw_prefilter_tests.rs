@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{Column, Definitions, Description, Model, TextPolicy};
+use super::{Column, Definitions, Description, InvalidTextPolicy, Model, RawPrefilter, TextPolicy};
 use crate::model::{ColumnName, ModelName, SourceName, TableName};
 use crate::warehouse::schema::{PinnedSchemas, TypeDialect};
 
@@ -79,4 +79,26 @@ fn raw_prefilter_acknowledgements_change_schema_identity_and_physical_alias_agre
     let right = pin(vec![model("notes", second.clone())]).expect("another policy schema pins");
     assert_ne!(left.digest(), right.digest());
     pin(vec![model("notes", first), model("alias", second)]).expect_err("physical aliases must agree on the acknowledgement");
+}
+
+#[test]
+fn a_raw_prefilter_without_a_redaction_rule_is_refused() {
+    let acknowledged = serde_json::json!({"acknowledged_because": "this source accepts secret-dependent search timing"});
+    for redact in [serde_json::json!([]), serde_json::Value::Null] {
+        let mut written = serde_json::json!({"max_text_bytes": 128, "raw_prefilter": acknowledged});
+        if !redact.is_null() {
+            written["redact"] = redact;
+        }
+        let refused = serde_json::from_value::<TextPolicy>(written).expect_err("nothing to narrow, so nothing to acknowledge");
+        assert!(
+            refused
+                .to_string()
+                .contains("raw_prefilter requires at least one redact rule"),
+            "{refused}"
+        );
+    }
+    assert_eq!(
+        TextPolicy::parse(None, Vec::new(), Some(RawPrefilter::parse("a reason").expect("a reason"))),
+        Err(InvalidTextPolicy::PrefilterWithoutRedaction)
+    );
 }

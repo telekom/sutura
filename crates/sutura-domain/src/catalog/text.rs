@@ -10,6 +10,8 @@ pub enum InvalidTextPolicy {
     Rule,
     #[error("a column supports at most 8 redaction rules")]
     Count,
+    #[error("raw_prefilter requires at least one redact rule, because it only narrows a redacted search")]
+    PrefilterWithoutRedaction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -99,6 +101,9 @@ impl TryFrom<RawTextPolicy> for TextPolicy {
     fn try_from(raw: RawTextPolicy) -> Result<Self, Self::Error> {
         if raw.redact.len() > 8 {
             return Err(InvalidTextPolicy::Count);
+        }
+        if raw.raw_prefilter.is_some() && raw.redact.is_empty() {
+            return Err(InvalidTextPolicy::PrefilterWithoutRedaction);
         }
         Ok(Self {
             max_text_bytes: raw.max_text_bytes,
