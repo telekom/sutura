@@ -33,6 +33,7 @@
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
 
 use std::collections::BTreeSet;
+use std::ops::ControlFlow;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
@@ -53,6 +54,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
 use datafusion::sql::parser::Statement as EngineStatement;
+use datafusion::sql::sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -158,7 +160,7 @@ where
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
-        .map(|part| Ok((part.statement(whole, &tables)?, part.scan_tables(&tables)?)))
+        .map(|part| Ok((part.statement(whole, &tables, &native_schema)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
@@ -431,7 +433,7 @@ impl Part {
 
     /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
     /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
-    fn statement(&self, whole: bool, tables: &[StatementTable]) -> Planned<RawStatement> {
+    fn statement(&self, whole: bool, tables: &[StatementTable], output_schema: &Schema) -> Planned<RawStatement> {
         let scanned = self.scan_tables(tables)?;
         let read: Vec<_> = tables
             .iter()
@@ -453,7 +455,7 @@ impl Part {
             text::apply(text, &read, self.dialect)?
         };
         let text = if full_lobs {
-            text::bounded_oracle_rows(&text, self.plan.schema().inner(), &read)?
+            text::bounded_oracle_rows(&text, output_schema, &read)?
         } else {
             text
         };
@@ -611,10 +613,12 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
 /// folded while planning, outside the pool. `repeat`, `lpad` and `rpad` take the length as an
 /// argument; `replace` and `regexp_replace` insert at every position of an empty pattern; `encode`
 /// doubles per nesting; `arrow_cast` and `arrow_try_cast` spell a type, and a null fixed-size list
-/// of `i32::MAX` items is reserved whole. A function a later `datafusion` adds is out until named.
+/// of `i32::MAX` items is reserved whole; `with_metadata` writes the `sutura:` field metadata the
+/// text bound reads, so a caller could mark a LOB as unbounded or free of one. A function a later
+/// `datafusion` adds is out until named.
 const ADMITTED: &str = "
     arrow_field arrow_metadata arrow_typeof cast_to_type coalesce file_row_index get_field greatest input_file_name least
-    named_struct nullif nvl nvl2 overlay struct try_cast_to_type union_extract union_tag version with_metadata
+    named_struct nullif nvl nvl2 overlay struct try_cast_to_type union_extract union_tag version
     current_date current_time date_bin date_part date_trunc from_unixtime make_date make_time now to_char to_date
     to_local_time to_time to_timestamp to_timestamp_micros to_timestamp_millis to_timestamp_nanos to_timestamp_seconds
     to_unixtime decode
@@ -735,7 +739,12 @@ async fn planned(
     } else {
         plan
     };
-    // The native output keeps its markers even when an optimizer rule drops field metadata.
+    let plan = if tables.iter().any(text::oracle_lobs) {
+        text::oracle_lob_outputs(plan)?
+    } else {
+        plan
+    };
+    // Whole-source outputs keep their markers even when an optimizer rule drops field metadata.
     let native_schema = Arc::clone(plan.schema().inner());
     let frame = context.execute_logical_plan(plan).await?;
     Ok((frame.into_optimized_plan()?, numeric_operations, native_schema))
@@ -780,7 +789,43 @@ fn label(index: usize) -> String {
     format!("c{index}")
 }
 
+/// Text functions that work on characters in the plan and on bytes or ASCII in `ClickHouse`, with
+/// the UTF-8 function that works on characters there. Each of these exists in `ClickHouse`.
+const CHARACTER_FUNCTIONS: [(&str, &str); 12] = [
+    ("strpos", "positionUTF8"),
+    ("length", "lengthUTF8"),
+    ("char_length", "lengthUTF8"),
+    ("substr", "substringUTF8"),
+    ("substring", "substringUTF8"),
+    ("left", "leftUTF8"),
+    ("right", "rightUTF8"),
+    ("reverse", "reverseUTF8"),
+    ("lower", "lowerUTF8"),
+    ("upper", "upperUTF8"),
+    ("initcap", "initcapUTF8"),
+    ("translate", "translateUTF8"),
+];
+
 fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+    struct ClickHouseFunctions;
+
+    impl VisitorMut for ClickHouseFunctions {
+        type Break = DataFusionError;
+
+        fn post_visit_expr(&mut self, expression: &mut SqlExpr) -> ControlFlow<Self::Break> {
+            if let SqlExpr::Function(function) = expression
+                && let [part] = function.name.0.as_slice()
+                && let Some(name) = part.as_ident()
+                && let Some(characters) = CHARACTER_FUNCTIONS
+                    .iter()
+                    .find_map(|(plain, utf8)| name.value.eq_ignore_ascii_case(plain).then_some(*utf8))
+            {
+                function.name = ObjectName::from(vec![Ident::new(characters)]);
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
     if dialect == TypeDialect::Cube
         && plan
             .schema()
@@ -791,9 +836,13 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
         return plan_err!("Cube cannot preserve this unsigned result type");
     }
     let text = |spelling: &dyn Dialect| {
-        Unparser::new(spelling)
-            .plan_to_sql(plan)
-            .map(|statement| statement.to_string())
+        let mut statement = Unparser::new(spelling).plan_to_sql(plan)?;
+        if dialect == TypeDialect::ClickHouse
+            && let ControlFlow::Break(cause) = statement.visit(&mut ClickHouseFunctions)
+        {
+            return Err(cause);
+        }
+        Ok(statement.to_string())
     };
     match dialect {
         TypeDialect::DuckDb => text(&DuckDBDialect::new()),
