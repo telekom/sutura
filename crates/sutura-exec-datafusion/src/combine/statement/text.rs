@@ -11,6 +11,7 @@ use datafusion::logical_expr::{Expr as PlannedExpr, ExprSchemable as _, LogicalP
 use datafusion::sql::sqlparser::ast::{Expr, Ident, SetExpr, Statement, TableFactor, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
+use datafusion::sql::unparser::UnquotableName;
 use sutura_domain::catalog::TextPolicy;
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
@@ -124,7 +125,6 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
         .iter()
         .flat_map(|table| table.schema().fields())
         .any(|field| field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob"));
-    let labelled = super::projection::duplicate_names(schema);
     let lobs = tables.iter().any(oracle_lobs);
     let columns = schema
         .fields()
@@ -143,8 +143,8 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
             } else {
                 column
             };
-            let name = if labelled { format!("c{index}") } else { field.name().clone() };
-            format!("{value} AS {}", Ident::with_quote('"', name))
+            // A label, not the planned name: `projection::output` restores the names from the schema.
+            format!("{value} AS \"c{index}\"")
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -248,7 +248,7 @@ impl VisitorMut for Views<'_> {
         };
         // The view lists every column of the table, read or not, so each name is checked here.
         if !quotable_table(table) {
-            return ControlFlow::Break(plan_datafusion_err!("a name holds a backslash or a quote character"));
+            return ControlFlow::Break(DataFusionError::External(Box::new(UnquotableName)));
         }
         let projection = table
             .schema()

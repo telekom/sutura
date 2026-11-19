@@ -24,7 +24,7 @@ mod rewrite;
 mod utils;
 
 use self::dialect::{DefaultDialect, Dialect};
-use datafusion_common::{Result, plan_err};
+use datafusion_common::{DataFusionError, Result};
 use crate::unparser::extension_unparser::UserDefinedLogicalNodeUnparser;
 pub use expr::expr_to_sql;
 pub use plan::plan_to_sql;
@@ -145,11 +145,23 @@ impl<'a> Unparser<'a> {
     /// `unparsed`, refused once any name this `Unparser` built could not be quoted exactly.
     pub(super) fn quotable<T>(&self, unparsed: Result<T>) -> Result<T> {
         if self.unquotable.get() {
-            return plan_err!("a name holds a backslash or a quote character");
+            return Err(DataFusionError::External(Box::new(UnquotableName)));
         }
         unparsed
     }
 }
+
+/// Why an [`Unparser`] refused: a name it built holds a backslash or a quote character.
+#[derive(Debug)]
+pub struct UnquotableName;
+
+impl std::fmt::Display for UnquotableName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a name holds a backslash or a quote character")
+    }
+}
+
+impl std::error::Error for UnquotableName {}
 
 impl Default for Unparser<'_> {
     fn default() -> Self {

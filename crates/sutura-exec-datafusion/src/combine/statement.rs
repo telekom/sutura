@@ -57,11 +57,11 @@ use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::parser::Parser;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
-use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{
     BigQueryDialect, CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle, DefaultDialect, Dialect, DuckDBDialect,
     PostgreSqlDialect,
 };
+use datafusion::sql::unparser::{Unparser, UnquotableName};
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
     FederationPlanner, FederationProvider, get_table_source,
@@ -100,6 +100,7 @@ where
             .ok_or(StatementStopped::DeadlineExceeded)?
             .map_err(|cause| match cause {
                 PlanningStopped::Refused(refused) => stopped(refused),
+                PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
                 PlanningStopped::Engine(cause) => {
                     let fallback = unplanned("the statement did not plan", &cause);
                     if field_not_found(&cause) {
@@ -135,9 +136,6 @@ where
             .into_iter()
             .filter(|table| scans.contains(table.table()))
             .collect();
-        if !read.iter().all(literal::quotable_table) {
-            return Err(stopped(resolve::Refused::UnquotableName));
-        }
         let text = oracle::native(native)
             .and_then(|()| text::apply(native, &read, TypeDialect::Oracle))
             .and_then(|()| {
@@ -148,8 +146,12 @@ where
                 }
             })
             .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
+        // The caller's own names were read at its tokens; this reads those the resolver wrote.
+        if !literal::quotable_names(&text, TypeDialect::Oracle) {
+            return Err(stopped(resolve::Refused::UnquotableName));
+        }
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
-        legs.open(&sources, [&native])?;
+        legs.open(&sources, [(&native, TypeDialect::Oracle)])?;
         let rows = legs.run_planned(source, &native, &scans)?;
         return projection::output(&native_schema, rows)
             .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
@@ -160,8 +162,20 @@ where
         .iter()
         .map(|part| Ok((part.statement(whole, &tables)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
-        .map_err(|cause| unplanned("a part did not unparse", &cause))?;
-    legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
+        .map_err(|cause| {
+            if unquotable(&cause) {
+                stopped(resolve::Refused::UnquotableName)
+            } else {
+                unplanned("a part did not unparse", &cause)
+            }
+        })?;
+    legs.open(
+        &sources,
+        parts
+            .iter()
+            .zip(&statements)
+            .map(|(part, (statement, _tables))| (statement, part.dialect)),
+    )?;
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs.run_planned(&part.source, statement, tables).inspect_err(|stopped| {
@@ -755,6 +769,16 @@ enum PlanningStopped {
     Engine(#[from] DataFusionError),
     #[error("the statement was refused before planning: {0:?}")]
     Refused(resolve::Refused),
+}
+
+/// Whether `cause` is the unparser's or a text-policy view's refusal of a name it could not quote.
+fn unquotable(cause: &DataFusionError) -> bool {
+    match cause {
+        DataFusionError::External(cause) => cause.downcast_ref::<UnquotableName>().is_some(),
+        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unquotable(cause),
+        DataFusionError::Shared(cause) => unquotable(cause),
+        _ => false,
+    }
 }
 
 fn field_not_found(cause: &DataFusionError) -> bool {

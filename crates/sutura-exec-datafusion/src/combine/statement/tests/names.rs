@@ -88,7 +88,7 @@ fn a_column_name_holding_a_quote_is_refused_where_it_would_be_written() {
                 assert_eq!(legs.statements.len(), 1, "{dialect:?}: {name}");
             } else {
                 assert!(
-                    matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+                    matches!(answer, Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::Query)))),
                     "{dialect:?}: {name}: {answer:?}"
                 );
                 assert_eq!(legs.opened, 0, "{dialect:?}: {name}");
@@ -99,24 +99,31 @@ fn a_column_name_holding_a_quote_is_refused_where_it_would_be_written() {
 }
 
 #[test]
-fn a_native_oracle_statement_over_a_column_name_holding_a_quote_is_refused() {
+fn a_native_oracle_statement_writing_a_column_name_holding_a_quote_is_refused() {
     let number = text("sales_area").with_metadata(HashMap::from([(
         String::from("sutura:unbounded_number"),
         String::from("utf8"),
     )]));
-    for (name, written) in [("its", true), ("it's", false)] {
+    for (statement, name, written) in [
+        (r#"select * from "dim_region" where "sales_area" > 9"#, "its", true),
+        (r#"select * from "dim_region" where "sales_area" > 9"#, "it's", false),
+        (r#"select min("sales_area") from "dim_region""#, "it's", true),
+    ] {
         let tables = regions_with(TypeDialect::Oracle, vec![text("region"), number.clone(), text(name)]);
         let mut legs = Recorded::default();
-        let answer = answered(r#"select min("sales_area") from "dim_region""#, &tables, &mut legs);
+        let answer = answered(statement, &tables, &mut legs);
         if written {
-            assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), "{name}: {answer:?}");
-            assert_eq!(legs.statements.len(), 1, "{name}");
+            assert!(
+                matches!(answer, Some(Err(StatementStopped::Leg(_)))),
+                "{statement}: {name}: {answer:?}"
+            );
+            assert_eq!(legs.statements.len(), 1, "{statement}: {name}");
         } else {
             assert!(
                 matches!(answer, Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::Query)))),
-                "{name}: {answer:?}"
+                "{statement}: {name}: {answer:?}"
             );
-            assert_eq!(legs.opened, 0, "{name}");
+            assert_eq!(legs.opened, 0, "{statement}: {name}");
         }
     }
 }
@@ -140,7 +147,7 @@ fn a_text_policy_view_over_an_unread_column_name_holding_a_quote_is_refused() {
                 assert!(!legs.statements.is_empty(), "{dialect:?}: {name}");
             } else {
                 assert!(
-                    matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+                    matches!(answer, Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::Query)))),
                     "{dialect:?}: {name}: {answer:?}"
                 );
                 assert_eq!(legs.opened, 0, "{dialect:?}: {name}");
