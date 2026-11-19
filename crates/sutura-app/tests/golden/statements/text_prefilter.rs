@@ -270,7 +270,7 @@ where
         ROWS,
         setup.elapsed().as_millis(),
         if dialect == TypeDialect::Cube {
-            "full-scan-refusal-and-narrowed-equality"
+            "full-scan-refusal"
         } else {
             "full-table-search"
         }
@@ -282,34 +282,31 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    if dialect == TypeDialect::Cube {
-        for enabled in [false, true] {
-            let mut policy = base.clone();
-            if enabled {
-                policy["raw_prefilter"] =
-                    serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
-            }
-            let start = Instant::now();
-            let refused = execute(
-                warehouse,
-                admitted(path, dialect, Some(&policy)),
-                &format!("SELECT \"body\" FROM {} WHERE \"body\" LIKE '%TERM%'", quoted(path)),
-            )
-            .expect_err("the full protected million-row Cube scan must retain the source row bound");
-            assert!(
-                matches!(
-                    &refused,
-                    FixtureQueryError::Stopped { cause: StatementStopped::Leg(cause) }
-                        if cause.contains(&format!("TooManyRows {{ limit: {} }}", sutura_domain::plan::MAX_ROWS))
-                            || cause.contains("TooLarge { cap: 1048576 }")
-                ),
-                "the full scan must hit the declared row or response-byte bound, not an incidental failure: {refused}"
-            );
-            println!(
-                "raw-prefilter-fullscan-refusal: engine=cube opted_in={enabled} elapsed_ms={} refusal={refused}",
-                start.elapsed().as_millis()
-            );
+    for enabled in [false, true] {
+        let mut policy = base.clone();
+        if enabled {
+            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
         }
+        let start = Instant::now();
+        let refused = execute(
+            warehouse,
+            admitted(path, dialect, Some(&policy)),
+            &format!("SELECT \"body\" FROM {} WHERE \"body\" LIKE '%TERM%'", quoted(path)),
+        )
+        .expect_err("the full protected million-row Cube scan must retain the source row bound");
+        assert!(
+            matches!(
+                &refused,
+                FixtureQueryError::Stopped { cause: StatementStopped::Leg(cause) }
+                    if cause.contains(&format!("TooManyRows {{ limit: {} }}", sutura_domain::plan::MAX_ROWS))
+                        || cause.contains("TooLarge { cap: 1048576 }")
+            ),
+            "the full scan must hit the declared row or response-byte bound, not an incidental failure: {refused}"
+        );
+        println!(
+            "raw-prefilter-fullscan-refusal: engine=cube opted_in={enabled} elapsed_ms={} refusal={refused}",
+            start.elapsed().as_millis()
+        );
     }
 }
 
@@ -331,6 +328,12 @@ where
     let (warehouse, path) = W::open_text_fixture(csv.clone());
     let dialect = warehouse.type_dialect().expect("a registered native dialect");
     observe_population(&warehouse, &path, dialect, setup);
+    if dialect == TypeDialect::Cube {
+        // Cube text policies read every raw row into the combiner and the prefilter never applies to
+        // Cube, so only the retained source bound is observable at a million rows.
+        fullscan_bound(&warehouse, &path, dialect, &base);
+        return finish(&warehouse, &path, &csv);
+    }
     let profiles = [
         ("barrier", "TERM", vec![("secret_[^ ]+", "[masked]")]),
         ("replacement-creates", "TERM", vec![("secret_[^ ]+", "[TERM]")]),
@@ -356,7 +359,7 @@ where
         enabled["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
         for upper in [false, true] {
             let expression = if upper { "UPPER(\"body\")" } else { "\"body\"" };
-            let full_table = profile == "barrier" && !upper && dialect != TypeDialect::Cube;
+            let full_table = profile == "barrier" && !upper;
             let narrowed = if full_table { "" } else { " AND \"cohort\" <> 'filler'" };
             let sql = format!(
                 "SELECT \"body\" FROM {} WHERE {expression} LIKE '%{term}%'{narrowed}",
@@ -460,8 +463,14 @@ where
             W::NAME
         );
     }
-    fullscan_bound(&warehouse, &path, dialect, &base);
-    warehouse.close_text_fixture(&path);
+    finish(&warehouse, &path, &csv);
+}
+
+fn finish<W>(warehouse: &W, path: &QualifiedTable, csv: &std::path::Path)
+where
+    W: TextFixture,
+{
+    warehouse.close_text_fixture(path);
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
 }
 
