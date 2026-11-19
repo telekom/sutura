@@ -638,7 +638,7 @@ macro_rules! data_system {
             }
 
             #[test]
-            fn text_policy_expressions_obey_the_existing_value_contract() {
+            fn text_policy_expressions_keep_the_existing_value_contract() {
                 let compared = super::super::text::expressions::<$warehouse>(super::super::$name::DIALECT);
                 assert_eq!(compared, Ok(()));
             }
