@@ -180,6 +180,11 @@ fn bounded_lob(value: &str, bytes: u32) -> String {
     )
 }
 
+/// Whether `schema` holds a column under a text policy.
+pub(super) fn reads_policy(schema: &Schema) -> bool {
+    schema.fields().iter().any(|field| field.metadata().contains_key(KEY))
+}
+
 pub(super) fn protected(table: &StatementTable) -> bool {
     table.schema().fields().iter().any(|field| field.metadata().contains_key(KEY))
 }

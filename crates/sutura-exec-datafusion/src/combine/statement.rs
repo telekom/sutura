@@ -67,7 +67,7 @@ use datafusion_federation::{
     FederationPlanner, FederationProvider, get_table_source,
 };
 use sutura_domain::model::{ProjectName, QualifiedTable, SourceName};
-use sutura_domain::plan::{StatementLegs, StatementQuestion, StatementStopped, StatementTable};
+use sutura_domain::plan::{PolicyRead, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
 use sutura_domain::raw::{RawStatement, SqlConstruct};
 use sutura_domain::warehouse::RawRows;
 use sutura_domain::warehouse::arrow::of_rows;
@@ -151,7 +151,7 @@ where
             .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
         legs.open(&sources, [&native])?;
-        let rows = legs.run_planned(source, &native, &scans)?;
+        let rows = legs.run_planned(source, &native, &scans, policy_of(&parts))?;
         return projection::output(&native_schema, rows)
             .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
     }
@@ -163,13 +163,16 @@ where
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
+    let reads_policy = policy_of(&parts).is_read();
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
-        let rows = legs.run_planned(&part.source, statement, tables).inspect_err(|stopped| {
-            if matches!(stopped, StatementStopped::Leg(_)) {
-                tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
-            }
-        })?;
+        let rows = legs
+            .run_planned(&part.source, statement, tables, part.policy)
+            .inspect_err(|stopped| {
+                if matches!(stopped, StatementStopped::Leg(_)) {
+                    tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
+                }
+            })?;
         if whole {
             return projection::output(part.plan.schema().inner(), rows)
                 .map_err(|cause| unplanned("the source output did not fit", &cause));
@@ -188,7 +191,11 @@ where
             .map_err(|cause| CombineError::Execute { cause })?;
         collected(frame, question.working_set_bytes(), working_set).await
     })
-    .ok_or(StatementStopped::DeadlineExceeded)?;
+    .ok_or(if reads_policy {
+        StatementStopped::PolicySearchDeadlineExceeded
+    } else {
+        StatementStopped::DeadlineExceeded
+    })?;
     let answered = match local {
         Ok(answered) => answered,
         Err(CombineError::Exhausted { .. }) => return Err(StatementStopped::AnswerTooLarge),
@@ -402,6 +409,24 @@ struct Part {
     plan: LogicalPlan,
     source: SourceName,
     dialect: TypeDialect,
+    policy: PolicyRead,
+}
+
+/// Whether a scan of `plan` projects a column under a text policy. Cube's policy runs locally over
+/// the rows its leg answers, so there the leg's row cap counts rows before it.
+fn policy_read(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<PolicyRead> {
+    let mut reads = false;
+    plan.apply_with_subqueries(|node| {
+        if let LogicalPlan::TableScan(scan) = node {
+            reads |= text::reads_policy(scan.projected_schema.inner());
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok(match (reads, dialect) {
+        (false, _) => PolicyRead::Unread,
+        (true, TypeDialect::Cube) => PolicyRead::Locally,
+        (true, _) => PolicyRead::AtSource,
+    })
 }
 
 impl Part {
@@ -462,6 +487,15 @@ impl Part {
     }
 }
 
+/// The first part that reads a column under a text policy, or `Unread` when none does.
+fn policy_of(parts: &[Part]) -> PolicyRead {
+    parts
+        .iter()
+        .map(|part| part.policy)
+        .find(|read| read.is_read())
+        .unwrap_or(PolicyRead::Unread)
+}
+
 fn part_of(plan: &LogicalPlan) -> Option<&FederatedPlanNode> {
     let LogicalPlan::Extension(extension) = plan else {
         return None;
@@ -484,6 +518,7 @@ fn parts(plan: &LogicalPlan, tables: &[StatementTable]) -> Planned<Vec<Part>> {
                 plan: cut.plan().clone(),
                 source: table.source().clone(),
                 dialect: table.dialect(),
+                policy: policy_read(cut.plan(), table.dialect())?,
             });
         }
         Ok(TreeNodeRecursion::Continue)

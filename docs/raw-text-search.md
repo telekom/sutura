@@ -60,3 +60,31 @@ does not establish a speedup. Native measurements must report actual row count, 
 baseline query time and opted-in query time separately, along with exact result equality and
 hidden-secret probes. They describe their engine version and fixture, not a production latency
 guarantee.
+
+## A search that runs out of room
+
+A text policy masks every row of the column before the statement's own predicate sees it, so a
+search over a policy column with no other filter reads the whole column. Where such a statement
+cannot finish, the refusal is `policy_search_needs_narrowing` (`422`), not a generic timeout or size
+refusal. Add a filter on a column without a policy so that fewer rows reach the masking.
+
+It is named in three cases, and only when the statement reads a column under a text policy:
+
+- A part of the statement runs past the request's deadline at its source, on any engine.
+- The local part of the plan runs past the request's deadline.
+- A Cube part answers more rows than the per-leg row cap. Cube cannot apply a text policy, so this
+  deployment applies it over the rows Cube answers, and the cap counts those rows before any filter
+  over the masked text. At every other source the policy runs first, so the same cap is an ordinary
+  `too_many_rows` or `result_too_large`.
+
+What this does not do:
+
+- It is a backstop, not a fix. The statement still does not finish, and the policy still masks
+  every row it reads. The refusal only names the cause and the remedy.
+- A timeout of a statement that reads no policy column keeps `deadline_exceeded`. A budget already
+  spent before a part runs, and a timeout while planning, also keep it: neither reads a column.
+- The engine decides "reads a column" from the columns the planned scans project. A statement over
+  a policy column that is not a search, such as one that only projects it, is named the same way
+  when it runs out of room.
+- No separate time budget is added. The refusal rides the request's existing deadline, so it
+  arrives when that deadline does, not earlier.

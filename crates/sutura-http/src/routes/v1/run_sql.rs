@@ -87,7 +87,9 @@ const TAG: &str = "run_sql";
             description = "REFUSED. `code: statement_failed` - the statement did not complete. \
                            `code: deadline_exceeded` - this deployment stopped the statement after \
                            the asker's own per-request budget; narrow the statement rather than \
-                           retrying it as is.",
+                           retrying it as is. `code: policy_search_needs_narrowing` - a statement \
+                           over a column under a text policy ran out of room; add a filter on a \
+                           column without a policy.",
             body = RawOutcomeBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),

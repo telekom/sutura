@@ -16,7 +16,9 @@ use sutura_domain::identity::{
 };
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::{FederationCombiner, MAX_ROWS, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
+use sutura_domain::plan::{
+    FederationCombiner, MAX_ROWS, PolicyRead, StatementLegs, StatementQuestion, StatementStopped, StatementTable,
+};
 use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement, RunSqlSources};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -243,6 +245,7 @@ where
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
         })),
+        Some(Err(StatementStopped::PolicySearchDeadlineExceeded)) => Ok(refusal(RawRefusalReason::PolicySearchNeedsNarrowing)),
         None => only(listed, warehouses).map_or_else(
             || Err(RunSqlError::Unplanned),
             |source| pass_through(&mut legs, statement, source),
@@ -414,6 +417,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         source: &SourceName,
         statement: &RawStatement,
         tables: Option<&BTreeSet<QualifiedTable>>,
+        policy: PolicyRead,
     ) -> LegResult<B::Error>
     where
         W: Warehouse,
@@ -447,9 +451,17 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         };
         let rows = executed.map_err(|cause| {
             LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
-                RawRefusalReason::ResultTooLarge
+                if policy == PolicyRead::Locally {
+                    RawRefusalReason::PolicySearchNeedsNarrowing
+                } else {
+                    RawRefusalReason::ResultTooLarge
+                }
             } else if warehouse.deadline_exceeded(&cause) {
-                RawRefusalReason::DeadlineExceeded { budget_seconds }
+                if policy.is_read() {
+                    RawRefusalReason::PolicySearchNeedsNarrowing
+                } else {
+                    RawRefusalReason::DeadlineExceeded { budget_seconds }
+                }
             } else if warehouse.source_refused(&cause) {
                 RawRefusalReason::SourceRefused
             } else {
@@ -457,7 +469,11 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             })
         })?;
         if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
-            return Err(LegStop::Refused(RawRefusalReason::TooManyRows { limit: MAX_ROWS }));
+            return Err(LegStop::Refused(if policy == PolicyRead::Locally {
+                RawRefusalReason::PolicySearchNeedsNarrowing
+            } else {
+                RawRefusalReason::TooManyRows { limit: MAX_ROWS }
+            }));
         }
         self.ran.insert(source.clone());
         Ok(rows)
@@ -500,7 +516,7 @@ where
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-        self.run_at(source, statement, None)
+        self.run_at(source, statement, None, PolicyRead::Unread)
     }
 
     fn run_planned(
@@ -508,8 +524,9 @@ where
         source: &SourceName,
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
+        policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
-        self.run_at(source, statement, Some(tables))
+        self.run_at(source, statement, Some(tables), policy)
     }
 }
 
@@ -664,6 +681,13 @@ mod legs;
 
 #[cfg(test)]
 mod planned;
+
+#[cfg(test)]
+mod policy_search;
+
+#[cfg(test)]
+#[cfg(feature = "sql")]
+mod cube_policy_search;
 
 #[cfg(test)]
 #[cfg(feature = "sql")]

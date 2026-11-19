@@ -125,6 +125,32 @@ impl<'a> StatementQuestion<'a> {
     }
 }
 
+/// Whether a source part reads a column under a text policy, and where that policy runs.
+///
+/// Decides what a part that ran out of room means: a part that never read masked text is a large or
+/// slow statement, and a part that did is a search the policy made unfinishable. **The limit:** the
+/// engine reads it off the planned scans' projected columns, so a column the planner pruned is not
+/// read, and a part that reads a policy column only to project it is read all the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyRead {
+    /// No column under a text policy is read.
+    Unread,
+    /// A column under a text policy is read and the source applies the policy, so the rows it
+    /// answers are already masked and filtered.
+    AtSource,
+    /// A column under a text policy is read and the engine applies the policy to the rows after the
+    /// leg answers, so the leg's own row cap counts rows before any filter over the masked text.
+    Locally,
+}
+
+impl PolicyRead {
+    /// Whether the part reads a column under a text policy, wherever the policy runs.
+    #[must_use]
+    pub const fn is_read(self) -> bool {
+        !matches!(self, Self::Unread)
+    }
+}
+
 /// Runs the part of a statement one source answers, under the caller, through the raw port.
 pub trait StatementLegs {
     /// Why a leg did not answer. The runner's own, and opaque to the combiner.
@@ -144,7 +170,8 @@ pub trait StatementLegs {
     /// [`Self::Stop`], which ends the answer.
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop>;
 
-    /// Runs one query-only plan's unparsed statement and its actual scan tables.
+    /// Runs one query-only plan's unparsed statement and its actual scan tables, with whether it
+    /// reads a column under a text policy.
     ///
     /// The planner must have resolved every table and column against the request's scoped pinned
     /// schemas, with DDL, DML, other statements and table functions unavailable. This is a library
@@ -158,6 +185,7 @@ pub trait StatementLegs {
         source: &SourceName,
         statement: &RawStatement,
         _tables: &BTreeSet<QualifiedTable>,
+        _policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
         self.run(source, statement)
     }
@@ -183,6 +211,9 @@ pub enum StatementStopped<S> {
     AnswerTooLarge,
     /// Planning or the local part of the plan ran past the request's deadline.
     DeadlineExceeded,
+    /// The local part of a plan that reads a column under a text policy ran past the request's
+    /// deadline: a search over masked text no filter narrowed.
+    PolicySearchDeadlineExceeded,
 }
 
 /// The combiner's answer to a statement: `None` where it plans none.

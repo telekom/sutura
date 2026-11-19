@@ -156,7 +156,8 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // 422: the statement is well formed as far as this deployment can tell without parsing it,
         // and it did not complete - a syntax error or a constraint. `docs/adr/0022`'s
         // Decision 3 governs what the DETAIL may say once it is built; this is only the status.
-        // `DeadlineExceeded` shares it, the same status the certified path's own
+        // `PolicySearchNeedsNarrowing` shares it too: the caller must narrow the statement, and
+        // retrying it as is runs out of room again. `DeadlineExceeded` shares it, the same status the certified path's own
         // `RefusalReason::DeadlineExceeded` gets (`sutura_http::wire::refusal`): a statement this
         // deployment stopped, not a data system that failed to answer, so a caller must narrow the
         // statement rather than retry it as is.
@@ -165,7 +166,8 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         | RawRefusalReason::UnknownColumn
         | RawRefusalReason::UnsupportedSyntax { .. }
         | RawRefusalReason::SourceFailed
-        | RawRefusalReason::DeadlineExceeded { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+        | RawRefusalReason::DeadlineExceeded { .. }
+        | RawRefusalReason::PolicySearchNeedsNarrowing => StatusCode::UNPROCESSABLE_ENTITY,
         // 403: the data system refused it at the identity/authorization level - the same status a
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
@@ -229,6 +231,10 @@ mod tests {
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             ),
             (RawRefusalReason::PlanSpansMoreThanOneSource, axum::http::StatusCode::CONFLICT),
+            (
+                RawRefusalReason::PolicySearchNeedsNarrowing,
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            ),
         ] {
             let outcome = RunSqlOutcome::from(&RawOutcome::Refusal { reason });
             assert_eq!(outcome.status(), status, "{outcome:?}");
