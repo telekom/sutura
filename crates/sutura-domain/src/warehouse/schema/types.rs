@@ -2,7 +2,9 @@
 
 use arrow_schema::{DataType, TimeUnit};
 
-use crate::catalog::ColumnType;
+use crate::catalog::{Collation, ColumnType};
+
+static BINARY: Collation = Collation::Binary;
 
 /// The spelling of a column type: which data system the source is.
 ///
@@ -26,6 +28,20 @@ pub enum UnboundedNumber {
 }
 
 impl TypeDialect {
+    /// The collation the engine itself fixes for every text column, whatever a catalog says.
+    ///
+    /// Only an engine with no per-column collation and byte-wise text comparison has one: `DataFusion`
+    /// and `ClickHouse`. Every other engine binds a collation to a column, a table, a database or a
+    /// session, so its columns carry what a reader or an author recorded, and `Oracle` is checked at
+    /// run time against its session's `NLS_SORT`.
+    #[must_use]
+    pub const fn engine_collation(self) -> Option<&'static Collation> {
+        match self {
+            Self::DataFusion | Self::ClickHouse => Some(&BINARY),
+            Self::DuckDb | Self::Cube | Self::Postgres | Self::BigQuery | Self::Oracle => None,
+        }
+    }
+
     /// The Arrow type a declared type names here, or `None` for a spelling this list does not carry.
     ///
     /// **A closed list, and `None` is the answer for the rest** - a nested, geographic, interval or
