@@ -96,6 +96,7 @@ pub struct DictionarySelection {
     exclude_tables: Vec<DictionaryPattern>,
     exclude_columns: Vec<DictionaryPattern>,
     exclude_types: Vec<DictionaryPattern>,
+    text_rules: Vec<(DictionaryPattern, super::TextPolicy)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -126,7 +127,21 @@ impl DictionarySelection {
             exclude_tables,
             exclude_columns,
             exclude_types,
+            text_rules: Vec::new(),
         })
+    }
+    pub fn with_text_rules(
+        mut self,
+        rules: Vec<(DictionaryPattern, super::TextPolicy)>,
+    ) -> Result<Self, InvalidDictionarySelection> {
+        if rules.len() > 128 {
+            return Err(InvalidDictionarySelection::Count);
+        }
+        self.text_rules = rules;
+        Ok(self)
+    }
+    pub fn text_rules(&self) -> &[(DictionaryPattern, super::TextPolicy)] {
+        &self.text_rules
     }
     pub fn include(&self) -> &[DictionaryInclude] {
         &self.include

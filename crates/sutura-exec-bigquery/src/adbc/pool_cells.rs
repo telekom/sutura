@@ -491,6 +491,42 @@ fn a_forwarded_token_is_refused_at_a_source_that_federates_at_no_pool() {
     }
 }
 
+/// Whether `options` start the job with `jobs.query`.
+fn starts_with_jobs_query(options: DatabaseOptions) -> bool {
+    option_text(options)
+        .iter()
+        .any(|(key, value)| key.contains("\"bigquery.query.through_jobs_query\"") && value.contains("\"true\""))
+}
+
+#[test]
+fn a_google_login_job_starts_with_jobs_query_and_no_job_on_a_pool_token_does() {
+    let (scoped, _reported) = scoped_at(u64::MAX);
+    let token = Secret::new(ASSERTION);
+    let subject = || JobIdentity::AsSubject { assertion: &token };
+    let login = authenticate(subject(), &Impersonation::GoogleLogin, None)
+        .expect("a subject at a Google-login source is authenticated")
+        .options;
+    assert!(
+        starts_with_jobs_query(login),
+        "a read-only Google token cannot start a job with jobs.insert"
+    );
+    let pooled = authenticate(subject(), &pool(), Some(&scoped))
+        .expect("a granted exchange authenticates the subject")
+        .options;
+    let read = forwarded(&token, &pool())
+        .expect("a pool source reads a partition with a forwarded token")
+        .options;
+    let splits = split(subject(), &pool(), Some(&scoped), question_ends())
+        .expect("a subject at a pool source splits")
+        .options;
+    for (job, options) in [("its job", pooled), ("a forwarded read", read), ("a split's job", splits)] {
+        assert!(
+            !starts_with_jobs_query(options),
+            "{job} on a pool token starts with jobs.query, which cannot be cancelled"
+        );
+    }
+}
+
 #[test]
 fn a_partition_read_at_a_pool_source_gets_as_far_as_the_driver() {
     let failed = endpoint()

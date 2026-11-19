@@ -1,7 +1,7 @@
 //! Native selection and the physical allowlist used by composed catalogs.
 
 use crate::{Dictionary, RdbmsCatalog, RdbmsError};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use sutura_domain::catalog::{ColumnType, DictionarySelection, Model};
 use sutura_domain::model::{ColumnName, QualifiedTable, SourceName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, PinnedDefinitions, SemanticCatalog};
@@ -12,6 +12,8 @@ pub(crate) mod sql;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NativeSelectionError {
+    #[error("column {column} matches conflicting text policies")]
+    ConflictingTextPolicy { column: String },
     #[error("native include {index} ({schema}, {table}) matches no visible table")]
     UnmatchedInclude { index: usize, schema: String, table: String },
     #[error("native table {table} has no included column")]
@@ -36,11 +38,13 @@ pub enum NativeSelectionError {
     },
 }
 
+type ColumnPolicies = BTreeMap<ColumnName, sutura_domain::catalog::TextPolicy>;
+
 /// Effective physical columns from one successful native read; semantic aliases cannot widen it.
 #[derive(Debug)]
 pub struct NativeAllowlist {
     source: SourceName,
-    tables: BTreeMap<QualifiedTable, BTreeSet<ColumnName>>,
+    tables: BTreeMap<QualifiedTable, ColumnPolicies>,
 }
 
 impl NativeAllowlist {
@@ -61,7 +65,7 @@ impl NativeAllowlist {
                 table: Box::new(model.table().clone()),
             })?;
         for column in model.columns() {
-            if !allowed.contains(column.name()) {
+            if allowed.get(column.name()) != Some(column.text_policy()) {
                 return Err(NativeSelectionError::ColumnExcluded {
                     model: model.name().as_str().to_owned(),
                     table: Box::new(model.table().clone()),
@@ -77,6 +81,7 @@ pub(crate) fn select(
     dictionary: Dictionary,
     selection: &DictionarySelection,
     dialect: TypeDialect,
+    unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
 ) -> Result<Dictionary, RdbmsError> {
     let mut matched = vec![false; selection.include().len()];
     let mut tables = Vec::new();
@@ -100,16 +105,28 @@ pub(crate) fn select(
             if selection.excludes_column(column) || selection.excludes_type(native) {
                 continue;
             }
+            let mut policy = None;
+            for (pattern, rule) in selection.text_rules() {
+                if pattern.matches(column) {
+                    if policy.is_some_and(|previous| previous != rule) {
+                        return Err(NativeSelectionError::ConflictingTextPolicy { column: column.clone() }.into());
+                    }
+                    policy = Some(rule);
+                }
+            }
+            let bounded = policy.is_some_and(|rule| rule.max_text_bytes().is_some());
             let precise = ColumnType::parse(native)
                 .ok()
-                .and_then(|declared| dialect.arrow(&declared))
+                .and_then(|declared| dialect.arrow_with_unbounded_number(&declared, unbounded_number))
                 .is_some();
             // Arrow mapping also includes Float32/Binary, which the row reader refuses.
             // Oracle normalizes timestamps, but FLOAT declares decimal values with binary precision.
             let lower = native.to_ascii_lowercase();
             let name = lower.split('(').next().unwrap_or("").trim_end();
             let unreadable = match dialect {
-                TypeDialect::Oracle => matches!(name, "float" | "binary_float" | "raw" | "blob"),
+                TypeDialect::Oracle => {
+                    matches!(name, "float" | "binary_float" | "raw" | "blob") || (matches!(name, "clob" | "nclob") && !bounded)
+                }
                 TypeDialect::Postgres => matches!(
                     name,
                     "real"
@@ -136,6 +153,9 @@ pub(crate) fn select(
                 }
                 .into());
             }
+            if let Some(policy) = policy {
+                table.column_metadata.entry(column.clone()).or_default().text = policy.clone();
+            }
             columns.push(column.clone());
         }
         if columns.is_empty() {
@@ -145,7 +165,9 @@ pub(crate) fn select(
             .into());
         }
         table.column_metadata.retain(|column, _| columns.contains(column));
-        table.primary_key.retain(|column| columns.contains(column));
+        if table.primary_key.iter().any(|column| !columns.contains(column)) {
+            table.primary_key.clear();
+        }
         table.columns = columns;
         tables.push(table);
     }
@@ -162,7 +184,20 @@ pub(crate) fn select(
     if tables.is_empty() {
         return Err(RdbmsError::NoVisibleTables);
     }
-    Ok(Dictionary::new(tables, Vec::new()))
+    let relationships = dictionary
+        .relationships
+        .into_iter()
+        .filter(|relationship| {
+            let origin = tables.iter().find(|table| table.address() == relationship.origin_table());
+            let target = tables.iter().find(|table| table.address() == relationship.target_table());
+            origin.zip(target).is_some_and(|(origin, target)| {
+                relationship.pairs().all(|(left, right)| {
+                    origin.columns().iter().any(|column| column == left) && target.columns().iter().any(|column| column == right)
+                })
+            })
+        })
+        .collect();
+    Ok(Dictionary::new(tables, relationships))
 }
 
 /// A pinned bundle and the authority produced by the same native read.
@@ -182,7 +217,10 @@ where
             .map(|model| {
                 (
                     model.table().clone(),
-                    model.columns().map(|column| column.name().clone()).collect(),
+                    model
+                        .columns()
+                        .map(|column| (column.name().clone(), column.text_policy().clone()))
+                        .collect(),
                 )
             })
             .collect(),
@@ -276,6 +314,34 @@ mod tests {
         assert_eq!(id.description(), "A column comment.");
         assert!(pinned.manifest().get(&SourceName::parse("dictionary").unwrap()).is_some());
         assert!(pinned.manifest().get(&SourceName::parse("warehouse").unwrap()).is_none());
+    }
+
+    #[test]
+    fn oracle_native_admission_uses_the_number_policy_without_rewriting_declared_metadata() {
+        use sutura_domain::warehouse::schema::UnboundedNumber;
+        for kind in ["NUMBER", "TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMP(3) WITH LOCAL TIME ZONE"] {
+            let selected = Dictionary::new(vec![table("events", &[("value", kind)])], vec![])
+                .native_with_unbounded_number(
+                    &selection("events", &[], &[]),
+                    TypeDialect::Oracle,
+                    Some(UnboundedNumber::Utf8),
+                )
+                .expect("the explicit representation and supported UTC timestamps are admitted");
+            assert_eq!(selected.tables()[0].column_metadata("value").unwrap().data_type(), Some(kind));
+        }
+        let refused = Dictionary::new(vec![table("events", &[("value", "TIMESTAMP(9) WITH TIME ZONE")])], vec![])
+            .native_with_unbounded_number(
+                &selection("events", &[], &[]),
+                TypeDialect::Oracle,
+                Some(UnboundedNumber::Utf8),
+            )
+            .expect_err("sub-microsecond precision is refused");
+        assert!(matches!(
+            refused,
+            RdbmsError::Native {
+                cause: NativeSelectionError::UnsupportedType { .. }
+            }
+        ));
     }
 
     #[test]

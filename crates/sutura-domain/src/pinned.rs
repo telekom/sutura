@@ -702,6 +702,14 @@ impl AnchorReport {
 /// Why a bundle is not validated.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum NotValidated {
+    #[error("model {model} declares a text policy: it requires a mapped text column and no certified metric reading that column")]
+    TextPolicy { model: ModelName },
+    #[error("metric {metric} reads text-policy column {model}.{column}; certified execution cannot apply that policy")]
+    MetricReadsProtectedText {
+        metric: MetricName,
+        model: ModelName,
+        column: crate::model::ColumnName,
+    },
     /// The bundle carries a metric whose computation is catalog-authored SQL, and the adapter this
     /// build selected does not declare `Warehouse::EXECUTES_AUTHORED_SQL` - which today is every
     /// adapter this workspace ships. The fragment is stored as written and compiled by nothing, so

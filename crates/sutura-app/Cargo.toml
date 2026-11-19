@@ -10,9 +10,9 @@ publish = false
 description = "The service: generic over the ports, holding no framework types."
 
 [features]
-# Does the binary link DataFusion's SQL frontend? No dependency: it chooses only the raw tool's
-# summary, which says the statement is planned. `sutura-cli`'s `sql` turns it on.
-sql = []
+# The service chooses the planned tool's summary. Its golden tests also need the frontend;
+# that adapter is a dev-dependency, so this forwards no production dependency edge.
+sql = ["sutura-exec-datafusion/sql"]
 
 [dependencies]
 sutura-domain = { workspace = true }
@@ -25,6 +25,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }
 # `Asked`'s `compile_fail` doctest needs a crate to try deserializing from - the same house pattern
 # `sutura-domain::identity` and `sutura-http::inbound` pin their own no-`Deserialize` types with.
 # Dev-only: nothing in `src/` names it, so a build that never runs this doctest links no JSON crate.
@@ -125,10 +126,9 @@ insta = { workspace = true }
 # plans on the engine does not link a SQL generator.
 sutura-sql = { workspace = true }
 serde_norway = { workspace = true }
-# Parse-only, and test-only: it proves the generated statement is valid in each target dialect
-# without needing one of each data system in CI. It never re-emits, so it cannot introduce the
-# parser-differential problem that makes translation unusable on the query path.
-polyglot-sql = { workspace = true }
+# Dev-only reference parser and transpiler for generated SQL and native reference queries.
+# Reference translations stay in tests; query-path SQL is rendered from the compiled plan.
+polyglot-sql = { workspace = true, features = ["ast-tools", "transpile"] }
 # The benchmark harness for `benches/answer_path.rs` - `github.com/telekom/sutura#915`. Dev-only,
 # for the same reason every other entry in this table does not reach a shipped consumer.
 divan = { workspace = true }

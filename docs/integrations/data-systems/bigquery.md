@@ -35,8 +35,8 @@ Every model names its table as `project.dataset.table`. A job on an `impersonati
 bills, in order: the project of the caller's first `billing.by_group` group, then the one project
 that the job's tables are in. If no step decides a payer, the question is refused.
 
-`impersonation-at-source` needs exactly one of `workload_identity`, `google_login` or
-`domain_delegation`. `workload_identity` has these keys:
+`impersonation-at-source` needs exactly one of `workload_identity`, `google_login`,
+`domain_delegation` or the opt-in [`caller_google_token`](../../sign-in-with-google-directly.md). `workload_identity` has these keys:
 
 | Key                                                 | Type          | Default          | Meaning                                                                                                                                                                                  |
 | --------------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -84,6 +84,19 @@ Google account gets `403 identity_not_linked`. These are its keys:
 The identity provider keeps the Google token and refreshes it. Its Google provider must store the
 token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
 it is and does not refresh it during a query.
+
+The identity provider's Google client asks the caller for the scopes
+`openid email https://www.googleapis.com/auth/bigquery.readonly`. sutura starts each `google_login`
+query with `jobs.query` and reads the rows through the Storage Read API, and the read-only scope
+allows both. Google refuses it `jobs.insert`, so it cannot start a load, copy or extract job.
+sutura does not read the scope of the token it receives. IAM on the caller's own account still
+decides what the caller reads.
+
+Google also refuses the read-only scope `jobs.cancel`, so sutura cannot cancel a `google_login` job.
+When the caller's deadline ends and sutura stops waiting, the job runs on until it ends or until
+BigQuery stops it at the job timeout sutura sent. `max_bytes_billed` still caps the bytes it bills.
+Nothing caps its slot time. A token that holds the full `bigquery` scope cannot cancel a job that was
+cut off before `jobs.query` answered either, because `jobs.query` takes no job ID from sutura.
 
 With `domain_delegation`, the query runs as the Google account with the caller's verified email
 address. The deployment vouches for the caller: by default sutura takes the address from the `email`
@@ -345,3 +358,49 @@ A caller that a mode cannot run is refused. No mode falls back to another.
 One result has at most 1 000 000 rows and 256 MiB. A time column must be `DATE`: sutura refuses
 `TIMESTAMP` and `DATETIME` time columns. `governance.per_replica_spend_ceiling` cannot be used with
 a BigQuery source.
+
+## Private Service Connect
+
+A deployment that reaches Google APIs through Private Service Connect can keep the public API
+names and set the chart's top-level `hostAliases`. Serving, combining and reading pods inherit it:
+
+```yaml
+hostAliases:
+  - ip: "192.0.2.10"
+    hostnames:
+      - bigquery.googleapis.com
+      - bigquerystorage.googleapis.com
+      - sts.googleapis.com
+      - iamcredentials.googleapis.com
+      - oauth2.googleapis.com
+```
+
+Alternatively, set the Google API URLs in the settings file (`config.base.google_endpoints` in
+chart values). All keys are optional and otherwise keep their public defaults:
+
+```yaml
+google_endpoints:
+  bigquery: https://bigquery-example.p.googleapis.com/bigquery/v2/
+  bigquery_storage: https://bigquerystorage-example.p.googleapis.com/
+  sts: https://sts-example.p.googleapis.com/v1/token
+  iam_credentials: https://iamcredentials-example.p.googleapis.com/
+  oauth_token: https://oauth2-example.p.googleapis.com/token
+  tokeninfo: https://oauth2-example.p.googleapis.com/tokeninfo
+```
+
+Every value must be an HTTPS URL whose host ends in `.googleapis.com`; credentials, queries and
+fragments are refused. Storage and IAM URLs name an origin, with no path beyond `/`. The Storage
+URL becomes a gRPC authority with port 443 unless another port was declared. `oauth_token` routes
+the JWT token exchange after domain delegation's signJwt; it is separate from `tokeninfo`, reserved
+for the Google token verifier. External identity providers' delegation and broker endpoints keep
+their own source settings.
+
+The selected destinations are logged at startup. Query jobs and partition reads share the same
+driver destinations. TLS verifies the selected hostname: `security.outbound` supplies the CA
+bundle and optional client certificate/key for authentication, REST and Storage; malformed or partial
+certificate/key files are refused. Authentication and API clients refuse HTTP redirects. A supplied bundle
+replaces the driver's system roots. Files are read per connection, up to 4 MiB each. Reading
+workers inherit the Google destinations and outbound settings, and must mount the referenced files
+through their group's own volumes. Google IAM, pool configuration, API access and private DNS
+routing still belong to the operator; these settings do not provision a private endpoint or grant
+access.

@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use arrow_schema::SchemaRef;
 
 use crate::model::{QualifiedTable, SourceName};
-use crate::raw::RawStatement;
+use crate::raw::{RawStatement, SqlConstruct};
 use crate::warehouse::RawRows;
 use crate::warehouse::deadline::Deadline;
 use crate::warehouse::schema::TypeDialect;
@@ -143,11 +143,35 @@ pub trait StatementLegs {
     ///
     /// [`Self::Stop`], which ends the answer.
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop>;
+
+    /// Runs one query-only plan's unparsed statement and its actual scan tables.
+    ///
+    /// The planner must have resolved every table and column against the request's scoped pinned
+    /// schemas, with DDL, DML, other statements and table functions unavailable. This is a library
+    /// trust contract; arbitrary text must use [`Self::run`] instead.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::Stop`], which ends the answer.
+    fn run_planned(
+        &mut self,
+        source: &SourceName,
+        statement: &RawStatement,
+        _tables: &BTreeSet<QualifiedTable>,
+    ) -> Result<RawRows, Self::Stop> {
+        self.run(source, statement)
+    }
 }
 
 /// Why a statement got no answer from the combiner.
 #[derive(Debug)]
 pub enum StatementStopped<S> {
+    /// No table in the caller's admitted table set resolves the path.
+    UnknownTable,
+    /// The caller's admitted schemas have no resolving column.
+    UnknownColumn,
+    /// A closed unsupported construct, without engine or source text.
+    UnsupportedSyntax(SqlConstruct),
     /// A leg did not answer.
     Leg(S),
     /// The plan reads more than one source, and the tool does not federate. No leg ran.

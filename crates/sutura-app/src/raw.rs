@@ -14,7 +14,7 @@ use std::time::Instant;
 use sutura_domain::identity::{
     Agreed, BoundToTheRequest, CredentialBroker, Expiry, PresentedDisagreesWithPosture, RequestContext, SourceSet,
 };
-use sutura_domain::model::SourceName;
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{FederationCombiner, MAX_ROWS, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
 use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement, RunSqlSources};
@@ -212,13 +212,32 @@ where
     let tables = tables(pinned, context, warehouses, listed);
     let question = StatementQuestion::new(statement, &tables, scope.federation_allowed, working_set_bytes, deadline);
     let mut legs = RawLegs::new(context, broker, warehouses, listed, deadline);
+    let protected = pinned
+        .get()
+        .definitions()
+        .models()
+        .values()
+        .any(|model| model.columns().any(|column| !column.text_policy().is_empty()));
     let outcome = match combiner.answer_statement(question, &mut legs) {
+        Some(Err(StatementStopped::NotPlanned)) | None if protected => Ok(refusal(RawRefusalReason::StatementFailed)),
         Some(Ok(rows)) => Ok(answer(
             rows,
             scope.federation_allowed.then(|| executed_as(warehouses, &legs.ran)).flatten(),
         )),
+        Some(Err(StatementStopped::Leg(LegStop::Refused(RawRefusalReason::StatementFailed)))) => {
+            Ok(refusal(RawRefusalReason::SourceFailed))
+        }
         Some(Err(StatementStopped::Leg(stop))) => settled(Err(stop)),
+        Some(Err(StatementStopped::UnknownTable)) => Ok(refusal(RawRefusalReason::UnknownTable)),
+        Some(Err(StatementStopped::UnknownColumn)) => Ok(refusal(RawRefusalReason::UnknownColumn)),
+        Some(Err(StatementStopped::UnsupportedSyntax(construct))) => {
+            Ok(refusal(RawRefusalReason::UnsupportedSyntax { construct }))
+        }
         Some(Err(StatementStopped::SpansMoreThanOneSource)) => Ok(refusal(RawRefusalReason::PlanSpansMoreThanOneSource)),
+        Some(Err(StatementStopped::NotPlanned)) if legs.ran.is_empty() => only(listed, warehouses).map_or_else(
+            || Ok(refusal(RawRefusalReason::StatementFailed)),
+            |source| pass_through(&mut legs, statement, source),
+        ),
         Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
         Some(Err(StatementStopped::AnswerTooLarge)) => Ok(refusal(RawRefusalReason::ResultTooLarge)),
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
@@ -299,6 +318,7 @@ where
 
 /// An outcome the caller reads, or a failure that is not the statement's.
 type Settled<M> = Result<RawOutcome, RunSqlError<M>>;
+type LegResult<M> = Result<RawRows, LegStop<M>>;
 
 /// Why a leg ended the call: a refusal the caller reads, or a failure that is not the statement's.
 #[derive(Debug)]
@@ -389,6 +409,59 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         self.listed
             .map_or_else(|| self.warehouses.get(source).is_some(), |listed| listed.contains(source))
     }
+    fn run_at(
+        &mut self,
+        source: &SourceName,
+        statement: &RawStatement,
+        tables: Option<&BTreeSet<QualifiedTable>>,
+    ) -> LegResult<B::Error>
+    where
+        W: Warehouse,
+        B: CredentialBroker,
+    {
+        if !self.lists(source) {
+            return Err(LegStop::Failed(RunSqlError::Unlisted));
+        }
+        let (Some(warehouse), Some(credentials)) = (self.warehouses.get(source), self.credentials.as_ref()) else {
+            return Err(LegStop::Failed(RunSqlError::Unplanned));
+        };
+        let presented = credentials
+            .presented_for(source)
+            .map_err(|cause| LegStop::Failed(RunSqlError::Credentials { cause }))?;
+        presented
+            .agrees_with(warehouse.posture(), source)
+            .map_err(|cause| LegStop::Failed(RunSqlError::Posture { cause }))?;
+        let budget_seconds = self.deadline.budget().seconds();
+        // Checked before each leg is run and never re-derived - the same shape `crate::answer`'s own
+        // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the leg
+        // is refused before the data system is asked at all.
+        if self.deadline.remaining_at(Instant::now()).is_none() {
+            return Err(LegStop::Refused(RawRefusalReason::DeadlineExceeded { budget_seconds }));
+        }
+        let execution = match tables {
+            Some(tables) => warehouse.execute_planned_statement(statement, tables, presented, self.deadline),
+            None => warehouse.execute_raw(statement, presented, self.deadline),
+        };
+        let Some(executed) = execution else {
+            return Err(LegStop::Failed(RunSqlError::NoAcceptingSource));
+        };
+        let rows = executed.map_err(|cause| {
+            LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
+                RawRefusalReason::ResultTooLarge
+            } else if warehouse.deadline_exceeded(&cause) {
+                RawRefusalReason::DeadlineExceeded { budget_seconds }
+            } else if warehouse.source_refused(&cause) {
+                RawRefusalReason::SourceRefused
+            } else {
+                RawRefusalReason::StatementFailed
+            })
+        })?;
+        if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
+            return Err(LegStop::Refused(RawRefusalReason::TooManyRows { limit: MAX_ROWS }));
+        }
+        self.ran.insert(source.clone());
+        Ok(rows)
+    }
 }
 
 impl<W, B> StatementLegs for RawLegs<'_, W, B>
@@ -427,44 +500,16 @@ where
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-        if !self.lists(source) {
-            return Err(LegStop::Failed(RunSqlError::Unlisted));
-        }
-        let (Some(warehouse), Some(credentials)) = (self.warehouses.get(source), self.credentials.as_ref()) else {
-            return Err(LegStop::Failed(RunSqlError::Unplanned));
-        };
-        let presented = credentials
-            .presented_for(source)
-            .map_err(|cause| LegStop::Failed(RunSqlError::Credentials { cause }))?;
-        presented
-            .agrees_with(warehouse.posture(), source)
-            .map_err(|cause| LegStop::Failed(RunSqlError::Posture { cause }))?;
-        let budget_seconds = self.deadline.budget().seconds();
-        // Checked before each leg is run and never re-derived - the same shape `crate::answer`'s own
-        // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the leg
-        // is refused before the data system is asked at all.
-        if self.deadline.remaining_at(Instant::now()).is_none() {
-            return Err(LegStop::Refused(RawRefusalReason::DeadlineExceeded { budget_seconds }));
-        }
-        let Some(executed) = warehouse.execute_raw(statement, presented, self.deadline) else {
-            return Err(LegStop::Failed(RunSqlError::NoAcceptingSource));
-        };
-        let rows = executed.map_err(|cause| {
-            LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
-                RawRefusalReason::ResultTooLarge
-            } else if warehouse.deadline_exceeded(&cause) {
-                RawRefusalReason::DeadlineExceeded { budget_seconds }
-            } else if warehouse.source_refused(&cause) {
-                RawRefusalReason::SourceRefused
-            } else {
-                RawRefusalReason::StatementFailed
-            })
-        })?;
-        if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
-            return Err(LegStop::Refused(RawRefusalReason::TooManyRows { limit: MAX_ROWS }));
-        }
-        self.ran.insert(source.clone());
-        Ok(rows)
+        self.run_at(source, statement, None)
+    }
+
+    fn run_planned(
+        &mut self,
+        source: &SourceName,
+        statement: &RawStatement,
+        tables: &BTreeSet<QualifiedTable>,
+    ) -> Result<RawRows, Self::Stop> {
+        self.run_at(source, statement, Some(tables))
     }
 }
 
@@ -616,3 +661,10 @@ mod tests {
 /// than in `tests.rs`, so the base run, which restores this file, does not compile it.
 #[cfg(test)]
 mod legs;
+
+#[cfg(test)]
+mod planned;
+
+#[cfg(test)]
+#[cfg(feature = "sql")]
+mod planned_refusals;

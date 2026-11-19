@@ -905,7 +905,7 @@ pub(crate) fn declared_inbound(settings: &sutura_config::Settings) -> sutura_con
         .security()
         .inbound()
         .first()
-        .map(sutura_config::InboundVerifier::identity)
+        .and_then(sutura_config::InboundVerifier::identity)
         .expect("this overlay declares an inbound identity")
         .clone()
 }

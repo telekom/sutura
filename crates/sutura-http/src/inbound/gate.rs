@@ -76,10 +76,7 @@ type SelectedGate<'g, 'h> = (&'g InboundGate, &'h str);
 /// declare an inbound identity and whose state carries no gate, which is what makes forgetting to
 /// attach one a startup failure rather than an open door.
 pub struct InboundGate {
-    validator: TokenValidator,
-    /// Behind an `Arc` so [`crate::inbound::keys::KeySetCache::watch_until_shutdown`] can hold a
-    /// `Weak` to it, and stop when this gate is dropped rather than keeping it alive.
-    keys: Arc<KeySetCache>,
+    verification: Verification,
     /// Where the token arrives, resolved from the declaration at startup rather than per request.
     ///
     /// An owned `String` rather than the borrowed `TokenLocation`, so the gate does not hold a
@@ -112,13 +109,64 @@ pub struct InboundGate {
 /// The gate could not be built.
 #[derive(Debug, thiserror::Error)]
 pub enum InboundNotUsable {
+    #[error("the Google access-token verifier could not be built")]
+    Google(#[source] super::google::GoogleClientUnusable),
+    #[error("the inbound verifier declaration has no verification policy")]
+    AbsentPolicy,
     #[error("the inbound identity declared by this deployment is not usable")]
     Unreadable(#[source] KeySetUnavailable),
     #[error("the client for `security.inbound.key_set_url` could not be built")]
     Client(#[source] KeySetClientUnusable),
 }
 
+enum Verification {
+    Jwt {
+        validator: Box<TokenValidator>,
+        keys: Arc<KeySetCache>,
+    },
+    Google(Box<super::google::GoogleVerifier>),
+}
+impl Verification {
+    fn max_token_bytes(&self) -> usize {
+        match self {
+            Self::Jwt { validator, .. } => validator.max_token_bytes(),
+            Self::Google(verifier) => verifier.max_token_bytes(),
+        }
+    }
+    fn check_size(&self, presented: &str) -> Result<(), TokenRejected> {
+        let limit = self.max_token_bytes();
+        if presented.len() > limit {
+            Err(TokenRejected::TooLong {
+                found: presented.len(),
+                limit,
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl InboundGate {
+    fn google(declaration: &InboundVerifier, outbound: Option<&sutura_tls::Declared>) -> Result<Self, InboundNotUsable> {
+        let policy = declaration.google().ok_or(InboundNotUsable::AbsentPolicy)?;
+        let verifier = super::google::GoogleVerifier::trusting(declaration.id().clone(), policy, outbound)
+            .map_err(InboundNotUsable::Google)?;
+        Ok(Self::over_google(declaration, verifier))
+    }
+    pub(super) fn over_google(declaration: &InboundVerifier, verifier: super::google::GoogleVerifier) -> Self {
+        Self {
+            verification: Verification::Google(Box::new(verifier)),
+            header: String::from(AUTHORIZATION),
+            bearer_prefixed: true,
+            challenges: true,
+            realm: declaration.resource().map_or("", ResourceIdentifier::as_str).to_owned(),
+            protected_resource: crate::routes::protected_resource::ProtectedResource::for_verifier(declaration),
+            issuer: declaration.issuer().as_str().to_owned(),
+            path: declaration.path().clone(),
+            also_accept: BTreeMap::new(),
+        }
+    }
+
     /// Builds the gate from a declaration `sutura-config` already accepted, reading the key set once.
     ///
     /// **Called before the listener opens.** An unreadable or unusable key set is an error here, so it
@@ -168,12 +216,31 @@ impl InboundGate {
         declarations: &[InboundVerifier],
         anchors: Option<&sutura_tls::Anchors>,
     ) -> Result<Option<Self>, InboundNotUsable> {
+        let outbound = anchors.cloned().map(|anchors| sutura_tls::Declared::new(anchors, None));
+        Self::from_verifiers_with_outbound(declarations, outbound.as_ref())
+    }
+
+    /// Google tokeninfo uses the full declared trust and client identity, loaded once at startup.
+    /// JWT key URLs retain their anchor-only transport; neither path rotates this material.
+    pub fn from_verifiers_with_outbound(
+        declarations: &[InboundVerifier],
+        outbound: Option<&sutura_tls::Declared>,
+    ) -> Result<Option<Self>, InboundNotUsable> {
+        let anchors = outbound.map(sutura_tls::Declared::anchors);
         let Some((first, rest)) = declarations.split_first() else {
             return Ok(None);
         };
         let build = |declaration: &InboundVerifier| {
-            let mut gate = Self::from_declaration_trusting(declaration.identity(), anchors)?;
-            gate.validator = TokenValidator::named(declaration.id().clone(), &declaration.requirement());
+            let mut gate = match declaration.identity() {
+                Some(identity) => {
+                    let mut gate = Self::from_declaration_trusting(identity, anchors)?;
+                    if let Verification::Jwt { ref mut validator, .. } = gate.verification {
+                        **validator = TokenValidator::named(declaration.id().clone(), &identity.requirement());
+                    }
+                    gate
+                }
+                None => Self::google(declaration, outbound)?,
+            };
             gate.path = declaration.path().clone();
             gate.protected_resource = crate::routes::protected_resource::ProtectedResource::for_verifier(declaration);
             Ok::<Self, InboundNotUsable>(gate)
@@ -208,17 +275,19 @@ impl InboundGate {
                     .resource()
                     .map_or_else(|| requirement.audience().as_str(), ResourceIdentifier::as_str),
             ),
-            validator: TokenValidator::new(&requirement),
-            // `docs/adr/20261015095237`: only a mode with a lifetime ceiling has a grace, and it is that
-            // ceiling plus the leeway an old key's last assertion can still be accepted inside.
-            keys: Arc::new(
-                keys.with_grace(
-                    requirement
-                        .max_lifetime()
-                        .map(|ceiling| Duration::from_secs(ceiling.seconds()).saturating_add(TokenValidator::leeway())),
-                )
-                .with_max_stale(Duration::from_secs(requirement.key_set().max_stale().seconds())),
-            ),
+            verification: Verification::Jwt {
+                validator: Box::new(TokenValidator::new(&requirement)),
+                // `docs/adr/20261015095237`: only a mode with a lifetime ceiling has a grace, and it is that
+                // ceiling plus the leeway an old key's last assertion can still be accepted inside.
+                keys: Arc::new(
+                    keys.with_grace(
+                        requirement
+                            .max_lifetime()
+                            .map(|ceiling| Duration::from_secs(ceiling.seconds()).saturating_add(TokenValidator::leeway())),
+                    )
+                    .with_max_stale(Duration::from_secs(requirement.key_set().max_stale().seconds())),
+                ),
+            },
             header,
             bearer_prefixed,
             challenges,
@@ -231,8 +300,13 @@ impl InboundGate {
 
     #[cfg(test)]
     pub(crate) fn over_named(declaration: &InboundVerifier, keys: KeySetCache) -> Self {
-        let mut gate = Self::over(declaration.identity(), keys);
-        gate.validator = TokenValidator::named(declaration.id().clone(), &declaration.requirement());
+        let mut gate = Self::over(declaration.identity().expect("a JWT declaration"), keys);
+        if let Verification::Jwt { ref mut validator, .. } = gate.verification {
+            **validator = TokenValidator::named(
+                declaration.id().clone(),
+                &declaration.requirement().expect("a JWT declaration"),
+            );
+        }
         gate.path = declaration.path().clone();
         gate.protected_resource = crate::routes::protected_resource::ProtectedResource::for_verifier(declaration);
         gate
@@ -252,9 +326,10 @@ impl InboundGate {
     /// For multi-verifier deployments, watches the sub-gate key sets too: each verifier has its own
     /// key source and its own rotation cycle.
     pub fn watch_keys_until_shutdown(&self, shutdown: &Shutdown) {
-        KeySetCache::watch_until_shutdown(&self.keys, MAX_KEY_SET_AGE, shutdown.clone());
-        for gate in self.also_accept.values() {
-            KeySetCache::watch_until_shutdown(&gate.keys, MAX_KEY_SET_AGE, shutdown.clone());
+        for gate in self.gates() {
+            if let Verification::Jwt { ref keys, .. } = gate.verification {
+                KeySetCache::watch_until_shutdown(keys, MAX_KEY_SET_AGE, shutdown.clone());
+            }
         }
     }
 
@@ -284,7 +359,10 @@ impl InboundGate {
 
     /// How many keys are cached, and their ids. For the startup log.
     pub async fn describe_keys(&self) -> (usize, Vec<String>) {
-        self.keys.describe().await
+        match self.verification {
+            Verification::Jwt { ref keys, .. } => keys.describe().await,
+            Verification::Google(_) => (0, Vec::new()),
+        }
     }
 
     /// The RFC 6750 challenge a refused request carries, where one is meaningful.
@@ -362,18 +440,18 @@ impl InboundGate {
         if self.also_accept.is_empty() {
             // Single-verifier fast path: skip the issuer peek entirely.
             let presented = self.presented(headers)?;
-            self.validator.check_size(presented)?;
+            self.verification.check_size(presented)?;
             return self.establish_token(presented, now).await;
         }
         let (gate, presented) = self.select_gate(headers)?;
-        gate.validator.check_size(presented)?;
+        gate.verification.check_size(presented)?;
         gate.establish_token(presented, now).await
     }
 
     /// Filters by the mounted MCP path before reading any issuer or consulting keys.
     pub async fn establish_on(&self, path: &McpPath, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
         let (gate, presented) = self.select_from(headers, Some(path))?;
-        gate.validator.check_size(presented)?;
+        gate.verification.check_size(presented)?;
         gate.establish_token(presented, now).await
     }
 
@@ -397,9 +475,9 @@ impl InboundGate {
                 Ok(presented) => {
                     let largest = eligible()
                         .filter(|candidate| candidate.same_location(gate))
-                        .max_by_key(|candidate| candidate.validator.max_token_bytes())
+                        .max_by_key(|candidate| candidate.verification.max_token_bytes())
                         .unwrap_or(gate);
-                    largest.validator.check_size(presented)?;
+                    largest.verification.check_size(presented)?;
                     if found.is_some() {
                         return Err(TokenRejected::AmbiguousProof);
                     }
@@ -412,6 +490,12 @@ impl InboundGate {
         let (location, presented) = found.ok_or_else(|| TokenRejected::Absent {
             location: self.header.clone(),
         })?;
+        let matching: Vec<_> = eligible().filter(|gate| gate.same_location(location)).collect();
+        if let [gate] = matching.as_slice()
+            && matches!(gate.verification, Verification::Google(_))
+        {
+            return Ok((gate, presented));
+        }
         let issuer = unverified_issuer(presented).ok_or(TokenRejected::UnknownIssuer)?;
         let gate = eligible()
             .find(|gate| gate.same_location(location) && gate.issuer == issuer)
@@ -432,13 +516,14 @@ impl InboundGate {
     /// The original three-step body of `establish`, pulled out so the multi-verifier router can call
     /// it on whichever sub-gate the `iss` selects.
     async fn establish_token(&self, presented: &str, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
-        let id = TokenValidator::key_id(presented)?;
-        let key = self
-            .keys
-            .key_for(&id, now)
-            .await
-            .map_err(|cause| TokenRejected::NoKey { cause })?;
-        self.validator.verify(presented, &key)
+        match self.verification {
+            Verification::Jwt { ref validator, ref keys } => {
+                let id = TokenValidator::key_id(presented)?;
+                let key = keys.key_for(&id, now).await.map_err(|cause| TokenRejected::NoKey { cause })?;
+                validator.verify(presented, &key)
+            }
+            Verification::Google(ref verifier) => verifier.verify(presented, now).await,
+        }
     }
 
     /// The token as presented, without the scheme prefix where there is one.
@@ -609,7 +694,7 @@ fn unverified_issuer(token: &str) -> Option<String> {
 /// line per request here: that would be a line per request of the flood that filled it.
 const fn not_the_callers_fault(rejected: &TokenRejected) -> Option<Failure> {
     match *rejected {
-        TokenRejected::SeenStoreFull => Some(Failure::IdentityUnavailable),
+        TokenRejected::SeenStoreFull | TokenRejected::GoogleUnavailable => Some(Failure::IdentityUnavailable),
         _ => None,
     }
 }

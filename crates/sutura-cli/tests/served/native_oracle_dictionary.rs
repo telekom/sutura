@@ -5,6 +5,15 @@
 //! Native dictionary metadata and planned SQL over a private Oracle fixture. This is catalog
 //! selection under a shared login; raw pass-through SQL still follows that login's database grants.
 
+#[cfg(feature = "agent")]
+#[path = "native_oracle_dictionary/descriptions.rs"]
+mod descriptions;
+#[cfg(feature = "agent")]
+#[path = "native_oracle_dictionary/relationships.rs"]
+mod relationships;
+#[path = "native_oracle_dictionary/types.rs"]
+mod types;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -42,11 +51,21 @@ impl DictionaryReader for Recorded<'_> {
     }
 }
 
+/// Cells of one test binary run as threads of one process, so the process id alone would give
+/// them one owner, one reader and one directory to drop from under each other.
+fn next_tag() -> u32 {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 struct Fixture {
+    #[cfg(feature = "agent")]
+    tag: u32,
     admin: oracledb::Connection,
     owner: oracledb::Connection,
     schema: String,
     reader: String,
+    extra_readers: Vec<String>,
     connection: String,
     root: PathBuf,
 }
@@ -64,8 +83,9 @@ impl Fixture {
             .set_trust_anchors_pem(&anchors)
             .unwrap();
         let admin = oracledb::connect(dial.clone().set_credentials("SYSTEM", &password)).unwrap();
-        let schema = format!("ND_OWNER_{}", std::process::id());
-        let reader = format!("ND_READER_{}", std::process::id());
+        let tag = next_tag();
+        let schema = format!("ND_OWNER_{}_{tag}", std::process::id());
+        let reader = format!("ND_READER_{}_{tag}", std::process::id());
         assert!(!password.contains('"'), "the generated fixture credential must be quotable");
         for user in [&schema, &reader] {
             if let Err(cause) = admin.execute(&format!("DROP USER {user} CASCADE"), &[]) {
@@ -114,7 +134,7 @@ impl Fixture {
                 }
             }
         }
-        let root = std::env::temp_dir().join(format!("sutura-native-dictionary-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sutura-native-dictionary-{}-{tag}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("password"), password).unwrap();
         let connection = format!(
@@ -123,10 +143,13 @@ impl Fixture {
             root.join("password").display()
         );
         Self {
+            #[cfg(feature = "agent")]
+            tag,
             admin,
             owner,
             schema,
             reader,
+            extra_readers: Vec::new(),
             connection,
             root,
         }
@@ -145,7 +168,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         drop(self.owner.close());
-        for user in [&self.reader, &self.schema] {
+        for user in self.extra_readers.iter().chain([&self.reader, &self.schema]) {
             drop(self.admin.execute(&format!("DROP USER {user} CASCADE"), &[]));
         }
         drop(std::fs::remove_dir_all(&self.root));
@@ -207,7 +230,7 @@ fn a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_col
     ] {
         let reply = run(&served, &statement);
         assert_eq!(reply.status, 422, "{statement}: {}", reply.body);
-        assert_eq!(reply.json()["code"], "statement_failed", "{}", reply.body);
+        assert_eq!(reply.json()["code"], "unknown_column", "{}", reply.body);
         assert!(!reply.body.contains("private value") && !reply.body.contains("private text"));
     }
     let before = digest(&served);
@@ -316,4 +339,7 @@ fn a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_col
         .status,
         422
     );
+    drop(served);
+    types::alias_scope(&fixture);
+    types::number_and_zone_types(&fixture);
 }

@@ -34,6 +34,10 @@ pub(crate) fn run(
     .map_err(connect_err)?;
     let outcome = (|| {
         timed(&connection, deadline)?;
+        crate::datetime::pin_utc(&connection, Some(deadline))?;
+        timed(&connection, deadline)?;
+        connection.rollback().map_err(execute_err_mapped)?;
+        timed(&connection, deadline)?;
         connection
             .execute("SET TRANSACTION READ ONLY", &[])
             .map_err(execute_err_mapped)?;
@@ -105,6 +109,7 @@ fn admit_columns(columns: &[oracledb::Metadata], budget: ResultBudget) -> Result
             oracledb::DB_TYPE_DATE,
             oracledb::DB_TYPE_TIMESTAMP,
             oracledb::DB_TYPE_TIMESTAMP_TZ,
+            oracledb::DB_TYPE_TIMESTAMP_LTZ,
             oracledb::DB_TYPE_BINARY_DOUBLE,
             oracledb::DB_TYPE_BOOLEAN,
         ]

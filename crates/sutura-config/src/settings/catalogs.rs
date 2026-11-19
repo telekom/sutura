@@ -162,6 +162,9 @@ fn parse_platforms(catalog: &SourceName, raw: &RawCatalog, sources: &SourceRegis
 /// `deny_unknown_fields` cannot catch one on the wrong kind - this does.
 fn refuse_rdbms_keys(settings: &CatalogSettings, raw: &RawCatalog) -> Result<(), SettingsError> {
     let written = [
+        ("descriptions_from", !raw.descriptions_from.is_empty()),
+        ("relationships", !raw.relationships.is_empty()),
+        ("relationships_view", raw.relationships_view.is_some()),
         ("environment", raw.environment.is_some()),
         ("live_row_predicate", raw.live_row_predicate.is_some()),
         ("source_alias", raw.source_alias.is_some()),
@@ -169,10 +172,12 @@ fn refuse_rdbms_keys(settings: &CatalogSettings, raw: &RawCatalog) -> Result<(),
         ("max_dictionary_bytes", raw.max_dictionary_bytes.is_some()),
         ("dictionary_schema", raw.dictionary_schema.is_some()),
         ("dictionary_source", raw.dictionary_source.is_some()),
+        ("audience", raw.audience.is_some()),
         ("include", raw.include.is_some()),
         ("exclude_tables", raw.exclude_tables.is_some()),
         ("exclude_columns", raw.exclude_columns.is_some()),
         ("exclude_types", raw.exclude_types.is_some()),
+        ("column_rules", raw.column_rules.is_some()),
         ("connection", raw.connection.is_some()),
     ];
     match written.into_iter().find(|&(_, written)| written) {

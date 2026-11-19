@@ -58,9 +58,9 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// Which allocator this binary was linked against, for `doctor`.
 ///
 /// A string rather than a probe: the honest runtime proof is `MIMALLOC_VERBOSE=1`, which makes
-/// mimalloc itself announce its version, options AND the guarded sample rate on stderr - the
-/// rate is a runtime choice (`MIMALLOC_GUARDED_SAMPLE_RATE`) and belongs there, not in a
-/// compile-time `const`. This line says only what was compiled in.
+/// mimalloc itself announce its version, effective options and guarded sample rate on stderr.
+/// Upstream secure environment mode ignores `MIMALLOC_GUARDED_SAMPLE_RATE`, so an environment
+/// setting cannot arm sampling in this build. This line says only what was compiled in.
 ///
 /// THE MAJOR SERIES, NOT THE PATCH LEVEL. The version lives in two places already
 /// (`VENDOR.md`'s drift-hazard paragraph: `nix/mimalloc.nix`'s `mimallocVersion` and the
@@ -71,8 +71,8 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 ///
 /// `guarded` names the compile-time posture next to `secure`: guard-page sampling is compiled
 /// in and dormant (`nix/mimalloc.nix` and `build.rs` both carry `MI_GUARDED=1` with an explicit
-/// zero default rate), armed only by an operator setting `MIMALLOC_GUARDED_SAMPLE_RATE` - this
-/// string does not claim it is armed, only that the capability shipped.
+/// zero default rate). Secure environment mode remains enabled; this string does not claim
+/// sampling is armed, only that the capability shipped.
 const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
     "mimalloc 3.x (secure, guarded)"
 } else {

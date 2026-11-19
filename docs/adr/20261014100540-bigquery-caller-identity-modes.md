@@ -216,3 +216,58 @@ the count of options in the second amendment's third point.
   a token from domain-wide delegation. At a mode c source sutura sends only the queries it renders.
 
 Why: the full `bigquery` scope let the delegating account start any job as any user in the domain.
+
+## Sixth amendment, 2026-11-16: mode b starts with `jobs.query` and needs only `bigquery.readonly`
+
+**Status of the amendment: accepted** (issue #1944). This replaces, for mode b, the first
+amendment's "BigQuery does, at `jobs.insert`", and extends the fifth amendment's `jobs.query`
+decision from mode c to mode b.
+
+- **sutura starts a mode b query with `jobs.query`.** The transport sets
+  `bigquery.query.through_jobs_query` beside the caller's access token, in one function that every
+  mode that hands the driver the caller's own Google token uses. A pool's token does not get it:
+  its scope is the API client's full one, and its job stays cancellable.
+- **The identity provider's Google client asks for `openid email
+  https://www.googleapis.com/auth/bigquery.readonly`.** Unpatched, `jobs.insert` refused that
+  token, so the client had to ask for the full `bigquery` scope, which also allows writes. IAM on
+  the caller's own account still decides what the caller reads. sutura does not read the scope of
+  the token it is given: that is operator configuration at the identity provider.
+- **sutura cannot cancel a mode b job with that token.** The limit is the fifth amendment's third
+  point, unchanged: Google refuses `jobs.cancel` with the read-only scope. A job that outlives the
+  caller's deadline runs to its end or to `jobTimeoutMs`, `maximumBytesBilled` caps its bytes, and
+  nothing in sutura caps its slot time. A token that holds the full scope loses cancellation too
+  for a job cut off before `jobs.query` answers, because that call takes no client-chosen job id.
+
+Limit: nothing here measured a mode b job with a read-only user token at Google. The fifth
+amendment's probes used a service account's own token.
+
+## Seventh amendment, 2026-11-17: directly verified caller Google tokens
+
+**Status: accepted.** `caller_google_token` is a
+fourth, explicit source mode. Its nonempty `acknowledged_because` and startup warning record a
+Google-token-forwarding exception to MCP's prohibition; they do not make it generally compliant.
+The dedicated OAuth client must belong only to this deployment, which configuration cannot prove.
+
+A named, direct `google_tokeninfo` verifier admits an opaque token only after a bounded tokeninfo
+response checks exact client `aud` and `azp`, positive expiry, every required scope, verified email
+and any hosted-domain allowlist. Its protected-resource document names Google and the three client
+scopes. Identity stays `(verifier id, sub)` while the record masks the verified email. Positive
+identity cache entries use only token digests and expire with the token; revocation is not checked
+again while a positive entry lives. Tokeninfo outages are 503, never an answer as the deployment.
+
+Google does not issue sutura's operation scopes. The fixed mapping grants
+`DescribeCatalog`, `AskMetric` and `RunSql` after a verified BigQuery read-only scope; it never
+accepts arbitrary sutura scopes or grants `RunRemoteLeg`. Raw SQL keeps its operator and source
+gates. Every source's `admitted_by` and catalog audience restrictions still apply. This grant can
+reach any source admitting the verifier, including shared-posture data. With a sole verifier,
+omitted `admitted_by` admits it under the existing rule; with several verifiers membership must be
+explicit. The Google
+account's BigQuery grants control only that leg. The existing HTTP removal of remote legs is an
+additional control, not the definition of this mapping.
+
+Only Google-tokeninfo verifiers may admit this source mode. The broker presents each admitted
+caller's own token, and the adapter sets `access_token` plus `jobs.query`, without refresh or a
+service-account hop. Existing billing selection is unchanged. Tokeninfo's declared outbound
+anchors and optional client identity are fixed at startup, not rotated. Fixture policy and driver
+option cells cannot prove a served Google account job, client resource-parameter acceptance,
+client refresh behaviour or live grants. Those venues remain unmeasured.

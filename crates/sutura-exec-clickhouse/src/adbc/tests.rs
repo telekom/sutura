@@ -115,3 +115,35 @@ fn a_placeholder_count_mismatch_is_refused() {
         "{refused}"
     );
 }
+
+#[test]
+fn planned_clickhouse_preserves_principal_validation_and_deadline_without_enabling_passthrough() {
+    let warehouse = warehouse(SourcePosture::ImpersonationAtSource);
+    let text = sutura_domain::raw::RawStatement::parse("SELECT count(*) FROM orders WHERE amount > 0").expect("bounded SQL");
+    let tables = std::collections::BTreeSet::from([sutura_domain::model::QualifiedTable::parse("orders").expect("a table")]);
+    assert!(warehouse.accepts_planned_statements());
+    assert!(!warehouse.accepts_raw_statements());
+    for user in ["first_reader", "second_reader"] {
+        let presented = Presented::SubjectPrincipal {
+            name: PrincipalName::parse(user).expect("a principal"),
+        };
+        assert!(warehouse.execute_raw(&text, &presented, spent_deadline()).is_none());
+        let error = warehouse
+            .execute_planned_statement(&text, &tables, &presented, spent_deadline())
+            .expect("planned execution exists")
+            .expect_err("a spent deadline never loads the driver");
+        assert!(matches!(error, AdbcError::DeadlineSpent), "{error}");
+    }
+    let presented = Presented::SubjectPrincipal {
+        name: PrincipalName::parse("bad\" SELECT 1 --").expect("a principal"),
+    };
+    let error = warehouse
+        .execute_planned_statement(&text, &tables, &presented, corpus::deadline())
+        .expect("implemented")
+        .expect_err("an invalid ClickHouse principal never loads the driver");
+    assert!(matches!(error, AdbcError::NotAClickHouseUser(_)), "{error}");
+    assert_eq!(
+        rewrite_placeholders("SELECT '?' FROM orders", &[]).expect("no parameters"),
+        "SELECT '?' FROM orders"
+    );
+}

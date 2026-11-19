@@ -203,7 +203,9 @@ impl StreamDecoder {
                 }
                 DecoderState::Body { message } => {
                     let message = message.as_ref();
-                    let body_length = message.bodyLength() as usize;
+                    let body_length = usize::try_from(message.bodyLength()).map_err(|_| {
+                        ArrowError::ParseError(format!("Invalid body length: {}", message.bodyLength()))
+                    })?;
 
                     let body = if self.buf.is_empty() && buffer.len() >= body_length {
                         let body = buffer.slice_with_length(0, body_length);
@@ -311,6 +313,32 @@ mod tests {
     use arrow_schema::{DataType, Field, Schema};
 
     // Further tests in arrow-integration-testing/tests/ipc_reader.rs
+
+    #[test]
+    fn test_negative_body_length_is_an_error() {
+        use flatbuffers::FlatBufferBuilder;
+
+        let mut fbb = FlatBufferBuilder::new();
+        let schema = crate::convert::IpcSchemaEncoder::new()
+            .schema_to_fb_offset(&mut fbb, &Schema::new(Vec::<Field>::new()));
+        let mut message = crate::MessageBuilder::new(&mut fbb);
+        message.add_version(crate::MetadataVersion::V5);
+        message.add_header_type(crate::MessageHeader::Schema);
+        message.add_header(schema.as_union_value());
+        message.add_bodyLength(-1);
+        let root = message.finish();
+        fbb.finish(root, None);
+
+        let metadata = fbb.finished_data();
+        let mut input = Vec::from(CONTINUATION_MARKER);
+        input.extend((metadata.len() as u32).to_le_bytes());
+        input.extend(metadata);
+        input.extend([0]);
+        let mut buffer = Buffer::from_vec(input);
+        let mut decoder = StreamDecoder::new();
+        let error = decoder.decode(&mut buffer).expect_err("a negative body length is refused");
+        assert!(error.to_string().contains("Invalid body length: -1"));
+    }
 
     #[test]
     fn test_eos() {

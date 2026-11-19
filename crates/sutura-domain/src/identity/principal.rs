@@ -310,14 +310,31 @@ impl fmt::Debug for SubjectKey {
 ///
 /// Private fields keep these projections together. `Subject::verified_by` parses the masked id
 /// and backend key from one verified `sub` and retains its exact bytes for equality and hashing.
+/// `Subject::verified_by_address` replaces only the masked record label with verified email.
 /// Backend parsing still trims surrounding whitespace; caller identity does not. `Debug` omits
 /// the signed bytes. Construction records a verification claim; the transport must verify it.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct VerifiedPrincipal {
     id: SubjectId,
     key: SubjectKey,
     verifier: crate::identity::VerifierId,
     signed_sub: String,
+}
+
+impl PartialEq for VerifiedPrincipal {
+    fn eq(&self, other: &Self) -> bool {
+        self.verifier == other.verifier && self.signed_sub == other.signed_sub
+    }
+}
+impl Eq for VerifiedPrincipal {}
+impl std::hash::Hash for VerifiedPrincipal {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
+        std::hash::Hash::hash(&self.verifier, state);
+        std::hash::Hash::hash(&self.signed_sub, state);
+    }
 }
 
 impl fmt::Debug for VerifiedPrincipal {
@@ -346,9 +363,9 @@ pub enum Subject {
     /// and been carried to no other.
     ///
     /// The payload is the one sealed [`VerifiedPrincipal`]: the masked [`SubjectId`] a record
-    /// renders and the full [`SubjectKey`] the subject-to-account map (`docs/adr/0032`) reads. Both
-    /// halves come from the same parse of the same `sub`, produced together by [`Subject::verified`]
-    /// - the only door, so they can never disagree about who was verified.
+    /// renders and the full [`SubjectKey`] the subject-to-account map reads. Identity and backend
+    /// key retain the exact verified subject; a Google-tokeninfo record instead masks the separately
+    /// verified email. Neither record label nor its changes participate in equality or hashing.
     Verified(VerifiedPrincipal),
     /// No caller identity was established. The transport authenticated the deployment and not
     /// whoever asked, so the deployment is the only principal there is.
@@ -383,6 +400,19 @@ impl Subject {
             verifier,
             signed_sub: raw.to_owned(),
         }))
+    }
+
+    /// Retains verifier/sub identity while the record renders Google's separately verified email.
+    pub fn verified_by_address(
+        verifier: crate::identity::VerifierId,
+        raw: &str,
+        address: &crate::identity::VerifiedAddress,
+    ) -> Result<Self, InvalidPrincipalId> {
+        let mut subject = Self::verified_by(verifier, raw)?;
+        if let Self::Verified(ref mut verified) = subject {
+            verified.id = SubjectId::parse(address.as_str())?;
+        }
+        Ok(subject)
     }
 
     #[must_use]
@@ -917,3 +947,6 @@ mod tests {
         assert_eq!(task.to_string(), "n***");
     }
 }
+
+#[cfg(test)]
+mod google_cells;

@@ -61,6 +61,71 @@ mod tests {
         assert_eq!(dropped.json()["outcome"], "raw_refusal", "{}", dropped.body);
         assert_eq!(raw(SEGMENTS).json()["rows"], body["rows"]);
     }
+    #[test]
+    fn a_served_catalog_keeps_certified_anchors_and_redacted_raw_text_together() {
+        use crate::harness::{config_path, derived_beside, example_root};
+        use sutura_domain::pinned::SemanticCatalog as _;
+        let case = "duckdb-certified-text-policy";
+        let settings = raw_sql_settings(case);
+        let root = derived_beside(&config_path(case));
+        std::fs::create_dir_all(&root).expect("a fixture directory");
+        let catalog = root.join("catalog");
+        let copied = std::process::Command::new("cp")
+            .arg("-R")
+            .arg(example_root().join("catalog"))
+            .arg(&catalog)
+            .status()
+            .expect("cp runs");
+        assert!(copied.success());
+        let model = catalog.join("models/customers.md");
+        let original = std::fs::read_to_string(&model).expect("the fixture model reads");
+        let declared = original.replace(
+            "  - name: customer_id\n",
+            "  - name: customer_id\n    max_text_bytes: 128\n    redact:\n      - pattern: 'C[0-9]+'\n        replace: masked\n",
+        );
+        assert_ne!(declared, original);
+        std::fs::write(&model, declared).expect("the protected fixture writes");
+        let settings = settings.replace(
+            &example_root().join("catalog").display().to_string(),
+            &catalog.display().to_string(),
+        );
+        // Pin here so the regression's own assertion observes the old bundle-wide refusal.
+        let loaded = sutura_catalog_local::LocalCatalog::new(
+            sutura_domain::model::SourceName::parse("local").expect("a source"),
+            catalog,
+            sutura_domain::pinned::DefinitionVersion::parse("1").expect("a version"),
+        )
+        .load()
+        .expect("the declared catalog loads");
+        let pinned = sutura_domain::warehouse::schema::PinnedSchemas::pin(
+            loaded.definitions(),
+            &std::collections::BTreeMap::from([(
+                sutura_domain::model::SourceName::parse("local").expect("a source"),
+                sutura_domain::warehouse::schema::TypeDialect::DuckDb,
+            )]),
+        );
+        assert!(
+            pinned.is_ok(),
+            "disjoint policy and certified columns must coexist: {pinned:?}"
+        );
+        let served = start_configured(case, &settings);
+        let certified = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            &recurring_revenue_june(),
+        );
+        assert_eq!(certified.status, 200, "{}", certified.body);
+        assert_eq!(certified.json()["rows"], serde_json::json!([["2026-06-01", "202121"]]));
+        let raw = served.post(
+            &v1(sutura_http::constants::base_paths::RUN_SQL),
+            Some(TOKEN),
+            &serde_json::json!({"statement": "select customer_id from dim_customer where customer_id = 'masked' limit 1"})
+                .to_string(),
+        );
+        assert_eq!(raw.status, 200, "{}", raw.body);
+        assert_eq!(raw.json()["rows"], serde_json::json!([["masked"]]));
+    }
+
     #[cfg(feature = "agent")]
     #[test]
     fn a_served_duckdb_answer_reports_its_statement_and_only_its_own_bindings_on_both_transports() {

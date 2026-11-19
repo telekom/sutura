@@ -155,7 +155,7 @@ fn a_key_set_url_is_read_as_the_url_location() {
                 .security()
                 .inbound()
                 .first()
-                .map(|inbound| inbound.requirement().key_set())
+                .map(|inbound| inbound.requirement().expect("a JWT verifier").key_set())
         )
     });
     assert_eq!(
@@ -202,7 +202,8 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
         .inbound()
         .first()
         .expect("the declaration is there")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert_eq!(inbound.mode(), "direct");
     assert!(settings.security().describes_identity());
     let requirement = inbound.requirement();
@@ -224,7 +225,8 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
         .inbound()
         .first()
         .expect("the declaration is there")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert_eq!(inbound.mode(), "behind-gateway");
     assert!(
         !inbound.reads_the_authorization_header(),
@@ -313,7 +315,8 @@ fn a_gateway_assertion_in_authorization_is_refused_only_beside_a_deployment_toke
         .inbound()
         .first()
         .expect("the declaration is there")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert!(declared.reads_the_authorization_header());
     assert_eq!(declared.requirement().location().to_string(), "authorization: Bearer");
 
@@ -413,7 +416,8 @@ fn an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error() {
         .inbound()
         .first()
         .expect("the declaration is there")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert_eq!(inbound.requirement().audience().as_str(), "https://other.example.com");
 
     let sources = Sources::defaults(Environment::Development)
@@ -482,6 +486,7 @@ fn direct_token_type_any_does_not_start_without_its_opt_in() {
             .first()
             .expect("the declaration is there")
             .identity()
+            .expect("a JWT verifier")
             .accepts_any_token_class()
     );
 }
@@ -514,6 +519,7 @@ fn direct_token_type_any_starts_with_its_opt_in() {
             .first()
             .expect("the declaration is there")
             .identity()
+            .expect("a JWT verifier")
             .accepts_any_token_class()
     );
 }
@@ -549,6 +555,7 @@ fn a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode
             .first()
             .expect("the declaration is there")
             .identity()
+            .expect("a JWT verifier")
             .requirement();
         assert_eq!(declared.address_claim().declared().map(crate::ClaimName::as_str), Some("upn"));
     }
@@ -560,6 +567,7 @@ fn a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode
         .first()
         .expect("the declaration is there")
         .identity()
+        .expect("a JWT verifier")
         .requirement();
     assert_eq!(*requirement.address_claim(), crate::AddressClaim::VerifiedEmail);
 }
@@ -598,7 +606,8 @@ fn a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in() {
         .inbound()
         .first()
         .expect("the declaration is there")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert_eq!(
         inbound
             .requirement()
@@ -664,7 +673,8 @@ fn a_transit_audience_may_be_a_path_and_is_never_cleartext() {
         .inbound()
         .first()
         .expect("the declaration is there")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert_eq!(
         inbound.requirement().audience().as_str(),
         "/hub/My-MCP/v1",
@@ -742,7 +752,8 @@ fn a_direct_audience_is_its_own_key_and_never_cleartext() {
         .inbound()
         .first()
         .expect("the declaration is there")
-        .identity();
+        .identity()
+        .expect("a JWT verifier");
     assert_eq!(inbound.requirement().audience().as_str(), CLIENT);
     let refused = load_inbound_overlay(format!(
         "security:\n{DIRECT_INBOUND}    audience: \"http://sutura.example.com\"\n"

@@ -110,6 +110,10 @@ cubes:
         primary_key: true
         public: true
         description: The surrogate key every fact table joins on.
+      - name: customer_id
+        sql: customer_id
+        type: string
+        description: The business key a person would quote, for example C0001.
       - name: segment
         sql: segment
         type: string
@@ -173,6 +177,10 @@ cubes:
         primary_key: true
         public: true
         description: The day this row of usage was recorded on.
+      - name: voice_min
+        sql: voice_min
+        type: number
+        description: Voice minutes recorded on this usage row.
     measures:
       - name: voice_minutes
         sql: voice_min

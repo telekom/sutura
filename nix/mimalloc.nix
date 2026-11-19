@@ -37,7 +37,7 @@ let
   # because 3.5.0 redefined `MI_SECURE=4` to mean level 3 and moved byte-precise
   # buffer-overflow checking to level 5; without it a `secure level: 4` line would be
   # quietly weaker than the one it replaces. See issue #5.
-  mimallocVersion = "3.6.1";
+  mimallocVersion = "3.7.0";
   mimallocFor = { targetPkgs, optLevel, isMusl }:
     let
       # ARMv8.3 FLOOR for the aarch64 targets, deliberately. The pinned mimalloc gains from
@@ -59,7 +59,7 @@ let
       src = pkgs.fetchurl {
         name = "mimalloc-${mimallocVersion}.tar.gz";
         url = "https://codeload.github.com/microsoft/mimalloc/tar.gz/refs/tags/v${mimallocVersion}";
-        sha256 = "2672e6a99d4579fb4bb32d9de0d63aa424ce600d31fbfaf06eb74d940d2e07a6";
+        sha256 = "1b8653b9ff9b841a97f2c50fd996e89e1a0cb712c3c5b0980ef16a027eb7acf8";
       };
       dontConfigure = true;
       # Matches cc-rs, which sets it for the same reason: a timestamp in the archive
@@ -76,9 +76,9 @@ let
       # explicitly even though it is upstream's own current default, because dormant-by-default
       # is the whole point of shipping this compiled in - a future upstream flip of that
       # default must not silently arm guard pages in a production binary that never asked for
-      # them. Arming is a RUNTIME choice per deployment: `MIMALLOC_GUARDED_SAMPLE_RATE=4000`
-      # (1 in N allocations in the `guarded_min`..`guarded_max` range gets a guard page),
-      # observable afterwards via `MIMALLOC_VERBOSE=1`'s `guarded mode: enabled, rate=N` line.
+      # them. Upstream secure environment mode ignores `MIMALLOC_GUARDED_SAMPLE_RATE`;
+      # this build preserves that restriction, so environment settings cannot arm sampling.
+      # `MIMALLOC_VERBOSE=1` still reports the allocator's effective options.
       # BOTH build paths must carry `MI_GUARDED=1` and the same default rate - this file's `cc`
       # invocation and `build.rs`'s `MI_SECURE` define - or the two link paths disagree on
       # allocator security behaviour, the same hazard `VENDOR.md`'s version-drift paragraph

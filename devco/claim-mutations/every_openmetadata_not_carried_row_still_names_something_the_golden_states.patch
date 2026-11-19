@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
-index 87985d154..f1b1cd5e1 100644
 --- a/crates/sutura-catalog-local/src/document.rs
 +++ b/crates/sutura-catalog-local/src/document.rs
-@@ -217,7 +217,7 @@ impl ColumnEntryDoc {
-                 r#type,
-                 description,
-                 nullable,
--            } => Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable),
-+            } => Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable.and(None)),
-         }
-     }
- }
+@@ -280,7 +280,7 @@
+                         cause,
+                     }
+                 })?;
+-                Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable)
++                Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable.and(None))
+                     .map(|column| column.with_text_policy(text))
+                     .map_err(|refusal| {
+                         let (column, cause) = refusal.into_parts();

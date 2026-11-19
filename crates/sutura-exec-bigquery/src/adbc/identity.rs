@@ -12,8 +12,9 @@
 //! the driver the access token that comes back. No second hop is asked for: that token IS the
 //! subject's own pool principal, and `BigQuery`'s grants on that principal decide what it reads. A
 //! Google-login source hands the driver the subject's own access token too, the one the identity
-//! provider stored when the subject signed in to Google. A failed exchange is a refusal before any
-//! connection exists (`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`).
+//! provider stored when the subject signed in to Google, and starts the job with `jobs.query`, so
+//! that token needs only `bigquery.readonly` ([`caller_google_token_options`]). A failed exchange is
+//! a refusal before any connection exists (`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`).
 //!
 //! **The driver never refreshes an access token**, so a question that runs past the token's
 //! lifetime fails mid-query rather than renewing.
@@ -102,8 +103,11 @@ pub enum Impersonation {
     /// subject's own access token.
     ThroughPool(WorkloadPool),
     /// This source impersonates with the access token the identity provider stored for the asking
-    /// subject's own Google login: the subject's credential is that token itself.
+    /// subject's own Google login: the subject's credential is that token itself. Its job starts
+    /// with `jobs.query`, so the token may hold `bigquery.readonly` and no more.
     GoogleLogin,
+    /// Direct tokeninfo admission; use the caller token with the read-only jobs.query route.
+    CallerGoogleToken,
     /// This source runs the asking subject's verified address through domain-wide delegation: the
     /// deployment's own credential signs as this account, which acts as the address. The
     /// deployment vouches for the subject here.
@@ -174,13 +178,20 @@ pub(super) fn authenticate(
 ) -> Result<JobAuthentication, AdbcError> {
     let options = match (identity, impersonation) {
         (JobIdentity::Transport, _) => Vec::new(),
-        (JobIdentity::AsSubject { assertion }, Impersonation::GoogleLogin) => access_token_options(assertion),
+        (JobIdentity::AsSubject { assertion }, Impersonation::GoogleLogin | Impersonation::CallerGoogleToken) => {
+            caller_google_token_options(assertion)
+        }
         (JobIdentity::AsAddress { address }, Impersonation::DomainDelegation(account)) => delegation_options(account, address),
         // A subject's own credential at a delegating source, or an address anywhere else: in-crate
         // misuse insurance, for the reason the arm below gives.
         (JobIdentity::AsSubject { .. }, Impersonation::DomainDelegation(_))
-        | (JobIdentity::AsAddress { .. }, Impersonation::Disabled | Impersonation::ThroughPool(_) | Impersonation::GoogleLogin) =>
-        {
+        | (
+            JobIdentity::AsAddress { .. },
+            Impersonation::Disabled
+            | Impersonation::ThroughPool(_)
+            | Impersonation::GoogleLogin
+            | Impersonation::CallerGoogleToken,
+        ) => {
             return Err(AdbcError::Uncovered(
                 "run a subject by a mechanism this source does not declare",
             ));
@@ -225,7 +236,10 @@ pub(super) fn forwarded(token: &Secret, impersonation: &Impersonation) -> Result
         Impersonation::ThroughPool(_) => Ok(JobAuthentication {
             options: access_token_options(token),
         }),
-        Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
+        Impersonation::Disabled
+        | Impersonation::GoogleLogin
+        | Impersonation::CallerGoogleToken
+        | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
             "read a forwarded token at a source that federates at no pool",
         )),
     }
@@ -284,6 +298,10 @@ pub(super) fn split(
 
 /// The two options that hand the driver one subject's access token: the token and the auth type
 /// that selects it, only ever together - the driver reads the token under no other auth type.
+///
+/// **No `jobs.query` path**: a pool's token carries the API client's full scope, so its job starts
+/// with `jobs.insert` and stays cancellable. A caller's own Google token takes
+/// [`caller_google_token_options`].
 #[expect(
     clippy::disallowed_methods,
     reason = "a driver option is a plain string across the C ABI, so a token is exposed here once \
@@ -302,6 +320,24 @@ fn access_token_options(token: &Secret) -> DatabaseOptions {
             OptionValue::String(String::from(token.expose_secret())),
         ),
     ]
+}
+
+/// The options that run one job on a caller's own Google access token: [`access_token_options`]
+/// and the `jobs.query` path, the one call a `bigquery.readonly` token can start a job with. Every
+/// mode that hands the driver the caller's Google token takes this set and not the bare token.
+///
+/// **The limits are cancellation and the job's id.** Google refuses `jobs.cancel` with the
+/// read-only scope, so a job this transport stops waiting for at the caller's deadline runs on to
+/// its end or to `jobTimeoutMs`: `maximumBytesBilled` still caps its bytes, nothing caps its slot
+/// time. And `jobs.query` takes no client-chosen job id, so even a token that holds the full scope
+/// cannot cancel a job cut off before `jobs.query` answered.
+fn caller_google_token_options(token: &Secret) -> DatabaseOptions {
+    let mut options = access_token_options(token);
+    options.push((
+        OptionDatabase::Other(QUERY_THROUGH_JOBS_QUERY.into()),
+        OptionValue::String(String::from("true")),
+    ));
+    options
 }
 
 /// The four options that run one job as `address` through domain-wide delegation, only ever
@@ -452,7 +488,25 @@ mod tests {
             1,
             "{sent:?}"
         );
-        assert_eq!(sent.len(), 2, "{sent:?}");
+    }
+
+    #[test]
+    fn a_google_login_job_names_the_auth_type_the_token_and_the_jobs_query_path() {
+        let sent = google_login_options("ya29.caller-google-token");
+        for (key, value) in [
+            (AUTH_TYPE, AUTH_TYPE_ACCESS_TOKEN),
+            (AUTH_ACCESS_TOKEN, "ya29.caller-google-token"),
+            (QUERY_THROUGH_JOBS_QUERY, "true"),
+        ] {
+            assert!(
+                sent.iter()
+                    .any(|(k, v)| k.contains(&format!("\"{key}\"")) && v.contains(&format!("\"{value}\""))),
+                "{key} = {value} is not sent: {sent:?}"
+            );
+        }
+        // No scope and no impersonation: the token is the caller's, and its scope is the identity
+        // provider's Google client's.
+        assert_eq!(sent.len(), 3, "{sent:?}");
     }
 
     #[test]
@@ -563,3 +617,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod google_token_cells;
