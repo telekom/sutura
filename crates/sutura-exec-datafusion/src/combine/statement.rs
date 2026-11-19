@@ -59,11 +59,11 @@ use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::parser::Parser;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
-use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{
     BigQueryDialect, CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle, DefaultDialect, Dialect, DuckDBDialect,
     PostgreSqlDialect,
 };
+use datafusion::sql::unparser::{Unparser, UnquotableName};
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
     FederationPlanner, FederationProvider, get_table_source,
@@ -80,6 +80,7 @@ use tokio::runtime::Runtime;
 use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
 
+mod literal;
 mod oracle;
 mod projection;
 mod resolve;
@@ -101,11 +102,8 @@ where
         within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
             .ok_or(StatementStopped::DeadlineExceeded)?
             .map_err(|cause| match cause {
-                PlanningStopped::Refused(resolve::Refused::UnknownTable) => StatementStopped::UnknownTable,
-                PlanningStopped::Refused(resolve::Refused::UnknownColumn) => StatementStopped::UnknownColumn,
-                PlanningStopped::Refused(resolve::Refused::Unsupported(construct)) => {
-                    StatementStopped::UnsupportedSyntax(construct)
-                }
+                PlanningStopped::Refused(refused) => stopped(refused),
+                PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
                 PlanningStopped::Engine(cause) => {
                     let fallback = unplanned("the statement did not plan", &cause);
                     if field_not_found(&cause) {
@@ -142,17 +140,21 @@ where
             .filter(|table| scans.contains(table.table()))
             .collect();
         let text = oracle::native(native)
-            .and_then(|sql| text::apply(sql, &read, TypeDialect::Oracle))
-            .and_then(|sql| {
+            .and_then(|()| text::apply_to(native, &read, TypeDialect::Oracle))
+            .and_then(|()| {
                 if read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema) {
-                    text::native_oracle_rows(&sql, &native_schema, &read)
+                    text::native_oracle_rows(native, &native_schema, &read)
                 } else {
-                    Ok(sql)
+                    literal::spelled(native, TypeDialect::Oracle)
                 }
             })
-            .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
+            .map_err(|cause| unwritten("the numeric statement did not unparse", &cause))?;
+        // The caller's own names were read at its tokens; this reads those the resolver wrote.
+        if !literal::quotable_names(&text, TypeDialect::Oracle) {
+            return Err(stopped(resolve::Refused::UnquotableName));
+        }
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
-        legs.open(&sources, [&native])?;
+        legs.open(&sources, [(&native, TypeDialect::Oracle)])?;
         let rows = legs.run_planned(source, &native, &scans, policy_of(&parts))?;
         return projection::output(&native_schema, rows)
             .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
@@ -163,8 +165,14 @@ where
         .iter()
         .map(|part| Ok((part.statement(whole, &tables, &native_schema)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
-        .map_err(|cause| unplanned("a part did not unparse", &cause))?;
-    legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
+        .map_err(|cause| unwritten("a part did not unparse", &cause))?;
+    legs.open(
+        &sources,
+        parts
+            .iter()
+            .zip(&statements)
+            .map(|(part, (statement, _tables))| (statement, part.dialect)),
+    )?;
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
@@ -466,14 +474,9 @@ impl Part {
             return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
         }
         let text = if whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner()) {
-            unparsed(&self.plan, self.dialect)?
+            written(&self.plan, self.dialect, &read)?
         } else {
-            unparsed(&labelled(&self.plan)?, self.dialect)?
-        };
-        let text = if self.dialect == TypeDialect::Cube {
-            text
-        } else {
-            text::apply(text, &read, self.dialect)?
+            written(&labelled(&self.plan)?, self.dialect, &read)?
         };
         let text = if full_lobs {
             text::bounded_oracle_rows(&text, output_schema, &read)?
@@ -707,6 +710,12 @@ async fn planned(
             )
         })
         .count();
+    if tokens
+        .iter()
+        .any(|token| matches!(token, Token::Word(Word { quote_style: Some(_), value, .. }) if !literal::quotable(value)))
+    {
+        return Err(PlanningStopped::Refused(resolve::Refused::UnquotableName));
+    }
     if operators > MOST_OPERATORS {
         return Err(PlanningStopped::Engine(plan_datafusion_err!(
             "the statement has {operators} operators, more than {MOST_OPERATORS}"
@@ -730,7 +739,13 @@ async fn planned(
         .with_allow_ddl(false)
         .with_allow_dml(false)
         .with_allow_statements(false);
-    let policy_sql = statement.to_string();
+    let local: Vec<_> = tables
+        .iter()
+        .filter(|table| table.dialect() == TypeDialect::Cube && text::protected(table))
+        .cloned()
+        .collect();
+    // Cube's text policies rewrite the resolved statement itself; no text is parsed a second time.
+    let policy = (!local.is_empty()).then(|| statement.clone());
     let plan = context
         .state()
         .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
@@ -742,28 +757,19 @@ async fn planned(
         Ok(TreeNodeRecursion::Continue)
     })?;
     // Validate caller functions before registering the policy-only regex replacement.
-    let local: Vec<_> = tables
-        .iter()
-        .filter(|table| table.dialect() == TypeDialect::Cube && text::protected(table))
-        .cloned()
-        .collect();
-    let plan = if local.is_empty() {
-        plan
-    } else {
+    let plan = if let Some(mut policy) = policy {
         let replace = SessionStateDefaults::default_scalar_functions()
             .into_iter()
             .find(|function| function.name() == "regexp_replace")
             .ok_or_else(|| plan_datafusion_err!("the text policy function is unavailable"))?;
         context.register_udf(replace.as_ref().clone());
-        let sql = text::apply_cube_local(policy_sql, &local)?;
-        let mut rewritten = Parser::parse_sql(&GenericDialect, &sql).map_err(DataFusionError::from)?;
-        let statement = rewritten
-            .pop()
-            .ok_or_else(|| plan_datafusion_err!("the text policy query is absent"))?;
+        text::cube_local_to(&mut policy, &local)?;
         context
             .state()
-            .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
+            .statement_to_plan(EngineStatement::Statement(Box::new(policy)))
             .await?
+    } else {
+        plan
     };
     let plan = if numeric_operations && tables.iter().any(text::oracle_lobs) {
         text::native_number_outputs(plan)?
@@ -781,12 +787,41 @@ async fn planned(
     Ok((frame.into_optimized_plan()?, numeric_operations, native_schema))
 }
 
+/// What the caller reads for a statement refused before planning.
+const fn stopped<S>(refused: resolve::Refused) -> StatementStopped<S> {
+    match refused {
+        resolve::Refused::UnknownTable => StatementStopped::UnknownTable,
+        resolve::Refused::UnknownColumn => StatementStopped::UnknownColumn,
+        resolve::Refused::Unsupported(construct) => StatementStopped::UnsupportedSyntax(construct),
+        resolve::Refused::UnquotableName => StatementStopped::UnsupportedSyntax(SqlConstruct::Query),
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 enum PlanningStopped {
     #[error("the admitted statement did not plan")]
     Engine(#[from] DataFusionError),
     #[error("the statement was refused before planning: {0:?}")]
     Refused(resolve::Refused),
+}
+
+/// Why a source statement was not written: a name it could not quote, or else `why`.
+fn unwritten<S>(why: &str, cause: &DataFusionError) -> StatementStopped<S> {
+    if unquotable(cause) {
+        stopped(resolve::Refused::UnquotableName)
+    } else {
+        unplanned(why, cause)
+    }
+}
+
+/// Whether `cause` is the unparser's or a text-policy view's refusal of a name it could not quote.
+fn unquotable(cause: &DataFusionError) -> bool {
+    match cause {
+        DataFusionError::External(cause) => cause.downcast_ref::<UnquotableName>().is_some(),
+        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unquotable(cause),
+        DataFusionError::Shared(cause) => unquotable(cause),
+        _ => false,
+    }
 }
 
 fn field_not_found(cause: &DataFusionError) -> bool {
@@ -837,7 +872,9 @@ const CHARACTER_FUNCTIONS: [(&str, &str); 12] = [
     ("translate", "translateUTF8"),
 ];
 
-fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+/// `plan` as `dialect`'s text: `read`'s text policies applied, except at Cube, which applies them
+/// before its query operators, and then every string literal written as `dialect` reads it.
+fn written(plan: &LogicalPlan, dialect: TypeDialect, read: &[StatementTable]) -> Planned<String> {
     struct ClickHouseFunctions;
 
     impl VisitorMut for ClickHouseFunctions {
@@ -866,22 +903,14 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
     {
         return plan_err!("Cube cannot preserve this unsigned result type");
     }
-    let text = |spelling: &dyn Dialect| {
-        let mut statement = Unparser::new(spelling).plan_to_sql(plan)?;
-        if dialect == TypeDialect::ClickHouse
-            && let ControlFlow::Break(cause) = statement.visit(&mut ClickHouseFunctions)
-        {
-            return Err(cause);
-        }
-        Ok(statement.to_string())
-    };
-    match dialect {
-        TypeDialect::DuckDb => text(&DuckDBDialect::new()),
-        TypeDialect::DataFusion => text(&DefaultDialect {}),
-        TypeDialect::Postgres | TypeDialect::Cube => text(&PostgreSqlDialect {}),
-        TypeDialect::Oracle => oracle::unparsed(plan),
-        TypeDialect::BigQuery => text(&BigQueryDialect {}),
-        TypeDialect::ClickHouse => text(
+    let unparse = |spelling: &dyn Dialect| Unparser::new(spelling).plan_to_sql(plan);
+    let mut statement = match dialect {
+        TypeDialect::DuckDb => unparse(&DuckDBDialect::new()),
+        TypeDialect::DataFusion => unparse(&DefaultDialect {}),
+        TypeDialect::Postgres | TypeDialect::Cube => unparse(&PostgreSqlDialect {}),
+        TypeDialect::Oracle => oracle::statement(plan),
+        TypeDialect::BigQuery => unparse(&BigQueryDialect {}),
+        TypeDialect::ClickHouse => unparse(
             &CustomDialectBuilder::new()
                 .with_identifier_quote_style('`')
                 .with_use_timestamp_for_date64(true)
@@ -890,7 +919,22 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
                 .with_character_length_style(CharacterLengthStyle::Length)
                 .build(),
         ),
+    }?;
+    if dialect == TypeDialect::ClickHouse
+        && let ControlFlow::Break(cause) = statement.visit(&mut ClickHouseFunctions)
+    {
+        return Err(cause);
     }
+    if dialect != TypeDialect::Cube {
+        text::apply_to(&mut statement, read, dialect)?;
+    }
+    literal::spelled(&mut statement, dialect)
+}
+
+/// `plan` written as a part over tables with no text policy is.
+#[cfg(test)]
+fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+    written(plan, dialect, &[])
 }
 
 /// A leg's rows as batches of its part's schema: its columns the part's labels in order, each cast
