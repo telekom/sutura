@@ -280,12 +280,18 @@ impl Unparser<'_> {
             return Ok(*body);
         }
 
-        // If no projection is set, add a wildcard projection to the select
-        // which will be translated to `SELECT *` in the SQL statement
+        // Keep the plan's declared output even when optimization removed its projection.
         if !select_builder.already_projected() {
-            select_builder.projection(vec![ast::SelectItem::Wildcard(
-                ast::WildcardAdditionalOptions::default(),
-            )]);
+            let expressions = if plan.schema().fields().is_empty() {
+                self.empty_projection_fallback()
+            } else {
+                plan.schema().columns().into_iter().map(Expr::Column).collect()
+            };
+            select_builder.projection(
+                expressions.iter()
+                    .map(|expression| self.select_item_to_sql(expression))
+                    .collect::<Result<Vec<_>>>()?,
+            );
         }
 
         let mut twj = select_builder.pop_from().unwrap();
@@ -654,6 +660,7 @@ impl Unparser<'_> {
 
     fn project_window_output(
         &self,
+        input_columns: &[Expr],
         window_expr: &[Expr],
         select: &mut SelectBuilder,
         agg: Option<&Aggregate>,
@@ -661,9 +668,10 @@ impl Unparser<'_> {
         let mut items = if select.already_projected() {
             select.pop_projections()
         } else {
-            vec![ast::SelectItem::Wildcard(
-                ast::WildcardAdditionalOptions::default(),
-            )]
+            input_columns
+                .iter()
+                .map(|column| self.select_item_to_sql(column))
+                .collect::<Result<Vec<_>>>()?
         };
 
         items.extend(
@@ -721,13 +729,18 @@ impl Unparser<'_> {
             alias_name: TableReference::bare(input_alias),
             rewrite_unqualified: true,
         };
+        let input_columns = input_schema
+            .columns()
+            .into_iter()
+            .map(|column| Expr::Column(column).rewrite(&mut alias_rewriter).data())
+            .collect::<Result<Vec<_>>>()?;
         let window_expr = window
             .window_expr
             .iter()
             .map(|expr| expr.clone().rewrite(&mut alias_rewriter).data())
             .collect::<Result<Vec<_>>>()?;
 
-        self.project_window_output(&window_expr, select, None)
+        self.project_window_output(&input_columns, &window_expr, select, None)
     }
 
     fn extract_join_input_table_scan_filters(
@@ -1570,6 +1583,17 @@ impl Unparser<'_> {
                     select.already_projected(),
                 )?;
 
+                if !select.already_projected()
+                    && (unparsed_table_scan.is_none()
+                        || matches!(&unparsed_table_scan, Some(LogicalPlan::Limit(_))))
+                {
+                    select.projection(
+                        plan_alias.schema.columns().into_iter()
+                            .map(|column| self.select_item_to_sql(&Expr::Column(column)))
+                            .collect::<Result<Vec<_>>>()?,
+                    );
+                }
+
                 // A scan fetch is an inner row window, not a replacement for the caller's limit.
                 if let Some(unparsed) = &unparsed_table_scan
                     && matches!(unparsed, LogicalPlan::Limit(_))
@@ -1625,13 +1649,6 @@ impl Unparser<'_> {
                     );
                 }
 
-                // if the child plan is a TableScan with pushdown operations, we don't need to
-                // create an additional subquery for it
-                if !select.already_projected() && unparsed_table_scan.is_none() {
-                    select.projection(vec![ast::SelectItem::Wildcard(
-                        ast::WildcardAdditionalOptions::default(),
-                    )]);
-                }
                 let plan = unparsed_table_scan.unwrap_or_else(|| plan.clone());
                 if !columns.is_empty()
                     && !self.dialect.supports_column_alias_in_table_alias()
@@ -1757,7 +1774,19 @@ impl Unparser<'_> {
                 )?;
 
                 if project_window_output {
-                    self.project_window_output(&window.window_expr, select, agg)?;
+                    let input_columns = window
+                        .input
+                        .schema()
+                        .columns()
+                        .into_iter()
+                        .map(Expr::Column)
+                        .collect::<Vec<_>>();
+                    self.project_window_output(
+                        &input_columns,
+                        &window.window_expr,
+                        select,
+                        agg,
+                    )?;
                 }
 
                 Ok(())

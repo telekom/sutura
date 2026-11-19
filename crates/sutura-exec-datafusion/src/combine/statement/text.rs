@@ -80,12 +80,8 @@ pub(super) fn bounded_oracle_rows(sql: &str, schema: &Schema, tables: &[Statemen
 }
 
 /// Label the caller's original query with a CTE column list: its numeric expressions, aliases,
-/// wildcards and set operations stay native. Existing CTEs remain at the top level for Oracle.
-pub(super) fn bounded_native_oracle_rows(
-    statement: &mut Statement,
-    schema: &Schema,
-    tables: &[StatementTable],
-) -> Result<String> {
+/// and set operations stay native. Existing CTEs remain at the top level for Oracle.
+pub(super) fn native_oracle_rows(statement: &mut Statement, schema: &Schema, tables: &[StatementTable]) -> Result<String> {
     let Statement::Query(query) = statement else {
         return plan_err!("expected one native Oracle query");
     };
@@ -104,7 +100,7 @@ pub(super) fn bounded_native_oracle_rows(
         .map(|index| format!("\"c{index}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    let labelled = format!("SELECT * FROM \"{name}\"");
+    let labelled = format!("SELECT {labels} FROM \"{name}\"");
     let bounded = bounded_oracle_output(&labelled, schema, tables, ordered)?;
     Ok(format!("{existing}\"{name}\"({labels}) AS ({query}) {bounded}"))
 }
@@ -128,13 +124,16 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
         .iter()
         .flat_map(|table| table.schema().fields())
         .any(|field| field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob"));
+    let labelled = super::projection::duplicate_names(schema);
+    let lobs = tables.iter().any(oracle_lobs);
     let columns = schema
         .fields()
         .iter()
         .enumerate()
         .map(|(index, field)| {
             let column = format!("\"sutura_lob_output\".\"c{index}\"");
-            let value = if matches!(field.data_type(), DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
+            let value = if lobs
+                && matches!(field.data_type(), DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
                 && !field.metadata().contains_key("sutura:unbounded_number")
             {
                 let clob = field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "clob");
@@ -144,15 +143,20 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
             } else {
                 column
             };
-            format!("{value} AS {}", Ident::with_quote('"', field.name()))
+            let name = if labelled { format!("c{index}") } else { field.name().clone() };
+            format!("{value} AS {}", Ident::with_quote('"', name))
         })
         .collect::<Vec<_>>()
         .join(", ");
     if ordered {
         // ROWNUM pins the inner order before the output expressions run; the outer ORDER BY
         // restores that order without sorting on a clipped value or returning the ordinal.
+        let inner = (0..schema.fields().len())
+            .map(|index| format!("\"sutura_lob_inner\".\"c{index}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
         Ok(format!(
-            "SELECT {columns} FROM (SELECT \"sutura_lob_inner\".*, ROWNUM AS \"sutura_lob_ordinal\" FROM ({sql}) \"sutura_lob_inner\") \"sutura_lob_output\" ORDER BY \"sutura_lob_output\".\"sutura_lob_ordinal\""
+            "SELECT {columns} FROM (SELECT {inner}, ROWNUM AS \"sutura_lob_ordinal\" FROM ({sql}) \"sutura_lob_inner\") \"sutura_lob_output\" ORDER BY \"sutura_lob_output\".\"sutura_lob_ordinal\""
         ))
     } else {
         Ok(format!("SELECT {columns} FROM ({sql}) \"sutura_lob_output\""))
