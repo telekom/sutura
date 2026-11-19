@@ -64,6 +64,17 @@ macro_rules! text_fixture {
             }
         }
     };
+    (clickhouse, $adapter:ty) => {
+        impl TextFixture for $adapter {
+            fn open_text_fixture(csv: PathBuf) -> (Self, QualifiedTable) {
+                let table = TableName::parse("text_prefilter").expect("a fixture name");
+                (
+                    crate::adapters::clickhouse_on(source(), vec![(table.clone(), csv)], <$adapter>::load_federated_csv),
+                    QualifiedTable::new(None, table),
+                )
+            }
+        }
+    };
     ($_name:ident, $adapter:ty) => {
         impl TextFixture for $adapter {}
     };
