@@ -45,14 +45,15 @@ contain no full term, and start and end with characters absent from that term. T
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.
 
-The current eligible comparison arms are DataFusion's binary `LIKE` and Oracle native CLOB/NCLOB
-`LIKE`, with an optional `UPPER` around that column on Oracle. Cube's local policy execution is not
+The current eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's byte-wise `LIKE`
+and Oracle native CLOB/NCLOB `LIKE`, with an optional `UPPER` around that column on Oracle. Cube's local policy execution is not
 an eligible arm and keeps redacted-only execution. Oracle
 uses its binary character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary
 `NLS_SORT` permits raw row rejection; every other value, including NULL, retains all rows. No
 session setting is changed. Non-LOB Oracle columns and other source dialects retain redacted-only
 execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.
+
 
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
@@ -78,6 +79,20 @@ DuckDB's global `default_collation` setting can contradict an authored `binary`.
 moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
+
+
+ClickHouse has no column collation and its `LIKE` is case-sensitive and byte-wise, so a column of its
+pinned schema carries the collation fact `binary` and a column pinned anything else (unknown or a
+named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
+test reads the stored column qualified by its table, in the form `` `table`.`column` ``: ClickHouse
+resolves a bare name to the projection alias of the same name unless `prefer_column_name_to_alias`
+is set, and a raw test that read the alias would read the redacted value, discard nothing and
+still return the same rows. The statement text is what the golden cell asserts; no answer can tell
+the two reads apart, so only the recorded timings show the effect. The redaction patterns of
+`replaceRegexpAll` are RE2 expressions, and a replacement is a literal (`$` and `\` are refused), so
+no backreference can rebuild a term from a matched value. ClickHouse has no `UPPER` arm. The
+ClickHouse tier measures equality and timings; the RE2 and alias statements above are documented
+behaviour, not measured here.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone

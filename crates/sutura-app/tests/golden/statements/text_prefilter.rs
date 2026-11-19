@@ -120,14 +120,16 @@ fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_j
     if dialect == TypeDialect::Oracle {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
+    // What pinning records for an engine that fixes the collation itself; ClickHouse is admitted by it alone.
+    let mut body = Field::new("body", DataType::Utf8, true).with_metadata(metadata);
+    if let Some(collation) = dialect.engine_collation() {
+        collation.pin_onto(&mut body);
+    }
     StatementTable::new(
         source(),
         path.clone(),
         dialect,
-        Arc::new(Schema::new(vec![
-            Field::new("body", DataType::Utf8, true).with_metadata(metadata),
-            Field::new("cohort", DataType::Utf8, true),
-        ])),
+        Arc::new(Schema::new(vec![body, Field::new("cohort", DataType::Utf8, true)])),
     )
 }
 
@@ -316,6 +318,23 @@ fn searches_in(planned: &[String], term: &str) -> usize {
         .map(|statement| statement.to_ascii_uppercase().matches(&needle).count())
         .sum()
 }
+
+
+/// How many times the statements the source received search the stored column, named through its table.
+///
+/// `ClickHouse` resolves a bare name to the projection alias beside it unless `prefer_column_name_to_alias`
+/// is set, so an unqualified raw test reads the redacted value: every answer stays equal and no row is
+/// ever skipped. Only the text of the statement tells the two apart here, and no other engine is read.
+/// The caller's own predicate is unparsed through the same table name, so only the parenthesised
+/// condition inside the view's `WHERE` counts.
+fn stored_searches_in(planned: &[String], dialect: TypeDialect, path: &QualifiedTable, term: &str) -> usize {
+    if dialect != TypeDialect::ClickHouse {
+        return 0;
+    }
+    let needle = format!("WHERE (`{}`.`body` LIKE '%{term}%')", path.name().as_str());
+    planned.iter().map(|statement| statement.matches(&needle).count()).sum()
+}
+
 
 /// Only an eligible arm may add one raw search, and exactly where the shape qualifies. The `UPPER`
 /// barrier query narrows with a string literal on `cohort`, a column no text policy proves is text,
