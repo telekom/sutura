@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].request_line(), format!("GET {META_PATH} HTTP/1.1"));
         assert_eq!(requests[0].authorization(), Some(format!("Bearer {TOKEN}").as_str()));
-        assert_eq!(pinned.definitions().models().len(), 5);
+        assert_eq!(pinned.definitions().models().len(), 6);
     }
 
     #[test]

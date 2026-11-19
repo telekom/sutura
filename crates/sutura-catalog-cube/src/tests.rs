@@ -45,7 +45,8 @@ fn every_recorded_cube_is_a_model_on_the_cube_source_with_its_dimensions_as_colu
             "dim_product",
             "dim_region",
             "fct_subscription_monthly",
-            "fct_usage_daily"
+            "fct_usage_daily",
+            "text_prefilter"
         ]
     );
     let subscriptions = &models[&ModelName::parse("fct_subscription_monthly").expect("a name")];
@@ -73,6 +74,7 @@ fn a_measure_is_reported_and_never_minted_as_a_metric() {
     assert_eq!(
         measures,
         [
+            "text_prefilter.count",
             "fct_subscription_monthly.active_subscriptions",
             "fct_subscription_monthly.subscription_base",
             "fct_subscription_monthly.subscription_months_billed",
