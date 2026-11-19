@@ -654,6 +654,7 @@ impl Unparser<'_> {
 
     fn project_window_output(
         &self,
+        input_columns: &[Expr],
         window_expr: &[Expr],
         select: &mut SelectBuilder,
         agg: Option<&Aggregate>,
@@ -661,9 +662,10 @@ impl Unparser<'_> {
         let mut items = if select.already_projected() {
             select.pop_projections()
         } else {
-            vec![ast::SelectItem::Wildcard(
-                ast::WildcardAdditionalOptions::default(),
-            )]
+            input_columns
+                .iter()
+                .map(|column| self.select_item_to_sql(column))
+                .collect::<Result<Vec<_>>>()?
         };
 
         items.extend(
@@ -721,13 +723,18 @@ impl Unparser<'_> {
             alias_name: TableReference::bare(input_alias),
             rewrite_unqualified: true,
         };
+        let input_columns = input_schema
+            .columns()
+            .into_iter()
+            .map(|column| Expr::Column(column).rewrite(&mut alias_rewriter).data())
+            .collect::<Result<Vec<_>>>()?;
         let window_expr = window
             .window_expr
             .iter()
             .map(|expr| expr.clone().rewrite(&mut alias_rewriter).data())
             .collect::<Result<Vec<_>>>()?;
 
-        self.project_window_output(&window_expr, select, None)
+        self.project_window_output(&input_columns, &window_expr, select, None)
     }
 
     fn extract_join_input_table_scan_filters(
@@ -1760,7 +1767,19 @@ impl Unparser<'_> {
                 )?;
 
                 if project_window_output {
-                    self.project_window_output(&window.window_expr, select, agg)?;
+                    let input_columns = window
+                        .input
+                        .schema()
+                        .columns()
+                        .into_iter()
+                        .map(Expr::Column)
+                        .collect::<Vec<_>>();
+                    self.project_window_output(
+                        &input_columns,
+                        &window.window_expr,
+                        select,
+                        agg,
+                    )?;
                 }
 
                 Ok(())

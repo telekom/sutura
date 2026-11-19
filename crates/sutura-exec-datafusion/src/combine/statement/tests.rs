@@ -147,6 +147,57 @@ fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
     assert_eq!(legs.ran.len(), 2);
 }
 
+/// Records the text of every leg before delegating to the engines.
+struct Texts<'a> {
+    engines: &'a mut Engines,
+    texts: Vec<String>,
+}
+
+impl StatementLegs for Texts<'_> {
+    type Stop = SourceName;
+
+    fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        self.engines.open(sources)
+    }
+
+    fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        self.texts.push(statement.as_str().to_owned());
+        self.engines.run(source, statement)
+    }
+}
+
+#[test]
+fn a_window_over_its_whole_input_sends_every_source_column_by_name() {
+    let sql = "select customer_id, region, row_number() over (order by customer_id) from dim_customer";
+    let mut engines = Engines::new(None);
+    let statement = RawStatement::parse(sql).expect("a test statement is a statement");
+    let tables = tables();
+    let mut legs = Texts {
+        engines: &mut engines,
+        texts: Vec::new(),
+    };
+    let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    let texts = legs.texts;
+    let Some(Ok(rows)) = answer else {
+        panic!("the window must run with explicit source columns: {answer:?}; sent={texts:?}")
+    };
+    let [text] = texts.as_slice() else {
+        panic!("one source statement: {texts:?}")
+    };
+    assert!(!text.contains('*'), "no wildcard reaches the source: {text}");
+    assert_eq!(rows.columns().len(), 3);
+    assert_eq!(rows.rows(), engines.as_one(sql).rows());
+}
+
 #[test]
 fn cube_unsigned_results_are_refused_before_open_and_signed_results_still_run() {
     for kind in [
