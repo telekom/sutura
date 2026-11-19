@@ -118,7 +118,7 @@
 //!   (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
-use core::num::NonZeroU64;
+use core::num::{NonZeroU64, NonZeroUsize};
 use core::time::Duration;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -230,6 +230,8 @@ pub struct Nodes {
     readers: HashMap<SourceName, Vec<Url>>,
     /// Which family of address a host among `others` is dialled at.
     address_family: AddressFamily,
+    /// The threads of the runtime a combine, its stage dispatch and this node's own stages run on.
+    workers: NonZeroUsize,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -265,6 +267,7 @@ impl Nodes {
             row_ceiling: FederatedRowCeiling::LOOSEST,
             readers: HashMap::new(),
             address_family: AddressFamily::Auto,
+            workers: NonZeroUsize::MIN,
         }
     }
 
@@ -303,6 +306,21 @@ impl Nodes {
             row_ceiling: ceiling,
             ..self
         }
+    }
+
+    /// The same nodes, a combiner running them on `workers` threads, one until this is called.
+    ///
+    /// One thread runs a question's stage dispatch and this node's own stages behind each other, so
+    /// a plan sent to another node waits for whatever this node is computing; that is why a
+    /// deployment passes the width it gives its engine.
+    #[must_use]
+    pub fn engine_workers(self, workers: NonZeroUsize) -> Self {
+        Self { workers, ..self }
+    }
+
+    /// The threads a combiner over these nodes runs on.
+    pub(super) const fn workers(&self) -> NonZeroUsize {
+        self.workers
     }
 
     /// The same nodes, a host among the other nodes dialled at `family` addresses.

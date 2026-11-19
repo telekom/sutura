@@ -46,6 +46,8 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     };
     let identity = identity(tls, nodes.authority())?;
     let working_set = crate::sources::working_set(runtime);
+    // Unreachable zero: `EngineWorkers::parse` refuses it. One worker is the direction to fail in.
+    let width = core::num::NonZeroUsize::new(runtime.engine_workers().count()).unwrap_or(core::num::NonZeroUsize::MIN);
     let own = Nodes::worker(working_set, identity.clone())
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     let wait = nodes
@@ -59,7 +61,8 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     )
     .across_above(nodes.across_above())
     .wait_for_workers(wait)
-    .address_family(nodes.address_family());
+    .address_family(nodes.address_family())
+    .engine_workers(width);
     let across = nodes
         .others()
         .iter()

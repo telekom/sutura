@@ -425,7 +425,7 @@ has not linked the account that a source runs them as at the identity provider).
 | ------------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
 | `runtime.max_concurrent_queries`                        | `8`                            | Questions that run at the same time. At most 512                                                          |
 | `runtime.admission_timeout_seconds`                     | `5`                            | How long a question waits for a slot before `503 at_capacity`. At most 300                                |
-| `runtime.engine_worker_threads`                         | as many as the machine reports | The width of the in-process engine. At most 256. Set it in a container with a CPU quota                   |
+| `runtime.engine_worker_threads`                         | as many as the machine reports | Width of the engine and of the cross-node combiner. At most 256. Set it in a container with a CPU quota   |
 | `runtime.working_set_max_bytes`                         | `1073741824`                   | The bytes that the engine may reserve at once. sutura refuses to start above the memory that it can reach |
 | `rate_limit.enabled`                                    | on in production, else off     | The request limiter                                                                                       |
 | `rate_limit.probe_per_second`, `rate_limit.probe_burst` | `2`, `5`                       | Liveness, protected-resource metadata and the interface description                                       |

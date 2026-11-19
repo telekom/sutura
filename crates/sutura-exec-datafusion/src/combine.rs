@@ -405,9 +405,11 @@ impl DataFusionCombiner {
 
     /// A combiner whose stages above a repartition run across `nodes`.
     ///
-    /// Its runtime drives I/O as well as time, for the links to the other nodes, and on a thread of
+    /// Its runtime drives I/O as well as time, for the links to the other nodes, and on threads of
     /// its own rather than only while a combine waits on it: this node's served worker runs its local
     /// stages here, on links it keeps, and a link's connection runs on the runtime that dialled it.
+    /// It has [`Nodes::engine_workers`] threads, because a stage sent to another node is sent from
+    /// here, and one thread sends it only after whatever else this node computes yields.
     ///
     /// # Errors
     ///
@@ -415,7 +417,7 @@ impl DataFusionCombiner {
     #[cfg(feature = "distributed")]
     pub fn across(nodes: Nodes) -> Result<Self, CombineError> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
+            .worker_threads(nodes.workers().get())
             .enable_all()
             .build()
             .map_err(|cause| CombineError::Runtime { cause })?;
