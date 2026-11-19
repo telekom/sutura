@@ -180,7 +180,7 @@ fn populate(connection: &oracledb::Connection, name: &str, table: &str, scheme: 
         ]
     );
     let banner: String = connection
-        .query_row("SELECT banner FROM v$version WHERE banner LIKE 'Oracle Database%'", &[])
+        .query_row("SELECT banner FROM v$version WHERE banner LIKE 'Oracle%Database%'", &[])
         .expect("the native version is readable")
         .get(0)
         .expect("a version banner");
