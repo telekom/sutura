@@ -278,9 +278,11 @@ impl VisitorMut for Views<'_> {
                 };
                 let policy: TextPolicy =
                     serde_json::from_str(encoded).map_err(|cause| plan_datafusion_err!("invalid pinned text policy: {cause}"))?;
+                // The alias beside it is this column's own name: qualified, the raw read cannot be taken for it.
+                let raw = raw_column(self.dialect, table.table().name().as_str(), field.name()).to_string();
                 Ok(format!(
                     "{} AS {name}",
-                    expression(&name, &policy, self.dialect, !field.metadata().contains_key(LOB_KEY))
+                    expression(&raw, &policy, self.dialect, !field.metadata().contains_key(LOB_KEY))
                 ))
             })
             .collect::<Result<Vec<_>>>();
@@ -324,6 +326,14 @@ const fn quote(dialect: TypeDialect) -> char {
         TypeDialect::BigQuery | TypeDialect::ClickHouse => '`',
         _ => '"',
     }
+}
+
+/// The stored column of a source table, qualified so that a projection alias of the same name never shadows it.
+pub(super) fn raw_column(dialect: TypeDialect, table: &str, column: &str) -> Expr {
+    Expr::CompoundIdentifier(vec![
+        Ident::with_quote(quote(dialect), table),
+        Ident::with_quote(quote(dialect), column),
+    ])
 }
 
 fn literal(text: &str, dialect: TypeDialect) -> String {
