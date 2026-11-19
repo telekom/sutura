@@ -145,7 +145,7 @@ where
                     literal::spelled(native, TypeDialect::Oracle)
                 }
             })
-            .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
+            .map_err(|cause| unwritten("the numeric statement did not unparse", &cause))?;
         // The caller's own names were read at its tokens; this reads those the resolver wrote.
         if !literal::quotable_names(&text, TypeDialect::Oracle) {
             return Err(stopped(resolve::Refused::UnquotableName));
@@ -162,13 +162,7 @@ where
         .iter()
         .map(|part| Ok((part.statement(whole, &tables)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
-        .map_err(|cause| {
-            if unquotable(&cause) {
-                stopped(resolve::Refused::UnquotableName)
-            } else {
-                unplanned("a part did not unparse", &cause)
-            }
-        })?;
+        .map_err(|cause| unwritten("a part did not unparse", &cause))?;
     legs.open(
         &sources,
         parts
@@ -769,6 +763,15 @@ enum PlanningStopped {
     Engine(#[from] DataFusionError),
     #[error("the statement was refused before planning: {0:?}")]
     Refused(resolve::Refused),
+}
+
+/// Why a source statement was not written: a name it could not quote, or else `why`.
+fn unwritten<S>(why: &str, cause: &DataFusionError) -> StatementStopped<S> {
+    if unquotable(cause) {
+        stopped(resolve::Refused::UnquotableName)
+    } else {
+        unplanned(why, cause)
+    }
 }
 
 /// Whether `cause` is the unparser's or a text-policy view's refusal of a name it could not quote.

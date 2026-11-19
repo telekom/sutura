@@ -155,3 +155,30 @@ fn a_text_policy_view_over_an_unread_column_name_holding_a_quote_is_refused() {
         }
     }
 }
+
+#[test]
+fn a_native_oracle_text_policy_view_over_a_column_name_holding_a_quote_is_refused() {
+    let number = text("sales_area").with_metadata(HashMap::from([(
+        String::from("sutura:unbounded_number"),
+        String::from("utf8"),
+    )]));
+    for (name, written) in [("its", true), ("it's", false)] {
+        let protected = text(name).with_metadata(HashMap::from([(
+            String::from("sutura:text_policy"),
+            String::from(r#"{"max_text_bytes":128}"#),
+        )]));
+        let tables = regions_with(TypeDialect::Oracle, vec![text("region"), number.clone(), protected]);
+        let mut legs = Recorded::default();
+        let answer = answered(r#"select min("sales_area") from "dim_region""#, &tables, &mut legs);
+        if written {
+            assert!(matches!(answer, Some(Err(StatementStopped::Leg(_)))), "{name}: {answer:?}");
+            assert_eq!(legs.statements.len(), 1, "{name}");
+        } else {
+            assert!(
+                matches!(answer, Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::Query)))),
+                "{name}: {answer:?}"
+            );
+            assert_eq!(legs.opened, 0, "{name}");
+        }
+    }
+}

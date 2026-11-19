@@ -15,7 +15,8 @@ use sutura_domain::warehouse::schema::TypeDialect;
 
 /// `text` quoted so `dialect` reads it back unchanged. `BigQuery` and `ClickHouse` read a backslash in a
 /// string as an escape, so there the backslash and the quote are each escaped with one, and so are a
-/// newline and a carriage return, which `BigQuery` refuses inside a quoted string, and NUL, as `\x00`;
+/// newline and a carriage return, which `BigQuery` refuses inside a quoted string, and NUL, as `\x00`
+/// at `BigQuery` and `\0` at `ClickHouse`;
 /// every other control character is written as it stands. Every other dialect reads a backslash as
 /// itself and a doubled quote as one.
 ///
@@ -25,7 +26,7 @@ use sutura_domain::warehouse::schema::TypeDialect;
 /// | Oracle reads `''` as `NULL` | an empty literal is written as `''`, and Oracle has no empty string |
 /// | a control character other than newline, carriage return and NUL is written raw | not measured at `BigQuery` or `ClickHouse` |
 /// | Cube is written and read as Postgres | its SQL interface is taken to quote as Postgres does; not measured |
-/// | the read-back cells use `sqlparser`'s model of each dialect | only `DataFusion` executes a quote-doubled literal in a cell, no cell runs a live `BigQuery` or `ClickHouse`, and `sqlparser` does not read `\\x00`, so NUL is pinned by spelling only |
+/// | the read-back cells use `sqlparser`'s model of each dialect | only `DataFusion` executes a quote-doubled literal in a cell, no cell runs a live `BigQuery` or `ClickHouse`, and `sqlparser` does not read `\x00`, so NUL at `BigQuery` is pinned by spelling only |
 pub(super) fn literal(text: &str, dialect: TypeDialect) -> String {
     let escapes = matches!(dialect, TypeDialect::BigQuery | TypeDialect::ClickHouse);
     let mut quoted = String::with_capacity(text.len() + 2);
@@ -36,6 +37,8 @@ pub(super) fn literal(text: &str, dialect: TypeDialect) -> String {
             '\'' if escapes => quoted.push_str(r"\'"),
             '\n' if escapes => quoted.push_str(r"\n"),
             '\r' if escapes => quoted.push_str(r"\r"),
+            // `ClickHouse` reads any number of hex digits after `\x`; `BigQuery` reads exactly two.
+            '\0' if dialect == TypeDialect::ClickHouse => quoted.push_str(r"\0"),
             '\0' if escapes => quoted.push_str(r"\x00"),
             '\'' => quoted.push_str("''"),
             other => quoted.push(other),
@@ -163,11 +166,16 @@ mod tests {
             (TypeDialect::BigQuery, "a\nb\rc", r"'a\nb\rc'"),
             (TypeDialect::ClickHouse, "a\nb\rc", r"'a\nb\rc'"),
             (TypeDialect::BigQuery, "\0", r"'\x00'"),
-            (TypeDialect::ClickHouse, "\0", r"'\x00'"),
+            (TypeDialect::ClickHouse, "\0a", r"'\0a'"),
+            (TypeDialect::BigQuery, "\0a", r"'\x00a'"),
             (TypeDialect::Postgres, "a\nb\rc", "'a\nb\rc'"),
         ] {
             assert_eq!(literal(value, dialect), written, "{dialect:?}");
         }
+        assert_eq!(
+            read_back(&literal("\0a", TypeDialect::ClickHouse), TypeDialect::ClickHouse),
+            ["\0a"]
+        );
         for dialect in DIALECTS {
             for value in [r"a\", r"b\'c", "d''e", r"\\'", "'", "a\nb\rc"] {
                 assert_eq!(read_back(&literal(value, dialect), dialect), [value], "{dialect:?}");
