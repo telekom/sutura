@@ -54,18 +54,30 @@ session setting is changed. Non-LOB Oracle columns and other source dialects ret
 execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.
 
+Pinned text columns now carry a collation fact, `sutura:collation` in the schema's field metadata and
+under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
+collation is never binary; absent means unknown, and unknown is never binary. DataFusion and
+ClickHouse have no per-column collation and pin `binary`. A native Postgres dictionary records the
+column's collation: the database default is `binary` for `LIKE`, because it is always deterministic,
+and so are the built-in `pg_catalog.C` and `pg_catalog.POSIX`. Any other collation is recorded by
+its schema-qualified name and is never binary, including a user schema's own `C`. A Markdown column may declare
+`collation: binary` or a name. That declaration is an authored claim and is trusted as far as its
+author is. Oracle records nothing here, because its check is the run-time `NLS_SORT` above. No
+other dialect reads the fact yet.
+
 BigQuery is eligible only for a `STRING` column the catalog pins as binary. `LIKE` follows a column's
 collation: over `COLLATE 'und:ci'` it ignores case, so a raw test would no longer be the byte-wise
 test the redacted predicate is proven against (a replacement `[masked]` matches `%MASKED%` there).
-A column with no collation is compared by code point. The dictionary reports a collation per
-column through `INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME`, but a table or dataset default
-collation can also apply, and the pinned value is only what a catalog reader or author recorded. Nothing
-records it for BigQuery yet, neither a reader nor an authoring field, so a deployment does not take
-this arm until one does; an unrecorded or named collation keeps redacted-only execution. A wrong
-record voids the proof, and nothing checks it at run time. The raw condition is a backtick-quoted, qualified
-column (a double-quoted token is a string literal in BigQuery), and the benefit is slot time, not
-billed bytes: filtering a column does not reduce what an on-demand query reads from it. The cell
-reports wall-clock time only, because the port returns no job statistics.
+A column with no collation is compared by code point. No BigQuery dictionary reader exists here, so
+a column is binary only where the operator declares `collation: binary` on its Markdown column;
+otherwise it is unknown and keeps redacted-only execution, as does a named collation. That binary
+fact is the operator's declaration, not read from BigQuery. A dataset or table default collation such
+as `und:ci` makes a column declared binary the operator's error, and nothing checks it at run time:
+the proof is void for that column. Reading `INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME` is a possible
+follow-up. The raw condition is a backtick-quoted, qualified column (a double-quoted token is a
+string literal in BigQuery), and the benefit is slot time, not billed bytes: filtering a column does
+not reduce what an on-demand query reads from it. The cell reports wall-clock time only, because the
+port returns no job statistics.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone

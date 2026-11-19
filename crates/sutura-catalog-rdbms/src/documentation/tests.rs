@@ -105,3 +105,25 @@ fn a_rows_decoded_length_counts_its_text_and_is_never_zero() {
         "prod + sales + orders + id, plus one"
     );
 }
+
+#[test]
+fn a_collation_is_kept_with_a_column_that_has_no_type_or_prose_and_unknown_is_kept_as_nothing() {
+    use sutura_domain::catalog::Collation;
+
+    let mut assembly = Assembly::new("prod", bounds(10, 1_000));
+    let mut exact = row("orders", "exact", false);
+    exact.column_collation = Collation::Binary;
+    let mut folded = row("orders", "folded", false);
+    folded.column_collation = Collation::named("und:ci");
+    for pushed in [exact, folded, row("orders", "silent", false)] {
+        assembly.push(pushed).expect("a well-formed row");
+    }
+    let dictionary = assembly.finish();
+    let [orders] = dictionary.tables() else {
+        panic!("one table: {dictionary:?}")
+    };
+    let read = |column| orders.column_metadata(column).map(crate::ColumnMetadata::collation);
+    assert_eq!(read("exact"), Some(&Collation::Binary));
+    assert_eq!(read("folded"), Some(&Collation::named("und:ci")));
+    assert_eq!(read("silent"), None, "a column with no evidence at all carries no metadata");
+}
