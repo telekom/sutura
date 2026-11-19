@@ -487,3 +487,62 @@ fn description_references_refuse_unknown_self_and_cyclic_sources() {
         "description catalog reference must name another declared rdbms or datahub catalog without a reference cycle",
     );
 }
+
+#[test]
+fn rdbms_relationship_declarations_require_exact_complete_typed_shapes_and_bounded_checks() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    relationships:\n      - from: {table: public.events, columns: [tenant, app_id]}\n        to: {table: public.apps, columns: [tenant, id]}\n        cardinality: many_to_one\n        check_target_uniqueness: {max_rows: 100, max_bytes: 10000}\n";
+    let settings = load(&format!("{base}{declaration}")).unwrap();
+    let entry = settings.catalogs().each().next().unwrap();
+    let relation = entry.rdbms().unwrap().relationships().first().unwrap();
+    assert_eq!(
+        relation
+            .from()
+            .columns()
+            .iter()
+            .map(sutura_domain::model::ColumnName::as_str)
+            .collect::<Vec<_>>(),
+        ["tenant", "app_id"]
+    );
+    assert_eq!(relation.to().table().to_string(), "public.apps");
+    assert_eq!(relation.check().unwrap().max_rows().get(), 100);
+    for invalid in [
+        declaration.replace("many_to_one", "one_to_many"),
+        declaration.replace("columns: [tenant, id]", "columns: [id]"),
+        declaration.replace("columns: [tenant, id]", "columns: [id, id]"),
+        declaration.replace("public.apps", "apps"),
+        declaration.replace("max_rows: 100", "max_rows: 0"),
+        declaration.replace("cardinality: many_to_one", "cardinality: many_to_one\n        sql: select 1"),
+    ] {
+        load(&format!("{base}{invalid}")).expect_err("an invalid relationship declaration refuses");
+    }
+}
+
+#[test]
+fn rdbms_relationship_declarations_are_capped_at_64_declarations_and_32_pairs() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declarations = |count: usize, pairs: usize| {
+        let columns = (0..pairs).map(|column| format!("c{column}")).collect::<Vec<_>>().join(", ");
+        let entries = (0..count)
+            .map(|index| {
+                format!("      - from: {{table: public.events{index}, columns: [{columns}]}}\n        to: {{table: public.apps, columns: [{columns}]}}\n        cardinality: many_to_one\n")
+            })
+            .collect::<Vec<_>>()
+            .concat();
+        format!("{base}    relationships:\n{entries}")
+    };
+    let accepted = |count, pairs| {
+        let settings = load(&declarations(count, pairs)).expect("a declaration set at its cap loads");
+        let relationships = settings.catalogs().each().next().unwrap().rdbms().unwrap().relationships();
+        assert_eq!((relationships.len(), relationships[0].from().columns().len()), (count, pairs));
+    };
+    accepted(64, 1);
+    accepted(1, 32);
+    for (count, pairs) in [(65, 1), (1, 33)] {
+        let chain = refusal(&declarations(count, pairs));
+        assert!(
+            chain.contains("at most 64 many_to_one declarations"),
+            "{count}x{pairs}: {chain}"
+        );
+    }
+}

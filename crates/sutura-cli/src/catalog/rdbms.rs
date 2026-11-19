@@ -63,6 +63,10 @@ pub(super) fn open_one_rdbms_catalog(settings: &sutura_config::CatalogSettings) 
 
     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
     // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
+    let reader = reader
+        .with_relationships(relationships(rdbms)?)
+        .with_relationships_view(rdbms.relationships_view().map(sutura_config::DocumentationSchema::as_str))
+        .map_err(|cause| cause.to_string())?;
     let bounds = reader.bounds();
     let catalog = sutura_catalog_rdbms::RdbmsCatalog::new(
         settings.name().clone(),
@@ -193,4 +197,43 @@ pub(super) fn predicate(
             },
         },
     })
+}
+
+fn relationships(settings: &sutura_config::RdbmsSettings) -> Result<Vec<sutura_catalog_rdbms::DeclaredRelationship>, String> {
+    use sutura_catalog_rdbms::{DeclaredRelationship, DictionaryBounds, Relationship, TableAddress};
+    let address = |table: &sutura_domain::model::QualifiedTable| {
+        let qualifier = table
+            .qualifier()
+            .ok_or_else(|| String::from("relationship endpoint requires schema"))?;
+        Ok::<_, String>(TableAddress::new(
+            qualifier.project().map(|name| name.as_str().to_owned()),
+            qualifier.dataset().as_str().to_owned(),
+            table.name().as_str().to_owned(),
+        ))
+    };
+    settings
+        .relationships()
+        .iter()
+        .map(|declaration| {
+            let relationship = Relationship::declared(
+                declaration.name().map(ToString::to_string),
+                address(declaration.from().table())?,
+                address(declaration.to().table())?,
+                declaration
+                    .from()
+                    .columns()
+                    .iter()
+                    .zip(declaration.to().columns())
+                    .map(|(origin, target)| (origin.as_str().to_owned(), target.as_str().to_owned()))
+                    .collect(),
+            )
+            .map_err(|cause| cause.to_string())?;
+            Ok(DeclaredRelationship::new(
+                relationship,
+                declaration
+                    .check()
+                    .map(|check| DictionaryBounds::new(check.max_rows(), check.max_bytes())),
+            ))
+        })
+        .collect()
 }

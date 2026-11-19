@@ -42,3 +42,65 @@ pub(crate) fn oracle(count: usize, limit: u64) -> String {
          WHERE ({schemas}) ORDER BY c.OWNER, c.TABLE_NAME, c.COLUMN_ID FETCH FIRST {limit} ROWS ONLY"
     )
 }
+
+/// `conenforced` exists only from PostgreSQL 18; before it every constraint is enforced, so the
+/// missing key reads as true.
+///
+/// Every row is one ordinal member of a complete enforced key. The referenced index must be
+/// immediate, valid, nonpartial and without expressions; a unique index alone is not a constraint.
+pub(crate) fn postgres_constraints(count: usize, limit: u64) -> String {
+    let schemas = schemas(count, "n.nspname", '$');
+    format!(
+        "WITH admitted AS ( \
+         SELECT f.oid, f.conname, f.contype, f.conrelid, f.confrelid, f.conkey, f.confkey, \
+                u.conkey AS target_key, u.contype AS target_kind \
+         FROM pg_catalog.pg_constraint f \
+         JOIN pg_catalog.pg_class t ON t.oid = f.conrelid \
+         JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace \
+         LEFT JOIN pg_catalog.pg_constraint u ON f.contype = 'f' AND u.conrelid = f.confrelid \
+              AND u.conindid = f.conindid AND u.contype IN ('p', 'u') \
+         JOIN pg_catalog.pg_index i ON i.indexrelid = CASE WHEN f.contype = 'p' THEN f.conindid ELSE u.conindid END \
+         WHERE ({schemas}) AND f.contype IN ('p', 'f') \
+           AND COALESCE((to_jsonb(f)->>'conenforced')::boolean, true) AND f.convalidated AND NOT f.condeferrable \
+           AND i.indisvalid AND i.indisunique AND i.indimmediate AND i.indpred IS NULL AND i.indexprs IS NULL \
+           AND (f.contype = 'p' OR (COALESCE((to_jsonb(u)->>'conenforced')::boolean, true) AND u.convalidated AND NOT u.condeferrable \
+                AND cardinality(f.confkey) = cardinality(u.conkey) \
+                AND f.confkey @> u.conkey AND f.confkey <@ u.conkey))) \
+         SELECT f.contype::text AS record_kind, f.oid::text AS constraint_id, f.conname::text AS constraint_name, \
+                n.nspname::text AS schema_name, t.relname::text AS table_name, a.attname::text AS origin_column, \
+                tn.nspname::text AS target_schema, tt.relname::text AS target_table, ta.attname::text AS target_column, \
+                ka.attname::text AS target_key_column, member.ordinality::text AS ordinal, \
+                cardinality(f.conkey)::text AS arity, f.target_kind::text AS target_kind \
+         FROM admitted f JOIN pg_catalog.pg_class t ON t.oid = f.conrelid \
+         JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace \
+         CROSS JOIN LATERAL unnest(f.conkey) WITH ORDINALITY AS member(attnum, ordinality) \
+         JOIN pg_catalog.pg_attribute a ON a.attrelid = f.conrelid AND a.attnum = member.attnum \
+         LEFT JOIN pg_catalog.pg_class tt ON tt.oid = f.confrelid \
+         LEFT JOIN pg_catalog.pg_namespace tn ON tn.oid = tt.relnamespace \
+         LEFT JOIN pg_catalog.pg_attribute ta ON ta.attrelid = f.confrelid AND ta.attnum = f.confkey[member.ordinality] \
+         LEFT JOIN pg_catalog.pg_attribute ka ON ka.attrelid = f.confrelid AND ka.attnum = f.target_key[member.ordinality] \
+         ORDER BY f.oid, member.ordinality LIMIT {limit}"
+    )
+}
+
+#[cfg(feature = "live-oracle")]
+pub(crate) fn oracle_constraints(count: usize, limit: u64) -> String {
+    let schemas = schemas(count, "f.OWNER", ':');
+    format!(
+        "SELECT CASE f.CONSTRAINT_TYPE WHEN 'P' THEN 'p' ELSE 'f' END, \
+         f.OWNER || '.' || f.CONSTRAINT_NAME, f.CONSTRAINT_NAME, f.OWNER, f.TABLE_NAME, c.COLUMN_NAME, \
+         u.OWNER, u.TABLE_NAME, k.COLUMN_NAME, k.COLUMN_NAME, TO_CHAR(c.POSITION, 'FM99990'), \
+         TO_CHAR((SELECT COUNT(*) FROM ALL_CONS_COLUMNS z WHERE z.OWNER = f.OWNER AND z.CONSTRAINT_NAME = f.CONSTRAINT_NAME), 'FM99990'), \
+         CASE u.CONSTRAINT_TYPE WHEN 'P' THEN 'p' WHEN 'U' THEN 'u' END \
+         FROM ALL_CONSTRAINTS f JOIN ALL_CONS_COLUMNS c ON c.OWNER = f.OWNER AND c.CONSTRAINT_NAME = f.CONSTRAINT_NAME \
+         LEFT JOIN ALL_CONSTRAINTS u ON u.OWNER = f.R_OWNER AND u.CONSTRAINT_NAME = f.R_CONSTRAINT_NAME \
+         LEFT JOIN ALL_CONS_COLUMNS k ON k.OWNER = u.OWNER AND k.CONSTRAINT_NAME = u.CONSTRAINT_NAME AND k.POSITION = c.POSITION \
+         WHERE ({schemas}) AND f.CONSTRAINT_TYPE IN ('P', 'R') \
+           AND f.STATUS = 'ENABLED' AND f.VALIDATED = 'VALIDATED' AND f.DEFERRABLE = 'NOT DEFERRABLE' \
+           AND (f.CONSTRAINT_TYPE = 'P' OR (u.CONSTRAINT_TYPE IN ('P', 'U') \
+                AND u.STATUS = 'ENABLED' AND u.VALIDATED = 'VALIDATED' AND u.DEFERRABLE = 'NOT DEFERRABLE' \
+                AND (SELECT COUNT(*) FROM ALL_CONS_COLUMNS z WHERE z.OWNER = u.OWNER AND z.CONSTRAINT_NAME = u.CONSTRAINT_NAME) \
+                  = (SELECT COUNT(*) FROM ALL_CONS_COLUMNS z WHERE z.OWNER = f.OWNER AND z.CONSTRAINT_NAME = f.CONSTRAINT_NAME))) \
+         ORDER BY f.OWNER, f.CONSTRAINT_NAME, c.POSITION FETCH FIRST {limit} ROWS ONLY"
+    )
+}

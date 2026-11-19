@@ -12,6 +12,21 @@ use crate::NativeSelectionError;
 /// a reader back to all of them.
 #[derive(Debug, thiserror::Error)]
 pub enum RdbmsError {
+    #[error("declared relationship refused: {cause}")]
+    Declaration {
+        #[from]
+        cause: crate::DeclarationError,
+    },
+    #[error("the relationship column pairs are invalid: {cause}")]
+    RelationshipKeys {
+        #[source]
+        cause: sutura_domain::catalog::InvalidJoinKeys,
+    },
+    #[error("the relationship metadata is invalid: {cause}")]
+    Relationship {
+        #[from]
+        cause: crate::RelationshipError,
+    },
     #[error("native dictionary selection refused the load")]
     Native {
         #[from]
