@@ -106,6 +106,112 @@ impl VisitorMut for OracleLimits {
 }
 
 #[test]
+fn a_labelled_wrapper_addresses_mixed_columns_and_unnamed_expressions_in_every_dialect() {
+    use datafusion::datasource::{MemTable, provider_as_source};
+    use datafusion::functions::expr_fn::{length, substring, upper};
+    use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Projection, col, lit};
+
+    let batch = regions();
+    let source = provider_as_source(Arc::new(
+        MemTable::try_new(batch.schema(), vec![vec![batch]]).expect("a source table"),
+    ));
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        for (expression, reference) in [
+            (length(col("dim_region.sales_area")).alias("n"), "length(sales_area)"),
+            (
+                substring(col("dim_region.sales_area"), lit(5_i64), lit(3_i64)),
+                "substr(sales_area, 5, 3)",
+            ),
+            (upper(col("dim_region.sales_area")), "upper(sales_area)"),
+        ] {
+            for computed_first in [false, true] {
+                let mut columns = vec![col("dim_region.region"), expression.clone()];
+                if computed_first {
+                    columns.reverse();
+                }
+                let plan = LogicalPlanBuilder::scan("dim_region", Arc::clone(&source), None)
+                    .expect("a scan")
+                    .project(columns)
+                    .expect("mixed outputs")
+                    .sort(vec![col("dim_region.region").sort(true, true)])
+                    .expect("a sort outside the computed projection")
+                    .limit(0, Some(3))
+                    .expect("a source window")
+                    .build()
+                    .expect("a plan");
+                let wrapper = LogicalPlan::Projection(
+                    Projection::try_new(
+                        plan.schema()
+                            .columns()
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, column)| Expr::Column(column).alias(format!("c{index}")))
+                            .collect(),
+                        Arc::new(plan.clone()),
+                    )
+                    .expect("a parent projection over a derived input"),
+                );
+                for labelled in [super::super::labelled(&plan).expect("positional output names"), wrapper] {
+                    let sql = super::super::unparsed(&labelled, dialect).expect("the shared wrapper unparses");
+                    let mut legs = OracleLegs {
+                        engines: Engines::new(None),
+                        statements: Vec::new(),
+                    };
+                    let rows = legs
+                        .run(&named("geo"), &RawStatement::parse(&sql).expect("one statement"))
+                        .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+                    let columns = if computed_first {
+                        format!("{reference} AS c0, region AS c1")
+                    } else {
+                        format!("region AS c0, {reference} AS c1")
+                    };
+                    assert_eq!(
+                        rows,
+                        legs.engines
+                            .as_one(&format!("SELECT {columns} FROM dim_region ORDER BY region LIMIT 3")),
+                        "{dialect:?}: {sql}"
+                    );
+                }
+            }
+        }
+        let left = LogicalPlanBuilder::scan("a", Arc::clone(&source), None).expect("the left input");
+        let right = LogicalPlanBuilder::scan("b", Arc::clone(&source), None)
+            .expect("the right input")
+            .build()
+            .expect("the right plan");
+        let joined = left
+            .cross_join(right)
+            .expect("two input qualifiers")
+            .project(vec![col("a.region"), col("b.region"), upper(col("a.sales_area"))])
+            .expect("duplicate names beside an expression")
+            .sort(vec![col("a.region").sort(true, true), col("b.region").sort(true, true)])
+            .expect("stable duplicate-key order")
+            .limit(1, Some(3))
+            .expect("a row window")
+            .build()
+            .expect("the joined plan");
+        let labelled = super::super::labelled(&joined).expect("duplicate outputs labelled at their owning projection");
+        let sql = super::super::unparsed(&labelled, dialect).expect("the joined wrapper unparses");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let actual = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("one joined statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        assert_eq!(actual, legs.engines.as_one("SELECT a.region AS c0, b.region AS c1, upper(a.sales_area) AS c2 FROM dim_region a CROSS JOIN dim_region b ORDER BY a.region, b.region LIMIT 3 OFFSET 1"), "{dialect:?}: {sql}");
+    }
+}
+
+#[test]
 fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_federation() {
     let tables = vec![
         StatementTable::new(

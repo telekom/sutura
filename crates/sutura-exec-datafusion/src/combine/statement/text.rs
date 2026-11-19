@@ -1,10 +1,11 @@
 //! Source-side views: every operator above a table sees the same transformed text.
 
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
 use datafusion::arrow::datatypes::{DataType, Schema};
-use datafusion::common::tree_node::Transformed;
-use datafusion::common::{plan_datafusion_err, plan_err};
+use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
+use datafusion::common::{DFSchema, ExprSchema as _, plan_datafusion_err, plan_err};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::functions_aggregate::min_max::{Max, Min};
 use datafusion::logical_expr::{Expr as PlannedExpr, ExprSchemable as _, LogicalPlan};
@@ -69,6 +70,125 @@ pub(super) fn native_number_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
     .map(|transformed| transformed.data)
 }
 
+/// Carry protected LOB lineage through text-valued outputs before optimization drops metadata.
+/// Predicates and sort keys keep their original expressions; scalar results are never LOBs.
+pub(super) fn oracle_lob_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
+    plan.transform_up_with_subqueries(|mut node| {
+        let outputs = match &mut node {
+            LogicalPlan::Projection(projection) => Some((vec![&mut projection.expr], projection.input.as_ref())),
+            LogicalPlan::Aggregate(aggregate) => Some((
+                vec![&mut aggregate.group_expr, &mut aggregate.aggr_expr],
+                aggregate.input.as_ref(),
+            )),
+            LogicalPlan::Window(window) => Some((vec![&mut window.window_expr], window.input.as_ref())),
+            _ => None,
+        };
+        if let Some((expressions, input)) = outputs {
+            for expressions in expressions {
+                *expressions = std::mem::take(expressions)
+                    .into_iter()
+                    .map(|expression| {
+                        if !matches!(
+                            expression.get_type(input.schema().as_ref())?,
+                            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+                        ) {
+                            return Ok(expression);
+                        }
+                        let mut metadata = expression.metadata(input.schema().as_ref())?;
+                        let mut kind = metadata.inner().get(LOB_KEY).map(String::as_str);
+                        if let Some(candidate) = oracle_lob_value_kind(&expression, input.schema().as_ref())? {
+                            kind = Some(if kind == Some("nclob") { "nclob" } else { candidate });
+                        }
+                        let Some(kind) = kind else { return Ok(expression) };
+                        let marker = std::collections::BTreeMap::from([(String::from(LOB_KEY), kind.to_owned())]);
+                        if metadata.inner().get(LOB_KEY) == marker.get(LOB_KEY) {
+                            return Ok(expression);
+                        }
+                        metadata.extend(marker.into());
+                        Ok(match expression {
+                            PlannedExpr::Alias(alias) => PlannedExpr::Alias(alias.with_metadata(Some(metadata))),
+                            other => {
+                                let name = other.schema_name().to_string();
+                                other.alias_with_metadata(name, Some(metadata))
+                            }
+                        })
+                    })
+                    .collect::<Result<_>>()?;
+            }
+        }
+        let mut node = node.recompute_schema()?;
+        if let LogicalPlan::Union(union) = &mut node {
+            let fields = union
+                .schema
+                .iter()
+                .enumerate()
+                .map(|(index, (qualifier, field))| {
+                    let mut metadata = field.metadata().clone();
+                    for input in &union.inputs {
+                        if let Some(kind) = input.schema().field(index).metadata().get(LOB_KEY) {
+                            let kind = if metadata.get(LOB_KEY).is_some_and(|value| value == "nclob") || kind == "nclob" {
+                                "nclob"
+                            } else {
+                                "clob"
+                            };
+                            drop(metadata.insert(LOB_KEY.to_owned(), kind.to_owned()));
+                        }
+                    }
+                    (qualifier.cloned(), Arc::new(field.as_ref().clone().with_metadata(metadata)))
+                })
+                .collect();
+            union.schema = Arc::new(DFSchema::new_with_metadata(
+                fields,
+                DFSchema::metadata(&union.schema).clone(),
+            )?);
+        }
+        Ok(Transformed::yes(node))
+    })
+    .map(|transformed| transformed.data)
+}
+
+fn oracle_lob_value_kind(expression: &PlannedExpr, schema: &DFSchema) -> Result<Option<&'static str>> {
+    if let PlannedExpr::Column(column) = expression {
+        return Ok(schema.field_from_column(column)?.metadata().get(LOB_KEY).map(
+            |kind| {
+                if kind == "nclob" { "nclob" } else { "clob" }
+            },
+        ));
+    }
+    let mut kind = None;
+    let mut include = |value: &PlannedExpr| {
+        if let Some(candidate) = oracle_lob_value_kind(value, schema)? {
+            kind = Some(if kind == Some("nclob") { "nclob" } else { candidate });
+        }
+        Ok(TreeNodeRecursion::Continue)
+    };
+    match expression {
+        PlannedExpr::Case(case) => {
+            for (_, value) in &case.when_then_expr {
+                include(value)?;
+            }
+            if let Some(value) = &case.else_expr {
+                include(value)?;
+            }
+        }
+        PlannedExpr::AggregateFunction(function) => {
+            for value in &function.params.args {
+                include(value)?;
+            }
+        }
+        PlannedExpr::WindowFunction(function) => {
+            for value in &function.params.args {
+                include(value)?;
+            }
+        }
+        // Control expressions select values; all other transforms conservatively carry their inputs.
+        _ => {
+            expression.apply_children(include)?;
+        }
+    }
+    Ok(kind)
+}
+
 /// A LOB is redacted at the source without clipping. Only a whole-source answer may return it:
 /// clipping a federation leaf would make a later local predicate silently search a prefix.
 pub(super) fn bounded_oracle_rows(sql: &str, schema: &Schema, tables: &[StatementTable]) -> Result<String> {
@@ -118,26 +238,19 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
             }
         }
     }
-    let national = tables
-        .iter()
-        .flat_map(|table| table.schema().fields())
-        .any(|field| field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob"));
     let labelled = super::projection::duplicate_names(schema);
-    let lobs = tables.iter().any(oracle_lobs);
     let columns = schema
         .fields()
         .iter()
         .enumerate()
         .map(|(index, field)| {
             let column = format!("\"sutura_lob_output\".\"c{index}\"");
-            let value = if lobs
+            let value = if field.metadata().contains_key(LOB_KEY)
                 && matches!(field.data_type(), DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
                 && !field.metadata().contains_key("sutura:unbounded_number")
             {
-                let clob = field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "clob");
-                // NCLOB scalar results have a national-character byte ceiling as well. A derived
-                // expression may lose its field metadata, so keep that ceiling unless it is CLOB.
-                bounded_lob(&column, if national && !clob { bytes.min(2000) } else { bytes })
+                let national = field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob");
+                bounded_lob(&column, if national { bytes.min(2000) } else { bytes })
             } else {
                 column
             };
