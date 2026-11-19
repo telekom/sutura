@@ -462,8 +462,10 @@ mod provisioned {
         let schema = fresh_fixture(&tier, "collation");
         tier.run_sql(&format!(
             "CREATE COLLATION {schema}.\"C\" (provider = libc, locale = 'C'); \
+             CREATE COLLATION {schema}.folded (provider = icu, locale = 'und-u-ks-level2', deterministic = false); \
              CREATE TABLE {schema}.notes (plain text, byte_order text COLLATE \"C\", posix text COLLATE \"POSIX\", \
-                                          own text COLLATE {schema}.\"C\", amount bigint)"
+                                          own text COLLATE {schema}.\"C\", \
+                                          folded text COLLATE {schema}.folded, amount bigint)"
         ));
         let pattern = |raw: &str| DictionaryPattern::parse(raw).expect("a literal pattern parses");
         let selection = DictionarySelection::parse(
@@ -491,6 +493,11 @@ mod provisioned {
             collation("own"),
             Some(Collation::named(&format!("{schema}.C"))),
             "a user schema's collation named C is not the built-in one"
+        );
+        assert_eq!(
+            collation("folded"),
+            Some(Collation::named(&format!("{schema}.folded"))),
+            "a nondeterministic collation is named, never binary"
         );
         assert_eq!(collation("amount"), Some(Collation::Unknown), "bigint has no collation");
     }

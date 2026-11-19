@@ -76,8 +76,8 @@ column's collation: the database default is `binary` for `LIKE`, because it is a
 and so are the built-in `pg_catalog.C` and `pg_catalog.POSIX`. Any other collation is recorded by
 its schema-qualified name and is never binary, including a user schema's own `C`. A Markdown column may declare
 `collation: binary` or a name. That declaration is an authored claim and is trusted as far as its
-author is. Oracle records nothing here, because its check is the run-time `NLS_SORT` above. No
-other dialect reads the fact yet; recording it enables no engine.
+author is. Oracle records nothing here, because its check is the run-time `NLS_SORT` above. Only
+PostgreSQL, above, reads the fact to decide eligibility; recording it enables no other engine.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
