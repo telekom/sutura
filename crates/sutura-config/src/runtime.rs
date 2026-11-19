@@ -77,7 +77,7 @@ pub struct AdmissionTimeout(Duration);
 /// runtimes that is the host's core count rather than the cgroup's share.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EngineWorkers {
-    count: usize,
+    count: core::num::NonZeroUsize,
     chosen: bool,
 }
 
@@ -230,19 +230,19 @@ impl EngineWorkers {
     pub fn parse(configured: Option<usize>) -> Result<Self, InvalidBound> {
         let Some(count) = configured else {
             return Ok(Self {
-                count: std::thread::available_parallelism().map_or(1, core::num::NonZeroUsize::get),
+                count: std::thread::available_parallelism().unwrap_or(core::num::NonZeroUsize::MIN),
                 chosen: false,
             });
         };
-        if count == 0 {
+        let Some(count) = core::num::NonZeroUsize::new(count) else {
             return Err(InvalidBound::Zero {
                 name: "runtime.engine_worker_threads",
             });
-        }
-        if count > Self::MAX {
+        };
+        if count.get() > Self::MAX {
             return Err(InvalidBound::TooLarge {
                 name: "runtime.engine_worker_threads",
-                found: count as u64,
+                found: count.get() as u64,
                 limit: Self::MAX as u64,
             });
         }
@@ -251,6 +251,12 @@ impl EngineWorkers {
 
     #[inline]
     pub const fn count(self) -> usize {
+        self.count.get()
+    }
+
+    /// The same number, as the runtimes that are built from it take it: never zero.
+    #[inline]
+    pub const fn width(self) -> core::num::NonZeroUsize {
         self.count
     }
 
