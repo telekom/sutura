@@ -3,25 +3,6 @@
 # its table and each measure after the catalog metric it serves, because sutura addresses a member
 # as `<table>.<metric>` and `<table>.<column>`. Cube and dimension descriptions are the catalog's own.
 cubes:
-  - name: text_prefilter
-    sql_table: default.text_prefilter
-    description: Generated million-row protected-text equality fixture.
-    dimensions:
-      - name: fixture_row
-        sql: fixture_row
-        type: number
-        primary_key: true
-        public: true
-      - name: body
-        sql: body
-        type: string
-      - name: cohort
-        sql: cohort
-        type: string
-    measures:
-      - name: count
-        type: count
-
   - name: fct_subscription_monthly
     sql_table: default.fct_subscription_monthly
     description: One row per subscription per month - the monthly snapshot of every subscription.

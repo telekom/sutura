@@ -19,28 +19,3 @@ CREATE TABLE default.dim_product (
 INSERT INTO default.dim_product FROM INFILE '/corpus/dim_product.csv' FORMAT CSVWithNames;
 CREATE TABLE default.dim_region (region String, sales_area String) ENGINE = MergeTree ORDER BY tuple();
 INSERT INTO default.dim_region FROM INFILE '/corpus/dim_region.csv' FORMAT CSVWithNames;
-
-CREATE TABLE default.text_prefilter (fixture_row UInt64, body Nullable(String), cohort String)
-ENGINE = MergeTree ORDER BY fixture_row;
-INSERT INTO default.text_prefilter
-SELECT number,
-    multiIf(
-        number = 999983, 'secret_other',
-        number IN (999984, 999985), 'visible TERM',
-        number = 999986, NULL,
-        number = 999987, 'secret_TERM',
-        number = 999988, 'prefix secret_TERM suffix',
-        number = 999989, 'TERxM',
-        number = 999990, 'xERM',
-        number = 999991, 'TERx',
-        number = 999992, 'term',
-        number = 999993, 'café TERM',
-        number = 999994, 'straße',
-        number = 999995, 'İSTANBUL',
-        number = 999996, 'café',
-        number = 999997, 'masked',
-        number = 999998, concat(repeat('a', 4100), ' TERM'),
-        number = 999999, concat(repeat('a', 4100), ' secret_TERM'),
-        'unrelated'),
-    multiIf(number < 999983, 'filler', number IN (999983, 999987, 999988, 999999), 'hidden', 'rare')
-FROM numbers(1000000);

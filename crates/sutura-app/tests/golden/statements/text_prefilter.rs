@@ -54,16 +54,6 @@ macro_rules! text_fixture {
             }
         }
     };
-    (cube, $adapter:ty) => {
-        impl TextFixture for $adapter {
-            fn open_text_fixture(_csv: PathBuf) -> (Self, sutura_domain::model::QualifiedTable) {
-                (
-                    Self::open_on(source(), Vec::new()),
-                    sutura_domain::model::QualifiedTable::parse("text_prefilter").expect("the tier's generated fixture"),
-                )
-            }
-        }
-    };
     (clickhouse, $adapter:ty) => {
         impl TextFixture for $adapter {
             fn open_text_fixture(csv: PathBuf) -> (Self, QualifiedTable) {
@@ -164,17 +154,58 @@ enum FixtureQueryError {
     Stopped { cause: StatementStopped<String> },
 }
 
+/// The statements the source engine really received, beside the rows it answered.
+struct Recorded<'a, W> {
+    inner: Executing<'a, W>,
+    statements: Vec<String>,
+}
+
+impl<W: DataSystemUnderTest> StatementLegs for Recorded<'_, W> {
+    type Stop = String;
+
+    fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        self.inner.open(sources)
+    }
+
+    fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        self.inner.run(source, statement)
+    }
+
+    fn run_planned(
+        &mut self,
+        source: &SourceName,
+        statement: &RawStatement,
+        tables: &BTreeSet<QualifiedTable>,
+    ) -> Result<RawRows, Self::Stop> {
+        self.statements.push(String::from(statement.as_str()));
+        self.inner.run_planned(source, statement, tables)
+    }
+}
+
 fn execute<W>(warehouse: &W, table: StatementTable, sql: &str) -> Result<RawRows, FixtureQueryError>
+where
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
+{
+    execute_recorded(warehouse, table, sql).map(|(rows, _planned)| rows)
+}
+
+type Answered = (RawRows, Vec<String>);
+
+fn execute_recorded<W>(warehouse: &W, table: StatementTable, sql: &str) -> Result<Answered, FixtureQueryError>
 where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
     let combiner = DataFusionCombiner::new().map_err(|cause| FixtureQueryError::Combiner { cause })?;
     let question = RawStatement::parse(sql).map_err(|cause| FixtureQueryError::Query { cause })?;
-    let mut executing = Executing {
-        warehouse,
-        expected_scans: vec![BTreeSet::from([table.table().clone()])],
-        observed_scans: Vec::new(),
+    let mut executing = Recorded {
+        inner: Executing {
+            warehouse,
+            expected_scans: vec![BTreeSet::from([table.table().clone()])],
+            observed_scans: Vec::new(),
+        },
+        statements: Vec::new(),
     };
     let answer = combiner
         .answer_statement(
@@ -182,13 +213,15 @@ where
             &mut executing,
         )
         .ok_or(FixtureQueryError::Unsupported)?;
-    if executing.observed_scans != executing.expected_scans {
+    if executing.inner.observed_scans != executing.inner.expected_scans {
         return Err(FixtureQueryError::Scans {
-            observed: executing.observed_scans,
-            expected: executing.expected_scans,
+            observed: executing.inner.observed_scans,
+            expected: executing.inner.expected_scans,
         });
     }
-    answer.map_err(|cause| FixtureQueryError::Stopped { cause })
+    answer
+        .map(|rows| (rows, executing.statements))
+        .map_err(|cause| FixtureQueryError::Stopped { cause })
 }
 
 type OrderedRows = (Vec<String>, Vec<Vec<Value>>);
@@ -206,25 +239,17 @@ where
 {
     match dialect {
         TypeDialect::BigQuery => println!("raw-prefilter-version: engine=bigquery managed-service-no-exposed-server-version"),
-        TypeDialect::Cube => {
-            let declared =
-                std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compose.services.yaml"))
-                    .expect("the native Cube venue runs from the checkout that starts its compose profile");
-            let compose: serde_norway::Value = serde_norway::from_str(&declared).expect("the pinned fixture compose parses");
-            println!(
-                "raw-prefilter-version: engine=cube declared-image={} scope=pinned-fixture-input-not-live-version",
-                compose["services"]["cube"]["image"]
-                    .as_str()
-                    .expect("the Cube fixture image is pinned")
-            );
-        }
         TypeDialect::Oracle => {
-            let sql = RawStatement::parse("SELECT banner FROM v$version WHERE banner LIKE 'Oracle Database%'")
+            let sql = RawStatement::parse("SELECT banner FROM v$version WHERE banner LIKE 'Oracle%Database%'")
                 .expect("a native version read");
             let version = warehouse
                 .execute_raw(&sql, &presented(), deadline())
                 .expect("the Oracle raw port")
                 .unwrap_or_else(|cause| panic!("the native version reads: {cause:?}"));
+            assert!(
+                !version.rows().is_empty(),
+                "the Oracle banner must be read, not filtered away"
+            );
             println!("raw-prefilter-version: engine=oracle version={:?}", version.rows());
         }
         _ => {
@@ -265,48 +290,49 @@ where
         );
     }
     println!(
-        "raw-prefilter-native: engine={} actual_rows={} setup_ms={} scope={}",
+        "raw-prefilter-native: engine={} actual_rows={} setup_ms={} scope=full-table-search prefilter={}",
         W::NAME,
         ROWS,
         setup.elapsed().as_millis(),
-        if dialect == TypeDialect::Cube {
-            "full-scan-refusal"
+        if prefilter_capable(dialect) {
+            "eligible-where-the-query-qualifies"
         } else {
-            "full-table-search"
+            "never-applies-redacted-only"
         }
     );
 }
 
-fn fullscan_bound<W>(warehouse: &W, path: &QualifiedTable, dialect: TypeDialect, base: &serde_json::Value)
-where
-    W: DataSystemUnderTest + Sync,
-    W::Error: Send,
-{
-    for enabled in [false, true] {
-        let mut policy = base.clone();
-        if enabled {
-            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
-        }
-        let start = Instant::now();
-        let refused = execute(
-            warehouse,
-            admitted(path, dialect, Some(&policy)),
-            &format!("SELECT \"body\" FROM {} WHERE \"body\" LIKE '%TERM%'", quoted(path)),
-        )
-        .expect_err("the full protected million-row Cube scan must retain the source row bound");
-        assert!(
-            matches!(
-                &refused,
-                FixtureQueryError::Stopped { cause: StatementStopped::Leg(cause) }
-                    if cause.contains(&format!("TooManyRows {{ limit: {} }}", sutura_domain::plan::MAX_ROWS))
-                        || cause.contains("TooLarge { cap: 1048576 }")
-            ),
-            "the full scan must hit the declared row or response-byte bound, not an incidental failure: {refused}"
-        );
-        println!(
-            "raw-prefilter-fullscan-refusal: engine=cube opted_in={enabled} elapsed_ms={} refusal={refused}",
-            start.elapsed().as_millis()
-        );
+/// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
+const fn prefilter_capable(dialect: TypeDialect) -> bool {
+    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle)
+}
+
+/// How many times the statements the source received search for `term`.
+fn searches_in(planned: &[String], term: &str) -> usize {
+    let needle = format!("LIKE '%{term}%'").to_ascii_uppercase();
+    planned
+        .iter()
+        .map(|statement| statement.to_ascii_uppercase().matches(&needle).count())
+        .sum()
+}
+
+/// Only an eligible arm may add one raw search, and exactly where the shape qualifies.
+fn assert_raw_condition(dialect: TypeDialect, profile: &str, upper: bool, (baseline, opted): (usize, usize)) {
+    assert!(
+        opted == baseline || (prefilter_capable(dialect) && opted == baseline + 1),
+        "only an eligible arm may add one raw search to the statement the source received: {dialect:?} {profile} upper={upper} baseline={baseline} opted={opted}",
+    );
+    match profile {
+        "barrier" => assert_eq!(
+            opted - baseline,
+            usize::from(prefilter_capable(dialect) && (dialect == TypeDialect::Oracle || !upper)),
+            "the raw condition is present exactly where the arm and shape qualify: {dialect:?} upper={upper}",
+        ),
+        "replacement-creates" | "deletion-bridge" => assert_eq!(
+            opted, baseline,
+            "a replacement that can create or bridge a match keeps the redacted-only statement: {dialect:?} {profile}",
+        ),
+        _ => {}
     }
 }
 
@@ -328,12 +354,6 @@ where
     let (warehouse, path) = W::open_text_fixture(csv.clone());
     let dialect = warehouse.type_dialect().expect("a registered native dialect");
     observe_population(&warehouse, &path, dialect, setup);
-    if dialect == TypeDialect::Cube {
-        // Cube text policies read every raw row into the combiner and the prefilter never applies to
-        // Cube, so only the retained source bound is observable at a million rows.
-        fullscan_bound(&warehouse, &path, dialect, &base);
-        return finish(&warehouse, &path, &csv);
-    }
     let profiles = [
         ("barrier", "TERM", vec![("secret_[^ ]+", "[masked]")]),
         ("replacement-creates", "TERM", vec![("secret_[^ ]+", "[TERM]")]),
@@ -366,10 +386,12 @@ where
                 quoted(&path)
             );
             let mut answers = Vec::new();
+            let mut searches = Vec::new();
             for (mode, policy) in [("baseline", &disabled), ("opted-in", &enabled)] {
                 let start = Instant::now();
-                let rows = execute(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
+                let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
+                searches.push(searches_in(&planned, term));
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
                     W::NAME,
@@ -385,6 +407,7 @@ where
                 "exact typed rows and duplicate multiplicity: {} {profile} upper={upper}",
                 W::NAME
             );
+            assert_raw_condition(dialect, profile, upper, (searches[0], searches[1]));
             if profile == "barrier" && !upper {
                 assert_eq!(
                     answers[0]
@@ -463,18 +486,13 @@ where
             W::NAME
         );
     }
-    finish(&warehouse, &path, &csv);
-}
-
-fn finish<W>(warehouse: &W, path: &QualifiedTable, csv: &std::path::Path)
-where
-    W: TextFixture,
-{
-    warehouse.close_text_fixture(path);
+    warehouse.close_text_fixture(&path);
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
 }
 
 macro_rules! system {
+    // Cube reads every raw row before any operator and never takes the prefilter: nothing to compare.
+    (cube, $warehouse:ty) => {};
     ($name:ident, $warehouse:ty) => {
         mod $name {
             #[test]
