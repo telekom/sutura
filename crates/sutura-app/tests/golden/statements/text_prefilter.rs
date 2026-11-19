@@ -316,6 +316,19 @@ fn searches_in(planned: &[String], term: &str) -> usize {
         .sum()
 }
 
+/// How many times the statements the source received search the stored column, named through its table.
+///
+/// `ClickHouse` resolves a bare name to the projection alias beside it unless `prefer_column_name_to_alias`
+/// is set, so an unqualified raw test reads the redacted value: every answer stays equal and no row is
+/// ever skipped. Only the text of the statement tells the two apart here, and no other engine is read.
+fn stored_searches_in(planned: &[String], dialect: TypeDialect, path: &QualifiedTable, term: &str) -> usize {
+    if dialect != TypeDialect::ClickHouse {
+        return 0;
+    }
+    let needle = format!("`{}`.`body` LIKE '%{term}%'", path.name().as_str());
+    planned.iter().map(|statement| statement.matches(&needle).count()).sum()
+}
+
 /// Only an eligible arm may add one raw search, and exactly where the shape qualifies. The `UPPER`
 /// barrier query narrows with a string literal on `cohort`, a column no text policy proves is text,
 /// so it keeps the redacted-only statement on every dialect.
@@ -389,11 +402,13 @@ where
             );
             let mut answers = Vec::new();
             let mut searches = Vec::new();
+            let mut stored = Vec::new();
             for (mode, policy) in [("baseline", &disabled), ("opted-in", &enabled)] {
                 let start = Instant::now();
                 let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
                 searches.push(searches_in(&planned, term));
+                stored.push(stored_searches_in(&planned, dialect, &path, term));
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
                     W::NAME,
@@ -410,6 +425,13 @@ where
                 W::NAME
             );
             assert_raw_condition(dialect, profile, upper, (searches[0], searches[1]));
+            if dialect == TypeDialect::ClickHouse {
+                assert_eq!(
+                    stored,
+                    [0, usize::from(full_table)],
+                    "the one raw search ClickHouse receives names the stored column, never the alias: {profile} upper={upper}"
+                );
+            }
             if profile == "barrier" && !upper {
                 assert_eq!(
                     answers[0]
