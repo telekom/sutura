@@ -5,22 +5,25 @@ use std::ops::ControlFlow;
 use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::common::plan_datafusion_err;
 use datafusion::error::Result;
+use datafusion::sql::sqlparser::ast::helpers::attached_token::AttachedToken;
 use datafusion::sql::sqlparser::ast::{
-    BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, Ident, Query, SelectItem, SetExpr, Statement,
-    TableFactor, UnaryOperator, Value, Visit as _, Visitor,
+    BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
+    ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
 };
-use sutura_domain::catalog::TextPolicy;
+use sutura_domain::catalog::{PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
+use super::text::raw_column;
+
 pub(super) struct Prefilter {
     table: String,
-    condition: String,
+    condition: Expr,
 }
 
 impl Prefilter {
-    pub(super) fn for_table(&self, table: &StatementTable) -> Option<&str> {
-        (self.table == table.table().to_string()).then_some(self.condition.as_str())
+    pub(super) fn for_table(&self, table: &StatementTable) -> Option<&Expr> {
+        (self.table == table.table().to_string()).then_some(&self.condition)
     }
 }
 
@@ -62,10 +65,9 @@ impl Visitor for Scope {
 }
 
 pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect: TypeDialect) -> Result<Option<Prefilter>> {
-    // Other sources may bind a linguistic collation to a column. No pinned evidence says otherwise.
-    if !matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle) {
+    let Some(capability) = PrefilterCapability::of(dialect) else {
         return Ok(None);
-    }
+    };
     let Statement::Query(query) = statement else {
         return Ok(None);
     };
@@ -142,7 +144,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     conjuncts(selection, &mut terms);
     let mut chosen = None;
     for (index, term) in terms.iter().enumerate() {
-        if let Some(condition) = condition(term, table, alias, &aliases, dialect)? {
+        if let Some(condition) = condition(term, table, alias, &aliases, (dialect, capability))? {
             chosen = Some((index, condition));
             break;
         }
@@ -283,8 +285,8 @@ fn condition(
     table: &StatementTable,
     alias: Option<&Ident>,
     aliases: &[&str],
-    dialect: TypeDialect,
-) -> Result<Option<String>> {
+    (dialect, capability): (TypeDialect, PrefilterCapability),
+) -> Result<Option<Expr>> {
     let Expr::Like {
         negated: false,
         any: false,
@@ -308,7 +310,7 @@ fn condition(
         return Ok(None);
     }
     let (input, upper) = match expr.as_ref() {
-        Expr::Function(function) if dialect == TypeDialect::Oracle => {
+        Expr::Function(function) if capability == PrefilterCapability::Oracle => {
             let [name] = function.name.0.as_slice() else {
                 return Ok(None);
             };
@@ -356,7 +358,7 @@ fn condition(
         .metadata()
         .get("sutura:oracle_lob")
         .is_some_and(|kind| matches!(kind.as_str(), "clob" | "nclob"));
-    if dialect == TypeDialect::Oracle && !lob {
+    if capability == PrefilterCapability::Oracle && !lob {
         return Ok(None);
     }
     if !policy
@@ -367,21 +369,84 @@ fn condition(
     {
         return Ok(None);
     }
-    let column = Ident::with_quote('"', field.name());
+    let column = raw_column(dialect, table.table().name().as_str(), field.name());
+    Ok(Some(raw_condition(capability, column, needle, upper)))
+}
+
+fn string(value: &str) -> Expr {
+    Expr::value(Value::SingleQuotedString(String::from(value)))
+}
+
+/// The necessary condition on the stored `column`; the original predicate still decides on the redacted value.
+pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needle: &str, upper: bool) -> Expr {
     let input = if upper {
-        format!("UPPER({column})")
+        Expr::Function(Function {
+            name: ObjectName::from(vec![Ident::new("UPPER")]),
+            uses_odbc_syntax: false,
+            parameters: FunctionArguments::None,
+            args: FunctionArguments::List(FunctionArgumentList {
+                duplicate_treatment: None,
+                args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(column))],
+                clauses: Vec::new(),
+            }),
+            filter: None,
+            null_treatment: None,
+            over: None,
+            within_group: Vec::new(),
+        })
     } else {
-        column.to_string()
+        column
     };
-    let raw = format!("{input} LIKE '%{needle}%'");
-    let condition = match dialect {
-        TypeDialect::Oracle => format!(
-            "CASE WHEN SYS_CONTEXT('USERENV', 'NLS_SORT') COLLATE BINARY = 'BINARY' THEN CASE WHEN {raw} THEN 1 ELSE 0 END ELSE 1 END = 1"
-        ),
-        TypeDialect::DataFusion => format!("({raw})"),
-        _ => return Ok(None),
+    let raw = Expr::Like {
+        negated: false,
+        any: false,
+        expr: Box::new(input),
+        pattern: Box::new(string(&format!("%{needle}%"))),
+        escape_char: None,
     };
-    Ok(Some(condition))
+    match capability {
+        PrefilterCapability::DataFusion => Expr::Nested(Box::new(raw)),
+        PrefilterCapability::Oracle => {
+            let sort = Expr::Function(Function {
+                name: ObjectName::from(vec![Ident::new("SYS_CONTEXT")]),
+                uses_odbc_syntax: false,
+                parameters: FunctionArguments::None,
+                args: FunctionArguments::List(FunctionArgumentList {
+                    duplicate_treatment: None,
+                    args: [string("USERENV"), string("NLS_SORT")]
+                        .into_iter()
+                        .map(|argument| FunctionArg::Unnamed(FunctionArgExpr::Expr(argument)))
+                        .collect(),
+                    clauses: Vec::new(),
+                }),
+                filter: None,
+                null_treatment: None,
+                over: None,
+                within_group: Vec::new(),
+            });
+            let binary = Expr::BinaryOp {
+                left: Box::new(Expr::Collate {
+                    expr: Box::new(sort),
+                    collation: ObjectName::from(vec![Ident::new("BINARY")]),
+                }),
+                op: BinaryOperator::Eq,
+                right: Box::new(string("BINARY")),
+            };
+            let number = |digit: &str| Expr::value(Value::Number(String::from(digit), false));
+            let case = |condition, result, otherwise| Expr::Case {
+                case_token: AttachedToken::empty(),
+                end_token: AttachedToken::empty(),
+                operand: None,
+                conditions: vec![CaseWhen { condition, result }],
+                else_result: Some(Box::new(otherwise)),
+            };
+            Expr::BinaryOp {
+                left: Box::new(case(binary, case(raw, number("1"), number("0")), number("1"))),
+                op: BinaryOperator::Eq,
+                right: Box::new(number("1")),
+            }
+        }
+    }
 }
 
 /// No occurrence may live inside a replacement or cross either of its nonempty boundaries.
