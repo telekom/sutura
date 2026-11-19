@@ -5,6 +5,7 @@ use std::ops::ControlFlow;
 
 use datafusion::arrow::datatypes::Schema;
 use datafusion::sql::sqlparser::ast::{Expr, Select, SelectItem, Statement, Visit as _, Visitor};
+use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::{Parser, ParserError};
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{StatementLegs, StatementStopped};
@@ -112,9 +113,17 @@ where
     }
 }
 
-/// Read as the source reads it: a `BigQuery` or `ClickHouse` literal escapes its backslash and quote.
+/// Read with the source's backslash escapes: a `BigQuery` or `ClickHouse` literal escapes its
+/// backslash and quote. Every other source reads a literal as `GenericDialect` does, whose grammar
+/// also takes what the planner writes there, such as an aggregate `FILTER` for Oracle.
 fn checked(sql: &str, dialect: TypeDialect) -> Result<(), Inadmissible> {
-    let statements = Parser::parse_sql(super::literal::reader(dialect), sql)?;
+    let reader = match dialect {
+        TypeDialect::BigQuery | TypeDialect::ClickHouse => super::literal::reader(dialect),
+        TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::Oracle | TypeDialect::DataFusion => {
+            &GenericDialect {}
+        }
+    };
+    let statements = Parser::parse_sql(reader, sql)?;
     if !matches!(statements.as_slice(), [Statement::Query(_)]) {
         return Err(Inadmissible::NotOneQuery);
     }
