@@ -269,6 +269,7 @@ const RELEASE_SKIP: &[&str] = &[
     "ci",
     "multi-node",
     "multi-node-postgres",
+    "multi-node-oracle",
     "k3s-autoscaling",
     "oracle-tier",
     "ci-datahub-tier",
