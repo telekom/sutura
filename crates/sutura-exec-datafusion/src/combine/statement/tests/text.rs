@@ -3,30 +3,30 @@
 use super::*;
 use sutura_domain::warehouse::Value;
 
-#[test]
-fn oracle_lob_control_expressions_do_not_bound_unrelated_text_values() {
-    use datafusion::sql::sqlparser::ast::{SelectItem, SetExpr, Statement};
-    use datafusion::sql::sqlparser::dialect::GenericDialect;
-    use datafusion::sql::sqlparser::parser::Parser;
+struct Captured(Vec<String>);
 
-    struct Captured(Vec<String>);
-    impl StatementLegs for Captured {
-        type Stop = SourceName;
-        fn open(&mut self, _: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
-            Ok(())
-        }
-        fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-            self.0.push(statement.as_str().to_owned());
-            Err(source.clone())
-        }
+impl StatementLegs for Captured {
+    type Stop = SourceName;
+
+    fn open(&mut self, _: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        Ok(())
     }
+
+    fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        self.0.push(statement.as_str().to_owned());
+        Err(source.clone())
+    }
+}
+
+/// A CLOB, a NCLOB and a plain text column of one Oracle table, the CLOB and NCLOB under `policy`.
+fn lob_table(policy: &str) -> [StatementTable; 1] {
     let lob = |name, kind| {
         Field::new(name, DataType::Utf8, true).with_metadata(std::collections::HashMap::from([
             (String::from("sutura:oracle_lob"), String::from(kind)),
-            (String::from("sutura:text_policy"), String::from(r#"{"max_text_bytes":4000}"#)),
+            (String::from("sutura:text_policy"), String::from(policy)),
         ]))
     };
-    let tables = [StatementTable::new(
+    [StatementTable::new(
         named("geo"),
         QualifiedTable::parse("TEXT_EVENTS").unwrap(),
         TypeDialect::Oracle,
@@ -35,7 +35,56 @@ fn oracle_lob_control_expressions_do_not_bound_unrelated_text_values() {
             lob("SCRIPT", "clob"),
             lob("NATIONAL", "nclob"),
         ])),
-    )];
+    )]
+}
+
+/// The final source statement for `sql` over `tables`, and each of its output expressions.
+fn source_outputs(tables: &[StatementTable], sql: &str) -> (String, Vec<String>) {
+    use datafusion::sql::sqlparser::ast::{SelectItem, SetExpr, Statement};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+
+    let statement = RawStatement::parse(sql).unwrap();
+    let mut legs = Captured(Vec::new());
+    let answer = DataFusionCombiner::new().unwrap().answer_statement(
+        StatementQuestion::new(
+            &statement,
+            tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(
+        matches!(answer, Some(Err(StatementStopped::Leg(_)))),
+        "{sql}: {answer:?}; {:?}",
+        legs.0
+    );
+    let [reached] = legs.0.as_slice() else {
+        panic!("one final statement: {:?}", legs.0)
+    };
+    let parsed = Parser::parse_sql(&GenericDialect, reached).unwrap();
+    let [Statement::Query(query)] = parsed.as_slice() else {
+        panic!("one query: {reached}")
+    };
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        panic!("one output projection: {reached}")
+    };
+    let outputs = select
+        .projection
+        .iter()
+        .map(|item| match item {
+            SelectItem::ExprWithAlias { expr, .. } => expr.to_string(),
+            other => panic!("explicit output names: {other}: {reached}"),
+        })
+        .collect();
+    (reached.clone(), outputs)
+}
+
+#[test]
+fn oracle_lob_control_expressions_do_not_bound_unrelated_text_values() {
+    let tables = lob_table(r#"{"max_text_bytes":4000}"#);
     // These inspect the output boundary, not native support for every aggregate/window spelling.
     for sql in [
         r#"SELECT CASE WHEN length("NATIONAL") > 0 THEN "LABEL" ELSE "LABEL" END AS label, CASE WHEN length("NATIONAL") > 0 THEN upper("SCRIPT") ELSE "LABEL" END AS body FROM "TEXT_EVENTS""#,
@@ -44,51 +93,20 @@ fn oracle_lob_control_expressions_do_not_bound_unrelated_text_values() {
         r#"SELECT first_value("LABEL" ORDER BY length("NATIONAL")) AS label, first_value(substr("SCRIPT", 4001, 120) ORDER BY length("NATIONAL")) AS body FROM "TEXT_EVENTS""#,
         r#"SELECT first_value("LABEL") OVER (PARTITION BY length("NATIONAL") ORDER BY length("SCRIPT")) AS label, first_value(substr("SCRIPT", 4001, 120)) OVER (PARTITION BY length("NATIONAL") ORDER BY length("SCRIPT")) AS body FROM "TEXT_EVENTS""#,
     ] {
-        let statement = RawStatement::parse(sql).unwrap();
-        let mut legs = Captured(Vec::new());
-        let answer = DataFusionCombiner::new().unwrap().answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                false,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        );
-        assert!(
-            matches!(answer, Some(Err(StatementStopped::Leg(_)))),
-            "{sql}: {answer:?}; {:?}",
-            legs.0
-        );
-        let [sql] = legs.0.as_slice() else {
-            panic!("one final statement: {:?}", legs.0)
-        };
-        let parsed = Parser::parse_sql(&GenericDialect, sql).unwrap();
-        let [Statement::Query(query)] = parsed.as_slice() else {
-            panic!("one query: {sql}")
-        };
-        let SetExpr::Select(select) = query.body.as_ref() else {
-            panic!("one output projection: {sql}")
-        };
-        let [
-            SelectItem::ExprWithAlias { expr: label, .. },
-            SelectItem::ExprWithAlias { expr: body, .. },
-        ] = select.projection.as_slice()
-        else {
-            panic!("two explicitly named outputs: {sql}")
+        let (reached, outputs) = source_outputs(&tables, sql);
+        let [label, body] = outputs.as_slice() else {
+            panic!("two explicitly named outputs: {reached}")
         };
         assert_eq!(
-            label.to_string(),
-            r#""sutura_lob_output"."c0""#,
+            label, r#""sutura_lob_output"."c0""#,
             "control-only LOBs cannot clip LABEL: {sql}"
         );
         assert!(
-            body.to_string().contains("DBMS_LOB.\"SUBSTR\""),
+            body.contains("DBMS_LOB.\"SUBSTR\""),
             "a LOB value branch stays bounded: {sql}"
         );
         assert!(
-            body.to_string().contains("3986"),
+            body.contains("3986"),
             "control-only NCLOB cannot change a CLOB value's ceiling: {sql}"
         );
     }
@@ -96,44 +114,7 @@ fn oracle_lob_control_expressions_do_not_bound_unrelated_text_values() {
 
 #[test]
 fn oracle_lob_bounds_follow_text_outputs_through_expressions_and_union() {
-    use datafusion::sql::sqlparser::ast::{SelectItem, SetExpr, Statement};
-    use datafusion::sql::sqlparser::dialect::GenericDialect;
-    use datafusion::sql::sqlparser::parser::Parser;
-
-    struct Captured(Vec<String>);
-    impl StatementLegs for Captured {
-        type Stop = SourceName;
-        fn open(&mut self, _: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
-            Ok(())
-        }
-        fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-            self.0.push(statement.as_str().to_owned());
-            Err(source.clone())
-        }
-    }
-    let schema = Schema::new(vec![
-        Field::new("LABEL", DataType::Utf8, true),
-        Field::new("SCRIPT", DataType::Utf8, true).with_metadata(std::collections::HashMap::from([
-            (String::from("sutura:oracle_lob"), String::from("clob")),
-            (
-                String::from("sutura:text_policy"),
-                String::from(r#"{"max_text_bytes":4000,"redact":[{"pattern":"secret","replace":"masked"}]}"#),
-            ),
-        ])),
-        Field::new("SCRIPT_N", DataType::Utf8, true).with_metadata(std::collections::HashMap::from([
-            (String::from("sutura:oracle_lob"), String::from("nclob")),
-            (
-                String::from("sutura:text_policy"),
-                String::from(r#"{"max_text_bytes":4000,"redact":[{"pattern":"secret","replace":"masked"}]}"#),
-            ),
-        ])),
-    ]);
-    let tables = [StatementTable::new(
-        named("geo"),
-        QualifiedTable::parse("TEXT_EVENTS").unwrap(),
-        TypeDialect::Oracle,
-        Arc::new(schema),
-    )];
+    let tables = lob_table(r#"{"max_text_bytes":4000,"redact":[{"pattern":"secret","replace":"masked"}]}"#);
     for (sql, bounded, national) in [
         (
             r#"SELECT "LABEL", length("SCRIPT") AS n, substr("SCRIPT", 4001, 120), instr(upper("SCRIPT"), 'END') AS p FROM "TEXT_EVENTS" ORDER BY n DESC LIMIT 3"#,
@@ -151,7 +132,7 @@ fn oracle_lob_bounds_follow_text_outputs_through_expressions_and_union() {
             false,
         ),
         (
-            r#"SELECT "SCRIPT" AS body FROM "TEXT_EVENTS" UNION ALL SELECT upper("SCRIPT_N") AS body FROM "TEXT_EVENTS""#,
+            r#"SELECT "SCRIPT" AS body FROM "TEXT_EVENTS" UNION ALL SELECT upper("NATIONAL") AS body FROM "TEXT_EVENTS""#,
             vec![0],
             true,
         ),
@@ -161,51 +142,63 @@ fn oracle_lob_bounds_follow_text_outputs_through_expressions_and_union() {
             false,
         ),
     ] {
-        let statement = RawStatement::parse(sql).unwrap();
-        let mut legs = Captured(Vec::new());
-        let answer = DataFusionCombiner::new().unwrap().answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                false,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        );
-        assert!(
-            matches!(answer, Some(Err(StatementStopped::Leg(_)))),
-            "{sql}: {answer:?}; {:?}",
-            legs.0
-        );
-        let [sql] = legs.0.as_slice() else {
-            panic!("one final statement: {:?}", legs.0)
-        };
-        let parsed = Parser::parse_sql(&GenericDialect, sql).unwrap();
-        let [Statement::Query(query)] = parsed.as_slice() else {
-            panic!("one query: {sql}")
-        };
-        let SetExpr::Select(select) = query.body.as_ref() else {
-            panic!("one output projection: {sql}")
-        };
-        for (index, item) in select.projection.iter().enumerate() {
-            let SelectItem::ExprWithAlias { expr, .. } = item else {
-                panic!("explicit output names: {sql}")
-            };
+        let (reached, outputs) = source_outputs(&tables, sql);
+        for (index, expression) in outputs.iter().enumerate() {
             if bounded.contains(&index) {
+                assert!(expression.contains("DBMS_LOB.\"SUBSTR\""), "protected text at {index}: {sql}");
                 assert!(
-                    expr.to_string().contains("DBMS_LOB.\"SUBSTR\""),
-                    "protected text at {index}: {sql}"
-                );
-                assert!(
-                    expr.to_string().contains(if national { "1986" } else { "3986" }),
-                    "the output's own character family decides its ceiling: {sql}"
+                    expression.contains(if national { "1986" } else { "3986" }),
+                    "the output's own character family decides its ceiling: {reached}"
                 );
             } else {
                 assert_eq!(
-                    expr.to_string(),
-                    format!("\"sutura_lob_output\".\"c{index}\""),
+                    expression,
+                    &format!("\"sutura_lob_output\".\"c{index}\""),
                     "unrelated text and scalar results pass unchanged: {sql}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn oracle_lob_bounds_hold_where_the_output_lineage_cannot_be_traced() {
+    let tables = lob_table(r#"{"max_text_bytes":4000}"#);
+    // Each output after the first is a value no operand trace reaches: the bound must hold anyway.
+    for (sql, bounded) in [
+        (
+            r#"SELECT "LABEL", "LABEL" || (SELECT min("SCRIPT") FROM "TEXT_EVENTS") AS v FROM "TEXT_EVENTS""#,
+            vec![1],
+        ),
+        (
+            r#"SELECT initcap(substr("SCRIPT", 1, 3000)) AS v FROM "TEXT_EVENTS" GROUP BY ROLLUP(initcap(substr("SCRIPT", 1, 3000)))"#,
+            vec![0],
+        ),
+        (
+            r#"SELECT initcap(substr("SCRIPT", 1, 3000)) AS v FROM "TEXT_EVENTS" GROUP BY GROUPING SETS ((initcap(substr("SCRIPT", 1, 3000))), ())"#,
+            vec![0],
+        ),
+        (
+            r#"SELECT initcap(substr("SCRIPT", 1, 3000)) AS v FROM "TEXT_EVENTS" GROUP BY CUBE(initcap(substr("SCRIPT", 1, 3000)))"#,
+            vec![0],
+        ),
+    ] {
+        let (reached, outputs) = source_outputs(&tables, sql);
+        for (index, expression) in outputs.iter().enumerate() {
+            if bounded.contains(&index) {
+                assert!(
+                    expression.contains("DBMS_LOB.\"SUBSTR\""),
+                    "an untraced text output stays bounded: {reached}"
+                );
+                assert!(
+                    expression.contains("1986"),
+                    "an untraced output beside a NCLOB takes the national ceiling: {reached}"
+                );
+            } else {
+                assert_eq!(
+                    expression,
+                    &format!("\"sutura_lob_output\".\"c{index}\""),
+                    "a plain non-LOB column passes unchanged: {reached}"
                 );
             }
         }

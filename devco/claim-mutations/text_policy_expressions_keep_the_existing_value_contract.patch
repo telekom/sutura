@@ -1,7 +1,7 @@
 Claim-Cell-File: crates/sutura-app/tests/golden/statements.rs
 --- a/crates/sutura-exec-datafusion/src/combine/statement/text.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/statement/text.rs
-@@ -391,3 +391,3 @@
+@@ -528,3 +528,3 @@
      let mut value = column.to_owned();
 -    for rule in policy.redactions() {
 +    for rule in policy.redactions().iter().take(0) {

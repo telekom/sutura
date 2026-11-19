@@ -3,9 +3,13 @@
 use super::*;
 
 fn protected(path: QualifiedTable, dialect: TypeDialect, bytes: u32) -> StatementTable {
+    protected_replacing(path, dialect, bytes, "masked")
+}
+
+fn protected_replacing(path: QualifiedTable, dialect: TypeDialect, bytes: u32, replace: &str) -> StatementTable {
     let policy = serde_json::json!({
         "max_text_bytes": bytes,
-        "redact": [{"pattern": "(?i)north(_east)?", "replace": "masked"}]
+        "redact": [{"pattern": "(?i)north(_east)?", "replace": replace}]
     })
     .to_string();
     StatementTable::new(
@@ -20,6 +24,20 @@ fn protected(path: QualifiedTable, dialect: TypeDialect, bytes: u32) -> Statemen
             )])),
         ])),
     )
+}
+
+type Rows = Vec<Vec<Value>>;
+
+/// `Ok` where `actual` is `expected`; the comparison the calling cell asserts on.
+fn same<T>(actual: &T, expected: &T, what: &str) -> Result<(), String>
+where
+    T: PartialEq + std::fmt::Debug,
+{
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("{what}: actual={actual:?}; expected={expected:?}"))
+    }
 }
 
 fn native<W>(warehouse: &W, sql: &str, scans: &BTreeSet<QualifiedTable>, dialect: TypeDialect) -> RawRows
@@ -188,7 +206,15 @@ pub(super) fn pins(name: &str, dialect: TypeDialect) {
     snapshot_settings.bind(|| insta::assert_snapshot!("bounded_redacted_text_sql", output));
 }
 
-pub(super) fn executes<W>(warehouse: &W, pinned: &sutura_domain::pinned::PinnedDefinitions, dialect: TypeDialect)
+#[expect(
+    clippy::unwrap_in_result,
+    reason = "a fixture that does not load or parse is a broken venue, not a contract violation to report"
+)]
+pub(super) fn executes<W>(
+    warehouse: &W,
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
+    dialect: TypeDialect,
+) -> Result<(), String>
 where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
@@ -225,9 +251,13 @@ where
         },
     );
     let Some(Ok(protected_rows)) = protected_answer else {
-        panic!("{}: {protected_answer:?}", W::NAME);
+        return Err(format!("{}: {protected_answer:?}", W::NAME));
     };
-    assert_eq!(protected_rows.into_parts().1, vec![vec![Value::Text(String::from("masked"))]]);
+    same(
+        &protected_rows.into_parts().1,
+        &vec![vec![Value::Text(String::from("masked"))]],
+        "a protected customer key",
+    )?;
 
     let model = pinned
         .definitions()
@@ -236,7 +266,7 @@ where
     let path = quoted(model.table());
     let tables = [protected(model.table().clone(), dialect, 128)];
     let combiner = DataFusionCombiner::new().expect("a combiner");
-    let run = |sql: String, tables: &[StatementTable]| {
+    let run = |sql: String, tables: &[StatementTable]| -> Result<Rows, String> {
         let statement = RawStatement::parse(sql).expect("a fixture question");
         let answer = combiner.answer_statement(
             StatementQuestion::new(&statement, tables, false, WORKING_SET, deadline()),
@@ -247,49 +277,51 @@ where
             },
         );
         let Some(Ok(rows)) = answer else {
-            panic!("{}: {answer:?}", W::NAME);
+            return Err(format!("{}: {answer:?}", W::NAME));
         };
-        rows.into_parts().1
+        Ok(rows.into_parts().1)
     };
     let text = |value: &str| Value::Text(value.to_owned());
-    assert_eq!(
-        run(
+    same(
+        &run(
             format!("select \"sales_area\" from {path} where \"region\" = 'north'"),
-            &tables
-        ),
-        vec![vec![text("masked")]]
-    );
+            &tables,
+        )?,
+        &vec![vec![text("masked")]],
+        "a redacted value",
+    )?;
     for prefix in ["n", "no", "nor", "nort", "north", "north_", "north_e"] {
-        assert!(
-            run(
-                format!("select \"region\" from {path} where \"sales_area\" like '{prefix}%'"),
-                &tables
-            )
-            .is_empty(),
-            "{}: {prefix}",
-            W::NAME
-        );
+        let found = run(
+            format!("select \"region\" from {path} where \"sales_area\" like '{prefix}%'"),
+            &tables,
+        )?;
+        same(&found, &Vec::new(), &format!("a search for the redacted prefix {prefix}"))?;
     }
-    assert_eq!(
-        run(
+    same(
+        &run(
             format!("select min(\"sales_area\") from {path} where \"region\" = 'north'"),
-            &tables
-        ),
-        vec![vec![text("masked")]]
-    );
-    assert_eq!(
-        run(
+            &tables,
+        )?,
+        &vec![vec![text("masked")]],
+        "a redacted minimum",
+    )?;
+    same(
+        &run(
             format!("select \"region\" from {path} where \"sales_area\" = 'masked' order by \"sales_area\", \"region\""),
-            &tables
-        ),
-        vec![vec![text("east")], vec![text("north")]]
-    );
+            &tables,
+        )?,
+        &vec![vec![text("east")], vec![text("north")]],
+        "a search for the redacted value",
+    )?;
     let bounded = [protected(model.table().clone(), dialect, 32)];
-    let rows = run(
-        format!("select \"sales_area\" from {path} where \"region\" = 'south'"),
-        &bounded,
-    );
-    assert_eq!(rows, vec![vec![text("sout...[truncated]")]]);
+    same(
+        &run(
+            format!("select \"sales_area\" from {path} where \"region\" = 'south'"),
+            &bounded,
+        )?,
+        &vec![vec![text("sout...[truncated]")]],
+        "a bounded value",
+    )
 }
 
 pub(super) fn expressions<W>(dialect: TypeDialect) -> Result<(), String>
@@ -310,72 +342,89 @@ where
             );
         }
     };
-    progress("served", "-");
-    served::<W>(dialect);
     progress("catalog-open", "-");
     let pinned = load_on::<W>();
     let warehouse: W = open(&pinned);
-    let disjoint_pinned = with_disjoint_policy(&pinned, dialect, false);
-    progress("text-policy", "-");
-    executes(&warehouse, &disjoint_pinned, dialect);
     progress("expressions", "-");
     let model = pinned
         .definitions()
         .model(&ModelName::parse("regions").map_err(|cause| format!("a model name: {cause}"))?)
         .expect("the regions fixture");
     let path = quoted(model.table());
-    let bounded = [protected(model.table().clone(), dialect, 32)];
     let combiner = DataFusionCombiner::new().map_err(|cause| format!("a combiner: {cause}"))?;
-    // Ordinary policies expose the already-truncated value to every operator (the LOB venue
-    // has a different contract). The independent view contains only expected safe values.
-    let reference = format!(
-        "(SELECT \"region\", CASE WHEN \"region\" IN ('east', 'north') THEN 'mask...[truncated]' WHEN \"region\" = 'central' THEN 'cent...[truncated]' ELSE 'sout...[truncated]' END AS \"sales_area\" FROM {path}) r"
-    );
     let scans = BTreeSet::from([model.table().clone()]);
-    for (projection, tail) in [
+    // Ordinary policies expose the already-truncated value to every operator (the LOB venue
+    // has a different contract). The independent views contain only expected safe values; the
+    // second carries a non-ASCII character, so a byte-counting engine cannot pass for a
+    // character-counting one.
+    for (tables, safe, cases) in [
         (
-            "r.\"region\", length(r.\"sales_area\") AS n",
-            "ORDER BY n DESC, r.\"region\" LIMIT 3",
+            [protected(model.table().clone(), dialect, 32)],
+            "CASE WHEN \"region\" IN ('east', 'north') THEN 'mask...[truncated]' WHEN \"region\" = 'central' THEN 'cent...[truncated]' ELSE 'sout...[truncated]' END",
+            vec![
+                (
+                    "r.\"region\", length(r.\"sales_area\") AS n",
+                    "ORDER BY n DESC, r.\"region\" LIMIT 3",
+                ),
+                ("r.\"region\", substr(r.\"sales_area\", 5, 3)", "ORDER BY r.\"region\""),
+                (
+                    "r.\"region\", position('MASK' IN upper(r.\"sales_area\")) AS p",
+                    "ORDER BY p DESC, r.\"region\"",
+                ),
+                (
+                    "r.\"region\"",
+                    "WHERE upper(r.\"sales_area\") LIKE 'MASK%' ORDER BY length(r.\"sales_area\") DESC, r.\"region\"",
+                ),
+            ],
         ),
-        ("r.\"region\", substr(r.\"sales_area\", 5, 3)", "ORDER BY r.\"region\""),
         (
-            "r.\"region\", position('MASK' IN upper(r.\"sales_area\")) AS p",
-            "ORDER BY p DESC, r.\"region\"",
-        ),
-        (
-            "r.\"region\"",
-            "WHERE upper(r.\"sales_area\") LIKE 'MASK%' ORDER BY length(r.\"sales_area\") DESC, r.\"region\"",
+            [protected_replacing(model.table().clone(), dialect, 128, "mask\u{e9}")],
+            "CASE WHEN \"region\" IN ('east', 'north') THEN 'mask\u{e9}' WHEN \"region\" = 'central' THEN 'central' ELSE 'south_west' END",
+            vec![
+                (
+                    "r.\"region\", length(r.\"sales_area\") AS n",
+                    "ORDER BY n DESC, r.\"region\" LIMIT 3",
+                ),
+                ("r.\"region\", substr(r.\"sales_area\", 4, 3)", "ORDER BY r.\"region\""),
+                (
+                    "r.\"region\", position('\u{e9}' IN r.\"sales_area\") AS p",
+                    "ORDER BY p DESC, r.\"region\"",
+                ),
+            ],
         ),
     ] {
-        let sql = format!("SELECT {projection} FROM {path} r {tail}");
-        let statement = RawStatement::parse(&sql).map_err(|cause| format!("a fixture expression query: {cause}"))?;
-        let actual = combiner.answer_statement(
-            StatementQuestion::new(&statement, &bounded, false, WORKING_SET, deadline()),
-            &mut Executing {
-                warehouse: &warehouse,
-                expected_scans: vec![scans.clone()],
-                observed_scans: Vec::new(),
-            },
-        );
-        let Some(Ok(actual)) = actual else {
-            return Err(format!("{}: {sql}: {actual:?}", W::NAME));
-        };
-        let actual = actual.into_parts().1;
-        let expected = native(
-            &warehouse,
-            &format!("SELECT {projection} FROM {reference} {tail}"),
-            &scans,
-            dialect,
-        )
-        .into_parts()
-        .1;
-        if actual != expected {
-            return Err(format!(
-                "{}: {projection} {tail}: actual={actual:?}; expected={expected:?}",
-                W::NAME
-            ));
+        let reference = format!("(SELECT \"region\", {safe} AS \"sales_area\" FROM {path}) r");
+        for (projection, tail) in cases {
+            let sql = format!("SELECT {projection} FROM {path} r {tail}");
+            let statement = RawStatement::parse(&sql).map_err(|cause| format!("a fixture expression query: {cause}"))?;
+            let actual = combiner.answer_statement(
+                StatementQuestion::new(&statement, &tables, false, WORKING_SET, deadline()),
+                &mut Executing {
+                    warehouse: &warehouse,
+                    expected_scans: vec![scans.clone()],
+                    observed_scans: Vec::new(),
+                },
+            );
+            let Some(Ok(actual)) = actual else {
+                return Err(format!("{}: {sql}: {actual:?}", W::NAME));
+            };
+            let expected = native(
+                &warehouse,
+                &format!("SELECT {projection} FROM {reference} {tail}"),
+                &scans,
+                dialect,
+            );
+            same(
+                &actual.into_parts().1,
+                &expected.into_parts().1,
+                &format!("{}: {projection} {tail}", W::NAME),
+            )?;
         }
     }
+    progress("text-policy", "-");
+    executes(&warehouse, &with_disjoint_policy(&pinned, dialect, false), dialect)?;
+    progress("served", "-");
+    served::<W>(dialect)?;
     progress("complete", "-");
     Ok(())
 }
@@ -473,7 +522,11 @@ impl sutura_domain::audit::AuditSink for Audit {
 }
 
 /// The transport's service port, over the same native venues as the renderer and row matrix.
-pub(super) fn served<W>(dialect: TypeDialect)
+#[expect(
+    clippy::unwrap_in_result,
+    reason = "a fixture that does not load or parse is a broken venue, not a contract violation to report"
+)]
+pub(super) fn served<W>(dialect: TypeDialect) -> Result<(), String>
 where
     W: DataSystemUnderTest + Send + Sync + 'static,
     W::Error: Send + Sync,
@@ -505,39 +558,40 @@ where
             DataFusionCombiner::new().expect("a combiner"),
             WORKING_SET,
         );
-        assert!(
-            started.is_ok(),
-            "{} placement={other_source}: service must start: {started:?}",
-            W::NAME
-        );
-        let service = started.expect("the service's startup was asserted");
+        let service = started.map_err(|cause| format!("{} placement={other_source}: service must start: {cause:?}", W::NAME))?;
         let certified = service.answer(
             &crate::adapters::a_caller(),
             &crate::shared::question("recurring-revenue-june.yaml"),
             deadline(),
         );
-        assert!(certified.is_ok(), "{} placement={other_source}: {certified:?}", W::NAME);
         let Ok(ToolOutcome::Answer { rows, .. }) = certified else {
-            panic!("the served metric must answer");
+            return Err(format!(
+                "{} placement={other_source}: the served metric must answer: {certified:?}",
+                W::NAME
+            ));
         };
         let rendered: Vec<Vec<_>> = rows
             .rows()
             .iter()
             .map(|row| row.iter().map(Value::render).collect())
             .collect();
-        assert_eq!(rendered, vec![vec![String::from("2026-06-01"), String::from("202121")]]);
+        same(
+            &rendered,
+            &vec![vec![String::from("2026-06-01"), String::from("202121")]],
+            "the served metric",
+        )?;
         let statement = RawStatement::parse(format!(
             "select \"customer_id\" from {path} where \"customer_id\" = 'masked' limit 1"
         ))
         .expect("a protected fixture statement");
         let raw = service.run_sql(&crate::adapters::a_caller(), &statement, deadline());
-        assert!(raw.is_ok(), "{} placement={other_source}: {raw:?}", W::NAME);
         let Ok(RawOutcome::Rows { rows, .. }) = raw else {
-            panic!(
+            return Err(format!(
                 "{} placement={other_source}: the protected served statement must answer Rows: {raw:?}",
                 W::NAME
-            );
+            ));
         };
-        assert_eq!(rows, vec![vec![String::from("masked")]]);
+        same(&rows, &vec![vec![String::from("masked")]], "the protected served statement")?;
     }
+    Ok(())
 }

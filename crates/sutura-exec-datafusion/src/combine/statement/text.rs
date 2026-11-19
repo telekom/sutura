@@ -1,14 +1,16 @@
 //! Source-side views: every operator above a table sees the same transformed text.
 
+use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-use datafusion::arrow::datatypes::{DataType, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::common::metadata::FieldMetadata;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
 use datafusion::common::{DFSchema, ExprSchema as _, plan_datafusion_err, plan_err};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::functions_aggregate::min_max::{Max, Min};
-use datafusion::logical_expr::{Expr as PlannedExpr, ExprSchemable as _, LogicalPlan};
+use datafusion::logical_expr::{Distinct, Expr as PlannedExpr, ExprSchemable as _, LogicalPlan};
 use datafusion::sql::sqlparser::ast::{Expr, Ident, SetExpr, Statement, TableFactor, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -18,6 +20,8 @@ use sutura_domain::warehouse::schema::TypeDialect;
 
 const KEY: &str = "sutura:text_policy";
 const LOB_KEY: &str = "sutura:oracle_lob";
+/// Written only by `oracle_lob_outputs`, on an output it proved derives from no LOB.
+const FREE_KEY: &str = "sutura:oracle_lob_free";
 
 pub(super) fn oracle_lobs(table: &StatementTable) -> bool {
     table.dialect() == TypeDialect::Oracle
@@ -70,10 +74,62 @@ pub(super) fn native_number_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
     .map(|transformed| transformed.data)
 }
 
+/// What a text value is known to be derived from. Only a positive proof narrows it: anything this
+/// pass cannot trace is `Unknown`, and an unknown output is bounded as a LOB would be.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Lineage {
+    Free,
+    Clob,
+    Nclob,
+    Unknown,
+}
+
+impl Lineage {
+    /// The widest of two lineages: `Free < Clob < Nclob < Unknown`.
+    fn join(self, other: Self) -> Self {
+        self.max(other)
+    }
+}
+
+const fn is_text(data_type: &DataType) -> bool {
+    matches!(data_type, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
+}
+
+fn field_lineage(field: &Field) -> Lineage {
+    let metadata = field.metadata();
+    match metadata.get(LOB_KEY).map(String::as_str) {
+        Some("clob") => Lineage::Clob,
+        Some("nclob") => Lineage::Nclob,
+        None if metadata.contains_key(FREE_KEY) => Lineage::Free,
+        _ => Lineage::Unknown,
+    }
+}
+
+/// The marks `lineage` leaves on a field's metadata: none of its own for `Unknown`.
+fn marked(mut metadata: BTreeMap<String, String>, lineage: Lineage) -> BTreeMap<String, String> {
+    drop(metadata.remove(LOB_KEY));
+    drop(metadata.remove(FREE_KEY));
+    let mark = match lineage {
+        Lineage::Free => Some((FREE_KEY, "true")),
+        Lineage::Clob => Some((LOB_KEY, "clob")),
+        Lineage::Nclob => Some((LOB_KEY, "nclob")),
+        Lineage::Unknown => None,
+    };
+    if let Some((key, value)) = mark {
+        drop(metadata.insert(key.to_owned(), value.to_owned()));
+    }
+    metadata
+}
+
 /// Carry protected LOB lineage through text-valued outputs before optimization drops metadata.
 /// Predicates and sort keys keep their original expressions; scalar results are never LOBs.
+/// A scan's own non-LOB text columns are the only leaves proven free of LOB text; any other
+/// output this pass cannot trace stays unmarked, which the output bound reads as a LOB.
 pub(super) fn oracle_lob_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
     plan.transform_up_with_subqueries(|mut node| {
+        if let LogicalPlan::TableScan(scan) = &mut node {
+            scan.projected_schema = free_scan_text(&scan.projected_schema)?;
+        }
         let outputs = match &mut node {
             LogicalPlan::Projection(projection) => Some((vec![&mut projection.expr], projection.input.as_ref())),
             LogicalPlan::Aggregate(aggregate) => Some((
@@ -81,6 +137,7 @@ pub(super) fn oracle_lob_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
                 aggregate.input.as_ref(),
             )),
             LogicalPlan::Window(window) => Some((vec![&mut window.window_expr], window.input.as_ref())),
+            LogicalPlan::Distinct(Distinct::On(distinct)) => Some((vec![&mut distinct.select_expr], distinct.input.as_ref())),
             _ => None,
         };
         if let Some((expressions, input)) = outputs {
@@ -88,23 +145,16 @@ pub(super) fn oracle_lob_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
                 *expressions = std::mem::take(expressions)
                     .into_iter()
                     .map(|expression| {
-                        if !matches!(
-                            expression.get_type(input.schema().as_ref())?,
-                            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
-                        ) {
+                        let schema = input.schema().as_ref();
+                        if !is_text(&expression.get_type(schema)?) {
                             return Ok(expression);
                         }
-                        let mut metadata = expression.metadata(input.schema().as_ref())?;
-                        let mut kind = metadata.inner().get(LOB_KEY).map(String::as_str);
-                        if let Some(candidate) = oracle_lob_value_kind(&expression, input.schema().as_ref())? {
-                            kind = Some(if kind == Some("nclob") { "nclob" } else { candidate });
-                        }
-                        let Some(kind) = kind else { return Ok(expression) };
-                        let marker = std::collections::BTreeMap::from([(String::from(LOB_KEY), kind.to_owned())]);
-                        if metadata.inner().get(LOB_KEY) == marker.get(LOB_KEY) {
+                        let metadata = expression.metadata(schema)?;
+                        let wanted = marked(metadata.inner().clone(), lineage(&expression, schema));
+                        if &wanted == metadata.inner() {
                             return Ok(expression);
                         }
-                        metadata.extend(marker.into());
+                        let metadata = FieldMetadata::new(wanted);
                         Ok(match expression {
                             PlannedExpr::Alias(alias) => PlannedExpr::Alias(alias.with_metadata(Some(metadata))),
                             other => {
@@ -123,18 +173,21 @@ pub(super) fn oracle_lob_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
                 .iter()
                 .enumerate()
                 .map(|(index, (qualifier, field))| {
-                    let mut metadata = field.metadata().clone();
-                    for input in &union.inputs {
-                        if let Some(kind) = input.schema().field(index).metadata().get(LOB_KEY) {
-                            let kind = if metadata.get(LOB_KEY).is_some_and(|value| value == "nclob") || kind == "nclob" {
-                                "nclob"
-                            } else {
-                                "clob"
-                            };
-                            drop(metadata.insert(LOB_KEY.to_owned(), kind.to_owned()));
-                        }
-                    }
-                    (qualifier.cloned(), Arc::new(field.as_ref().clone().with_metadata(metadata)))
+                    let field = if is_text(field.data_type()) {
+                        let lineage = union
+                            .inputs
+                            .iter()
+                            .map(|input| field_lineage(input.schema().field(index)))
+                            .fold(Lineage::Free, Lineage::join);
+                        let metadata = marked(
+                            field.metadata().iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                            lineage,
+                        );
+                        field.as_ref().clone().with_metadata(metadata.into_iter().collect())
+                    } else {
+                        field.as_ref().clone()
+                    };
+                    (qualifier.cloned(), Arc::new(field))
                 })
                 .collect();
             union.schema = Arc::new(DFSchema::new_with_metadata(
@@ -147,46 +200,77 @@ pub(super) fn oracle_lob_outputs(plan: LogicalPlan) -> Result<LogicalPlan> {
     .map(|transformed| transformed.data)
 }
 
-fn oracle_lob_value_kind(expression: &PlannedExpr, schema: &DFSchema) -> Result<Option<&'static str>> {
-    if let PlannedExpr::Column(column) = expression {
-        return Ok(schema.field_from_column(column)?.metadata().get(LOB_KEY).map(
-            |kind| {
-                if kind == "nclob" { "nclob" } else { "clob" }
-            },
-        ));
-    }
-    let mut kind = None;
-    let mut include = |value: &PlannedExpr| {
-        if let Some(candidate) = oracle_lob_value_kind(value, schema)? {
-            kind = Some(if kind == Some("nclob") { "nclob" } else { candidate });
+/// A scan's text columns that carry no LOB mark are plain source text: the one leaf proven free.
+fn free_scan_text(schema: &DFSchema) -> Result<Arc<DFSchema>> {
+    let fields = schema
+        .iter()
+        .map(|(qualifier, field)| {
+            let field = if is_text(field.data_type()) && field_lineage(field) == Lineage::Unknown {
+                let metadata = marked(
+                    field.metadata().iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    Lineage::Free,
+                );
+                Arc::new(field.as_ref().clone().with_metadata(metadata.into_iter().collect()))
+            } else {
+                Arc::clone(field)
+            };
+            (qualifier.cloned(), field)
+        })
+        .collect();
+    let rebuilt = DFSchema::new_with_metadata(fields, DFSchema::metadata(schema).clone())?
+        .with_functional_dependencies(schema.functional_dependencies().clone())?;
+    Ok(Arc::new(rebuilt))
+}
+
+/// The lineage of `expression`'s value in `schema`. Non-text scalars cannot carry LOB text; a
+/// column is what its field's mark says; a value-carrying operand decides a derived value; and an
+/// expression with no operand to trace (a scalar subquery, an outer reference, a variable) is unknown.
+fn lineage(expression: &PlannedExpr, schema: &DFSchema) -> Lineage {
+    match expression.get_type(schema) {
+        Ok(data_type) if is_text(&data_type) => {}
+        Ok(data_type)
+            if data_type.is_numeric() || data_type.is_temporal() || matches!(data_type, DataType::Null | DataType::Boolean) =>
+        {
+            return Lineage::Free;
         }
-        Ok(TreeNodeRecursion::Continue)
+        _ => return Lineage::Unknown,
+    }
+    let operands = |values: Vec<&PlannedExpr>| {
+        values
+            .into_iter()
+            .fold(Lineage::Free, |lineage, value| lineage.join(self::lineage(value, schema)))
     };
     match expression {
-        PlannedExpr::Case(case) => {
-            for (_, value) in &case.when_then_expr {
-                include(value)?;
+        PlannedExpr::Literal(..) => Lineage::Free,
+        PlannedExpr::Column(column) => schema
+            .field_from_column(column)
+            .map_or(Lineage::Unknown, |field| field_lineage(field)),
+        // A subquery's own value is not traced, nor is a column of the query around it.
+        PlannedExpr::ScalarSubquery(_) | PlannedExpr::OuterReferenceColumn(..) => Lineage::Unknown,
+        PlannedExpr::Alias(alias) => lineage(&alias.expr, schema),
+        // Conditions and operands only select a branch; the branches carry the value.
+        PlannedExpr::Case(case) => operands(
+            case.when_then_expr
+                .iter()
+                .map(|(_, value)| value.as_ref())
+                .chain(case.else_expr.as_deref())
+                .collect(),
+        ),
+        // Filters and orderings select which rows contribute; the arguments carry the value.
+        PlannedExpr::AggregateFunction(function) => operands(function.params.args.iter().collect()),
+        PlannedExpr::WindowFunction(function) => operands(function.params.args.iter().collect()),
+        other => {
+            let mut children = Vec::new();
+            let collected = other.apply_children(|child| {
+                children.push(child);
+                Ok(TreeNodeRecursion::Continue)
+            });
+            if collected.is_err() || children.is_empty() {
+                return Lineage::Unknown;
             }
-            if let Some(value) = &case.else_expr {
-                include(value)?;
-            }
-        }
-        PlannedExpr::AggregateFunction(function) => {
-            for value in &function.params.args {
-                include(value)?;
-            }
-        }
-        PlannedExpr::WindowFunction(function) => {
-            for value in &function.params.args {
-                include(value)?;
-            }
-        }
-        // Control expressions select values; all other transforms conservatively carry their inputs.
-        _ => {
-            expression.apply_children(include)?;
+            operands(children)
         }
     }
-    Ok(kind)
 }
 
 /// A LOB is redacted at the source without clipping. Only a whole-source answer may return it:
@@ -238,6 +322,11 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
             }
         }
     }
+    let national = tables
+        .iter()
+        .filter(|table| oracle_lobs(table))
+        .flat_map(|table| table.schema().fields())
+        .any(|field| field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob"));
     let labelled = super::projection::duplicate_names(schema);
     let columns = schema
         .fields()
@@ -245,14 +334,9 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
         .enumerate()
         .map(|(index, field)| {
             let column = format!("\"sutura_lob_output\".\"c{index}\"");
-            let value = if field.metadata().contains_key(LOB_KEY)
-                && matches!(field.data_type(), DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
-                && !field.metadata().contains_key("sutura:unbounded_number")
-            {
-                let national = field.metadata().get(LOB_KEY).is_some_and(|kind| kind == "nclob");
-                bounded_lob(&column, if national { bytes.min(2000) } else { bytes })
-            } else {
-                column
+            let value = match output_ceiling(field, bytes, national) {
+                Some(ceiling) => bounded_lob(&column, ceiling),
+                None => column,
             };
             let name = if labelled { format!("c{index}") } else { field.name().clone() };
             format!("{value} AS {}", Ident::with_quote('"', name))
@@ -271,6 +355,21 @@ fn bounded_oracle_output(sql: &str, schema: &Schema, tables: &[StatementTable], 
         ))
     } else {
         Ok(format!("SELECT {columns} FROM ({sql}) \"sutura_lob_output\""))
+    }
+}
+
+/// The byte ceiling of a text output of a LOB-bearing part, or `None` where the output is proven
+/// to derive from no LOB. An output whose lineage is unknown is bounded, under the national ceiling
+/// where any LOB of the part is a NCLOB.
+fn output_ceiling(field: &Field, bytes: u32, national: bool) -> Option<u32> {
+    if !is_text(field.data_type()) || field.metadata().contains_key("sutura:unbounded_number") {
+        return None;
+    }
+    match field_lineage(field) {
+        Lineage::Free => None,
+        Lineage::Clob => Some(bytes),
+        Lineage::Nclob => Some(bytes.min(2000)),
+        Lineage::Unknown => Some(if national { bytes.min(2000) } else { bytes }),
     }
 }
 

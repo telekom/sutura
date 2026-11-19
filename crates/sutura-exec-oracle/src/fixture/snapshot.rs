@@ -2,6 +2,8 @@
 
 use std::time::{Duration, Instant};
 
+use parking_lot::MutexGuard;
+
 use super::FixtureError;
 use crate::{DriverError, OracleWarehouse};
 
@@ -14,8 +16,13 @@ const RETRY: Duration = Duration::from_millis(200);
 /// connection. For a short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it
 /// would a split read; any other refusal, and `ORA-01466` at the deadline, is returned with its cause.
 ///
-/// The caller holds `execution_lock`.
-pub(crate) fn await_read_only(warehouse: &OracleWarehouse, table: &str) -> Result<(), FixtureError> {
+/// `_connection` is the proof that the caller holds `execution_lock`, which serializes the
+/// connection this reads on.
+pub(crate) fn await_read_only(
+    warehouse: &OracleWarehouse,
+    _connection: &MutexGuard<'_, ()>,
+    table: &str,
+) -> Result<(), FixtureError> {
     let refused = |cause: oracledb::Error| statement_refused(table, DriverError::from(cause));
     let connection = &warehouse.connection;
     let probe = format!(r#"SELECT COUNT(*) FROM "{table}""#);

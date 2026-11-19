@@ -787,6 +787,16 @@ fn label(index: usize) -> String {
     format!("c{index}")
 }
 
+/// Text functions that count characters in the plan and bytes in `ClickHouse`, with the UTF-8
+/// function that counts characters there.
+const CHARACTER_FUNCTIONS: [(&str, &str); 5] = [
+    ("strpos", "positionUTF8"),
+    ("length", "lengthUTF8"),
+    ("char_length", "lengthUTF8"),
+    ("substr", "substringUTF8"),
+    ("substring", "substringUTF8"),
+];
+
 fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
     struct ClickHouseFunctions;
 
@@ -795,9 +805,13 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
 
         fn post_visit_expr(&mut self, expression: &mut SqlExpr) -> ControlFlow<Self::Break> {
             if let SqlExpr::Function(function) = expression
-                && function.name.to_string().eq_ignore_ascii_case("strpos")
+                && let [part] = function.name.0.as_slice()
+                && let Some(name) = part.as_ident()
+                && let Some(characters) = CHARACTER_FUNCTIONS
+                    .iter()
+                    .find_map(|(plain, utf8)| name.value.eq_ignore_ascii_case(plain).then_some(*utf8))
             {
-                function.name = ObjectName::from(vec![Ident::new("positionUTF8")]);
+                function.name = ObjectName::from(vec![Ident::new(characters)]);
             }
             ControlFlow::Continue(())
         }
