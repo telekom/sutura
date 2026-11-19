@@ -25,6 +25,8 @@ use crate::shared::settings;
 mod corpus;
 #[path = "statements/text.rs"]
 mod text;
+#[path = "statements/text_prefilter.rs"]
+mod text_prefilter;
 
 use corpus::{CASES, Expected, FixtureRow, JoinRows, SubscriptionRow};
 

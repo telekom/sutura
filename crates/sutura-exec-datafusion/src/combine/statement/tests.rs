@@ -27,6 +27,7 @@ mod oracle;
 mod registration;
 mod resolution;
 mod text;
+mod text_prefilter;
 
 fn explicit_source_projection(sql: &str) -> bool {
     use datafusion::sql::sqlparser::ast::{Select, SelectItem, Visit as _, Visitor};

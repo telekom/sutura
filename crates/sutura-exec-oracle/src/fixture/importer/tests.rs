@@ -14,6 +14,28 @@ fn table(text: &str) -> Table {
 }
 
 #[test]
+fn a_wide_text_cell_declares_a_real_clob_and_keeps_null_and_short_string_binds() {
+    let wide = "\u{e9}".repeat(2001);
+    let loaded = table(&format!("body,label\nshort,small\n{wide},small\n,small\n"));
+    assert_eq!(
+        loaded.create_statement(),
+        "CREATE TABLE \"t\" (\"body\" CLOB, \"label\" VARCHAR2(4000))"
+    );
+    assert_eq!(
+        loaded.rows.iter().map(|row| row[0].clone()).collect::<Vec<_>>(),
+        [
+            Cell::Text(Some(String::from("short"))),
+            Cell::Text(Some(wide)),
+            Cell::Text(None)
+        ]
+    );
+    assert_eq!(
+        loaded.insert_statement().as_deref(),
+        Some("INSERT INTO \"t\" (\"body\", \"label\") VALUES (:1, :2)")
+    );
+}
+
+#[test]
 fn each_classification_is_declared_as_the_oracle_type_the_header_names() {
     assert_eq!(
         table(EVERY_TYPE).create_statement(),

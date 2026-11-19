@@ -87,7 +87,7 @@ windows. Their fixtures do not establish every source charset or regex collation
 
 Oracle still decides which operators its LOB types support. Full-LOB equality, ordering and minimum
 are refused by the native cells; reading uses an explicit `substr` window. An unsupported full-LOB
-operation refuses at the source and is never retried on clipped text. No unredacted pre-filter is introduced.
+operation refuses at the source and is never retried on clipped text. Without an explicit per-column acknowledgement, no unredacted pre-filter is introduced.
 Redacting a full large table can exceed the request deadline; use a selective predicate on an
 unprotected owner, type or key column before a broad text search. No large-table latency claim is
 made by the bounded fixture cells.
@@ -95,3 +95,26 @@ made by the bounded fixture cells.
 A query with a value-dependent mapped Oracle NUMBER still uses the caller's original admitted
 AST. When that query scans a protected LOB, a CTE column list labels its outputs before the same
 final scalar bounds; numeric expressions are never regenerated from the engine's Utf8 plan.
+
+## Acknowledged necessary-condition search amendment
+
+An optional `raw_prefilter` declaration records a nonempty bounded operator reason accepting
+secret-dependent search timing. It does not permit a raw result decision. The compiler may add
+a raw necessary condition only for a positive conjunctive literal contains search in one table
+and scope, beside only conjuncts that cannot raise on any row (a plain column against literals
+of its own type, a string only against a text-policy column), with proved comparison semantics and replacement barriers. Unknown shapes preserve
+the original redacted-only path. Each nonempty replacement must contain no whole term and block
+both boundary overlaps; the proof composes over ordered replacements and the truncation marker
+where it is searched. No inference about arbitrary regex languages is required.
+
+DataFusion binary comparison and guarded Oracle CLOB/NCLOB comparison are the initial eligible
+venues. Oracle `UPPER` uses its binary character-set mapping; its runtime binary sort check
+retains every row on any other or NULL value. No session setting is changed, and unknown
+data-bound collations on other source columns remain ineligible. Cube's local policy work is not
+an eligible venue and keeps the redacted-only path. The exact transformed predicate still decides
+the answer. A hidden raw term may incur extra redaction work and reveal information through
+timing; the acknowledgement records acceptance rather than preventing that disclosure.
+
+[The operator guide](../raw-text-search.md) states the configuration and limits. A native timed
+comparison over at least one million actual rows, exact answers and hidden-secret probes is
+required before claiming measured acceleration. Setup and serving timings are distinct.

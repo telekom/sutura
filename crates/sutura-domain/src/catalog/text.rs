@@ -10,6 +10,8 @@ pub enum InvalidTextPolicy {
     Rule,
     #[error("a column supports at most 8 redaction rules")]
     Count,
+    #[error("raw_prefilter requires at least one redact rule, because it only narrows a redacted search")]
+    PrefilterWithoutRedaction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -79,6 +81,8 @@ impl Redaction {
 pub struct TextPolicy {
     max_text_bytes: Option<MaxTextBytes>,
     redact: Vec<Redaction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    raw_prefilter: Option<super::RawPrefilter>,
 }
 
 #[derive(serde::Deserialize)]
@@ -88,6 +92,8 @@ struct RawTextPolicy {
     max_text_bytes: Option<MaxTextBytes>,
     #[serde(default)]
     redact: Vec<Redaction>,
+    #[serde(default)]
+    raw_prefilter: Option<super::RawPrefilter>,
 }
 
 impl TryFrom<RawTextPolicy> for TextPolicy {
@@ -96,28 +102,44 @@ impl TryFrom<RawTextPolicy> for TextPolicy {
         if raw.redact.len() > 8 {
             return Err(InvalidTextPolicy::Count);
         }
+        if raw.raw_prefilter.is_some() && raw.redact.is_empty() {
+            return Err(InvalidTextPolicy::PrefilterWithoutRedaction);
+        }
         Ok(Self {
             max_text_bytes: raw.max_text_bytes,
             redact: raw.redact,
+            raw_prefilter: raw.raw_prefilter,
         })
     }
 }
 
 impl TextPolicy {
-    pub fn parse(max_text_bytes: Option<MaxTextBytes>, redact: Vec<Redaction>) -> Result<Self, InvalidTextPolicy> {
-        Self::try_from(RawTextPolicy { max_text_bytes, redact })
+    pub fn parse(
+        max_text_bytes: Option<MaxTextBytes>,
+        redact: Vec<Redaction>,
+        raw_prefilter: Option<super::RawPrefilter>,
+    ) -> Result<Self, InvalidTextPolicy> {
+        Self::try_from(RawTextPolicy {
+            max_text_bytes,
+            redact,
+            raw_prefilter,
+        })
     }
     pub const fn empty() -> Self {
         Self {
             max_text_bytes: None,
             redact: Vec::new(),
+            raw_prefilter: None,
         }
     }
     pub const fn is_empty(&self) -> bool {
-        self.max_text_bytes.is_none() && self.redact.is_empty()
+        self.max_text_bytes.is_none() && self.redact.is_empty() && self.raw_prefilter.is_none()
     }
     pub const fn max_text_bytes(&self) -> Option<MaxTextBytes> {
         self.max_text_bytes
+    }
+    pub const fn raw_prefilter(&self) -> Option<&super::RawPrefilter> {
+        self.raw_prefilter.as_ref()
     }
     pub fn redactions(&self) -> &[Redaction] {
         &self.redact

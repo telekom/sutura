@@ -418,6 +418,15 @@ pub(super) fn protected(table: &StatementTable) -> bool {
 }
 
 pub(super) fn apply(text: String, tables: &[StatementTable], dialect: TypeDialect) -> Result<String> {
+    rewrite(text, tables, dialect, true)
+}
+
+/// The Cube local policy path: Cube is not an eligible comparison arm, so it keeps the redacted-only plan.
+pub(super) fn apply_cube_local(text: String, tables: &[StatementTable]) -> Result<String> {
+    rewrite(text, tables, TypeDialect::DataFusion, false)
+}
+
+fn rewrite(text: String, tables: &[StatementTable], dialect: TypeDialect, prefiltering: bool) -> Result<String> {
     if !tables.iter().any(protected) {
         return Ok(text);
     }
@@ -425,7 +434,16 @@ pub(super) fn apply(text: String, tables: &[StatementTable], dialect: TypeDialec
     let [statement] = statements.as_mut_slice() else {
         return plan_err!("expected one source statement");
     };
-    if let ControlFlow::Break(cause) = statement.visit(&mut Views { tables, dialect }) {
+    let prefilter = if prefiltering {
+        super::text_prefilter::discover(statement, tables, dialect)?
+    } else {
+        None
+    };
+    if let ControlFlow::Break(cause) = statement.visit(&mut Views {
+        tables,
+        dialect,
+        prefilter,
+    }) {
         return Err(cause);
     }
     Ok(statement.to_string())
@@ -434,6 +452,7 @@ pub(super) fn apply(text: String, tables: &[StatementTable], dialect: TypeDialec
 struct Views<'a> {
     tables: &'a [StatementTable],
     dialect: TypeDialect,
+    prefilter: Option<super::text_prefilter::Prefilter>,
 }
 
 impl VisitorMut for Views<'_> {
@@ -504,7 +523,12 @@ impl VisitorMut for Views<'_> {
         };
         let alias_name = Ident::with_quote(quote(self.dialect), table.table().name().as_str());
         let keyword = if self.dialect == TypeDialect::Oracle { "" } else { "AS " };
-        let sql = format!("SELECT * FROM (SELECT {projection} FROM {name}) {keyword}{alias_name}");
+        let selection = self
+            .prefilter
+            .as_ref()
+            .and_then(|prefilter| prefilter.for_table(table))
+            .map_or_else(String::new, |condition| format!(" WHERE {condition}"));
+        let sql = format!("SELECT * FROM (SELECT {projection} FROM {name}{selection}) {keyword}{alias_name}");
         let mut parsed = match Parser::parse_sql(&GenericDialect, &sql) {
             Ok(parsed) => parsed,
             Err(cause) => return ControlFlow::Break(cause.into()),
