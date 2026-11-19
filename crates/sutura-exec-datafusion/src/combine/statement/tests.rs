@@ -167,8 +167,11 @@ impl StatementLegs for Texts<'_> {
 }
 
 #[test]
-fn a_window_over_its_whole_input_sends_every_source_column_by_name() {
-    let sql = "select customer_id, region, row_number() over (order by customer_id) from dim_customer";
+fn a_window_over_a_derived_input_sends_every_input_column_by_name() {
+    // The optimizer drops the projection that mirrors the window, and the limit keeps its input
+    // a derived table, the one shape on which the window arm itself lists the input's columns.
+    let sql = "select customer_id, region, row_number() over (order by customer_id) \
+               from (select customer_id, region from dim_customer order by customer_id limit 3)";
     let mut engines = Engines::new(None);
     let statement = RawStatement::parse(sql).expect("a test statement is a statement");
     let tables = tables();
@@ -193,6 +196,10 @@ fn a_window_over_its_whole_input_sends_every_source_column_by_name() {
     let [text] = texts.as_slice() else {
         panic!("one source statement: {texts:?}")
     };
+    assert!(
+        text.contains("derived_window_input"),
+        "the window must sit over a derived input: {text}"
+    );
     assert!(!text.contains('*'), "no wildcard reaches the source: {text}");
     assert_eq!(rows.columns().len(), 3);
     assert_eq!(rows.rows(), engines.as_one(sql).rows());
