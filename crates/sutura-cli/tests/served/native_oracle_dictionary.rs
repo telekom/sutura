@@ -59,6 +59,7 @@ fn next_tag() -> u32 {
 }
 
 struct Fixture {
+    #[cfg(feature = "agent")]
     tag: u32,
     admin: oracledb::Connection,
     owner: oracledb::Connection,
@@ -142,6 +143,7 @@ impl Fixture {
             root.join("password").display()
         );
         Self {
+            #[cfg(feature = "agent")]
             tag,
             admin,
             owner,
