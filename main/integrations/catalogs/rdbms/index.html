@@ -1217,6 +1217,34 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#relationships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationships
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Relationships">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-documentation-relationship-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A documentation relationship view
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2770,6 +2798,34 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#relationships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationships
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Relationships">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-documentation-relationship-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A documentation relationship view
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3084,7 +3140,7 @@ and comments. Duplicate model names across schemas, a table with no remaining co
 selection and an unsupported unexcluded type refuse the entire load. Unbounded Oracle <code>NUMBER</code>,
 negative-scale or over-38-digit decimals, Oracle <code>FLOAT</code> / <code>BINARY_FLOAT</code> / <code>RAW</code> / <code>BLOB</code>,
 PostgreSQL <code>real</code> / <code>bytea</code> / timestamps, and unsupported Oracle timestamp precision are
-refused rather than converted to a less precise type. No key, join or cardinality is inferred.</p>
+refused rather than converted to a less precise type. Eligible complete primary keys and foreign keys are read as described below; no metric is inferred.</p>
 <p>Native dictionaries may compose with Markdown metrics and knowledge over their models. Contributor
 ownership and declaration fidelity are checked separately before cross-catalog references link.
 For each configured physical source alias, its native table/column allowlist also checks every
@@ -3153,6 +3209,96 @@ their own read bounds and their prose projection is additionally bounded by the 
 RDBMS catalog. Reloads read the description sources again before publishing a new pinned bundle.
 <code>prompt.list_physical_schema: true</code> exposes column descriptions through <code>describe_catalog</code>;
 <code>prompt.catalog_prose: omitted</code> continues to withhold them.</p>
+<h2 id="relationships">Relationships<a class="headerlink" href="#relationships" title="Permanent link">&para;</a></h2>
+<p>Native dictionaries read primary keys and foreign keys in the column read's read-only snapshot.
+A foreign key becomes <code>many_to_one</code> only when its target is the <strong>whole</strong> primary or unique
+constraint. Composite pairs stay ordered and complete. Selecting out a member drops the entire
+key or relationship. PostgreSQL 18 metadata must report both constraints enforced, validated and
+not deferrable, and the backing unique index valid, immediate, nonpartial and without expressions.
+Oracle requires both constraints enabled, validated and not deferrable. Other constraints are
+omitted; a unique index without a primary/unique constraint supplies no evidence here.</p>
+<p>For undeclared keys and views, add an operator assertion to the RDBMS catalog:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">relationships</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">events_apps</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">inventory.events</span><span class="p p-Indicator">,</span><span class="nt"> columns</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">tenant</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">app_id</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">to</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">inventory.apps</span><span class="p p-Indicator">,</span><span class="nt"> columns</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">tenant</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">id</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">cardinality</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">many_to_one</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">check_target_uniqueness</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> max_rows</span><span class="p">:</span><span class="w"> </span><span class="nv">10000</span><span class="p p-Indicator">,</span><span class="nt"> max_bytes</span><span class="p">:</span><span class="w"> </span><span class="nv">1048576</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span></code></pre></div>
+<p>At most 64 declarations with at most 32 distinct pairs each are accepted. Exact physical names,
+visible endpoints and known compatible mapped types are required. Equal mapped types and integer
+widths are compatible; unknown or incompatible types refuse the load, naming the endpoint.
+<code>many_to_one</code> is the only supported written cardinality. Without the optional check, uniqueness is
+an operator assertion. With it, the catalog's own connection checks nonnull full target keys on its
+first successful dictionary read. A duplicate or a row/key-byte cap overflow refuses the load: a truncated
+prefix never certifies uniqueness. Database window comparison decides duplicates, preserving
+native numeric equality. This bounds returned rows and logical key bytes, <strong>not physical scanning,
+sorting, query time or concurrent database changes</strong>. After success, refresh does not repeat this
+data probe; the assertion is not ongoing enforcement. Concurrent first loads can each run the
+probe. An empty target passes.</p>
+<p><code>describe_catalog</code> lists visible relationships under each origin model, with cardinalities and
+all ordered key pairs when
+<code>prompt.list_physical_schema</code> is enabled. Both models and every key must be visible. This supplies
+join descriptions, never a metric or permission to read additional tables. Metrics still undergo
+the existing consistency and fan-out checks; these declarations change none of those rules.</p>
+<h3 id="a-documentation-relationship-view">A documentation relationship view<a class="headerlink" href="#a-documentation-relationship-view" title="Permanent link">&para;</a></h3>
+<p>In <code>documentation_schema</code> mode, <code>relationships_view: relationships</code> opts into a second view in
+<code>dictionary_schema</code>. Absence makes no second-view query. Its rows are authored many-to-one
+assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
+Configuration declarations can also be used with documentation catalogs.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Contract</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>environment</code></td>
+<td>Same exact environment as the column view</td>
+</tr>
+<tr>
+<td><code>relationship_name</code></td>
+<td>Required identifier, shared by every pair of one relationship</td>
+</tr>
+<tr>
+<td><code>origin_catalog</code>, <code>target_catalog</code></td>
+<td>Nullable physical catalog components</td>
+</tr>
+<tr>
+<td><code>origin_schema</code>, <code>origin_table</code>, <code>origin_column</code></td>
+<td>Required exact physical origin</td>
+</tr>
+<tr>
+<td><code>target_schema</code>, <code>target_table</code>, <code>target_column</code></td>
+<td>Required exact physical target</td>
+</tr>
+<tr>
+<td><code>ordinal</code></td>
+<td>Integer from 1 through the complete key arity</td>
+</tr>
+<tr>
+<td><code>key_arity</code></td>
+<td>Positive integer, identical on every member</td>
+</tr>
+<tr>
+<td><code>cardinality</code></td>
+<td>Exactly <code>many_to_one</code></td>
+</tr>
+<tr>
+<td><code>is_deleted</code></td>
+<td>PostgreSQL boolean or Oracle <code>NUMBER(1)</code>, as in the column view</td>
+</tr>
+</tbody>
+</table>
+<p>All live members must be present exactly once. Incomplete ordinals, conflicting identities,
+unsupported cardinalities and missing/excluded columns refuse the load. Rows of another environment
+and deleted rows are excluded. The column view's extra <code>live_row_predicate</code> applies only to columns;
+this view uses <code>environment</code> and <code>is_deleted</code>. Metadata rows share the column read's row/byte
+budgets and snapshot, including the row past the cap; neither native nor documented relationships
+are fetched per request. Oracle folds the configured view/schema selectors as the existing column
+reader does; physical endpoint values remain exact.</p>
 
 
 

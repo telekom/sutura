@@ -3503,17 +3503,27 @@ are filtered by the caller's own grant, never by a call the renderer omits.</p>
 </span></code></pre></div>
 <h5 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
-<h4 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
+<h4 id="struct-relationshipcontent"><code>struct RelationshipContent</code><a class="headerlink" href="#struct-relationshipcontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RelationshipContent</span>
 </span></code></pre></div>
-<p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <h5 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
+<h4 id="struct-joinkeycontent"><code>struct JoinKeyContent</code><a class="headerlink" href="#struct-joinkeycontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">JoinKeyContent</span>
+</span></code></pre></div>
+<h5 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h4 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
+</span></code></pre></div>
+<p>One metric, as much of it as a caller needs to ask a valid question.</p>
+<h5 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Serialize</code></p>
 <h4 id="struct-dimensioncontent"><code>struct DimensionContent</code><a class="headerlink" href="#struct-dimensioncontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
-<h5 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h5>
+<h5 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h3>
 <p>The raw SQL tool's wire shape: what <code>run_sql</code> takes, and what it answers.</p>
@@ -3529,16 +3539,16 @@ neither shares is the VALUE at <code>outcome</code> - that type tags with <code>
 neither raw variant carries a <code>provenance</code> or a <code>definition_digest</code> key at any depth, which is
 the property that actually keeps a raw result from being rendered as certified.</p>
 <h4 id="struct-runsqlargs"><code>struct RunSqlArgs</code><a class="headerlink" href="#struct-runsqlargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlArgs</span>
 </span></code></pre></div>
 <p>One raw statement, as a tool call carries it.</p>
 <p>One field, bounded by <code>RawStatement::parse</code> on the way in - <code>deny_unknown_fields</code> is what keeps
 this tool from ever growing a second field a caller could smuggle a table name or a row-id list
 through, the same governance boundary <code>super::AskArgs</code> holds for the certified tool.</p>
-<h5 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h5>
+<h5 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="enum-malformedstatement"><code>enum MalformedStatement</code><a class="headerlink" href="#enum-malformedstatement" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
 </span></code></pre></div>
 <p>Why a <code>run_sql</code> call's arguments were not a statement.</p>
 <h5 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h5>
@@ -3547,10 +3557,10 @@ through, the same governance boundary <code>super::AskArgs</code> holds for the 
 <li><code>Statement</code></li>
 <li><code>StatementTooLarge</code> - <code>statement</code> exceeds <code>sutura_domain::raw::MAX_RAW_STATEMENT_BYTES</code>, refused before <code>RawStatement::parse</code> runs its own check - <code>serde_json::from_value</code> allocates nothing for a <code>String</code> field either way, it only moves the value <code>rmcp</code> already parsed. The same code <code>RawStatement::parse</code>'s own <code>TooLong</code> returns, fired earlier; carries only the length and the limit, no caller text.</li>
 </ul>
-<h5 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h5>
+<h5 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-rawcontent"><code>enum RawContent</code><a class="headerlink" href="#enum-rawcontent" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawContent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawContent</span>
 </span></code></pre></div>
 <p>What the raw SQL tool produced, as the tool's structured content.</p>
 <p><strong>The load-bearing shape.</strong> No field here is named <code>provenance</code>, <code>definition_version</code> or
@@ -3566,35 +3576,35 @@ own <code>outcome: "refusal"</code> - the one collision the architecture decisio
 <li><code>Rows</code> - The statement executed.</li>
 <li><code>Refusal</code> - The statement was refused. Still an <code>Ok</code> and still a tool result, for <code>ServerHandler::call_tool</code>'s reason: a governance outcome is not a fault.</li>
 </ul>
-<h5 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h5>
+<h5 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
 <h3 id="module-clauses">Module <code>clauses</code><a class="headerlink" href="#module-clauses" title="Permanent link">&para;</a></h3>
 <p>A question's nested clauses - its period, its filters and its <code>top</code> - as a tool call carries
 them, and what each hands the domain's parse.</p>
 <h4 id="struct-topargs"><code>struct TopArgs</code><a class="headerlink" href="#struct-topargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TopArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TopArgs</span>
 </span></code></pre></div>
 <p>A <code>top</code> clause: rank by <code>by</code>, in <code>direction</code>, keep the first <code>n</code>.</p>
-<h5 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h5>
+<h5 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-rangeargs"><code>struct RangeArgs</code><a class="headerlink" href="#struct-rangeargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeArgs</span>
 </span></code></pre></div>
 <p>A half-open period: <code>start</code> is included, <code>end</code> is not. Either an absolute period
 (<code>start</code>/<code>end</code>) or a period relative to today (<code>last</code>) - never both, never neither.</p>
 <p>Half-open at every grain, which is what makes a month <code>[2026-06-01, 2026-07-01)</code> rather than a
 last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
-<h5 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h5>
+<h5 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-lastargs"><code>struct LastArgs</code><a class="headerlink" href="#struct-lastargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LastArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LastArgs</span>
 </span></code></pre></div>
 <p>A count of calendar periods before today, resolved at request time rather than authored as
 dates - <code>telekom/sutura#778</code>.</p>
-<h5 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h5>
+<h5 id="implements_26">Implements<a class="headerlink" href="#implements_26" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="enum-filterargs"><code>enum FilterArgs</code><a class="headerlink" href="#enum-filterargs" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FilterArgs</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FilterArgs</span>
 </span></code></pre></div>
 <p>One filter: a dimension, and what it must - or must not - equal.</p>
 <p>Tagged by <code>op</code>, mirroring <code>sutura_domain::query::Filter</code> - <code>github.com/telekom/sutura#968</code>. Every
@@ -3606,7 +3616,7 @@ the predicate's shape and never the source of a value.</p>
 <li><code>In</code> - The dimension equals one of these values. At least one.</li>
 <li><code>NotIn</code> - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.</li>
 </ul>
-<h5 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h5>
+<h5 id="implements_27">Implements<a class="headerlink" href="#implements_27" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 
 
