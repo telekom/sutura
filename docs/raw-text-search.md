@@ -60,6 +60,17 @@ source dialects retain redacted-only execution because their pinned schemas do n
 comparison semantics. This is a generic policy with conservative engine eligibility, not universal
 acceleration.
 
+Pinned text columns now carry a collation fact, `sutura:collation` in the schema's field metadata and
+under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
+collation is never binary; absent means unknown, and unknown is never binary. DataFusion and
+ClickHouse have no per-column collation and pin `binary`. A native Postgres dictionary records the
+column's collation: the database default is `binary` for `LIKE`, because it is always deterministic,
+and so are the built-in `pg_catalog.C` and `pg_catalog.POSIX`. Any other collation is recorded by
+its schema-qualified name and is never binary, including a user schema's own `C`. A Markdown column may declare
+`collation: binary` or a name. That declaration is an authored claim and is trusted as far as its
+author is. Oracle records nothing here, because its check is the run-time `NLS_SORT` above. No
+other dialect reads the fact yet; recording it enables no engine.
+
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
 does not establish a speedup. Native measurements must report actual row count, setup time,

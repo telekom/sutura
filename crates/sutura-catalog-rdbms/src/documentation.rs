@@ -232,6 +232,7 @@ pub(crate) struct Row {
     pub(crate) column_type: Option<String>,
     pub(crate) column_description: Option<String>,
     pub(crate) is_primary_key: Option<bool>,
+    pub(crate) column_collation: sutura_domain::catalog::Collation,
 }
 
 impl Row {
@@ -357,7 +358,7 @@ impl<'env> Assembly<'env> {
             model,
             description: row.table_description,
             column: row.column_name.unwrap_or_default(),
-            metadata: ColumnMetadata::new(row.column_type, row.column_description),
+            metadata: ColumnMetadata::new(row.column_type, row.column_description).with_collation(row.column_collation),
             is_primary_key: row
                 .is_primary_key
                 .ok_or_else(|| RdbmsError::Read(Box::new(ContractViolation::MissingPrimaryKeyEvidence)))?,
@@ -411,7 +412,7 @@ impl TableAccumulator {
     }
 
     fn add(&mut self, column: String, metadata: ColumnMetadata, is_primary_key: bool) {
-        if metadata.data_type().is_some() || metadata.description().is_some() {
+        if metadata.data_type().is_some() || metadata.description().is_some() || !metadata.collation().is_unknown() {
             self.column_metadata.insert(column.clone(), metadata);
         }
         if is_primary_key && !self.primary_key.contains(&column) {
