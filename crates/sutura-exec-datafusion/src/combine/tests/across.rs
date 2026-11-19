@@ -785,7 +785,3 @@ mod split_link;
 /// `mod`, as this file is test code already: the causality gate's base run reverts this line, and
 /// the cells, which name `Granted` and `Looked`, are not compiled there.
 mod served_split;
-
-/// The runtime a combiner across nodes runs its dispatch and its own stages on: its width is the one
-/// its nodes were given. A bare `mod`, as this file is test code already.
-mod width;

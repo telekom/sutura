@@ -118,7 +118,11 @@ fn build_engine(
             source,
         )
         .map_err(flatten)?;
-    let width = runtime.engine_workers().width();
+    // `NonZeroUsize::MIN` is unreachable: `EngineWorkers::parse` refuses a zero and resolves an
+    // absent key from the machine, which reports at least one. Written as a fallback rather than an
+    // unwrap because the workspace denies both, and because one worker is the safe direction to fail
+    // in - a narrow engine is slow, and a zero-width runtime does not build.
+    let width = core::num::NonZeroUsize::new(runtime.engine_workers().count()).unwrap_or(core::num::NonZeroUsize::MIN);
     // The ceiling arrives already parsed - `WorkingSetCeiling::parse` refused a zero and refused a
     // value above the memory this process can reach - so there is nothing left to check here. The
     // wrapper exists so a thread count and a quantity of memory cannot be swapped at this call.
