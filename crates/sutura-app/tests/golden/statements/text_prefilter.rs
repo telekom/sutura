@@ -5,6 +5,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use sutura_domain::catalog::{COLLATION_METADATA_KEY, PrefilterCapability};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::{PolicyRead, StatementStopped};
 use sutura_domain::raw::InvalidRawStatement;
@@ -25,6 +26,11 @@ pub(super) trait TextFixture: DataSystemUnderTest {
 
     /// Cloud fixtures expire independently, and are dropped here on a completed cell.
     fn close_text_fixture(&self, _table: &QualifiedTable) {}
+
+    /// The same table with `body` stored under a case-insensitive collation, for an engine that has one.
+    fn open_collated_text_fixture(_csv: PathBuf) -> Option<(Self, QualifiedTable)> {
+        None
+    }
 }
 
 macro_rules! text_fixture {
@@ -62,6 +68,31 @@ macro_rules! text_fixture {
                     crate::adapters::clickhouse_on(source(), vec![(table.clone(), csv)], <$adapter>::load_federated_csv),
                     QualifiedTable::new(None, table),
                 )
+            }
+        }
+    };
+    (duckdb, $adapter:ty) => {
+        impl TextFixture for $adapter {
+            fn open_collated_text_fixture(csv: PathBuf) -> Option<(Self, QualifiedTable)> {
+                static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                let table = TableName::parse("text_prefilter").expect("a fixture name");
+                let file = std::env::temp_dir().join(format!(
+                    "sutura-golden-duckdb-collated-{}-{}.duckdb",
+                    std::process::id(),
+                    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                drop(std::fs::remove_file(&file));
+                sutura_exec_duckdb::write_nocase_database(&file, &[(table.clone(), csv)], "body")
+                    .unwrap_or_else(|cause| panic!("duckdb could not write {}: {cause}", file.display()));
+                let warehouse = <$adapter>::open(
+                    source(),
+                    crate::adapters::posture(),
+                    &file,
+                    crate::adapters::result_budget(),
+                )
+                .expect("the written database opens read-only");
+                drop(std::fs::remove_file(&file));
+                Some((warehouse, QualifiedTable::new(None, table)))
             }
         }
     };
@@ -112,8 +143,38 @@ fn fixture_csv() -> std::path::PathBuf {
     path
 }
 
+/// A few rows, one of which only the redacted value matches: `secret_other` becomes `term`.
+fn collated_csv() -> std::path::PathBuf {
+    let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "text-prefilter-collated-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&root).expect("a private fixture directory");
+    let path = root.join("rows.csv");
+    std::fs::write(
+        &path,
+        "body,cohort\nsecret_other,hidden\nsecret_TERM,hidden\nterm,rare\nvisible TERM,rare\n",
+    )
+    .expect("a collated fixture file");
+    path
+}
+
 fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_json::Value>) -> StatementTable {
+    admitted_as(path, dialect, policy, Some("binary"))
+}
+
+/// `collation` is the pinned fact, as the pin writes it; `None` is a column nothing was declared for.
+fn admitted_as(
+    path: &QualifiedTable,
+    dialect: TypeDialect,
+    policy: Option<&serde_json::Value>,
+    collation: Option<&str>,
+) -> StatementTable {
     let mut metadata = HashMap::new();
+    if let Some(collation) = collation {
+        metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation));
+    }
     if let Some(policy) = policy {
         metadata.insert(String::from("sutura:text_policy"), policy.to_string());
     }
@@ -493,9 +554,81 @@ where
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
 }
 
+/// A column the engine compares case-insensitively, whatever the pinned fact says it is. The raw
+/// condition is a necessary one only under a binary comparison, so no declared-or-missing collation
+/// may let it into a statement: the redacted `term` below matches `TERM` here, and a raw condition
+/// would drop the row whose stored text lacks it.
+pub(super) fn collated<W>()
+where
+    W: TextFixture + Sync,
+    W::Error: Send,
+{
+    if !runs_here::<W>() {
+        return;
+    }
+    let csv = collated_csv();
+    let (warehouse, path) = W::open_collated_text_fixture(csv.clone()).expect("this engine stores a collated column");
+    let dialect = warehouse.type_dialect().expect("a registered native dialect");
+    let mut policy = serde_json::json!({"max_text_bytes": 128, "redact": [{"pattern": "secret_[^ ]+", "replace": "term"}]});
+    let sql = format!("SELECT \"body\" FROM {} WHERE \"body\" LIKE '%TERM%'", quoted(&path));
+    let answer = |policy: &serde_json::Value, collation: Option<&str>| {
+        let (rows, planned) = execute_recorded(&warehouse, admitted_as(&path, dialect, Some(policy), collation), &sql)
+            .unwrap_or_else(|cause| panic!("{} collated {collation:?}: {cause}", W::NAME));
+        (sorted(rows), searches_in(&planned, "TERM"))
+    };
+    let (baseline, searches) = answer(&policy, None);
+    assert_eq!(baseline.1.len(), 4, "the redacted value decides at {}", W::NAME);
+    assert_eq!(
+        baseline
+            .1
+            .iter()
+            .filter(|row| **row == vec![Value::Text(String::from("term"))])
+            .count(),
+        3,
+        "a row only the redacted value matches survives at {}",
+        W::NAME
+    );
+    policy["raw_prefilter"] = serde_json::json!({"acknowledged_because": "this fixture accepts secret-dependent timing"});
+    for collation in [Some("named:NOCASE"), Some("named:NOACCENT"), None] {
+        let (opted, opted_searches) = answer(&policy, collation);
+        assert_eq!(
+            opted_searches,
+            searches,
+            "the redacted-only statement for {collation:?} at {}",
+            W::NAME
+        );
+        assert_eq!(opted, baseline, "the same answer for {collation:?} at {}", W::NAME);
+    }
+    // A binary pin on this column is the author's error and the one case that proves the trap: the raw
+    // condition is added and the row only the redacted value matches is lost.
+    let (wrong, wrong_searches) = answer(&policy, Some("binary"));
+    assert_eq!(
+        wrong_searches,
+        searches + 1,
+        "a binary pin is what carries the raw condition at {}",
+        W::NAME
+    );
+    assert_eq!(wrong.1.len(), 3, "the raw condition would drop `secret_other` at {}", W::NAME);
+    warehouse.close_text_fixture(&path);
+    std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
+}
+
 macro_rules! system {
     // Cube reads every raw row before any operator and never takes the prefilter: nothing to compare.
     (cube, $warehouse:ty) => {};
+    (duckdb, $warehouse:ty) => {
+        mod duckdb {
+            #[test]
+            fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
+                super::native::<$warehouse>();
+            }
+
+            #[test]
+            fn a_case_insensitive_column_never_takes_the_raw_condition() {
+                super::collated::<$warehouse>();
+            }
+        }
+    };
     ($name:ident, $warehouse:ty) => {
         mod $name {
             #[test]

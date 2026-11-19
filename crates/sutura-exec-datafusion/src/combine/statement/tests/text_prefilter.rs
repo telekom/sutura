@@ -6,6 +6,7 @@ use std::ops::ControlFlow;
 use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
+use sutura_domain::catalog::COLLATION_METADATA_KEY;
 
 use super::*;
 
@@ -36,6 +37,31 @@ fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, en
             Field::new("doc", DataType::Utf8, true).with_metadata(with(&name_metadata, "sutura:oracle_lob", "clob")),
             Field::new("big", DataType::UInt64, true),
         ])),
+    )
+}
+
+/// `source` with its `BODY` column pinned under `collation`, as the pin writes it; `None` pins nothing.
+fn collated(source: &StatementTable, collation: Option<&str>) -> StatementTable {
+    let fields: Vec<Field> = source
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut metadata = field.metadata().clone();
+            if field.name() == "BODY" {
+                drop(metadata.remove(COLLATION_METADATA_KEY));
+                if let Some(collation) = collation {
+                    drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
+                }
+            }
+            field.as_ref().clone().with_metadata(metadata)
+        })
+        .collect();
+    StatementTable::new(
+        source.source().clone(),
+        source.table().clone(),
+        source.dialect(),
+        Arc::new(Schema::new(fields)),
     )
 }
 
@@ -232,17 +258,46 @@ fn oracle_raw_lob_prefilter_resolves_full_and_basename_qualifiers_without_an_ali
 fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some());
-    for dialect in [
-        TypeDialect::Postgres,
-        TypeDialect::DuckDb,
-        TypeDialect::ClickHouse,
-        TypeDialect::BigQuery,
-    ] {
+    for dialect in [TypeDialect::Postgres, TypeDialect::ClickHouse, TypeDialect::BigQuery] {
         assert!(
             raw_predicates(sql, table(dialect, &["[masked]"], true, false, true))
                 .iter()
                 .all(Option::is_none),
             "{dialect:?}"
+        );
+    }
+}
+
+#[test]
+fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let enabled = table(TypeDialect::DuckDb, &["[masked]"], true, false, true);
+    assert!(raw_predicates(sql, collated(&enabled, Some("binary")))[0].is_some());
+    // `NOCASE` and `NOACCENT` are consulted by `LIKE` and survive `REGEXP_REPLACE`; an unreadable
+    // fact and a missing one are no evidence either.
+    for pinned in [
+        Some("named:NOCASE"),
+        Some("named:NOACCENT"),
+        Some("named:de"),
+        Some("BINARY"),
+        Some("unreadable"),
+        None,
+    ] {
+        assert!(
+            raw_predicates(sql, collated(&enabled, pinned)).iter().all(Option::is_none),
+            "{pinned:?}"
+        );
+    }
+    for dialect in [TypeDialect::DataFusion, TypeDialect::Oracle] {
+        let enabled = table(dialect, &["[masked]"], true, dialect == TypeDialect::Oracle, true);
+        let sql = if dialect == TypeDialect::Oracle {
+            "SELECT count(\"BODY\") FROM \"notes\" WHERE UPPER(\"BODY\") LIKE '%TERM%'"
+        } else {
+            sql
+        };
+        assert!(
+            raw_predicates(sql, collated(&enabled, None))[0].is_some(),
+            "{dialect:?} reads no collation fact"
         );
     }
 }

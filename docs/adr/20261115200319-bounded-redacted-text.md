@@ -107,13 +107,17 @@ the original redacted-only path. Each nonempty replacement must contain no whole
 both boundary overlaps; the proof composes over ordered replacements and the truncation marker
 where it is searched. No inference about arbitrary regex languages is required.
 
-DataFusion binary comparison and guarded Oracle CLOB/NCLOB comparison are the initial eligible
-venues. Oracle `UPPER` uses its binary character-set mapping; its runtime binary sort check
-retains every row on any other or NULL value. No session setting is changed, and unknown
-data-bound collations on other source columns remain ineligible. Cube's local policy work is not
-an eligible venue and keeps the redacted-only path. The exact transformed predicate still decides
-the answer. A hidden raw term may incur extra redaction work and reveal information through
-timing; the acknowledgement records acceptance rather than preventing that disclosure.
+DataFusion binary comparison, guarded Oracle CLOB/NCLOB comparison and `DuckDB` text pinned
+`binary` are the eligible venues. Oracle `UPPER` uses its binary character-set mapping; its runtime
+binary sort check retains every row on any other or NULL value. No session setting is changed, and
+unknown data-bound collations on other source columns remain ineligible. `DuckDB` consults a
+column's `NOCASE` or `NOACCENT` collation in `LIKE`, and `REGEXP_REPLACE` over it keeps that
+collation, so a looser redacted test would break the proof; its catalog views report such a column
+as plain `VARCHAR`. Only the author's `binary` pin therefore opens it, and a named or missing
+collation keeps the redacted-only path. Cube's local policy work is not an eligible venue and keeps
+the redacted-only path. The exact transformed predicate still decides the answer. A hidden raw term
+may incur extra redaction work and reveal information through timing; the acknowledgement records
+acceptance rather than preventing that disclosure.
 
 [The operator guide](../raw-text-search.md) states the configuration and limits. A native timed
 comparison over at least one million actual rows, exact answers and hidden-secret probes is
