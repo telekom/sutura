@@ -6,7 +6,7 @@ diff --git a/crates/sutura-exec-datafusion/src/combine/across/split.rs b/crates/
                                      granted.partition.clone(),
                                      granted.key,
 -                                    Some(granted.grant.clone()),
-+                                    None,
++                                    Some(granted.grant.clone()).filter(|_| false),
                                      Arc::clone(&leg.schema),
                                  );
                                  Arc::new(leg.reads.scanned(scan)) as Arc<dyn ExecutionPlan>
