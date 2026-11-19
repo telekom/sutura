@@ -70,6 +70,7 @@ of an ASCII alphanumeric term. The record is the dictionary's as of its read, so
 
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
+
 collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
 only on a column whose declared type the dialect reads as text, never on one that fell back to
 text. DataFusion and ClickHouse have no per-column collation and pin `binary`, over any collation a
@@ -92,6 +93,7 @@ DuckDB's global `default_collation` setting can contradict an authored `binary`.
 moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
+
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone

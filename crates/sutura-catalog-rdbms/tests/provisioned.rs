@@ -454,4 +454,53 @@ mod provisioned {
             2
         );
     }
+
+    #[test]
+    fn a_native_read_records_the_catalogs_collation_of_each_text_column() {
+        use sutura_domain::catalog::{Collation, DictionaryInclude, DictionaryPattern, DictionarySelection};
+
+        let Some(tier) = tier() else { return };
+        let schema = fresh_fixture(&tier, "collation");
+        tier.run_sql(&format!(
+            "CREATE COLLATION {schema}.\"C\" (provider = libc, locale = 'C'); \
+             CREATE COLLATION {schema}.folded (provider = icu, locale = 'und-u-ks-level2', deterministic = false); \
+             CREATE TABLE {schema}.notes (plain text, byte_order text COLLATE \"C\", posix text COLLATE \"POSIX\", \
+                                          own text COLLATE {schema}.\"C\", \
+                                          folded text COLLATE {schema}.folded, amount bigint)"
+        ));
+        let pattern = |raw: &str| DictionaryPattern::parse(raw).expect("a literal pattern parses");
+        let selection = DictionarySelection::parse(
+            vec![DictionaryInclude::new(pattern(&schema), pattern("notes"))],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .expect("one include pair is a selection");
+        let reader = PostgresReader::native(tier.driver.clone(), tier.conninfo(), &selection, None, None)
+            .expect("the native reader settings parse");
+        let dictionary = reader.read_dictionary().expect("the native read succeeds");
+        let [notes] = dictionary.tables() else {
+            panic!("one selected table: {dictionary:?}")
+        };
+        let collation = |column| notes.column_metadata(column).map(|metadata| metadata.collation().clone());
+        assert_eq!(
+            collation("plain"),
+            Some(Collation::Binary),
+            "the database default is deterministic"
+        );
+        assert_eq!(collation("byte_order"), Some(Collation::Binary), "pg_catalog.C");
+        assert_eq!(collation("posix"), Some(Collation::Binary), "pg_catalog.POSIX");
+        assert_eq!(
+            collation("own"),
+            Some(Collation::named(&format!("{schema}.C"))),
+            "a user schema's collation named C is not the built-in one"
+        );
+        assert_eq!(
+            collation("folded"),
+            Some(Collation::named(&format!("{schema}.folded"))),
+            "a nondeterministic collation is named, never binary"
+        );
+        assert_eq!(collation("amount"), Some(Collation::Unknown), "bigint has no collation");
+    }
+
 }
