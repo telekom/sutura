@@ -613,10 +613,12 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
 /// folded while planning, outside the pool. `repeat`, `lpad` and `rpad` take the length as an
 /// argument; `replace` and `regexp_replace` insert at every position of an empty pattern; `encode`
 /// doubles per nesting; `arrow_cast` and `arrow_try_cast` spell a type, and a null fixed-size list
-/// of `i32::MAX` items is reserved whole. A function a later `datafusion` adds is out until named.
+/// of `i32::MAX` items is reserved whole; `with_metadata` writes the `sutura:` field metadata the
+/// text bound reads, so a caller could mark a LOB as unbounded or free of one. A function a later
+/// `datafusion` adds is out until named.
 const ADMITTED: &str = "
     arrow_field arrow_metadata arrow_typeof cast_to_type coalesce file_row_index get_field greatest input_file_name least
-    named_struct nullif nvl nvl2 overlay struct try_cast_to_type union_extract union_tag version with_metadata
+    named_struct nullif nvl nvl2 overlay struct try_cast_to_type union_extract union_tag version
     current_date current_time date_bin date_part date_trunc from_unixtime make_date make_time now to_char to_date
     to_local_time to_time to_timestamp to_timestamp_micros to_timestamp_millis to_timestamp_nanos to_timestamp_seconds
     to_unixtime decode
@@ -787,14 +789,21 @@ fn label(index: usize) -> String {
     format!("c{index}")
 }
 
-/// Text functions that count characters in the plan and bytes in `ClickHouse`, with the UTF-8
-/// function that counts characters there.
-const CHARACTER_FUNCTIONS: [(&str, &str); 5] = [
+/// Text functions that work on characters in the plan and on bytes or ASCII in `ClickHouse`, with
+/// the UTF-8 function that works on characters there. Each of these exists in `ClickHouse`.
+const CHARACTER_FUNCTIONS: [(&str, &str); 12] = [
     ("strpos", "positionUTF8"),
     ("length", "lengthUTF8"),
     ("char_length", "lengthUTF8"),
     ("substr", "substringUTF8"),
     ("substring", "substringUTF8"),
+    ("left", "leftUTF8"),
+    ("right", "rightUTF8"),
+    ("reverse", "reverseUTF8"),
+    ("lower", "lowerUTF8"),
+    ("upper", "upperUTF8"),
+    ("initcap", "initcapUTF8"),
+    ("translate", "translateUTF8"),
 ];
 
 fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {

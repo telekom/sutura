@@ -12,19 +12,27 @@ const DEFINITION_CHANGED: usize = 1466;
 const DEADLINE: Duration = Duration::from_secs(60);
 const RETRY: Duration = Duration::from_millis(200);
 
-/// Waits, bounded, until `SET TRANSACTION READ ONLY` can read `table` on `warehouse`'s own
-/// connection. For a short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it
+/// A warehouse's execution lock, held: the connection it serializes is read through this and
+/// nothing else. Only [`lock`] makes one.
+pub(crate) struct ExecutionGuard<'a> {
+    warehouse: &'a OracleWarehouse,
+    _lock: MutexGuard<'a, ()>,
+}
+
+/// `warehouse`'s execution lock, taken.
+pub(crate) fn lock(warehouse: &OracleWarehouse) -> ExecutionGuard<'_> {
+    ExecutionGuard {
+        warehouse,
+        _lock: warehouse.execution_lock.lock(),
+    }
+}
+
+/// Waits, bounded, until a `SET TRANSACTION READ ONLY` can read `table` on the connection `guard`
+/// holds. For a short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it
 /// would a split read; any other refusal, and `ORA-01466` at the deadline, is returned with its cause.
-///
-/// `_connection` is the proof that the caller holds `execution_lock`, which serializes the
-/// connection this reads on.
-pub(crate) fn await_read_only(
-    warehouse: &OracleWarehouse,
-    _connection: &MutexGuard<'_, ()>,
-    table: &str,
-) -> Result<(), FixtureError> {
+pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result<(), FixtureError> {
     let refused = |cause: oracledb::Error| statement_refused(table, DriverError::from(cause));
-    let connection = &warehouse.connection;
+    let connection = &guard.warehouse.connection;
     let probe = format!(r#"SELECT COUNT(*) FROM "{table}""#);
     let deadline = Instant::now() + DEADLINE;
     loop {

@@ -28,6 +28,9 @@ fn protected_replacing(path: QualifiedTable, dialect: TypeDialect, bytes: u32, r
 
 type Rows = Vec<Vec<Value>>;
 
+/// A question over a set of tables, answered with the rows or the way it failed.
+type Asked<'a> = dyn Fn(&[StatementTable], &str) -> Result<Rows, String> + 'a;
+
 /// `Ok` where `actual` is `expected`; the comparison the calling cell asserts on.
 fn same<T>(actual: &T, expected: &T, what: &str) -> Result<(), String>
 where
@@ -107,12 +110,12 @@ fn oracle_lob_expressions_use_full_redacted_text_and_only_bound_text_outputs() {
     let reference = r#"(SELECT "id", "label", "native_number", CASE WHEN "id" = 1 THEN TO_CLOB(RPAD('x', 4000, 'x')) || TO_CLOB(' masked END tail') ELSE TO_CLOB('masked END') END AS "script", CASE WHEN "id" = 1 THEN TO_NCLOB(RPAD('x', 4000, 'x')) || TO_NCLOB(' masked END tail') ELSE TO_NCLOB('masked END') END AS "national" FROM "policy_text") r"#;
     for (projection, expected_projection, tail) in [
         (
-            r#"CASE WHEN length(r."script") > 0 THEN r."label" ELSE r."label" END AS label"#,
+            r#"CASE WHEN r."id" > 0 THEN r."label" ELSE r."label" END AS label"#,
             r#"r."label""#,
             r#"ORDER BY r."id""#,
         ),
         (
-            r#"CASE length(r."national") WHEN 0 THEN r."label" ELSE r."label" END AS label"#,
+            r#"CASE r."id" WHEN 0 THEN r."label" ELSE r."label" END AS label"#,
             r#"r."label""#,
             r#"ORDER BY r."id""#,
         ),
@@ -324,6 +327,116 @@ where
     )
 }
 
+/// Character functions over a value with a multibyte character, against values spelled out here:
+/// a byte-counting or ASCII-only engine cannot pass for a character-counting one, and no reference
+/// engine or translation stands between the cell and its expectation.
+fn non_ascii_expressions<W>(ask: &Asked, table: &QualifiedTable, dialect: TypeDialect) -> Result<(), String>
+where
+    W: DataSystemUnderTest,
+{
+    let tables = [protected_replacing(table.clone(), dialect, 128, "mask\u{e9}")];
+    let path = quoted(table);
+    let regions = ["central", "east", "north", "south", "west"];
+    let value = |region: &str| match region {
+        "east" | "north" => "mask\u{e9}",
+        "central" => "central",
+        _ => "south_west",
+    };
+    let initcap = |text: &str| {
+        let mut previous = false;
+        text.chars()
+            .map(|character| {
+                let alphanumeric = character.is_alphanumeric();
+                let mapped = if alphanumeric && !previous {
+                    character.to_uppercase().collect::<String>()
+                } else {
+                    character.to_lowercase().collect()
+                };
+                previous = alphanumeric;
+                mapped
+            })
+            .collect::<String>()
+    };
+    // Case mapping follows each engine's locale where it is not Unicode-aware by definition, so
+    // the venues known to map by character carry it; `initcap` is not a DuckDB function, `left`
+    // and `right` are not Oracle's, and Oracle's `reverse` is undocumented.
+    let maps_case = matches!(
+        dialect,
+        TypeDialect::DataFusion | TypeDialect::DuckDb | TypeDialect::ClickHouse | TypeDialect::BigQuery | TypeDialect::Oracle
+    );
+    let not_oracle = dialect != TypeDialect::Oracle;
+    #[expect(
+        clippy::type_complexity,
+        reason = "a table of one projection and the function that spells its expectation"
+    )]
+    let cases: [(bool, &str, Box<dyn Fn(&str) -> String>); 11] = [
+        (
+            true,
+            "length(r.\"sales_area\")",
+            Box::new(|text| text.chars().count().to_string()),
+        ),
+        (
+            true,
+            "substr(r.\"sales_area\", 4, 3)",
+            Box::new(|text| text.chars().skip(3).take(3).collect()),
+        ),
+        (
+            true,
+            "position('\u{e9}' IN r.\"sales_area\")",
+            Box::new(|text| {
+                text.chars()
+                    .position(|character| character == '\u{e9}')
+                    .map_or(0, |at| at + 1)
+                    .to_string()
+            }),
+        ),
+        (
+            not_oracle,
+            "left(r.\"sales_area\", 4)",
+            Box::new(|text| text.chars().take(4).collect()),
+        ),
+        (
+            not_oracle,
+            "right(r.\"sales_area\", 2)",
+            Box::new(|text| text.chars().skip(text.chars().count().saturating_sub(2)).collect()),
+        ),
+        (
+            not_oracle,
+            "reverse(r.\"sales_area\")",
+            Box::new(|text| text.chars().rev().collect()),
+        ),
+        (maps_case, "upper(r.\"sales_area\")", Box::new(str::to_uppercase)),
+        (maps_case, "lower(upper(r.\"sales_area\"))", Box::new(str::to_lowercase)),
+        (
+            maps_case && dialect != TypeDialect::DuckDb,
+            "initcap(r.\"sales_area\")",
+            Box::new(move |text| initcap(text)),
+        ),
+        (
+            true,
+            "translate(r.\"sales_area\", 'k\u{e9}', 'KE')",
+            Box::new(|text| text.replace('k', "K").replace('\u{e9}', "E")),
+        ),
+        (true, "r.\"sales_area\"", Box::new(str::to_owned)),
+    ];
+    for (runs, projection, expectation) in &cases {
+        if !*runs {
+            continue;
+        }
+        let sql = format!("SELECT r.\"region\", {projection} FROM {path} r ORDER BY r.\"region\"");
+        let actual: Vec<Vec<String>> = ask(&tables, &sql)?
+            .iter()
+            .map(|row| row.iter().map(Value::render).collect())
+            .collect();
+        let expected: Vec<Vec<String>> = regions
+            .iter()
+            .map(|region| vec![(*region).to_owned(), expectation(value(region))])
+            .collect();
+        same(&actual, &expected, &format!("{}: {projection}", W::NAME))?;
+    }
+    Ok(())
+}
+
 pub(super) fn expressions<W>(dialect: TypeDialect) -> Result<(), String>
 where
     W: DataSystemUnderTest + Send + Sync + 'static,
@@ -353,74 +466,54 @@ where
     let path = quoted(model.table());
     let combiner = DataFusionCombiner::new().map_err(|cause| format!("a combiner: {cause}"))?;
     let scans = BTreeSet::from([model.table().clone()]);
+    let ask = |tables: &[StatementTable], sql: &str| -> Result<Rows, String> {
+        let statement = RawStatement::parse(sql).map_err(|cause| format!("a fixture expression query: {cause}"))?;
+        let actual = combiner.answer_statement(
+            StatementQuestion::new(&statement, tables, false, WORKING_SET, deadline()),
+            &mut Executing {
+                warehouse: &warehouse,
+                expected_scans: vec![scans.clone()],
+                observed_scans: Vec::new(),
+            },
+        );
+        let Some(Ok(actual)) = actual else {
+            return Err(format!("{}: {sql}: {actual:?}", W::NAME));
+        };
+        Ok(actual.into_parts().1)
+    };
     // Ordinary policies expose the already-truncated value to every operator (the LOB venue
-    // has a different contract). The independent views contain only expected safe values; the
-    // second carries a non-ASCII character, so a byte-counting engine cannot pass for a
-    // character-counting one.
-    for (tables, safe, cases) in [
+    // has a different contract). The independent view contains only expected safe values.
+    let bounded = [protected(model.table().clone(), dialect, 32)];
+    let reference = format!(
+        "(SELECT \"region\", CASE WHEN \"region\" IN ('east', 'north') THEN 'mask...[truncated]' WHEN \"region\" = 'central' THEN 'cent...[truncated]' ELSE 'sout...[truncated]' END AS \"sales_area\" FROM {path}) r"
+    );
+    for (projection, tail) in [
         (
-            [protected(model.table().clone(), dialect, 32)],
-            "CASE WHEN \"region\" IN ('east', 'north') THEN 'mask...[truncated]' WHEN \"region\" = 'central' THEN 'cent...[truncated]' ELSE 'sout...[truncated]' END",
-            vec![
-                (
-                    "r.\"region\", length(r.\"sales_area\") AS n",
-                    "ORDER BY n DESC, r.\"region\" LIMIT 3",
-                ),
-                ("r.\"region\", substr(r.\"sales_area\", 5, 3)", "ORDER BY r.\"region\""),
-                (
-                    "r.\"region\", position('MASK' IN upper(r.\"sales_area\")) AS p",
-                    "ORDER BY p DESC, r.\"region\"",
-                ),
-                (
-                    "r.\"region\"",
-                    "WHERE upper(r.\"sales_area\") LIKE 'MASK%' ORDER BY length(r.\"sales_area\") DESC, r.\"region\"",
-                ),
-            ],
+            "r.\"region\", length(r.\"sales_area\") AS n",
+            "ORDER BY n DESC, r.\"region\" LIMIT 3",
+        ),
+        ("r.\"region\", substr(r.\"sales_area\", 5, 3)", "ORDER BY r.\"region\""),
+        (
+            "r.\"region\", position('MASK' IN upper(r.\"sales_area\")) AS p",
+            "ORDER BY p DESC, r.\"region\"",
         ),
         (
-            [protected_replacing(model.table().clone(), dialect, 128, "mask\u{e9}")],
-            "CASE WHEN \"region\" IN ('east', 'north') THEN 'mask\u{e9}' WHEN \"region\" = 'central' THEN 'central' ELSE 'south_west' END",
-            vec![
-                (
-                    "r.\"region\", length(r.\"sales_area\") AS n",
-                    "ORDER BY n DESC, r.\"region\" LIMIT 3",
-                ),
-                ("r.\"region\", substr(r.\"sales_area\", 4, 3)", "ORDER BY r.\"region\""),
-                (
-                    "r.\"region\", position('\u{e9}' IN r.\"sales_area\") AS p",
-                    "ORDER BY p DESC, r.\"region\"",
-                ),
-            ],
+            "r.\"region\"",
+            "WHERE upper(r.\"sales_area\") LIKE 'MASK%' ORDER BY length(r.\"sales_area\") DESC, r.\"region\"",
         ),
     ] {
-        let reference = format!("(SELECT \"region\", {safe} AS \"sales_area\" FROM {path}) r");
-        for (projection, tail) in cases {
-            let sql = format!("SELECT {projection} FROM {path} r {tail}");
-            let statement = RawStatement::parse(&sql).map_err(|cause| format!("a fixture expression query: {cause}"))?;
-            let actual = combiner.answer_statement(
-                StatementQuestion::new(&statement, &tables, false, WORKING_SET, deadline()),
-                &mut Executing {
-                    warehouse: &warehouse,
-                    expected_scans: vec![scans.clone()],
-                    observed_scans: Vec::new(),
-                },
-            );
-            let Some(Ok(actual)) = actual else {
-                return Err(format!("{}: {sql}: {actual:?}", W::NAME));
-            };
-            let expected = native(
-                &warehouse,
-                &format!("SELECT {projection} FROM {reference} {tail}"),
-                &scans,
-                dialect,
-            );
-            same(
-                &actual.into_parts().1,
-                &expected.into_parts().1,
-                &format!("{}: {projection} {tail}", W::NAME),
-            )?;
-        }
+        let actual = ask(&bounded, &format!("SELECT {projection} FROM {path} r {tail}"))?;
+        let expected = native(
+            &warehouse,
+            &format!("SELECT {projection} FROM {reference} {tail}"),
+            &scans,
+            dialect,
+        )
+        .into_parts()
+        .1;
+        same(&actual, &expected, &format!("{}: {projection} {tail}", W::NAME))?;
     }
+    non_ascii_expressions::<W>(&ask, model.table(), dialect)?;
     progress("text-policy", "-");
     executes(&warehouse, &with_disjoint_policy(&pinned, dialect, false), dialect)?;
     progress("served", "-");

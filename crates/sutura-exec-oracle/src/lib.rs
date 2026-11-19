@@ -462,7 +462,7 @@ impl OracleWarehouse {
     /// Fixed fixture rows keep the policy-expression venue independent of the CSV type inference.
     #[cfg(feature = "fixtures")]
     pub fn load_text_policy_fixture(&self) -> Result<(), FixtureError> {
-        let guard = self.execution_lock.lock();
+        let guard = fixture::snapshot::lock(self);
         for sql in [
             r#"DROP TABLE IF EXISTS "policy_text" PURGE"#,
             r#"CREATE TABLE "policy_text" ("id" NUMBER(19,0), "label" VARCHAR2(4000), "script" CLOB, "national" NCLOB, "native_number" NUMBER)"#,
@@ -478,7 +478,7 @@ impl OracleWarehouse {
             subject: String::from("committing the text-policy fixture"),
             cause: DriverError::from(cause),
         })?;
-        fixture::snapshot::await_read_only(self, &guard, "policy_text")
+        fixture::snapshot::await_read_only(&guard, "policy_text")
     }
 
     /// This adapter, its lookup legs split by flashback query (`split: flashback`), once its boot

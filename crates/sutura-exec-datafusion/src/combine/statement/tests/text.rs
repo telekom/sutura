@@ -83,32 +83,51 @@ fn source_outputs(tables: &[StatementTable], sql: &str) -> (String, Vec<String>)
 }
 
 #[test]
-fn oracle_lob_control_expressions_do_not_bound_unrelated_text_values() {
+fn oracle_lob_control_expressions_carry_their_lineage() {
     let tables = lob_table(r#"{"max_text_bytes":4000}"#);
-    // These inspect the output boundary, not native support for every aggregate/window spelling.
-    for sql in [
-        r#"SELECT CASE WHEN length("NATIONAL") > 0 THEN "LABEL" ELSE "LABEL" END AS label, CASE WHEN length("NATIONAL") > 0 THEN upper("SCRIPT") ELSE "LABEL" END AS body FROM "TEXT_EVENTS""#,
-        r#"SELECT CASE length("NATIONAL") WHEN 1 THEN "LABEL" ELSE "LABEL" END AS label, CASE length("NATIONAL") WHEN 1 THEN "LABEL" ELSE upper("SCRIPT") END AS body FROM "TEXT_EVENTS""#,
-        r#"SELECT min("LABEL") FILTER (WHERE length("NATIONAL") > 0) AS label, min(substr("SCRIPT", 4001, 120)) FILTER (WHERE length("NATIONAL") > 0) AS body FROM "TEXT_EVENTS""#,
-        r#"SELECT first_value("LABEL" ORDER BY length("NATIONAL")) AS label, first_value(substr("SCRIPT", 4001, 120) ORDER BY length("NATIONAL")) AS body FROM "TEXT_EVENTS""#,
-        r#"SELECT first_value("LABEL") OVER (PARTITION BY length("NATIONAL") ORDER BY length("SCRIPT")) AS label, first_value(substr("SCRIPT", 4001, 120)) OVER (PARTITION BY length("NATIONAL") ORDER BY length("SCRIPT")) AS body FROM "TEXT_EVENTS""#,
+    // A condition, a filter or an ordering reads its operands, so a LOB there reaches the output's
+    // lineage; only a control over non-LOB columns leaves a text value unbounded.
+    for (sql, label, body) in [
+        (
+            r#"SELECT CASE WHEN length("LABEL") > 0 THEN "LABEL" ELSE "LABEL" END AS label, CASE WHEN length("NATIONAL") > 0 THEN upper("SCRIPT") ELSE "LABEL" END AS body FROM "TEXT_EVENTS""#,
+            None,
+            "1986",
+        ),
+        (
+            r#"SELECT min("LABEL") FILTER (WHERE length("LABEL") > 0) AS label, min(substr("SCRIPT", 4001, 120)) FILTER (WHERE length("LABEL") > 0) AS body FROM "TEXT_EVENTS""#,
+            None,
+            "3986",
+        ),
+        (
+            r#"SELECT first_value("LABEL" ORDER BY length("NATIONAL")) AS label, first_value(substr("SCRIPT", 4001, 120) ORDER BY length("LABEL")) AS body FROM "TEXT_EVENTS""#,
+            Some("1986"),
+            "3986",
+        ),
+        (
+            r#"SELECT first_value("LABEL") OVER (PARTITION BY length("LABEL") ORDER BY length("LABEL")) AS label, first_value(substr("SCRIPT", 4001, 120)) OVER (PARTITION BY length("SCRIPT") ORDER BY length("LABEL")) AS body FROM "TEXT_EVENTS""#,
+            None,
+            "3986",
+        ),
     ] {
         let (reached, outputs) = source_outputs(&tables, sql);
-        let [label, body] = outputs.as_slice() else {
+        let [label_output, body_output] = outputs.as_slice() else {
             panic!("two explicitly named outputs: {reached}")
         };
-        assert_eq!(
-            label, r#""sutura_lob_output"."c0""#,
-            "control-only LOBs cannot clip LABEL: {sql}"
-        );
+        match label {
+            None => assert_eq!(
+                label_output, r#""sutura_lob_output"."c0""#,
+                "a control over non-LOB columns cannot clip LABEL: {sql}"
+            ),
+            Some(ceiling) => assert!(
+                label_output.contains("DBMS_LOB.\"SUBSTR\"") && label_output.contains(ceiling),
+                "a LOB control reaches the output's lineage: {sql}"
+            ),
+        }
         assert!(
-            body.contains("DBMS_LOB.\"SUBSTR\""),
+            body_output.contains("DBMS_LOB.\"SUBSTR\""),
             "a LOB value branch stays bounded: {sql}"
         );
-        assert!(
-            body.contains("3986"),
-            "control-only NCLOB cannot change a CLOB value's ceiling: {sql}"
-        );
+        assert!(body_output.contains(body), "the value's own ceiling: {sql}");
     }
 }
 
@@ -164,23 +183,43 @@ fn oracle_lob_bounds_follow_text_outputs_through_expressions_and_union() {
 #[test]
 fn oracle_lob_bounds_hold_where_the_output_lineage_cannot_be_traced() {
     let tables = lob_table(r#"{"max_text_bytes":4000}"#);
-    // Each output after the first is a value no operand trace reaches: the bound must hold anyway.
-    for (sql, bounded) in [
+    // Each output after the first is a value a naive trace misses: it must stay bounded, under the
+    // ceiling of the widest LOB it was derived from, or the national one where that is unknown.
+    for (sql, bounded, ceiling) in [
         (
             r#"SELECT "LABEL", "LABEL" || (SELECT min("SCRIPT") FROM "TEXT_EVENTS") AS v FROM "TEXT_EVENTS""#,
             vec![1],
+            "1986",
         ),
         (
             r#"SELECT initcap(substr("SCRIPT", 1, 3000)) AS v FROM "TEXT_EVENTS" GROUP BY ROLLUP(initcap(substr("SCRIPT", 1, 3000)))"#,
             vec![0],
+            "3986",
         ),
         (
             r#"SELECT initcap(substr("SCRIPT", 1, 3000)) AS v FROM "TEXT_EVENTS" GROUP BY GROUPING SETS ((initcap(substr("SCRIPT", 1, 3000))), ())"#,
             vec![0],
+            "3986",
         ),
         (
             r#"SELECT initcap(substr("SCRIPT", 1, 3000)) AS v FROM "TEXT_EVENTS" GROUP BY CUBE(initcap(substr("SCRIPT", 1, 3000)))"#,
             vec![0],
+            "3986",
+        ),
+        (
+            r#"SELECT "LABEL", concat(chr(ascii(substr("SCRIPT", 4001, 1))), chr(ascii(substr("SCRIPT", 4002, 1)))) AS v FROM "TEXT_EVENTS""#,
+            vec![1],
+            "3986",
+        ),
+        (
+            r#"SELECT "LABEL", concat(CASE WHEN substr("SCRIPT", 4001, 1) = 'a' THEN 'a' ELSE 'b' END, CASE WHEN substr("SCRIPT", 4002, 1) = 'a' THEN 'a' ELSE 'b' END) AS v FROM "TEXT_EVENTS""#,
+            vec![1],
+            "3986",
+        ),
+        (
+            r#"WITH t AS (SELECT "LABEL", ascii(substr("NATIONAL", 4001, 1)) AS code FROM "TEXT_EVENTS") SELECT "LABEL", chr(code) AS v FROM t"#,
+            vec![1],
+            "1986",
         ),
     ] {
         let (reached, outputs) = source_outputs(&tables, sql);
@@ -191,8 +230,8 @@ fn oracle_lob_bounds_hold_where_the_output_lineage_cannot_be_traced() {
                     "an untraced text output stays bounded: {reached}"
                 );
                 assert!(
-                    expression.contains("1986"),
-                    "an untraced output beside a NCLOB takes the national ceiling: {reached}"
+                    expression.contains(ceiling),
+                    "the output's lineage decides its ceiling: {reached}"
                 );
             } else {
                 assert_eq!(

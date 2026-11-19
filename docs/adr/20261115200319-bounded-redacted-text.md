@@ -56,16 +56,19 @@ Oracle CLOB and NCLOB policies keep the full redacted value inside source SQL. `
 (rendered as Oracle `INSTR`) and `substr` windows therefore search and read beyond the first output
 window. Every text output of a LOB-bearing part is bounded after source operators, under the
 smallest bound of the part's LOB policies, unless the output is proven to derive from no LOB. The
-proof is positive and narrow: a non-LOB text column of a scanned table, a literal, or an expression
-over only such operands. Anything else is bounded as a LOB would be: a scalar subquery, a
-correlated outer column, a grouping-set output (`ROLLUP`, `CUBE`, `GROUPING SETS`) and any output
-the pass cannot trace. Typed output lineage is preserved before optimization, through projections,
-aggregates, windows and union arms, and CASE conditions, aggregate filters and ordering, and window
-partitioning and ordering do not carry value lineage. A mark a later rewrite drops can only widen
-the bound, never narrow it. Limit: an output of a plan node this pass does not rewrite (anything
-but a projection, aggregate, window, `DISTINCT ON` or union) keeps the metadata the planner derived
-for it; no cell measures such a node. Pinned schema metadata distinguishes CLOB
-from NCLOB and participates in the schema digest. A LOB-bearing
+proof is positive: the only free leaves are a literal and a column of a scanned table that is not a
+LOB. Every computed value, of whatever type, inherits the widest lineage among all its operands,
+conditions, filters and orderings included, so a numeric step such as `ascii(substr(..))` or a CASE
+over a LOB substring carries the LOB into any text it feeds; a numeric output itself is not
+text-bounded. Anything the pass cannot trace is bounded as a LOB would be: a scalar subquery, a
+correlated outer column and any other leaf. Typed output lineage is preserved before optimization,
+through projections, aggregates (grouping-set outputs included), windows, `DISTINCT ON` and union
+arms. A mark a later rewrite drops can only widen the bound, never narrow it. A `sutura:` metadata
+key a function computed is dropped, and `with_metadata`, the one admitted function that could write
+one, is refused, so a caller cannot mark a LOB as free. Limit: an output of a plan node this pass
+does not rewrite (anything but a projection, aggregate, window, `DISTINCT ON` or union) keeps the
+metadata the planner derived for it; no cell measures such a node. Pinned schema metadata
+distinguishes CLOB from NCLOB and participates in the schema digest. A LOB-bearing
 part of a federated or otherwise local plan refuses before credentials open: a clipped intermediate
 value must never decide a later local operator.
 
