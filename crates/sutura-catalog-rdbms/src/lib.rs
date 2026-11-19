@@ -345,7 +345,11 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     cause,
                 }
             })?;
-            columns.push(column.with_text_policy(metadata.map_or_default(|metadata| metadata.text.clone())));
+            columns.push(
+                column
+                    .with_text_policy(metadata.map_or_default(|metadata| metadata.text.clone()))
+                    .with_collation(metadata.map_or_default(|metadata| metadata.collation.clone())),
+            );
         }
         let description = table
             .description()
@@ -528,6 +532,7 @@ pub struct ColumnMetadata {
     data_type: Option<String>,
     description: Option<String>,
     text: sutura_domain::catalog::TextPolicy,
+    collation: sutura_domain::catalog::Collation,
 }
 
 impl ColumnMetadata {
@@ -536,7 +541,20 @@ impl ColumnMetadata {
             data_type,
             description,
             text: sutura_domain::catalog::TextPolicy::empty(),
+            collation: sutura_domain::catalog::Collation::Unknown,
         }
+    }
+
+    /// The collation a reader's own dictionary evidence established for this column.
+    #[must_use]
+    pub fn with_collation(mut self, collation: sutura_domain::catalog::Collation) -> Self {
+        self.collation = collation;
+        self
+    }
+
+    #[inline]
+    pub const fn collation(&self) -> &sutura_domain::catalog::Collation {
+        &self.collation
     }
 
     #[inline]
@@ -738,5 +756,7 @@ impl DictionaryBounds {
     }
 }
 
+#[cfg(test)]
+mod collation_tests;
 #[cfg(test)]
 mod tests;
