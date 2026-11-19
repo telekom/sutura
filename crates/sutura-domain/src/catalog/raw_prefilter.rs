@@ -1,5 +1,6 @@
 //! A per-column acknowledgement of secret-dependent raw-search work.
 
+use super::Collation;
 use crate::source::{AcknowledgementReason, InvalidOperatorText};
 use crate::warehouse::schema::TypeDialect;
 
@@ -13,6 +14,9 @@ pub enum PrefilterCapability {
     DataFusion,
     /// A CLOB column read under a binary session sort.
     Oracle,
+    /// A `STRING` column the catalog pins as [`Collation::Binary`]: a collated `LIKE` is no
+    /// byte-wise test, and the dictionary's `COLLATION_NAME` is evidence only an author or reader brings.
+    BigQuery,
 }
 
 impl PrefilterCapability {
@@ -21,9 +25,19 @@ impl PrefilterCapability {
         match dialect {
             TypeDialect::DataFusion => Some(Self::DataFusion),
             TypeDialect::Oracle => Some(Self::Oracle),
-            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::Postgres | TypeDialect::ClickHouse | TypeDialect::BigQuery => {
-                None
-            }
+            TypeDialect::BigQuery => Some(Self::BigQuery),
+            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::Postgres | TypeDialect::ClickHouse => None,
+        }
+    }
+
+    /// Whether this arm may test a column pinned with `collation`. `LIKE` follows a column's
+    /// collation, so an arm whose engine binds one per column needs the pin to say byte-wise;
+    /// [`Collation::Unknown`] never does.
+    #[must_use]
+    pub const fn admits(self, collation: &Collation) -> bool {
+        match self {
+            Self::DataFusion | Self::Oracle => true,
+            Self::BigQuery => collation.is_binary(),
         }
     }
 }

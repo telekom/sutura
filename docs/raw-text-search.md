@@ -54,6 +54,7 @@ session setting is changed. Non-LOB Oracle columns and other source dialects ret
 execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.
 
+
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
 collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
@@ -78,6 +79,20 @@ DuckDB's global `default_collation` setting can contradict an authored `binary`.
 moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
+
+
+BigQuery is eligible only for a `STRING` column the catalog pins as binary. `LIKE` follows a column's
+collation: over `COLLATE 'und:ci'` it ignores case, so a raw test would no longer be the byte-wise
+test the redacted predicate is proven against (a replacement `[masked]` matches `%MASKED%` there).
+A column with no collation is compared by code point. The dictionary reports a collation per
+column through `INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME`, but a table or dataset default
+collation can also apply, and the pinned value is only what a catalog reader or author recorded. Nothing
+records it for BigQuery yet, neither a reader nor an authoring field, so a deployment does not take
+this arm until one does; an unrecorded or named collation keeps redacted-only execution. A wrong
+record voids the proof, and nothing checks it at run time. The raw condition is a backtick-quoted, qualified
+column (a double-quoted token is a string literal in BigQuery), and the benefit is slot time, not
+billed bytes: filtering a column does not reduce what an on-demand query reads from it. The cell
+reports wall-clock time only, because the port returns no job statistics.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
