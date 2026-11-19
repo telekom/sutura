@@ -894,6 +894,8 @@ impl Unparser<'_> {
     }
 
     pub fn col_to_sql(&self, col: &Column) -> Result<ast::Expr> {
+        // The name as planned, before a dialect override can encode its characters away.
+        self.admit_name(&col.name);
         // Replace the column name if the dialect has an override
         let col_name =
             if let Some(rewritten_name) = self.dialect.col_alias_overrides(&col.name)? {

@@ -2453,6 +2453,7 @@ impl Unparser<'_> {
         match expr {
             Expr::Alias(Alias { expr, name, .. }) => {
                 let inner = self.expr_to_sql(expr)?;
+                self.admit_name(name);
 
                 // Determine the alias name to use
                 let col_name = if let Some(rewritten_name) =
