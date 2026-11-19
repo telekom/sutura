@@ -4,7 +4,7 @@ use super::*;
 #[ignore = "requires just oracle-acceptance"]
 fn a_served_oracle_dictionary_layers_a_separate_read_only_description_table() {
     let mut fixture = Fixture::here();
-    let docs_reader = format!("ND_DOCS_{}", std::process::id());
+    let docs_reader = format!("ND_DOCS_{}_{}", std::process::id(), fixture.tag);
     let password = std::env::var("SUTURA_DEV_PASSWORD").unwrap();
     fixture.extra_readers.push(docs_reader.clone());
     fixture

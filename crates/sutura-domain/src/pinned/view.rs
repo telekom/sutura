@@ -117,6 +117,20 @@ impl<'a> ScopedView<'a> {
             .filter(|model| self.visible_model(model))
     }
 
+    /// A relationship is descriptive only when both endpoint models and every key are visible.
+    pub fn relationships(&self) -> impl Iterator<Item = &'a crate::catalog::Relationship> + '_ {
+        self.pinned.definitions().relationships().values().filter(|relationship| {
+            self.model(relationship.origin_model())
+                .zip(self.model(relationship.target_model()))
+                .is_some_and(|(origin, target)| {
+                    relationship
+                        .keys()
+                        .iter()
+                        .all(|key| origin.column(key.origin()).is_some() && target.column(key.target()).is_some())
+                })
+        })
+    }
+
     fn visible(&self, metric: &Metric) -> bool {
         match &self.scope {
             Scope::Everything => true,

@@ -19,7 +19,7 @@
 //! Rust value first and renders THAT: an integer through `i64`, a double through `f64` with
 //! non-finite refused, a boolean matched to one of two keywords, a date through the same shape check
 //! the type inference used. **The one arm with no parse to hide behind is text, and it refuses
-//! instead:** a cell outside `[A-Za-z0-9 _.-]` is [`FixtureNotUsable::Cell`] rather than a quoted
+//! instead:** a cell outside Unicode alphanumerics and ` _.-` is [`FixtureNotUsable::Cell`] rather than a quoted
 //! string, so a value carrying `'`, `` ` ``, `\` or a newline is unrepresentable in a rendered
 //! statement rather than escaped into one. The whole example corpus is inside that set; the day a
 //! fixture is not, somebody decides what to do about it in a diff rather than discovering it at the
@@ -37,6 +37,10 @@
 //! it is idempotent against the last run. One job per table, and the DDL costs nothing: the
 //! bytes billed for a `CREATE TABLE AS SELECT` over a literal array are the bytes it scans, which is
 //! none.
+//!
+//! Consecutive identical parsed tuples may instead carry a repeat count and expand inside that
+//! same CTAS through `GENERATE_ARRAY`. Each run is capped at 100000 elements. This keeps large
+//! repetitive fixtures below statement-size limits; only a native COUNT proves the expanded load.
 //!
 //! **Since #119 every created table carries an EXPIRATION, because `panic = "abort"` means a
 //! cancelled runner's cleanup never runs.** The crate's acceptance leg used to run under
@@ -181,11 +185,9 @@ fn is_iso_date(value: &str) -> bool {
 
 /// Whether a character may appear inside a rendered string literal.
 ///
-/// Deliberately narrow: no quote of any kind, no backslash, no control character, nothing outside
-/// ASCII. The example corpus's text columns are region and segment names, product names, customer
-/// ids and contract terms, all of which are inside this.
-const fn is_plain(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '.' | '-')
+/// No quote, backslash, control or formatting character; Unicode letters retain native case probes.
+fn is_plain(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, ' ' | '_' | '.' | '-')
 }
 
 /// Where in the fixture a refusal happened.
@@ -273,6 +275,13 @@ impl Fixture {
             .iter()
             .map(|&(ref name, kind)| format!("`{name}` {}", kind.sql()))
             .collect();
+        if self
+            .tuples
+            .windows(2)
+            .any(|pair| matches!(pair, [left, right] if left == right))
+        {
+            return self.repeated_statement(table, &declared.join(", "));
+        }
         // Built by concatenation rather than by `write!`, because `write!` into a `String` returns a
         // `Result` that cannot fail and that the workspace's lint table gives no clean way to discard.
         // The `OPTIONS` block sits between the table name and the `AS`, which is the shape the
@@ -296,6 +305,36 @@ impl Fixture {
             out.push_str(tuple);
         }
         out.push_str("])");
+        out
+    }
+
+    /// Expand consecutive identical parsed tuples in the same atomic CTAS, without a second job.
+    fn repeated_statement(&self, table: &QualifiedTable, declared: &str) -> String {
+        let mut runs: Vec<(&str, usize)> = Vec::new();
+        for tuple in &self.tuples {
+            if let Some((prior, count)) = runs.last_mut()
+                && *prior == tuple
+                && *count < 100_000
+            {
+                *count += 1;
+            } else {
+                runs.push((tuple, 1));
+            }
+        }
+        let mut out = format!(
+            "CREATE OR REPLACE TABLE `{table}` OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {EXPIRATION_HOURS} HOUR)) AS SELECT run.fixture_row.* FROM UNNEST([STRUCT<fixture_row STRUCT<{declared}>, fixture_count INT64>"
+        );
+        for (index, (tuple, count)) in runs.into_iter().enumerate() {
+            if index > 0 {
+                out.push_str(", STRUCT");
+            }
+            out.push_str("(STRUCT");
+            out.push_str(tuple);
+            out.push_str(", ");
+            out.push_str(&count.to_string());
+            out.push(')');
+        }
+        out.push_str("]) AS run CROSS JOIN UNNEST(GENERATE_ARRAY(1, run.fixture_count)) AS occurrence");
         out
     }
 
@@ -552,7 +591,8 @@ mod tests {
             "k\n'); DROP TABLE x --\n",
             "k\nback`tick\n",
             "k\nback\\slash\n",
-            "k\nnon-ascii-\u{00e9}\n",
+            "k\nformat-\u{202e}\n",
+            "k\ncon\trol\n",
         ] {
             let refused = read_fixture(hostile).expect_err("a hostile cell is refused");
             assert_eq!(
@@ -568,6 +608,32 @@ mod tests {
             assert!(!printed.contains("DROP"), "{printed}");
             assert!(!printed.contains('\''), "{printed}");
         }
+        let accepted =
+            read_fixture("k\ncaf\u{e9}\nstra\u{df}e\n\u{130}STANBUL\n").expect("Unicode letters cannot terminate a literal");
+        assert_eq!(accepted.tuples, ["('caf\u{e9}')", "('stra\u{df}e')", "('\u{130}STANBUL')"]);
+    }
+
+    #[test]
+    fn repeated_rows_expand_in_bounded_arrays_inside_one_expiring_atomic_statement() {
+        let fixture = read_fixture("k,v\n1,cafe\n1,cafe\n2,\n1,cafe\n").expect("a fixture with duplicates and NULL");
+        assert_eq!(fixture.rows(), 4);
+        let table = QualifiedTable::parse("acme-data.fixtures.repeated").expect("a qualified table");
+        assert_eq!(
+            fixture.create_statement(&table),
+            "CREATE OR REPLACE TABLE `acme-data.fixtures.repeated` OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)) AS SELECT run.fixture_row.* FROM UNNEST([STRUCT<fixture_row STRUCT<`k` INT64, `v` STRING>, fixture_count INT64>(STRUCT(1, 'cafe'), 2), STRUCT(STRUCT(2, NULL), 1), STRUCT(STRUCT(1, 'cafe'), 1)]) AS run CROSS JOIN UNNEST(GENERATE_ARRAY(1, run.fixture_count)) AS occurrence"
+        );
+    }
+
+    #[test]
+    fn a_repeat_past_the_array_bound_splits_without_losing_the_last_row() {
+        let text = format!("v\n{}", "same\n".repeat(100_001));
+        let fixture = read_fixture(&text).expect("a repetitive fixture");
+        assert_eq!(fixture.rows(), 100_001);
+        let table = QualifiedTable::parse("acme-data.fixtures.repeated").expect("a qualified table");
+        assert_eq!(
+            fixture.create_statement(&table),
+            "CREATE OR REPLACE TABLE `acme-data.fixtures.repeated` OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)) AS SELECT run.fixture_row.* FROM UNNEST([STRUCT<fixture_row STRUCT<`v` STRING>, fixture_count INT64>(STRUCT('same'), 100000), STRUCT(STRUCT('same'), 1)]) AS run CROSS JOIN UNNEST(GENERATE_ARRAY(1, run.fixture_count)) AS occurrence"
+        );
     }
 
     #[test]

@@ -25,6 +25,8 @@ use crate::shared::settings;
 mod corpus;
 #[path = "statements/text.rs"]
 mod text;
+#[path = "statements/text_prefilter.rs"]
+mod text_prefilter;
 
 use corpus::{CASES, Expected, FixtureRow, JoinRows, SubscriptionRow};
 
@@ -437,7 +439,6 @@ where
     if !runs_here::<W>() {
         return;
     }
-    text::served::<W>(expected_dialect);
     let pinned = text::with_disjoint_policy(&load_on::<W>(), expected_dialect, false);
     let warehouse: W = open(&pinned);
     let dialect = warehouse
@@ -451,7 +452,6 @@ where
         .definitions()
         .model(&ModelName::parse("daily_usage").expect("a fixture model"))
         .expect("the corpus declares daily usage");
-    text::executes(&warehouse, &pinned, dialect);
     let path = quoted(model.table());
     let subscriptions = pinned
         .definitions()
@@ -459,8 +459,7 @@ where
         .expect("the corpus declares subscriptions");
     let tables = tables(model.table().clone(), subscriptions.table().clone(), dialect);
     let admitted = tables.iter().map(|table| table.table().clone()).collect::<BTreeSet<_>>();
-    let fixture = fixture_rows();
-    let subscription_fixture = subscription_rows();
+    let (fixture, subscription_fixture) = (fixture_rows(), subscription_rows());
     let combiner = DataFusionCombiner::new().expect("a statement combiner starts");
     let mut output = String::new();
     for case in CASES {
@@ -597,6 +596,12 @@ macro_rules! data_system {
             fn every_planned_shape_answers_at_the_oracle_engine() {
                 super::runs_native_statement_corpus::<$warehouse>(super::super::oracle::DIALECT);
             }
+
+            #[test]
+            fn oracle_text_policy_expressions_obey_the_existing_value_contract() {
+                let compared = super::super::text::expressions::<$warehouse>(super::super::oracle::DIALECT);
+                assert_eq!(compared, Ok(()));
+            }
         }
     };
     (cube, $warehouse:ty) => {
@@ -604,6 +609,12 @@ macro_rules! data_system {
             #[test]
             fn every_planned_shape_answers_at_the_cube_engine() {
                 super::runs_native_statement_corpus::<$warehouse>(super::super::cube::DIALECT);
+            }
+
+            #[test]
+            fn cube_text_policy_expressions_obey_the_existing_value_contract() {
+                let compared = super::super::text::expressions::<$warehouse>(super::super::cube::DIALECT);
+                assert_eq!(compared, Ok(()));
             }
         }
     };
@@ -613,6 +624,12 @@ macro_rules! data_system {
             fn every_planned_shape_answers_at_the_bigquery_engine() {
                 super::runs_native_statement_corpus::<$warehouse>(super::super::bigquery::DIALECT);
             }
+
+            #[test]
+            fn bigquery_text_policy_expressions_obey_the_existing_value_contract() {
+                let compared = super::super::text::expressions::<$warehouse>(super::super::bigquery::DIALECT);
+                assert_eq!(compared, Ok(()));
+            }
         }
     };
     ($name:ident, $warehouse:ty) => {
@@ -620,6 +637,12 @@ macro_rules! data_system {
             #[test]
             fn every_planned_shape_answers_at_the_native_engine() {
                 super::runs_native_statement_corpus::<$warehouse>(super::super::$name::DIALECT);
+            }
+
+            #[test]
+            fn text_policy_expressions_keep_the_existing_value_contract() {
+                let compared = super::super::text::expressions::<$warehouse>(super::super::$name::DIALECT);
+                assert_eq!(compared, Ok(()));
             }
         }
     };
