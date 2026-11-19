@@ -130,7 +130,8 @@ let
 
     document("declaration", dict(kind="declaration",
         definitions=["structure", "descriptions", "relationships", "cardinality",
-                     "metrics", "grains", "allowed_values", "anchors"], knowledge=[]))
+                     "metrics", "grains", "allowed_values", "anchors", "column_types"],
+        knowledge=[]))
 
     for size, count in [("large", 131072), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
