@@ -16,7 +16,7 @@
         <link rel="prev" href="../architecture/">
       
       
-        <link rel="next" href="../serving-behind-a-gateway/">
+        <link rel="next" href="../raw-text-search/">
       
       
         
@@ -418,6 +418,8 @@
       
         
           
+        
+      
         
       
         
@@ -840,6 +842,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../raw-text-search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw text search
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3511,6 +3541,8 @@ text column:</p>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">pattern</span><span class="p">:</span><span class="w"> </span><span class="s">"(?i)IDENTIFIED[[:space:]]+BY[[:space:]]+[^[:space:]]+"</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">        </span><span class="nt">replace</span><span class="p">:</span><span class="w"> </span><span class="s">"IDENTIFIED</span><span class="nv"> </span><span class="s">BY</span><span class="nv"> </span><span class="s">***"</span>
 </span></code></pre></div>
+<p><a href="../raw-text-search/">An optional raw search prefilter</a> requires a per-column acknowledgement of
+secret-dependent timing and conservative proof; redacted text still decides every answer.</p>
 <p>For a native <code>rdbms</code> dictionary, put the same settings in <code>column_rules</code> on its catalog entry,
 with <code>column: SCRIPT*</code> selecting column names by dictionary pattern. This admits Oracle CLOB and
 NCLOB columns only when a bound is present. Without a bound, native dictionaries still refuse
