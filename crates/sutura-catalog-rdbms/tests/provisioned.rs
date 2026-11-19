@@ -389,7 +389,12 @@ mod provisioned {
         let cause = reader
             .read_dictionary()
             .expect_err("a truncated composite documented link refuses");
-        assert!(cause.to_string().contains("constraint metadata is incomplete"), "{cause}");
+        assert!(
+            cause
+                .to_string()
+                .contains("`orders_customers` is invalid: its members do not cover the declared arity"),
+            "{cause}"
+        );
     }
     #[test]
     fn postgres_uniqueness_checks_retry_every_target_until_the_complete_read_succeeds() {

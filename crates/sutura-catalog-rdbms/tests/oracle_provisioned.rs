@@ -343,7 +343,12 @@ JEcF0XIa1gIgE3M4ixRwgpQcNQDe5W2BUZWG+7HGdQFw5Mz/20QHKgU=
         let cause = reader
             .read_dictionary()
             .expect_err("a truncated documented composite link refuses");
-        assert!(cause.to_string().contains("constraint metadata is incomplete"), "{cause}");
+        assert!(
+            cause
+                .to_string()
+                .contains("`orders_customers` is invalid: its members do not cover the declared arity"),
+            "{cause}"
+        );
     }
     #[test]
     #[ignore = "requires just oracle-acceptance"]
