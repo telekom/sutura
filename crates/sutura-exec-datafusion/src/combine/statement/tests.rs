@@ -23,7 +23,7 @@ use tokio::runtime::Runtime;
 use crate::combine::DataFusionCombiner;
 
 #[cfg(test)]
-mod literals;
+pub(super) mod literals;
 #[cfg(test)]
 mod names;
 mod oracle;

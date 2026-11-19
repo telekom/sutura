@@ -6,10 +6,9 @@ use datafusion::sql::sqlparser::dialect::{
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer};
 
 use super::*;
-use crate::combine::statement::literal::literal;
 
 /// What a source tokenizes `sql`'s string literals to, in `sqlparser`'s model of `dialect`.
-fn read_back(sql: &str, dialect: TypeDialect) -> Vec<String> {
+pub(in crate::combine::statement) fn read_back(sql: &str, dialect: TypeDialect) -> Vec<String> {
     let reader: &dyn Dialect = match dialect {
         TypeDialect::BigQuery => &BigQueryDialect {},
         TypeDialect::ClickHouse => &ClickHouseDialect {},
@@ -31,7 +30,7 @@ fn read_back(sql: &str, dialect: TypeDialect) -> Vec<String> {
     values
 }
 
-pub(super) const DIALECTS: [TypeDialect; 7] = [
+pub(in crate::combine::statement) const DIALECTS: [TypeDialect; 7] = [
     TypeDialect::BigQuery,
     TypeDialect::ClickHouse,
     TypeDialect::Postgres,
@@ -40,26 +39,6 @@ pub(super) const DIALECTS: [TypeDialect; 7] = [
     TypeDialect::Oracle,
     TypeDialect::DataFusion,
 ];
-
-#[test]
-fn a_literal_reads_back_as_its_value_in_every_dialect() {
-    for (dialect, value, written) in [
-        (TypeDialect::BigQuery, r"a\", r"'a\\'"),
-        (TypeDialect::BigQuery, r"b\'c", r"'b\\\'c'"),
-        (TypeDialect::ClickHouse, r"a\", r"'a\\'"),
-        (TypeDialect::ClickHouse, r"b\'c", r"'b\\\'c'"),
-        (TypeDialect::Postgres, r"a\", r"'a\'"),
-        (TypeDialect::Postgres, r"b\'c", r"'b\''c'"),
-        (TypeDialect::Oracle, "d''e", "'d''''e'"),
-    ] {
-        assert_eq!(literal(value, dialect), written, "{dialect:?}");
-    }
-    for dialect in DIALECTS {
-        for value in [r"a\", r"b\'c", "d''e", r"\\'", "'"] {
-            assert_eq!(read_back(&literal(value, dialect), dialect), [value], "{dialect:?}");
-        }
-    }
-}
 
 /// A part whose leg is never run: what each source would have been sent.
 struct Captured(Vec<String>);

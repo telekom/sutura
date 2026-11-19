@@ -437,9 +437,9 @@ impl Part {
             return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
         }
         let text = if whole && !full_lobs {
-            unparsed(&self.plan, self.dialect, &read)?
+            written(&self.plan, self.dialect, &read)?
         } else {
-            unparsed(&labelled(&self.plan)?, self.dialect, &read)?
+            written(&labelled(&self.plan)?, self.dialect, &read)?
         };
         let text = if full_lobs {
             text::bounded_oracle_rows(&text, self.plan.schema().inner(), &read)?
@@ -784,7 +784,7 @@ fn label(index: usize) -> String {
 
 /// `plan` as `dialect`'s text: `read`'s text policies applied, except at Cube, which applies them
 /// before its query operators, and then every string literal written as `dialect` reads it.
-fn unparsed(plan: &LogicalPlan, dialect: TypeDialect, read: &[StatementTable]) -> Planned<String> {
+fn written(plan: &LogicalPlan, dialect: TypeDialect, read: &[StatementTable]) -> Planned<String> {
     if dialect == TypeDialect::Cube
         && plan
             .schema()
@@ -799,7 +799,7 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect, read: &[StatementTable]) -
         TypeDialect::DuckDb => unparse(&DuckDBDialect::new()),
         TypeDialect::DataFusion => unparse(&DefaultDialect {}),
         TypeDialect::Postgres | TypeDialect::Cube => unparse(&PostgreSqlDialect {}),
-        TypeDialect::Oracle => oracle::unparsed(plan),
+        TypeDialect::Oracle => oracle::statement(plan),
         TypeDialect::BigQuery => unparse(&BigQueryDialect {}),
         TypeDialect::ClickHouse => unparse(
             &CustomDialectBuilder::new()
@@ -815,6 +815,12 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect, read: &[StatementTable]) -
         text::apply(&mut statement, read, dialect)?;
     }
     literal::spelled(&mut statement, dialect)
+}
+
+/// `plan` written as a part over tables with no text policy is.
+#[cfg(test)]
+fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+    written(plan, dialect, &[])
 }
 
 /// A leg's rows as batches of its part's schema: its columns the part's labels in order, each cast

@@ -94,3 +94,33 @@ impl VisitorMut for Literals {
         ControlFlow::Continue(())
     }
 }
+
+/// Declared here rather than beside the other statement cells: this module is new, so the base run
+/// removes it and this cell with it, instead of failing to compile a cell over a function it lacks.
+#[cfg(test)]
+mod tests {
+    use sutura_domain::warehouse::schema::TypeDialect;
+
+    use super::literal;
+    use crate::combine::statement::tests::literals::{DIALECTS, read_back};
+
+    #[test]
+    fn a_literal_reads_back_as_its_value_in_every_dialect() {
+        for (dialect, value, written) in [
+            (TypeDialect::BigQuery, r"a\", r"'a\\'"),
+            (TypeDialect::BigQuery, r"b\'c", r"'b\\\'c'"),
+            (TypeDialect::ClickHouse, r"a\", r"'a\\'"),
+            (TypeDialect::ClickHouse, r"b\'c", r"'b\\\'c'"),
+            (TypeDialect::Postgres, r"a\", r"'a\'"),
+            (TypeDialect::Postgres, r"b\'c", r"'b\''c'"),
+            (TypeDialect::Oracle, "d''e", "'d''''e'"),
+        ] {
+            assert_eq!(literal(value, dialect), written, "{dialect:?}");
+        }
+        for dialect in DIALECTS {
+            for value in [r"a\", r"b\'c", "d''e", r"\\'", "'"] {
+                assert_eq!(read_back(&literal(value, dialect), dialect), [value], "{dialect:?}");
+            }
+        }
+    }
+}

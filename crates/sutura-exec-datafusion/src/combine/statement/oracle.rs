@@ -12,7 +12,7 @@ use datafusion::sql::sqlparser::ast::{
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle};
 
-pub(super) fn unparsed(plan: &LogicalPlan) -> Result<Statement> {
+pub(super) fn statement(plan: &LogicalPlan) -> Result<Statement> {
     let spelling = CustomDialectBuilder::new()
         .with_identifier_quote_style('"')
         .with_use_timestamp_for_date64(true)
@@ -24,6 +24,12 @@ pub(super) fn unparsed(plan: &LogicalPlan) -> Result<Statement> {
     let mut statement = Unparser::new(&spelling).plan_to_sql(plan)?;
     spelled(&mut statement, true)?;
     Ok(statement)
+}
+
+/// `plan` written as an Oracle part over tables with no text policy is.
+#[cfg(test)]
+pub(super) fn unparsed(plan: &LogicalPlan) -> Result<String> {
+    super::unparsed(plan, sutura_domain::warehouse::schema::TypeDialect::Oracle)
 }
 
 pub(super) fn native(statement: &mut Statement) -> Result<()> {
