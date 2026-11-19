@@ -23,6 +23,7 @@ use tokio::runtime::Runtime;
 use crate::combine::DataFusionCombiner;
 
 mod oracle;
+mod raw_condition;
 #[cfg(test)]
 mod registration;
 mod resolution;

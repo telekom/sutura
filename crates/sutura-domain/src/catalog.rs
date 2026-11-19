@@ -859,4 +859,6 @@ pub struct Metric {
 mod tests;
 
 #[cfg(test)]
+mod prefilter_capability_tests;
+#[cfg(test)]
 mod raw_prefilter_tests;
