@@ -14,7 +14,10 @@ pub(crate) fn postgres(count: usize, limit: u64) -> String {
          c.table_schema::text AS schema_name, c.table_name::text AS table_name, \
          c.table_name::text AS model_name, pg_catalog.obj_description(t.oid, 'pg_class') AS table_description, \
          c.column_name::text AS column_name, pg_catalog.format_type(a.atttypid, a.atttypmod) AS column_type, \
-         pg_catalog.col_description(t.oid, a.attnum) AS column_description, false AS is_primary_key \
+         pg_catalog.col_description(t.oid, a.attnum) AS column_description, false AS is_primary_key, \
+         CASE WHEN a.attcollation = 0 THEN NULL \
+              WHEN c.collation_name IS NULL THEN 'default' \
+              ELSE c.collation_schema::text || '.' || c.collation_name::text END AS column_collation \
          FROM information_schema.columns c \
          JOIN pg_catalog.pg_namespace n ON n.nspname = c.table_schema \
          JOIN pg_catalog.pg_class t ON t.relnamespace = n.oid AND t.relname = c.table_name \

@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
 --- a/crates/sutura-catalog-local/src/document.rs
 +++ b/crates/sutura-catalog-local/src/document.rs
-@@ -268,7 +268,7 @@
+@@ -273,7 +273,7 @@ impl ColumnEntryDoc {
              Self::Long {
                  name,
                  r#type,
@@ -10,12 +10,12 @@ diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog
                  nullable,
                  max_text_bytes,
                  redact,
-@@ -280,7 +280,7 @@
+@@ -295,7 +295,7 @@ impl ColumnEntryDoc {
                          cause,
                      }
                  })?;
 -                Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable)
 +                Column::from_metadata(name, r#type.as_deref(), None, nullable)
-                     .map(|column| column.with_text_policy(text))
+                     .map(|column| column.with_text_policy(text).with_collation(collation))
                      .map_err(|refusal| {
                          let (column, cause) = refusal.into_parts();

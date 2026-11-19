@@ -54,6 +54,17 @@ session setting is changed. Non-LOB Oracle columns and other source dialects ret
 execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.
 
+Pinned text columns now carry a collation fact, `sutura:collation` in the schema's field metadata and
+under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
+collation is never binary; absent means unknown, and unknown is never binary. DataFusion and
+ClickHouse have no per-column collation and pin `binary`. A native Postgres dictionary records the
+column's collation: the database default is `binary` for `LIKE`, because it is always deterministic,
+and so are the built-in `pg_catalog.C` and `pg_catalog.POSIX`. Any other collation is recorded by
+its schema-qualified name and is never binary, including a user schema's own `C`. A Markdown column may declare
+`collation: binary` or a name. That declaration is an authored claim and is trusted as far as its
+author is. Oracle records nothing here, because its check is the run-time `NLS_SORT` above. Only
+ClickHouse reads the fact so far.
+
 ClickHouse has no column collation and its `LIKE` is case-sensitive and byte-wise, so a column of its
 pinned schema carries the collation fact `binary` and a column pinned anything else (unknown or a
 named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
