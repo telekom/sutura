@@ -116,6 +116,10 @@ fn federating(
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<DeclaredPrincipalBroker, String> {
     match source.caller_identity() {
+        Some(sutura_config::sources::caller_identity::CallerIdentity::CallerGoogleToken(reason)) => {
+            tracing::warn!(source=%alias,acknowledged_because=%reason,"OPT-IN GOOGLE TOKEN FORWARDING: only google_tokeninfo admission is accepted; the caller's own token reaches BigQuery without refresh");
+            return Ok(broker.caller_google_token(alias.clone()));
+        }
         Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(login)) => {
             return Ok(broker.federating(
                 alias.clone(),
@@ -249,13 +253,26 @@ fn google_login(
 #[cfg(feature = "bigquery")]
 pub(super) fn pool_exchange(
     outbound: Option<&sutura_tls::Declared>,
+    endpoint: &str,
 ) -> Result<sutura_http_client::delegation::GoogleSts, String> {
-    use sutura_http_client::delegation::{GOOGLE_STS, GoogleSts, TokenEndpoint};
+    configured_pool_exchange(outbound, endpoint, sutura_http_client::delegation::GoogleSts::new)
+}
 
+/// The constructor is a seam for inspecting the destination before any assertion can be sent.
+#[cfg(feature = "bigquery")]
+fn configured_pool_exchange<T>(
+    outbound: Option<&sutura_tls::Declared>,
+    endpoint: &str,
+    build: impl FnOnce(
+        sutura_http_client::delegation::TokenEndpoint,
+        sutura_http_client::RotatingAgent,
+        sutura_http_client::ReadBounds,
+    ) -> T,
+) -> Result<T, String> {
     let (agent, bounds) = exchange_agent(outbound)?;
-    let endpoint = TokenEndpoint::parse(GOOGLE_STS)
+    let endpoint = sutura_http_client::delegation::TokenEndpoint::parse(endpoint)
         .map_err(|cause| format!("Google's token service is not an endpoint this exchange can dial: {cause}"))?;
-    Ok(GoogleSts::new(endpoint, agent, bounds))
+    Ok(build(endpoint, agent, bounds))
 }
 
 /// The agent and the read bounds one source's identity provider requests go over.
@@ -305,3 +322,19 @@ const EXCHANGE_TIMEOUT_SECONDS: u64 = 10;
 ))]
 /// A token response is a few kilobytes; this bounds a misbehaving endpoint, not a real answer.
 const EXCHANGE_MAX_ANSWER_BYTES: u64 = 64 * 1024;
+
+#[cfg(test)]
+#[cfg(feature = "bigquery")]
+mod endpoint_cells {
+    #[test]
+    fn the_served_pool_exchange_uses_its_configured_google_destination() {
+        let endpoint = "https://sts-example.p.googleapis.com/v1/token";
+        let selected = super::configured_pool_exchange(None, endpoint, |selected, _agent, _bounds| selected)
+            .expect("a configured HTTPS Google endpoint composes");
+        assert_eq!(
+            selected.as_str(),
+            endpoint,
+            "no assertion may be sent to the default service behind a private-endpoint declaration"
+        );
+    }
+}

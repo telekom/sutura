@@ -95,7 +95,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
 
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
         with:
           # The stores this repository publishes, as `ci.yml`'s VM jobs declare them: the served
           # binary is the shipped one, and a store that holds it saves building it here. Neither

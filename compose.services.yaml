@@ -1,10 +1,6 @@
 # The development SERVICE tier: one independent instance per worktree.
 #
-# A separate file from `compose.dev.yaml`, which is the dev-CONTAINER wrapper - a shell to build in,
-# with named volumes that carry the performance on a Windows bind mount. Two unrelated jobs, and
-# `docs/adr/0007` says in as many words that this repository had no compose file for services and
-# that standing one up is this tier's work. Merging them would mean `docker compose run --rm dev`
-# starting three databases.
+# Separate from `compose.dev.yaml`'s build container: opening a shell must not start databases.
 #
 # Nothing in this file is per-worktree by itself, and that is the design. `xtask` supplies the
 # compose PROJECT NAME - derived from the worktree's canonical path by `sutura_dev::scope` - and
@@ -739,6 +735,8 @@ services:
       CUBEJS_DB_USER: *fixture-user
       CUBEJS_DB_PASS: *fixture-password
       CUBEJS_DEV_MODE: "false"
+      # Initializes the native engine used by REST cubesql; this port is not published.
+      CUBEJS_PG_SQL_PORT: "15432"
       CUBEJS_TELEMETRY: "false"
       # Production mode asks for Cube Store as its cache and queue; the in-process driver is the
       # one-container fixture's answer.
@@ -828,6 +826,7 @@ services:
       CUBEJS_DB_USER: *fixture-user
       CUBEJS_DB_PASS: *fixture-password
       CUBEJS_DEV_MODE: "false"
+      CUBEJS_PG_SQL_PORT: "15432"
       CUBEJS_TELEMETRY: "false"
       CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
       CUBEJS_JWK_URL: http://cube-keycloak:8080/realms/metrics-layer/protocol/openid-connect/certs

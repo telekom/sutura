@@ -60,16 +60,19 @@ pub(crate) fn default_bounds(
     ))
 }
 
-/// The two fixed read shapes. Native mode carries no documentation-view selectors.
+/// Fixed read shapes. Native mode carries no documentation-view selectors.
 #[derive(Debug, Clone)]
 pub(crate) enum ReadQuery {
+    Descriptions(crate::descriptions::MappedDescriptions),
     View {
         schema: String,
         environment: String,
         predicate: RowPredicate,
+        relationships_view: Option<String>,
     },
     Native {
         selection: sutura_domain::catalog::DictionarySelection,
+        unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
     },
 }
 
@@ -77,6 +80,7 @@ impl ReadQuery {
     pub(crate) fn native(selection: &sutura_domain::catalog::DictionarySelection) -> Self {
         Self::Native {
             selection: selection.clone(),
+            unbounded_number: None,
         }
     }
 
@@ -86,21 +90,85 @@ impl ReadQuery {
         dialect: sutura_domain::warehouse::schema::TypeDialect,
     ) -> Result<Dictionary, RdbmsError> {
         match self {
-            Self::View { .. } => Ok(dictionary),
-            Self::Native { selection } => dictionary.native(selection, dialect),
+            Self::View { .. } | Self::Descriptions(_) => Ok(dictionary),
+            Self::Native {
+                selection,
+                unbounded_number,
+            } => dictionary.native_with_unbounded_number(selection, dialect, *unbounded_number),
         }
+    }
+
+    pub(crate) fn with_relationships_view(&mut self, view: Option<&str>) -> Result<(), InvalidReaderConfig> {
+        if let Some(view) = view
+            && !identifier(view)
+        {
+            return Err(InvalidReaderConfig::Schema);
+        }
+        if let Self::View { relationships_view, .. } = self {
+            *relationships_view = view.map(str::to_owned);
+        }
+        Ok(())
+    }
+
+    pub(crate) const fn documented_relationships(&self) -> bool {
+        matches!(
+            self,
+            Self::View {
+                relationships_view: Some(_),
+                ..
+            }
+        )
+    }
+
+    pub(crate) fn relationships_statement(&self, oracle: bool, bounds: DictionaryBounds) -> Option<String> {
+        let Self::View {
+            schema,
+            relationships_view: Some(view),
+            ..
+        } = self
+        else {
+            return self.native_constraint_statement(oracle, bounds);
+        };
+        Some(crate::relationships::constraints::documentation_statement(
+            schema,
+            view,
+            oracle,
+            bounds.max_rows().get().saturating_add(1),
+        ))
+    }
+
+    pub(crate) const fn unbounded_number(&self) -> Option<sutura_domain::warehouse::schema::UnboundedNumber> {
+        match self {
+            Self::Native { unbounded_number, .. } => *unbounded_number,
+            _ => None,
+        }
+    }
+
+    pub(crate) fn native_constraint_statement(&self, oracle: bool, bounds: DictionaryBounds) -> Option<String> {
+        let Self::Native { selection, .. } = self else { return None };
+        let count = selection.include().len();
+        let limit = bounds.max_rows().get().saturating_add(1);
+        if oracle {
+            #[cfg(feature = "live-oracle")]
+            return Some(crate::native::sql::oracle_constraints(count, limit));
+            #[cfg(not(feature = "live-oracle"))]
+            return None;
+        }
+        Some(crate::native::sql::postgres_constraints(count, limit))
     }
 
     pub(crate) fn environment(&self) -> &str {
         match self {
             Self::View { environment, .. } => environment,
+            Self::Descriptions(_) => "descriptions",
             Self::Native { .. } => "native",
         }
     }
 
     pub(crate) fn binds(&self) -> Vec<String> {
         match self {
-            Self::Native { selection } => selection
+            Self::Descriptions(mapping) => mapping.binds(),
+            Self::Native { selection, .. } => selection
                 .include()
                 .iter()
                 .map(|include| include.schema().sql_like())
@@ -120,7 +188,8 @@ impl ReadQuery {
     pub(crate) fn postgres_statement(&self, bounds: DictionaryBounds) -> String {
         let limit = bounds.max_rows().get().saturating_add(1);
         match self {
-            Self::Native { selection } => crate::native::sql::postgres(selection.include().len(), limit),
+            Self::Descriptions(mapping) => mapping.statement(false, limit),
+            Self::Native { selection, .. } => crate::native::sql::postgres(selection.include().len(), limit),
             Self::View { schema, predicate, .. } => {
                 let predicate = match predicate {
                     RowPredicate::None => String::new(),
@@ -141,7 +210,8 @@ impl ReadQuery {
     #[cfg(feature = "live-oracle")]
     pub(crate) fn oracle_statement(&self, bounds: DictionaryBounds) -> String {
         match self {
-            Self::Native { selection } => {
+            Self::Descriptions(mapping) => mapping.statement(true, bounds.max_rows().get().saturating_add(1)),
+            Self::Native { selection, .. } => {
                 crate::native::sql::oracle(selection.include().len(), bounds.max_rows().get().saturating_add(1))
             }
             Self::View { schema, predicate, .. } => crate::oracle_reader::statement(schema, predicate),
@@ -261,8 +331,8 @@ impl<'env> Assembly<'env> {
         }
     }
 
-    /// No foreign keys in this first slice: the documentation schema carries none, and neither
-    /// reader invents a relationship or a target-uniqueness claim.
+    /// Column records alone carry no relationship; an explicitly selected second view or native
+    /// constraint read is assembled separately under this same stream budget.
     pub(crate) fn finish(self) -> Dictionary {
         Dictionary::new(
             self.tables.into_values().map(TableAccumulator::into_table).collect(),

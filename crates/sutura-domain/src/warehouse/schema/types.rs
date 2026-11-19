@@ -11,25 +11,46 @@ use crate::catalog::ColumnType;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TypeDialect {
     DuckDb,
+    DataFusion,
+    Cube,
     Postgres,
     ClickHouse,
     BigQuery,
     Oracle,
 }
 
+/// An explicitly selected exact representation for an unbounded Oracle NUMBER.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnboundedNumber {
+    Utf8,
+}
+
 impl TypeDialect {
     /// The Arrow type a declared type names here, or `None` for a spelling this list does not carry.
     ///
     /// **A closed list, and `None` is the answer for the rest** - a nested, geographic, interval or
-    /// JSON type, a decimal wider than 38 digits, an unbounded Oracle `NUMBER`. The caller makes
-    /// that column `Utf8` and records it. It is read case-folded, with the parameter list read only
+    /// JSON type, a decimal wider than 38 digits, or an unbounded Oracle `NUMBER` without an explicit
+    /// policy. The caller records an unsupported column as a fallback, excluding its model from planned SQL. It is read case-folded, with the parameter list read only
     /// for a decimal's precision and scale.
     #[must_use]
     pub fn arrow(self, declared: &ColumnType) -> Option<DataType> {
         self.read(&declared.as_str().to_ascii_lowercase())
     }
 
+    /// The source's declared unbounded NUMBER policy; absence never chooses a numeric approximation.
+    #[must_use]
+    pub fn arrow_with_unbounded_number(self, declared: &ColumnType, policy: Option<UnboundedNumber>) -> Option<DataType> {
+        if self == Self::Oracle && declared.as_str().eq_ignore_ascii_case("number") && policy == Some(UnboundedNumber::Utf8) {
+            Some(DataType::Utf8)
+        } else {
+            self.arrow(declared)
+        }
+    }
+
     fn read(self, text: &str) -> Option<DataType> {
+        if self == Self::Oracle && text.starts_with("timestamp") {
+            return oracle_timestamp(text);
+        }
         let (name, parameters) = match text.split_once('(') {
             Some((name, rest)) => (name.trim_end(), Some(rest.strip_suffix(')')?)),
             None => (text, None),
@@ -43,7 +64,12 @@ impl TypeDialect {
                 Self::ClickHouse => clickhouse(name, parameters),
                 Self::BigQuery => bigquery(name, parameters),
                 Self::Oracle => oracle(name, parameters),
-                Self::DuckDb | Self::Postgres => postgres(name, parameters),
+                Self::DuckDb | Self::Postgres | Self::DataFusion => postgres(name, parameters),
+                Self::Cube => match name {
+                    "number" => Some(DataType::Float64),
+                    "time" => Some(micros(None)),
+                    _ => None,
+                },
             },
         }
     }
@@ -88,13 +114,12 @@ fn bigquery(name: &str, parameters: Option<&str>) -> Option<DataType> {
 
 fn oracle(name: &str, parameters: Option<&str>) -> Option<DataType> {
     match name {
-        "varchar2" | "nvarchar2" | "clob" => Some(DataType::Utf8),
+        "varchar2" | "nvarchar2" | "clob" | "nclob" => Some(DataType::Utf8),
         "number" => parameters.and_then(decimal),
         "integer" | "int" | "smallint" => Some(DataType::Decimal128(38, 0)),
         "binary_float" => Some(DataType::Float32),
         "float" | "binary_double" => Some(DataType::Float64),
         "date" => Some(DataType::Timestamp(TimeUnit::Second, None)),
-        "timestamp" => Some(micros(None)),
         "raw" | "blob" => Some(DataType::Binary),
         _ => None,
     }
@@ -122,4 +147,22 @@ fn decimal(parameters: &str) -> Option<DataType> {
     let (precision, scale) = (precision.trim().parse::<u8>().ok()?, scale.trim().parse::<i8>().ok()?);
     ((1..=38).contains(&precision) && scale >= 0 && scale.unsigned_abs() <= precision)
         .then_some(DataType::Decimal128(precision, scale))
+}
+
+fn oracle_timestamp(text: &str) -> Option<DataType> {
+    let suffix = text.strip_prefix("timestamp")?.trim_start();
+    let suffix = if let Some(parameters) = suffix.strip_prefix('(') {
+        let (precision, suffix) = parameters.split_once(')')?;
+        if precision.trim().parse::<u8>().ok()? > 6 {
+            return None;
+        }
+        suffix.trim()
+    } else {
+        suffix
+    };
+    match suffix {
+        "" => Some(micros(None)),
+        "with time zone" | "with local time zone" => Some(micros(Some("UTC"))),
+        _ => None,
+    }
 }

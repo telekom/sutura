@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/statements/text.rs
+expression: output
+---
+SELECT "dim_region"."sales_area" AS "c0" FROM "dim_region"
+
+SELECT "dim_region"."sales_area" AS "c0" FROM "dim_region"
+
+SELECT "dim_region"."sales_area" AS "c0" FROM "dim_region"

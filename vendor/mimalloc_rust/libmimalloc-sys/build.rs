@@ -102,9 +102,9 @@ fn main() {
         // close to nothing next to plain release mode, so it ships compiled in rather than
         // as a separate build. `MI_DEFAULT_GUARDED_SAMPLE_RATE=0` is written explicitly even
         // though it is upstream's own current default, so a future upstream flip cannot
-        // silently arm guard pages in a binary that never asked for them - arming is a
-        // per-deployment runtime choice, `MIMALLOC_GUARDED_SAMPLE_RATE=<N>`, observable
-        // afterwards via `MIMALLOC_VERBOSE=1`.
+        // silently arm guard pages in a binary that never asked for them. Upstream secure
+        // environment mode ignores `MIMALLOC_GUARDED_SAMPLE_RATE`; keep that restriction.
+        // `MIMALLOC_VERBOSE=1` still reports the allocator's effective options.
         build.define("MI_GUARDED", "1");
         build.define("MI_DEFAULT_GUARDED_SAMPLE_RATE", "0");
         // ---- LOCAL CHANGE (sutura). Byte-precise overflow check, restored under MI_SECURE=4. ----

@@ -8,21 +8,21 @@
 
 mod types;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use sha2::{Digest as _, Sha256};
 
-use crate::catalog::Definitions;
+use crate::catalog::{Definitions, Metric, Model, Relationship};
 use crate::definitions::nibble;
 use crate::model::{ColumnName, ModelName, SourceName};
 use crate::pinned::NotValidated;
 
-pub use types::TypeDialect;
+pub use types::{TypeDialect, UnboundedNumber};
 
 /// The digest of a [`PinnedSchemas`]: lower-case hex SHA-256 over each pinned model's name and,
-/// in order, each column's name, Arrow type and nullability.
+/// in order, each column's name, Arrow type, nullability and local-operator marker.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct SchemaDigest(String);
 
@@ -62,6 +62,31 @@ impl PinnedSchemas {
     /// declaration, and not a type to fall back from. A model no relationship federates is pinned
     /// with every column fallen back, and is no table of the SQL tool.
     pub fn pin(definitions: &Definitions, dialects: &BTreeMap<SourceName, TypeDialect>) -> Result<Self, NotValidated> {
+        Self::pin_with_unbounded_numbers(definitions, dialects, &BTreeSet::new())
+    }
+
+    /// Pins each source's explicitly selected exact representation for unbounded Oracle NUMBER.
+    pub fn pin_with_unbounded_numbers(
+        definitions: &Definitions,
+        dialects: &BTreeMap<SourceName, TypeDialect>,
+        numbers: &BTreeSet<SourceName>,
+    ) -> Result<Self, NotValidated> {
+        let mut policies = BTreeMap::new();
+        for model in definitions.models().values() {
+            for column in model.columns() {
+                let key = (model.source(), model.table(), column.name());
+                if policies
+                    .insert(key, column.text_policy())
+                    .is_some_and(|previous| previous != column.text_policy())
+                    || (!column.text_policy().is_empty() && !dialects.contains_key(model.source()))
+                {
+                    return Err(NotValidated::TextPolicy {
+                        model: model.name().clone(),
+                    });
+                }
+            }
+        }
+        check_metric_text_policies(definitions)?;
         let federated: BTreeSet<&ModelName> = definitions
             .relationships()
             .values()
@@ -85,18 +110,57 @@ impl PinnedSchemas {
             }
             let mut fields = Vec::with_capacity(model.columns().len());
             for column in model.columns() {
-                let mapped = column.data_type().and_then(|declared| dialect.arrow(declared));
+                let mapped = column.data_type().and_then(|declared| {
+                    dialect
+                        .arrow_with_unbounded_number(declared, numbers.contains(model.source()).then_some(UnboundedNumber::Utf8))
+                });
                 if mapped.is_none() {
                     fell_back
                         .entry(model.name().clone())
                         .or_insert_with(BTreeSet::new)
                         .insert(column.name().clone());
                 }
-                fields.push(Field::new(
+                let mapped_text = mapped.as_ref() == Some(&DataType::Utf8);
+                let mut field = Field::new(
                     column.name().as_str(),
                     mapped.unwrap_or(DataType::Utf8),
                     column.nullable().unwrap_or(true),
-                ));
+                );
+                if *dialect == TypeDialect::Oracle
+                    && numbers.contains(model.source())
+                    && column
+                        .data_type()
+                        .is_some_and(|declared| declared.as_str().eq_ignore_ascii_case("NUMBER"))
+                {
+                    field = field.with_metadata(HashMap::from([(
+                        String::from("sutura:unbounded_number"),
+                        String::from("utf8"),
+                    )]));
+                }
+                if !column.text_policy().is_empty() {
+                    if !mapped_text || field.metadata().contains_key("sutura:unbounded_number") {
+                        return Err(NotValidated::TextPolicy {
+                            model: model.name().clone(),
+                        });
+                    }
+                    let encoded = serde_json::to_string(column.text_policy()).map_err(|_cause| NotValidated::TextPolicy {
+                        model: model.name().clone(),
+                    })?;
+                    field.metadata_mut().insert(String::from("sutura:text_policy"), encoded);
+                    if *dialect == TypeDialect::Oracle
+                        && column.data_type().is_some_and(|declared| {
+                            declared.as_str().eq_ignore_ascii_case("clob") || declared.as_str().eq_ignore_ascii_case("nclob")
+                        })
+                    {
+                        field.metadata_mut().insert(
+                            String::from("sutura:oracle_lob"),
+                            column
+                                .data_type()
+                                .map_or_else(String::new, |declared| declared.as_str().to_ascii_lowercase()),
+                        );
+                    }
+                }
+                fields.push(field);
             }
             models.insert(model.name().clone(), Arc::new(Schema::new(fields)));
         }
@@ -139,6 +203,128 @@ impl Default for PinnedSchemas {
     }
 }
 
+/// Certified execution does not transform protected text. Refuse every column a permitted
+/// question (including its anchor and optional dimensions) can read, before validation executes SQL.
+fn check_metric_text_policies(definitions: &Definitions) -> Result<(), NotValidated> {
+    for metric in definitions.metrics().values() {
+        let mut reads = BTreeSet::new();
+        reads.extend(
+            metric
+                .required_filters()
+                .iter()
+                .map(|filter| (metric.model(), filter.column())),
+        );
+        let mut facts = BTreeSet::from([metric.model()]);
+        if let Some(measure) = metric.measure() {
+            for term in measure.terms() {
+                let model = term.model().unwrap_or_else(|| metric.model());
+                facts.insert(model);
+                reads.insert((model, term.column()));
+            }
+        }
+        let mut targets = BTreeSet::new();
+        for dimension in metric.dimensions().values() {
+            let mut model = metric.model();
+            for relationship in dimension
+                .via()
+                .into_iter()
+                .flatten()
+                .filter_map(|name| definitions.relationship(name))
+            {
+                relationship_reads(relationship, &mut reads);
+                model = relationship.target_model();
+                targets.insert(model);
+            }
+            reads.insert((model, dimension.column()));
+        }
+        if let Some(calendars) = metric.shared_calendars().filter(|_| facts.len() > 1) {
+            for calendar in calendars.iter() {
+                targets.insert(calendar);
+                reads.insert((calendar, metric.time_column()));
+            }
+            // The second fact uses its own links into the shared dimensions and calendars.
+            for relationship in definitions.relationships().values().filter(|relationship| {
+                facts.contains(relationship.origin_model()) && targets.contains(relationship.target_model())
+            }) {
+                relationship_reads(relationship, &mut reads);
+            }
+        } else {
+            reads.insert((metric.model(), metric.time_column()));
+        }
+        for (name, column) in reads {
+            if let Some(model) = definitions.model(name) {
+                refuse_protected_read(definitions, metric, model, column)?;
+            }
+        }
+        // An authored expression has no closed column vocabulary. It cannot establish disjointness.
+        if metric.measure().is_none()
+            && let Some(model) = definitions.model(metric.model())
+            && let Some((protected, column)) = definitions
+                .models()
+                .values()
+                .filter(|other| other.source() == model.source())
+                .find_map(|protected| {
+                    protected
+                        .columns()
+                        .find(|column| !column.text_policy().is_empty())
+                        .map(|column| (protected, column))
+                })
+        {
+            return Err(NotValidated::MetricReadsProtectedText {
+                metric: metric.name().clone(),
+                model: protected.name().clone(),
+                column: column.name().clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn relationship_reads<'a>(relationship: &'a Relationship, reads: &mut BTreeSet<(&'a ModelName, &'a ColumnName)>) {
+    for key in relationship.keys().iter() {
+        reads.insert((relationship.origin_model(), key.origin()));
+        reads.insert((relationship.target_model(), key.target()));
+    }
+}
+
+fn refuse_protected_read(
+    definitions: &Definitions,
+    metric: &Metric,
+    model: &Model,
+    column: &ColumnName,
+) -> Result<(), NotValidated> {
+    for protected in definitions.models().values().filter(|other| physical_alias(model, other)) {
+        if let Some(protected_column) = protected
+            .columns()
+            .find(|other| other.name().as_str().eq_ignore_ascii_case(column.as_str()) && !other.text_policy().is_empty())
+        {
+            return Err(NotValidated::MetricReadsProtectedText {
+                metric: metric.name().clone(),
+                model: protected.name().clone(),
+                column: protected_column.name().clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// An unqualified name may resolve to the qualified table on the same connection. Fold case
+/// conservatively: some engines fold even quoted identifiers, so exact spelling is not a barrier.
+fn physical_alias(left: &Model, right: &Model) -> bool {
+    left.source() == right.source()
+        && left.table_name().as_str().eq_ignore_ascii_case(right.table_name().as_str())
+        && match (left.table().qualifier(), right.table().qualifier()) {
+            (Some(left), Some(right)) => {
+                left.dataset().as_str().eq_ignore_ascii_case(right.dataset().as_str())
+                    && match (left.project(), right.project()) {
+                        (Some(left), Some(right)) => left.as_str().eq_ignore_ascii_case(right.as_str()),
+                        _ => true,
+                    }
+            }
+            _ => true,
+        }
+}
+
 /// Every part is a netstring (`<length>:<bytes>`), so no two sets hash the same bytes.
 fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<ModelName, BTreeSet<ColumnName>>) -> SchemaDigest {
     fn part(hash: &mut Sha256, text: &str) {
@@ -153,8 +339,22 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
         for field in schema.fields() {
             part(&mut hash, field.name());
             part(&mut hash, &field.data_type().to_string());
+            if let Some(lob) = field.metadata().get("sutura:oracle_lob") {
+                part(&mut hash, "sutura:oracle_lob");
+                part(&mut hash, lob);
+            }
+            if let Some(policy) = field.metadata().get("sutura:text_policy") {
+                part(&mut hash, "sutura:text_policy");
+                part(&mut hash, policy);
+            }
             hash.update([
                 u8::from(field.is_nullable()),
+                u8::from(
+                    field
+                        .metadata()
+                        .get("sutura:unbounded_number")
+                        .is_some_and(|value| value == "utf8"),
+                ),
                 u8::from(
                     fell_back
                         .get(model)
@@ -173,3 +373,46 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod text_policy_tests {
+    use super::{PinnedSchemas, TypeDialect};
+    use crate::catalog::{Column, Definitions, Description, Model, TextPolicy};
+    use crate::model::{ColumnName, ModelName, SourceName, TableName};
+    use crate::pinned::NotValidated;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn a_text_policy_refuses_nontext_columns_and_unprotected_physical_aliases() {
+        let source = SourceName::parse("data").expect("a source");
+        let policy: TextPolicy = serde_json::from_value(serde_json::json!({"max_text_bytes": 128})).expect("a bounded policy");
+        let model = |name: &str, declared: &str, policy: TextPolicy| {
+            Model::new(
+                ModelName::parse(name).expect("a model"),
+                source.clone(),
+                TableName::parse("events").expect("a table"),
+                [
+                    Column::from_metadata(ColumnName::parse("body").expect("a column"), Some(declared), None, None)
+                        .expect("a declared column")
+                        .with_text_policy(policy),
+                ],
+                Description::default(),
+            )
+        };
+        let pin = |models| {
+            let definitions = Definitions::assemble(models, vec![], vec![]).expect("physical models");
+            PinnedSchemas::pin(&definitions, &BTreeMap::from([(source.clone(), TypeDialect::Postgres)]))
+        };
+        for models in [
+            vec![model("events", "BIGINT", policy.clone())],
+            vec![model("events", "GEOGRAPHY", policy.clone())],
+            vec![
+                model("events", "TEXT", policy.clone()),
+                model("alias", "TEXT", TextPolicy::empty()),
+            ],
+        ] {
+            assert!(matches!(pin(models), Err(NotValidated::TextPolicy { .. })));
+        }
+        pin(vec![model("events", "TEXT", policy)]).expect("a mapped text column accepts the policy");
+    }
+}

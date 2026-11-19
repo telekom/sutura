@@ -109,6 +109,23 @@ fn a_complete_rdbms_catalog_loads() {
 }
 
 #[test]
+fn an_rdbms_catalog_accepts_only_explicit_open_or_nonempty_restricted_audiences() {
+    for declaration in ["audience: open", "audience: {restricted: [finance]}"] {
+        load(&overlay("rdbms", &edit(ENTRY, &[declaration]), Some(CONNECTION)))
+            .expect("a declared audience is parsed through settings");
+    }
+    for declaration in [
+        "audience: everyone",
+        "audience: {restricted: []}",
+        "audience: {restricted: ['bad audience']}",
+    ] {
+        assert_names(&rdbms_refusal(&[declaration], &[]), "audience");
+    }
+    let markdown = overlay("markdown", &["audience: open"], None);
+    assert_names(&refusal(&markdown), "audience");
+}
+
+#[test]
 fn an_rdbms_catalog_without_a_connection_block_is_refused() {
     let chain = refusal(&overlay("rdbms", ENTRY, None));
     assert_names(&chain, "`connection` is required for `kind: rdbms`");
@@ -421,4 +438,111 @@ fn an_oracle_connection_with_plaintext_and_transport_anchors_is_refused() {
         &chain,
         "`transport_mode: plaintext` does not read it - a control nothing honours is worse than one nobody wrote",
     );
+}
+
+#[test]
+fn oracle_unbounded_number_policy_is_explicit_and_refuses_other_representations_or_sources() {
+    let connection = edit(
+        ORACLE_CONNECTION,
+        &["transport_mode: verified", "transport_anchors: /etc/sutura/ca.pem"],
+    );
+    let files = overlay("rdbms", ENTRY, Some(&connection));
+    let oracle = files.replace("kind: files\n    data_dir: /srv/data", "kind: oracle\n    host: db.example.com\n    port: 1521\n    service_name: FREEPDB1\n    user: reader\n    password_file: /run/secrets/source\n    transport_mode: verified\n    transport_anchors: /etc/sutura/ca.pem");
+    let explicit = oracle.replace("    posture:", "    unbounded_number: utf8\n    posture:");
+    let settings = load(&explicit).expect("an exact text policy loads");
+    let source = settings
+        .sources()
+        .get(&sutura_domain::model::SourceName::parse("warehouse").unwrap())
+        .unwrap();
+    assert_eq!(source.kind(), crate::sources::SourceKind::Oracle);
+    assert_eq!(rdbms(&settings).source_alias().as_str(), "warehouse");
+    load(&oracle).expect("absence remains a valid fail-closed source declaration");
+    for text in [
+        explicit.replace("unbounded_number: utf8", "unbounded_number: decimal"),
+        files.replace("    posture:", "    unbounded_number: utf8\n    posture:"),
+    ] {
+        let error = load(&text).expect_err("unknown representations and other data systems are refused");
+        assert!(matches!(error.reason(), SettingsError::Sources { .. }), "{error:?}");
+    }
+}
+
+#[test]
+fn description_references_refuse_unknown_self_and_cyclic_sources() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    for catalog in ["missing", "dict"] {
+        let text = format!("{base}    descriptions_from: [{{catalog: {catalog}}}]\n");
+        load(&text).expect_err("an unknown or self reference must refuse");
+    }
+    let first = format!("{base}    descriptions_from: [{{catalog: second}}]\n");
+    let entry = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let second = entry
+        .split_once("catalogs:\n")
+        .unwrap()
+        .1
+        .replace("name: dict", "name: second");
+    let cyclic = format!("{first}{second}    descriptions_from: [{{catalog: dict}}]\n");
+    load(&cyclic).expect_err("cyclic prose references must refuse");
+    assert_names(
+        &refusal(&cyclic),
+        "description catalog reference must name another declared rdbms or datahub catalog without a reference cycle",
+    );
+}
+
+#[test]
+fn rdbms_relationship_declarations_require_exact_complete_typed_shapes_and_bounded_checks() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    relationships:\n      - from: {table: public.events, columns: [tenant, app_id]}\n        to: {table: public.apps, columns: [tenant, id]}\n        cardinality: many_to_one\n        check_target_uniqueness: {max_rows: 100, max_bytes: 10000}\n";
+    let settings = load(&format!("{base}{declaration}")).unwrap();
+    let entry = settings.catalogs().each().next().unwrap();
+    let relation = entry.rdbms().unwrap().relationships().first().unwrap();
+    assert_eq!(
+        relation
+            .from()
+            .columns()
+            .iter()
+            .map(sutura_domain::model::ColumnName::as_str)
+            .collect::<Vec<_>>(),
+        ["tenant", "app_id"]
+    );
+    assert_eq!(relation.to().table().to_string(), "public.apps");
+    assert_eq!(relation.check().unwrap().max_rows().get(), 100);
+    for invalid in [
+        declaration.replace("many_to_one", "one_to_many"),
+        declaration.replace("columns: [tenant, id]", "columns: [id]"),
+        declaration.replace("columns: [tenant, id]", "columns: [id, id]"),
+        declaration.replace("public.apps", "apps"),
+        declaration.replace("max_rows: 100", "max_rows: 0"),
+        declaration.replace("cardinality: many_to_one", "cardinality: many_to_one\n        sql: select 1"),
+    ] {
+        load(&format!("{base}{invalid}")).expect_err("an invalid relationship declaration refuses");
+    }
+}
+
+#[test]
+fn rdbms_relationship_declarations_are_capped_at_64_declarations_and_32_pairs() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declarations = |count: usize, pairs: usize| {
+        let columns = (0..pairs).map(|column| format!("c{column}")).collect::<Vec<_>>().join(", ");
+        let entries = (0..count)
+            .map(|index| {
+                format!("      - from: {{table: public.events{index}, columns: [{columns}]}}\n        to: {{table: public.apps, columns: [{columns}]}}\n        cardinality: many_to_one\n")
+            })
+            .collect::<Vec<_>>()
+            .concat();
+        format!("{base}    relationships:\n{entries}")
+    };
+    let accepted = |count, pairs| {
+        let settings = load(&declarations(count, pairs)).expect("a declaration set at its cap loads");
+        let relationships = settings.catalogs().each().next().unwrap().rdbms().unwrap().relationships();
+        assert_eq!((relationships.len(), relationships[0].from().columns().len()), (count, pairs));
+    };
+    accepted(64, 1);
+    accepted(1, 32);
+    for (count, pairs) in [(65, 1), (1, 33)] {
+        let chain = refusal(&declarations(count, pairs));
+        assert!(
+            chain.contains("at most 64 many_to_one declarations"),
+            "{count}x{pairs}: {chain}"
+        );
+    }
 }

@@ -1,4 +1,4 @@
-//! A `run_sql` statement cut into one part per listed source, each part run through the raw port,
+//! A `run_sql` statement cut into supported source parts, each run through the planned port,
 //! and the rest planned here over the rows that came back: Decision 2 of
 //! `docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md`.
 //!
@@ -16,7 +16,7 @@
 //! | Limit | Why |
 //! | --- | --- |
 //! | `compute_context` is `None`, not per subject | the session is one call's, over one caller's tables, so no two subjects' scans meet in it |
-//! | a leg's rows are not charged against the working set | the raw port capped them by count; the pool charges what the local part builds over them |
+//! | a leg's rows are not charged against the working set | the source port capped them by count; the pool charges what the local part builds over them |
 //! | planning or the local part stops at the first yield past the deadline, not at the instant | every node yields after each batch, so one batch's work, a constant folded while planning and a sort's final in-memory pass run to their end |
 //! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
 //! | a value built outside the working set can still be large: a string doubled through each common table expression, or a `CAST` to a fixed-size list of a length the caller spells | the pool charges only what operators reserve, and a constant is folded while planning; the session leaves out only the functions whose output length the caller spells or multiplies, and neither an operator nor a SQL type is a function |
@@ -24,42 +24,53 @@
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
+//! | value-dependent uses of an explicit NUMBER-to-Utf8 mapping run unchanged at one Oracle source or are refused before credentials open | no local lexical answer is returned; source scalar syntax still belongs to Oracle |
+//! | Cube text policies run locally before query operators because its SQL planner lacks regex replacement | scans still run at Cube; raw values enter this process and existing row, memory and deadline caps apply |
+//! | Cube joins run locally, including joins over one source | supported child plans still run at Cube; extra source rows can exhaust the existing per-leg row cap, working set or deadline |
+//! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
-//! | unquoted identifiers are lowercased | the engine's own normalization, before the source sees the text |
+//! | unquoted identifiers fold per source | Oracle names fold up, other sources down; quoted metadata and SQL aliases remain exact |
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
 
 use std::collections::BTreeSet;
+use std::ops::ControlFlow;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::compute::{CastOptions, cast_with_options};
-use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{plan_datafusion_err, plan_err};
+use datafusion::common::{DataFusionError, ExprSchema as _, SchemaError, plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
 use datafusion::execution::{SessionStateBuilder, SessionStateDefaults};
-use datafusion::logical_expr::{Extension, LogicalPlan, Projection, ScalarUDF, TableSource};
+use datafusion::logical_expr::{Expr, Extension, LogicalPlan, Projection, ScalarUDF, TableSource};
 use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
+use datafusion::sql::parser::Statement as EngineStatement;
+use datafusion::sql::sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
+use datafusion::sql::sqlparser::parser::Parser;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
 use datafusion::sql::unparser::Unparser;
-use datafusion::sql::unparser::dialect::{Dialect, DuckDBDialect, PostgreSqlDialect};
+use datafusion::sql::unparser::dialect::{
+    BigQueryDialect, CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle, DefaultDialect, Dialect, DuckDBDialect,
+    PostgreSqlDialect,
+};
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
     FederationPlanner, FederationProvider, get_table_source,
 };
-use sutura_domain::model::{ProjectName, SourceName};
+use sutura_domain::model::{ProjectName, QualifiedTable, SourceName};
 use sutura_domain::plan::{StatementLegs, StatementQuestion, StatementStopped, StatementTable};
-use sutura_domain::raw::RawStatement;
+use sutura_domain::raw::{RawStatement, SqlConstruct};
 use sutura_domain::warehouse::RawRows;
 use sutura_domain::warehouse::arrow::of_rows;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -70,6 +81,10 @@ use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
 
 mod oracle;
+mod projection;
+mod resolve;
+mod text;
+mod text_prefilter;
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
@@ -78,28 +93,88 @@ where
 {
     let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause))?;
     let working_set = working_set_of(question.working_set_bytes());
+    let mut legs = projection::Guarded::new(legs);
     let fetched = Arc::new(Fetched::default());
-    let context = session(question.tables(), &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
-    let plan = within(runtime, question.deadline(), planned(&context, question.statement()))
-        .ok_or(StatementStopped::DeadlineExceeded)?
-        .map_err(|cause| unplanned("the statement did not plan", &cause))?;
-    let parts = parts(&plan, question.tables()).map_err(|cause| unplanned("the plan did not cut", &cause))?;
+    let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
+    let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
+    let (plan, numeric_operations, native_schema) =
+        within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
+            .ok_or(StatementStopped::DeadlineExceeded)?
+            .map_err(|cause| match cause {
+                PlanningStopped::Refused(resolve::Refused::UnknownTable) => StatementStopped::UnknownTable,
+                PlanningStopped::Refused(resolve::Refused::UnknownColumn) => StatementStopped::UnknownColumn,
+                PlanningStopped::Refused(resolve::Refused::Unsupported(construct)) => {
+                    StatementStopped::UnsupportedSyntax(construct)
+                }
+                PlanningStopped::Engine(cause) => {
+                    let fallback = unplanned("the statement did not plan", &cause);
+                    if field_not_found(&cause) {
+                        StatementStopped::UnknownColumn
+                    } else {
+                        fallback
+                    }
+                }
+            })?;
+    let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause))?;
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
     if sources.len() > 1 && !question.federation_allowed() {
         return Err(StatementStopped::SpansMoreThanOneSource);
     }
-    let whole = part_of(&plan).is_some();
+    if numeric_operations {
+        let Some(source) = sources.first().filter(|_| sources.len() == 1) else {
+            return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
+        };
+        let native_tables: Vec<_> = tables.iter().filter(|table| table.source() == source).cloned().collect();
+        if native_tables.iter().any(|table| table.dialect() != TypeDialect::Oracle) {
+            return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
+        }
+        // Re-resolve the admitted input against this source alone: optimization can remove a
+        // second source, but that must never authorize its original table under this credential.
+        let mut native = Parser::parse_sql(&GenericDialect, question.statement().as_str())
+            .map_err(|cause| unplanned("the numeric statement did not parse", &cause))?;
+        let [native] = native.as_mut_slice() else {
+            return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
+        };
+        let scans = resolve::explicit_statement(native, &native_tables)
+            .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
+        let read: Vec<_> = native_tables
+            .into_iter()
+            .filter(|table| scans.contains(table.table()))
+            .collect();
+        let text = oracle::native(native)
+            .and_then(|sql| text::apply(sql, &read, TypeDialect::Oracle))
+            .and_then(|sql| {
+                if read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema) {
+                    text::native_oracle_rows(&sql, &native_schema, &read)
+                } else {
+                    Ok(sql)
+                }
+            })
+            .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
+        let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
+        legs.open(&sources, [&native])?;
+        let rows = legs.run_planned(source, &native, &scans)?;
+        return projection::output(&native_schema, rows)
+            .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
+    }
+    // A bare marked scan still needs fitting to its declared text representation.
+    let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
-        .map(|part| part.statement(whole))
+        .map(|part| Ok((part.statement(whole, &tables, &native_schema)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
-    legs.open(&sources).map_err(StatementStopped::Leg)?;
+    legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
     let mut leaves = Vec::with_capacity(parts.len());
-    for (part, statement) in parts.into_iter().zip(&statements) {
-        let rows = legs.run(&part.source, statement).map_err(StatementStopped::Leg)?;
+    for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
+        let rows = legs.run_planned(&part.source, statement, tables).inspect_err(|stopped| {
+            if matches!(stopped, StatementStopped::Leg(_)) {
+                tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
+            }
+        })?;
         if whole {
-            return Ok(rows);
+            return projection::output(part.plan.schema().inner(), rows)
+                .map_err(|cause| unplanned("the source output did not fit", &cause));
         }
         let batches =
             fitted(&rows, part.plan.schema().inner()).map_err(|cause| unplanned("a leg did not fit its part", &cause))?;
@@ -227,7 +302,48 @@ impl FederationPlanner for Fetched {
 
 /// The rule a source's sub-plan is handed to: it makes the sub-plan a leaf, planned over its leg's rows.
 #[derive(Debug)]
-struct Cutter(Arc<Fetched>);
+struct Cutter(Arc<Fetched>, TypeDialect, bool);
+
+fn number_text(schema: &SchemaRef) -> bool {
+    schema
+        .fields()
+        .iter()
+        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
+}
+
+/// Passthrough projections preserve the mapped representation. Value-dependent uses cannot run
+/// locally as text; inspect inputs because their column can be absent from the output.
+fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
+    if let LogicalPlan::Distinct(datafusion::logical_expr::Distinct::All(input)) = plan {
+        return Ok(!number_text(input.schema().inner()));
+    }
+    let mut safe = true;
+    plan.apply_expressions(|expression| {
+        if matches!(plan, LogicalPlan::Projection(_))
+            && (matches!(expression, Expr::Column(_))
+                || matches!(expression, Expr::Alias(alias) if matches!(alias.expr.as_ref(), Expr::Column(_))))
+        {
+            return Ok(TreeNodeRecursion::Continue);
+        }
+        expression.apply(|part| {
+            if let Expr::Column(column) = part {
+                for input in plan.inputs() {
+                    safe &= input
+                        .schema()
+                        .field_from_column(column)
+                        .or_else(|_| input.schema().field_with_unqualified_name(&column.name))
+                        .map_or_else(
+                            |_| !number_text(input.schema().inner()),
+                            |field| field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8"),
+                        );
+                }
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok(safe)
+}
 
 impl OptimizerRule for Cutter {
     fn name(&self) -> &'static str {
@@ -235,13 +351,51 @@ impl OptimizerRule for Cutter {
     }
 
     fn rewrite(&self, plan: LogicalPlan, _: &dyn OptimizerConfig) -> Planned<Transformed<LogicalPlan>> {
-        if part_of(&plan).is_some() {
+        let mut already_cut = false;
+        plan.apply_with_subqueries(|node| {
+            already_cut |= part_of(node).is_some();
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        if already_cut {
             return Ok(Transformed::no(plan));
         }
-        let planner: Arc<dyn FederationPlanner> = Arc::<Fetched>::clone(&self.0);
-        Ok(Transformed::yes(LogicalPlan::Extension(Extension {
-            node: Arc::new(FederatedPlanNode::new(plan, planner)),
-        })))
+        let leaf = |plan| {
+            let planner: Arc<dyn FederationPlanner> = Arc::<Fetched>::clone(&self.0);
+            Transformed::yes(LogicalPlan::Extension(Extension {
+                node: Arc::new(FederatedPlanNode::new(plan, planner)),
+            }))
+        };
+        plan.transform_down_with_subqueries(|node| {
+            if self.2 && !matches!(node, LogicalPlan::TableScan(_)) {
+                return Ok(Transformed::no(node));
+            }
+            let mut safe = true;
+            let mut scans = false;
+            node.apply_with_subqueries(|input| {
+                scans |= matches!(input, LogicalPlan::TableScan(_));
+                safe &= number_text_safe(input)?;
+                // Keep Cube joins local while the same cut pushes their supported children down.
+                if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {
+                    safe = false;
+                }
+                Ok(if safe {
+                    TreeNodeRecursion::Continue
+                } else {
+                    TreeNodeRecursion::Stop
+                })
+            })?;
+            if !safe || !scans {
+                return Ok(Transformed::no(node));
+            }
+            let node = if matches!(&node, LogicalPlan::TableScan(_)) {
+                let columns = node.schema().columns().into_iter().map(Expr::Column).collect();
+                LogicalPlan::Projection(Projection::try_new(columns, Arc::new(node))?)
+            } else {
+                node
+            };
+            let cut = leaf(node);
+            Ok(Transformed::new(cut.data, true, TreeNodeRecursion::Jump))
+        })
     }
 }
 
@@ -253,13 +407,58 @@ struct Part {
 }
 
 impl Part {
+    fn scan_tables(&self, admitted: &[StatementTable]) -> Planned<BTreeSet<QualifiedTable>> {
+        let mut tables = BTreeSet::new();
+        self.plan.apply_with_subqueries(|node| {
+            if let LogicalPlan::TableScan(scan) = node {
+                let Some(table) = admitted.iter().find(|table| {
+                    let (catalog, schema) = table.table().qualifier().map_or(("", ""), |qualifier| {
+                        (
+                            qualifier.project().map_or("", ProjectName::as_str),
+                            qualifier.dataset().as_str(),
+                        )
+                    });
+                    table.source() == &self.source
+                        && table.table().name().as_str() == scan.table_name.table()
+                        && schema == scan.table_name.schema().unwrap_or("")
+                        && catalog == scan.table_name.catalog().unwrap_or("")
+                }) else {
+                    return plan_err!("a part scans a table outside its admitted source");
+                };
+                tables.insert(table.table().clone());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+        Ok(tables)
+    }
+
     /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
     /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
-    fn statement(&self, whole: bool) -> Planned<RawStatement> {
-        let text = if whole {
+    fn statement(&self, whole: bool, tables: &[StatementTable], output_schema: &Schema) -> Planned<RawStatement> {
+        let scanned = self.scan_tables(tables)?;
+        let read: Vec<_> = tables
+            .iter()
+            .filter(|table| table.source() == &self.source && scanned.contains(table.table()))
+            .cloned()
+            .collect();
+        let full_lobs = read.iter().any(text::oracle_lobs);
+        if full_lobs && !whole {
+            return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
+        }
+        let text = if whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner()) {
             unparsed(&self.plan, self.dialect)?
         } else {
             unparsed(&labelled(&self.plan)?, self.dialect)?
+        };
+        let text = if self.dialect == TypeDialect::Cube {
+            text
+        } else {
+            text::apply(text, &read, self.dialect)?
+        };
+        let text = if full_lobs {
+            text::bounded_oracle_rows(&text, output_schema, &read)?
+        } else {
+            text
         };
         RawStatement::parse(text).map_err(|cause| plan_datafusion_err!("{cause}"))
     }
@@ -317,9 +516,45 @@ fn source_of(part: &LogicalPlan) -> Planned<String> {
     }
 }
 
-/// The call's session: `tables` registered at their paths, the cut installed, the working set as
-/// its pool. No information schema, so a caller lists nothing, no table function, so a caller
-/// generates no rows, and only the scalar functions `ADMITTED` names.
+/// One caller-scoped registration view, shared by the session, resolver and source-part lookup.
+fn registered_tables(tables: &[StatementTable]) -> Planned<Vec<StatementTable>> {
+    let mut registered = BTreeSet::new();
+    let mut admitted = Vec::new();
+    for table in tables {
+        if !registered.insert(table.table())
+            || tables
+                .iter()
+                .any(|other| other.table() == table.table() && other.source() != table.source())
+        {
+            continue;
+        }
+        let visible = || tables.iter().filter(|other| other.table() == table.table());
+        if visible().any(|other| other.dialect() != table.dialect()) {
+            return plan_err!("models of one physical table disagree on its dialect");
+        }
+        for first in visible() {
+            for second in visible() {
+                for field in first.schema().fields() {
+                    if let Ok(other) = second.schema().field_with_name(field.name())
+                        && field.metadata().get("sutura:text_policy") != other.metadata().get("sutura:text_policy")
+                    {
+                        return plan_err!("models disagree on a physical column's text policy");
+                    }
+                }
+            }
+        }
+        let columns = Schema::try_merge(visible().map(|other| other.schema().as_ref().clone()))?;
+        admitted.push(StatementTable::new(
+            table.source().clone(),
+            table.table().clone(),
+            table.dialect(),
+            Arc::new(columns),
+        ));
+    }
+    Ok(admitted)
+}
+
+/// The call's session over its normalized tables, with no information schema or table function.
 fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: WorkingSet) -> Planned<SessionContext> {
     let state = SessionStateBuilder::new()
         .with_config(SessionConfig::new().with_default_catalog_and_schema("", ""))
@@ -336,14 +571,7 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         .with_query_planner(Arc::new(FederatedQueryPlanner::new()))
         .build();
     let context = SessionContext::new_with_state(state);
-    let cut = Arc::new(Optimizer::with_rules(vec![Arc::new(Cutter(Arc::clone(fetched)))]));
     for table in tables {
-        if tables
-            .iter()
-            .any(|other| other.table() == table.table() && other.source() != table.source())
-        {
-            continue;
-        }
         let (catalog, schema) = table.table().qualifier().map_or(("", ""), |qualifier| {
             (
                 qualifier.project().map_or("", ProjectName::as_str),
@@ -364,7 +592,13 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         };
         let source = Arc::new(Source {
             name: table.source().clone(),
-            cut: Arc::clone(&cut),
+            cut: Arc::new(Optimizer::with_rules(vec![Arc::new(Cutter(
+                Arc::clone(fetched),
+                table.dialect(),
+                tables.iter().any(|other| {
+                    other.source() == table.source() && other.dialect() == TypeDialect::Cube && text::protected(other)
+                }),
+            ))])),
         });
         let provider = FederatedTableProviderAdaptor::new(Arc::new(Table {
             source,
@@ -380,10 +614,12 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
 /// folded while planning, outside the pool. `repeat`, `lpad` and `rpad` take the length as an
 /// argument; `replace` and `regexp_replace` insert at every position of an empty pattern; `encode`
 /// doubles per nesting; `arrow_cast` and `arrow_try_cast` spell a type, and a null fixed-size list
-/// of `i32::MAX` items is reserved whole. A function a later `datafusion` adds is out until named.
+/// of `i32::MAX` items is reserved whole; `with_metadata` writes the `sutura:` field metadata the
+/// text bound reads, so a caller could mark a LOB as unbounded or free of one. A function a later
+/// `datafusion` adds is out until named.
 const ADMITTED: &str = "
     arrow_field arrow_metadata arrow_typeof cast_to_type coalesce file_row_index get_field greatest input_file_name least
-    named_struct nullif nvl nvl2 overlay struct try_cast_to_type union_extract union_tag version with_metadata
+    named_struct nullif nvl nvl2 overlay struct try_cast_to_type union_extract union_tag version
     current_date current_time date_bin date_part date_trunc from_unixtime make_date make_time now to_char to_date
     to_local_time to_time to_timestamp to_timestamp_micros to_timestamp_millis to_timestamp_nanos to_timestamp_seconds
     to_unixtime decode
@@ -413,10 +649,17 @@ fn admitted() -> Vec<Arc<ScalarUDF>> {
 const MOST_OPERATORS: usize = 1024;
 
 /// `statement`'s optimized plan, refused unless it is one query of at most [`MOST_OPERATORS`].
-async fn planned(context: &SessionContext, statement: &RawStatement) -> Planned<LogicalPlan> {
+async fn planned(
+    context: &SessionContext,
+    statement: &RawStatement,
+    tables: &[StatementTable],
+) -> Result<(LogicalPlan, bool, SchemaRef), PlanningStopped> {
     let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
         .tokenize()
-        .map_err(|cause| plan_datafusion_err!("{cause}"))?;
+        .map_err(|cause| {
+            tracing::debug!(%cause, "run_sql: the statement did not tokenize");
+            PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query))
+        })?;
     let operators = tokens
         .iter()
         .filter(|token| {
@@ -435,57 +678,188 @@ async fn planned(context: &SessionContext, statement: &RawStatement) -> Planned<
         })
         .count();
     if operators > MOST_OPERATORS {
-        return plan_err!("the statement has {operators} operators, more than {MOST_OPERATORS}");
+        return Err(PlanningStopped::Engine(plan_datafusion_err!(
+            "the statement has {operators} operators, more than {MOST_OPERATORS}"
+        )));
     }
+    let mut statements = Parser::new(&GenericDialect {})
+        .with_tokens(tokens)
+        .parse_statements()
+        .map_err(|cause| {
+            tracing::debug!(%cause, "run_sql: the statement did not parse");
+            PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query))
+        })?;
+    let [statement] = statements.as_mut_slice() else {
+        return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
+    };
+    drop(resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?);
+    let Some(statement) = statements.pop() else {
+        return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
+    };
     let options = SQLOptions::new()
         .with_allow_ddl(false)
         .with_allow_dml(false)
         .with_allow_statements(false);
-    let frame = context.sql_with_options(statement.as_str(), options).await?;
-    if matches!(
-        frame.logical_plan(),
-        LogicalPlan::Explain(_) | LogicalPlan::Analyze(_) | LogicalPlan::DescribeTable(_)
-    ) {
-        return plan_err!("the statement is not a query");
-    }
-    frame.into_optimized_plan()
+    let policy_sql = statement.to_string();
+    let plan = context
+        .state()
+        .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
+        .await?;
+    options.verify_plan(&plan)?;
+    let mut numeric_operations = false;
+    plan.apply_with_subqueries(|node| {
+        numeric_operations |= !number_text_safe(node)?;
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    // Validate caller functions before registering the policy-only regex replacement.
+    let local: Vec<_> = tables
+        .iter()
+        .filter(|table| table.dialect() == TypeDialect::Cube && text::protected(table))
+        .cloned()
+        .collect();
+    let plan = if local.is_empty() {
+        plan
+    } else {
+        let replace = SessionStateDefaults::default_scalar_functions()
+            .into_iter()
+            .find(|function| function.name() == "regexp_replace")
+            .ok_or_else(|| plan_datafusion_err!("the text policy function is unavailable"))?;
+        context.register_udf(replace.as_ref().clone());
+        let sql = text::apply_cube_local(policy_sql, &local)?;
+        let mut rewritten = Parser::parse_sql(&GenericDialect, &sql).map_err(DataFusionError::from)?;
+        let statement = rewritten
+            .pop()
+            .ok_or_else(|| plan_datafusion_err!("the text policy query is absent"))?;
+        context
+            .state()
+            .statement_to_plan(EngineStatement::Statement(Box::new(statement)))
+            .await?
+    };
+    let plan = if numeric_operations && tables.iter().any(text::oracle_lobs) {
+        text::native_number_outputs(plan)?
+    } else {
+        plan
+    };
+    let plan = if tables.iter().any(text::oracle_lobs) {
+        text::oracle_lob_outputs(plan)?
+    } else {
+        plan
+    };
+    // Whole-source outputs keep their markers even when an optimizer rule drops field metadata.
+    let native_schema = Arc::clone(plan.schema().inner());
+    let frame = context.execute_logical_plan(plan).await?;
+    Ok((frame.into_optimized_plan()?, numeric_operations, native_schema))
 }
 
-/// `part` with its projection's columns renamed `c0..cn`. The federation rule roots every part it
-/// cuts from a larger plan at a projection.
+#[derive(Debug, thiserror::Error)]
+enum PlanningStopped {
+    #[error("the admitted statement did not plan")]
+    Engine(#[from] DataFusionError),
+    #[error("the statement was refused before planning: {0:?}")]
+    Refused(resolve::Refused),
+}
+
+fn field_not_found(cause: &DataFusionError) -> bool {
+    match cause {
+        DataFusionError::SchemaError(schema, _) => matches!(schema.as_ref(), SchemaError::FieldNotFound { .. }),
+        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => field_not_found(cause),
+        DataFusionError::Shared(cause) => field_not_found(cause),
+        DataFusionError::Collection(causes) => !causes.is_empty() && causes.iter().all(field_not_found),
+        _ => false,
+    }
+}
+
+/// `part` with output columns labelled `c0..cn`, adding a projection when the cut owns an alias or filter.
 fn labelled(part: &LogicalPlan) -> Planned<LogicalPlan> {
-    let LogicalPlan::Projection(projection) = part else {
-        return plan_err!("a part of the plan is not rooted at a projection");
+    let (expressions, input) = match part {
+        LogicalPlan::Projection(projection) => (projection.expr.clone(), Arc::clone(&projection.input)),
+        _ => (
+            part.schema().columns().into_iter().map(Expr::Column).collect(),
+            Arc::new(part.clone()),
+        ),
     };
-    let columns = projection
-        .expr
-        .iter()
+    let columns = expressions
+        .into_iter()
         .enumerate()
-        .map(|(index, column)| column.clone().unalias().alias(label(index)))
+        .map(|(index, column)| column.unalias().alias(label(index)))
         .collect();
-    Ok(LogicalPlan::Projection(Projection::try_new(
-        columns,
-        Arc::clone(&projection.input),
-    )?))
+    Ok(LogicalPlan::Projection(Projection::try_new(columns, input)?))
 }
 
 fn label(index: usize) -> String {
     format!("c{index}")
 }
 
+/// Text functions that work on characters in the plan and on bytes or ASCII in `ClickHouse`, with
+/// the UTF-8 function that works on characters there. Each of these exists in `ClickHouse`.
+const CHARACTER_FUNCTIONS: [(&str, &str); 12] = [
+    ("strpos", "positionUTF8"),
+    ("length", "lengthUTF8"),
+    ("char_length", "lengthUTF8"),
+    ("substr", "substringUTF8"),
+    ("substring", "substringUTF8"),
+    ("left", "leftUTF8"),
+    ("right", "rightUTF8"),
+    ("reverse", "reverseUTF8"),
+    ("lower", "lowerUTF8"),
+    ("upper", "upperUTF8"),
+    ("initcap", "initcapUTF8"),
+    ("translate", "translateUTF8"),
+];
+
 fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+    struct ClickHouseFunctions;
+
+    impl VisitorMut for ClickHouseFunctions {
+        type Break = DataFusionError;
+
+        fn post_visit_expr(&mut self, expression: &mut SqlExpr) -> ControlFlow<Self::Break> {
+            if let SqlExpr::Function(function) = expression
+                && let [part] = function.name.0.as_slice()
+                && let Some(name) = part.as_ident()
+                && let Some(characters) = CHARACTER_FUNCTIONS
+                    .iter()
+                    .find_map(|(plain, utf8)| name.value.eq_ignore_ascii_case(plain).then_some(*utf8))
+            {
+                function.name = ObjectName::from(vec![Ident::new(characters)]);
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    if dialect == TypeDialect::Cube
+        && plan
+            .schema()
+            .fields()
+            .iter()
+            .any(|field| matches!(field.data_type(), DataType::UInt16 | DataType::UInt32 | DataType::UInt64))
+    {
+        return plan_err!("Cube cannot preserve this unsigned result type");
+    }
     let text = |spelling: &dyn Dialect| {
-        Unparser::new(spelling)
-            .plan_to_sql(plan)
-            .map(|statement| statement.to_string())
+        let mut statement = Unparser::new(spelling).plan_to_sql(plan)?;
+        if dialect == TypeDialect::ClickHouse
+            && let ControlFlow::Break(cause) = statement.visit(&mut ClickHouseFunctions)
+        {
+            return Err(cause);
+        }
+        Ok(statement.to_string())
     };
     match dialect {
         TypeDialect::DuckDb => text(&DuckDBDialect::new()),
-        TypeDialect::Postgres => text(&PostgreSqlDialect {}),
+        TypeDialect::DataFusion => text(&DefaultDialect {}),
+        TypeDialect::Postgres | TypeDialect::Cube => text(&PostgreSqlDialect {}),
         TypeDialect::Oracle => oracle::unparsed(plan),
-        TypeDialect::BigQuery | TypeDialect::ClickHouse => {
-            plan_err!("only a source that takes raw statements has a part")
-        }
+        TypeDialect::BigQuery => text(&BigQueryDialect {}),
+        TypeDialect::ClickHouse => text(
+            &CustomDialectBuilder::new()
+                .with_identifier_quote_style('`')
+                .with_use_timestamp_for_date64(true)
+                .with_supports_column_alias_in_table_alias(false)
+                .with_date_field_extract_style(DateFieldExtractStyle::Extract)
+                .with_character_length_style(CharacterLengthStyle::Length)
+                .build(),
+        ),
     }
 }
 
