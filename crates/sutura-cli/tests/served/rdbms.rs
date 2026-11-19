@@ -157,6 +157,8 @@ mod tests {
     #[cfg(feature = "sql")]
     mod native {
         use super::{DataDir, settings};
+        #[cfg(feature = "agent")]
+        use crate::harness::try_start_configured;
         use crate::harness::{
             DiscoveredTier, Reply, Served, TOKEN, accepted_by, an_issuer, discover_tier, refused_to_start, start_configured, v1,
             written,
@@ -172,6 +174,7 @@ mod tests {
             data: DataDir,
             schema: String,
             admin: FixtureAdmin,
+            roles: Vec<String>,
         }
 
         impl Native {
@@ -196,6 +199,7 @@ mod tests {
                     data: DataDir::prepared(&format!("{case}-fixture")),
                     schema,
                     admin,
+                    roles: Vec::new(),
                 }
             }
 
@@ -238,6 +242,9 @@ mod tests {
         impl Drop for Native {
             fn drop(&mut self) {
                 drop(self.admin.run(&format!("DROP SCHEMA {} CASCADE", self.schema)));
+                for role in &self.roles {
+                    drop(self.admin.run(&format!("DROP ROLE {role}")));
+                }
             }
         }
 
@@ -253,6 +260,181 @@ mod tests {
             let reply = served.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
             assert_eq!(reply.status, 200, "{}", reply.body);
             reply.json()
+        }
+
+        #[cfg(feature = "agent")]
+        #[test]
+        fn a_served_postgres_dictionary_layers_remote_prose_without_widening_sql() {
+            let Some(tier) = discover_tier() else { return };
+            let mut fixture = Native::new("description-overlay", &tier);
+            fixture
+                .admin
+                .run(&format!(
+                    "CREATE TABLE {0}.docs (owner text, object_name text, field_name text, prose text, live text); \
+        INSERT INTO {0}.docs VALUES ('{0}', 'events', 'id', 'Business event identifier.', 'Y'), \
+        ('{0}', 'events', 'secret', 'Must stay excluded.', 'Y'), ('{0}', 'events', 'ghost', 'Unknown column.', 'Y'), \
+        ('{0}', 'events', 'id', 'Deleted documentation.', 'N')",
+                    fixture.schema
+                ))
+                .unwrap();
+            let base_reader = format!("{}_base", fixture.schema);
+            let docs_reader = format!("{}_docs", fixture.schema);
+            fixture.roles.extend([base_reader.clone(), docs_reader.clone()]);
+            let password_sql = tier.password.replace('\'', "''");
+            fixture.admin.run(&format!(
+                "CREATE ROLE {base_reader} LOGIN PASSWORD '{password_sql}'; CREATE ROLE {docs_reader} LOGIN PASSWORD '{password_sql}'; \
+                 GRANT USAGE ON SCHEMA {schema} TO {base_reader}, {docs_reader}; \
+                 GRANT SELECT ON {schema}.events TO {base_reader}; GRANT SELECT ON {schema}.docs TO {docs_reader}",
+                schema = fixture.schema,
+            )).unwrap();
+            let password = fixture.data.0.join("password");
+            let extra = format!(
+                "    descriptions_from:\n      - connection:\n          host: 127.0.0.1\n          port: {}\n          database: {}\n          user: {}\n          password_file: {}\n          transport_mode: verified\n          transport_anchors: {}\n        table: {}.docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: live, operator: equals, value: Y}}\n",
+                tier.port,
+                tier.database,
+                docs_reader,
+                password.display(),
+                tier.anchor,
+                fixture.schema
+            );
+            let settings = format!(
+                "{}prompt:\n  list_physical_schema: true\n",
+                fixture
+                    .native_settings(&tier, &extra)
+                    .replace(&format!("user: \"{}\"", tier.user), &format!("user: \"{base_reader}\""))
+                    .replace(crate::harness::LOOPBACK, crate::harness::AGENT_LOOPBACK)
+            );
+            let denied = settings.replace(&format!("user: {docs_reader}\n"), &format!("user: {base_reader}\n"));
+            let log = refused_to_start(
+                Environment::Development,
+                written("postgres-description-base-denied", &denied),
+                &[],
+            )
+            .join("\n");
+            assert!(log.contains("permission denied for table docs"), "{log}");
+            let served = crate::harness::try_start_configured("postgres-description-overlay", &settings)
+                .expect("the separately granted documentation reader starts the deployment");
+            let call = serde_json::json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"describe_catalog","arguments":{}}});
+            let listing = served.mcp(Some(TOKEN), &call.to_string()).json();
+            let columns = listing["result"]["structuredContent"]["models"][0]["columns"]
+                .as_array()
+                .unwrap();
+            let id = columns.iter().find(|column| column["name"] == "id").unwrap();
+            assert_eq!(id["description"], "Business event identifier.");
+            assert!(
+                columns
+                    .iter()
+                    .all(|column| column["name"] != "secret" && column["name"] != "ghost")
+            );
+            let selected = ran(&served, &format!("select * from {}.events", fixture.schema));
+            assert_eq!(selected.status, 200, "{}", selected.body);
+            assert_eq!(selected.json()["columns"], serde_json::json!(["id", "month"]));
+            assert_eq!(
+                ran(&served, &format!("select secret from {}.events", fixture.schema)).status,
+                422
+            );
+            let log = served.awaiting("description overlay load completed");
+            assert!(
+                log.iter()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .any(|event| event["msg"] == "description overlay load completed" && event["ignored_columns"] == 2),
+                "{log:?}"
+            );
+        }
+
+        #[cfg(feature = "agent")]
+        #[test]
+        fn served_postgres_relationships_require_complete_validated_keys_and_bounded_declared_uniqueness() {
+            let Some(tier) = discover_tier() else { return };
+            let mut fixture = Native::new("dictionary-relationships", &tier);
+            fixture.admin.run(&format!(
+                "CREATE TABLE {s}.apps (id bigint PRIMARY KEY); INSERT INTO {s}.apps VALUES (7); \
+                 ALTER TABLE {s}.events ADD CONSTRAINT events_apps FOREIGN KEY (id) REFERENCES {s}.apps(id); \
+                 CREATE TABLE {s}.unique_apps (id bigint UNIQUE); \
+                 CREATE TABLE {s}.unique_events (id bigint, CONSTRAINT unique_link FOREIGN KEY(id) REFERENCES {s}.unique_apps(id)); \
+                 CREATE TABLE {s}.pair_apps (tenant bigint, id bigint, PRIMARY KEY (tenant, id)); \
+                 CREATE TABLE {s}.pair_events (tenant bigint, id bigint, CONSTRAINT pair_link FOREIGN KEY (tenant,id) REFERENCES {s}.pair_apps(tenant,id)); \
+                 CREATE TABLE {s}.unvalidated (id bigint); \
+                 ALTER TABLE {s}.unvalidated ADD CONSTRAINT unvalidated_link FOREIGN KEY (id) REFERENCES {s}.apps(id) NOT VALID; \
+                 CREATE TABLE {s}.deferred (id bigint, CONSTRAINT deferred_link FOREIGN KEY (id) REFERENCES {s}.apps(id) DEFERRABLE); \
+                 CREATE TABLE {s}.loose_apps (id numeric(12,2)); INSERT INTO {s}.loose_apps VALUES (1), (2); \
+                 CREATE TABLE {s}.loose_events (id numeric(12,2))", s=fixture.schema,
+            )).unwrap();
+            let base = fixture
+                .native_settings(&tier, "")
+                .replace("table: events", "table: '*'")
+                .replace(crate::harness::LOOPBACK, crate::harness::AGENT_LOOPBACK);
+            let extra = format!(
+                "    relationships:\n      - name: declared_link\n        from: {{table: {s}.loose_events, columns: [id]}}\n        to: {{table: {s}.loose_apps, columns: [id]}}\n        cardinality: many_to_one\n        check_target_uniqueness: {{max_rows: 2, max_bytes: 10000}}\n",
+                s = fixture.schema
+            );
+            let settings = format!(
+                "{}prompt:\n  list_physical_schema: true\n",
+                base.replace("    connection:", &format!("{extra}    connection:"))
+            );
+            let call = serde_json::json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"describe_catalog","arguments":{}}});
+            let served =
+                try_start_configured("postgres-relationships", &settings).expect("the bounded Postgres relationships load");
+            let listing = served.mcp(Some(TOKEN), &call.to_string()).json();
+            let relationships: Vec<_> = listing["result"]["structuredContent"]["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|model| model["relationships"].as_array().unwrap())
+                .collect();
+            assert_eq!(relationships.len(), 4, "{listing}");
+            let composite = relationships
+                .iter()
+                .find(|relation| relation["from"] == "pair_events")
+                .unwrap();
+            assert_eq!(composite["cardinality"], "many_to_one");
+            assert_eq!(
+                composite["keys"],
+                serde_json::json!([{"from":"tenant", "to":"tenant"}, {"from":"id", "to":"id"}])
+            );
+            assert!(relationships.iter().any(|relation| relation["from"] == "unique_events"
+                && relation["to"] == "unique_apps"
+                && relation["cardinality"] == "many_to_one"));
+            assert!(relationships.iter().any(|relation| relation["from"] == "loose_events"));
+            assert!(
+                relationships
+                    .iter()
+                    .all(|relation| relation["from"] != "unvalidated" && relation["from"] != "deferred")
+            );
+            drop(served);
+            fixture
+                .admin
+                .run(&format!("INSERT INTO {}.loose_apps VALUES (3)", fixture.schema))
+                .unwrap();
+            let log = refused_to_start(
+                Environment::Development,
+                written("postgres-relationship-overflow", &settings),
+                &[],
+            )
+            .join("\n");
+            assert!(log.contains("target uniqueness check exceeded"), "{log}");
+            fixture
+                .admin
+                .run(&format!(
+                    "DELETE FROM {s}.loose_apps; INSERT INTO {s}.loose_apps VALUES (1), (1.0)",
+                    s = fixture.schema
+                ))
+                .unwrap();
+            let log = refused_to_start(
+                Environment::Development,
+                written("postgres-relationship-duplicate", &settings),
+                &[],
+            )
+            .join("\n");
+            assert!(log.contains("duplicate nonnull full keys"), "{log}");
+            let invalid = settings.replace("columns: [id]}", "columns: [secret]}");
+            let log = refused_to_start(
+                Environment::Development,
+                written("postgres-relationship-hidden", &invalid),
+                &[],
+            )
+            .join("\n");
+            assert!(log.contains("absent or excluded") && log.contains("secret"), "{log}");
         }
 
         #[test]

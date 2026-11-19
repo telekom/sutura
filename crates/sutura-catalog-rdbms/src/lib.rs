@@ -37,13 +37,11 @@
 //! 2. **A foreign key carries no metric cardinality.** It names the source and target columns, so
 //!    this adapter declares the `Cardinality` *capability* absent: a dictionary carries no metric to
 //!    reach a dimension `via` a relationship.
-//! 3. **A single-column primary or unique key is evidence, and only the safe direction.** ADR
-//!    0011's "part worth having this connector for" is the one-direction uniqueness argument: a
-//!    reader must supply a [`SingleColumnTargetUniqueness`] before the foreign key maps to
-//!    [`JoinType::ManyToOne`]. Membership in a composite constraint is not evidence that one column
-//!    is unique. Without the single-column evidence, loading refuses rather than asserting the
-//!    relationship. The variant records what the reader found; this converter does not re-derive
-//!    it from the constraint itself.
+//! 3. **Only the complete referenced primary or unique key licenses many-to-one.** A native
+//!    reader checks enforcement and validation in the same snapshot, then supplies every ordered
+//!    pair and the whole target key. A partial composite is refused. Operator assertions instead
+//!    require visible endpoints and compatible known types; a configured boot probe can also
+//!    check current target uniqueness, without promising future data stays unique.
 //!
 //! Dictionaries may also carry per-column types/comments and primary keys. Those declarations
 //! are descriptive evidence, not metric cardinality or measures. [`Table::with_column_metadata`]
@@ -81,6 +79,11 @@
 //! A composition root that links the `live` feature serves `catalog.kind: rdbms`; a build without
 //! it refuses by name. (Its only other dependant is `sutura-app`, as a dev-dependency.)
 
+pub mod descriptions;
+mod relationships;
+pub use relationships::{
+    DeclarationError, DeclaredRelationship, Relationship, RelationshipError, SingleColumnTargetUniqueness, TargetKeyKind,
+};
 #[cfg(feature = "live")]
 mod documentation;
 pub mod fixture;
@@ -105,7 +108,27 @@ pub enum AnyDictionaryReader {
 
 #[cfg(feature = "live")]
 impl AnyDictionaryReader {
+    pub fn with_relationships_view(self, view: Option<&str>) -> Result<Self, crate::postgres_reader::InvalidReaderConfig> {
+        match self {
+            Self::Postgres(reader) => reader
+                .with_relationships_view(view)
+                .map(|reader| Self::Postgres(Box::new(reader))),
+            #[cfg(feature = "live-oracle")]
+            Self::Oracle(reader) => reader
+                .with_relationships_view(view)
+                .map(|reader| Self::Oracle(Box::new(reader))),
+        }
+    }
+
     #[must_use]
+    pub fn with_relationships(self, relationships: Vec<DeclaredRelationship>) -> Self {
+        match self {
+            Self::Postgres(reader) => Self::Postgres(Box::new(reader.with_relationships(relationships))),
+            #[cfg(feature = "live-oracle")]
+            Self::Oracle(reader) => Self::Oracle(Box::new(reader.with_relationships(relationships))),
+        }
+    }
+
     pub const fn bounds(&self) -> DictionaryBounds {
         match self {
             Self::Postgres(reader) => reader.bounds(),
@@ -131,13 +154,10 @@ use std::collections::btree_map::Entry;
 use std::num::NonZeroU64;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{
-    Audience, Column, Definitions, Description, JoinKey, JoinKeys, Model, Relationship as DomainRelationship,
-};
+use sutura_domain::catalog::{Audience, Column, Definitions, Description, Model};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
-    ColumnName, DatasetName, InvalidIdentifier, JoinType, ModelName, ProjectName, QualifiedTable, RelationshipName, SourceName,
-    TableName, TableQualifier,
+    ColumnName, DatasetName, InvalidIdentifier, ModelName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
 };
 use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 
@@ -145,9 +165,6 @@ use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, S
 type Content = (Definitions, Knowledge);
 /// One parsed physical address and the semantic model built over it.
 type ConvertedModel = (QualifiedTable, Model);
-
-/// Leaves room for `__` and a 16-character fingerprint under the 63-character name limit.
-const MAX_RELATIONSHIP_PREFIX_LEN: usize = 45;
 
 /// Refuses whitespace before the shared parser can trim it from a physical identifier.
 fn exact_physical_identifier(raw: &str) -> Result<&str, InvalidIdentifier> {
@@ -164,128 +181,15 @@ fn exact_physical_identifier(raw: &str) -> Result<&str, InvalidIdentifier> {
 /// [`postgres_reader::PostgresReader`] reads a declared documentation schema over a Postgres
 /// socket and maps its failures into [`RdbmsError::Read`]. Both use the same conversion.
 ///
-/// A [`Relationship`] carries exactly one origin column and one target column, so a composite
-/// (multi-column) foreign key is not representable in it. A real implementor must therefore either
-/// refuse the whole read or omit that one foreign key when it encounters one, and must document
-/// which of the two it does - the conversion below never sees a foreign key that a reader omitted,
-/// so it cannot enforce or even detect either choice.
+/// Composite foreign keys carry every ordered column pair and the complete referenced key.
+/// Native readers omit constraints whose enforcement or complete target uniqueness is unproven.
 pub trait DictionaryReader {
     /// Reads the deployment's dictionary, in whatever shape this crate defines.
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError>;
 }
 
-/// Why a dictionary could not be read as a catalog.
-///
-/// Every variant is a typed contract rather than a message; the message is for a human and the
-/// variant is what a caller can branch on. The mapping variants carry the table or column they were
-/// refused on, because a dictionary is many rows and "invalid identifier" with no table name sends
-/// a reader back to all of them.
-#[derive(Debug, thiserror::Error)]
-pub enum RdbmsError {
-    #[error("native dictionary selection refused the load")]
-    Native {
-        #[from]
-        cause: NativeSelectionError,
-    },
-    /// The reader could not fetch the dictionary.
-    #[error("reading the dictionary failed: {0}")]
-    Read(#[source] Box<dyn std::error::Error + Send + Sync>),
-    /// The listener redirected the login to an address the connection does not declare. Refused
-    /// before authentication.
-    #[error("the listener redirected the login to an address this connection does not declare")]
-    RedirectRefused,
-    /// The reader returned no table, so this bundle cannot honour its required `Structure` claim.
-    #[error("the dictionary contains no visible table")]
-    NoVisibleTables,
-    /// A table's semantic name did not parse as a model name.
-    #[error("model {model} for table {table} is not a usable model name: {cause}")]
-    ModelName {
-        table: String,
-        model: String,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    /// A table's catalog did not parse as the top part of a qualified table name.
-    #[error("catalog {catalog} of table {table} is not usable: {cause}")]
-    CatalogName {
-        table: String,
-        catalog: String,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    /// A table's schema did not parse as the middle part of a qualified table name.
-    #[error("schema {schema} of table {table} is not usable: {cause}")]
-    SchemaName {
-        table: String,
-        schema: String,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    /// A physical table's own name did not parse.
-    #[error("physical table {table} is not usable: {cause}")]
-    TableName {
-        table: String,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    /// Two semantic models named the same physical table.
-    #[error("physical table {table} is declared twice")]
-    DuplicateTable { table: String },
-    /// A foreign key named a physical table absent from the dictionary.
-    #[error("foreign key endpoint {table} is not a table in the dictionary")]
-    UnknownRelationshipTable { table: String },
-    /// A column's name did not parse.
-    #[error("column {column} on table {table} is not a usable column name: {cause}")]
-    ColumnName {
-        table: String,
-        column: String,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    /// A foreign key's name did not parse.
-    #[error("foreign key {relationship} is not a usable relationship name: {cause}")]
-    RelationshipName {
-        relationship: String,
-        #[source]
-        cause: sutura_domain::model::InvalidIdentifier,
-    },
-    /// A table description did not pass the authored-prose rule.
-    #[error("the description of table {table} is not usable: {cause}")]
-    Description {
-        table: String,
-        #[source]
-        cause: sutura_domain::catalog::InvalidDescription,
-    },
-    /// A column comment did not pass the authored-prose rule.
-    #[error("the comment on column {column} of table {table} is not usable: {cause}")]
-    ColumnDescription {
-        table: String,
-        column: ColumnName,
-        #[source]
-        cause: sutura_domain::catalog::InvalidDescription,
-    },
-    /// The referenced column had no single-column primary or unique-key evidence.
-    #[error("referenced column {table}.{column} has no single-column primary or unique-key evidence")]
-    TargetUniquenessUnknown { table: String, column: String },
-    /// The assembled definitions did not hold together.
-    #[error("the dictionary definitions do not hold together: {cause}")]
-    Inconsistent {
-        #[source]
-        cause: sutura_domain::catalog::InconsistentDefinitions,
-    },
-    /// Pinning failed.
-    #[error("the dictionary bundle could not be pinned: {cause}")]
-    Digest {
-        #[source]
-        cause: sutura_domain::definitions::NotDigestible,
-    },
-    /// The dictionary carries more tables and relationships than the declared row cap.
-    ///
-    /// Checked on the decoded dictionary, whatever the reader did. The byte cap is not checked here:
-    /// a [`Dictionary`] carries no byte count, so it is the reader's to hold against the response.
-    #[error("the dictionary carries {rows} entries, over the declared maximum of {limit}")]
-    ExceedsBounds { rows: u64, limit: NonZeroU64 },
-}
+mod error;
+pub use error::RdbmsError;
 
 /// A catalog read from an RDBMS dictionary.
 ///
@@ -316,6 +220,18 @@ impl<R> RdbmsCatalog<R> {
         }
     }
 
+    /// Changes the reader without changing the catalog declaration.
+    pub fn map_reader<S>(self, map: impl FnOnce(R) -> S) -> RdbmsCatalog<S> {
+        RdbmsCatalog {
+            name: self.name,
+            source_alias: self.source_alias,
+            version: self.version,
+            reader: map(self.reader),
+            bounds: self.bounds,
+            audience: self.audience,
+        }
+    }
+
     /// Binds models from this dictionary to a separately declared data source.
     #[must_use]
     pub fn with_source_alias(mut self, source_alias: SourceName) -> Self {
@@ -342,6 +258,13 @@ impl<R> RdbmsCatalog<R> {
 }
 
 impl<R: DictionaryReader> RdbmsCatalog<R> {
+    fn convert_relationship(
+        relationship: &Relationship,
+        models_by_table: &BTreeMap<QualifiedTable, ModelName>,
+    ) -> Result<sutura_domain::catalog::Relationship, RdbmsError> {
+        relationships::convert::<R>(relationship, models_by_table)
+    }
+
     /// Loads once, returning the matching allowlist for composition before publication.
     pub fn load_with_allowlist(&self) -> Result<NativeLoad, RdbmsError> {
         native::load(self)
@@ -485,121 +408,6 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
         };
         Ok(QualifiedTable::new(Some(qualifier), table))
     }
-
-    /// A foreign key into a [`Relationship`].
-    ///
-    /// A single-column primary or unique-key constraint on the referenced column is required before
-    /// this maps the join to [`JoinType::ManyToOne`]. Membership in a composite constraint does not
-    /// qualify. The adapter still declares no `Cardinality` capability: the dictionary carries no
-    /// metric for a dimension to reach through the relationship.
-    fn convert_relationship(
-        relationship: &Relationship,
-        models_by_table: &BTreeMap<QualifiedTable, ModelName>,
-    ) -> Result<DomainRelationship, RdbmsError> {
-        if relationship.target_uniqueness.is_none() {
-            return Err(RdbmsError::TargetUniquenessUnknown {
-                table: relationship.target_table().to_string(),
-                column: relationship.target_column().to_owned(),
-            });
-        }
-        let origin_table = Self::convert_table_address(relationship.origin_table())?;
-        let target_table = Self::convert_table_address(relationship.target_table())?;
-        let origin_model = models_by_table
-            .get(&origin_table)
-            .cloned()
-            .ok_or_else(|| RdbmsError::UnknownRelationshipTable {
-                table: origin_table.to_string(),
-            })?;
-        let target_model = models_by_table
-            .get(&target_table)
-            .cloned()
-            .ok_or_else(|| RdbmsError::UnknownRelationshipTable {
-                table: target_table.to_string(),
-            })?;
-        let origin_column = exact_physical_identifier(relationship.origin_column())
-            .and_then(ColumnName::parse)
-            .map_err(|cause| RdbmsError::ColumnName {
-                table: origin_table.to_string(),
-                column: relationship.origin_column().to_owned(),
-                cause,
-            })?;
-        let target_column = exact_physical_identifier(relationship.target_column())
-            .and_then(ColumnName::parse)
-            .map_err(|cause| RdbmsError::ColumnName {
-                table: target_table.to_string(),
-                column: relationship.target_column().to_owned(),
-                cause,
-            })?;
-        let name = Self::relationship_name(
-            relationship.name(),
-            &origin_table,
-            &origin_column,
-            &target_table,
-            &target_column,
-        )?;
-        Ok(DomainRelationship::new(
-            name,
-            origin_model,
-            target_model,
-            JoinType::ManyToOne,
-            JoinKeys::single(JoinKey::Equal {
-                origin: origin_column,
-                target: target_column,
-            }),
-        ))
-    }
-
-    fn relationship_name(
-        constraint: Option<&str>,
-        origin_table: &QualifiedTable,
-        origin_column: &ColumnName,
-        target_table: &QualifiedTable,
-        target_column: &ColumnName,
-    ) -> Result<RelationshipName, RdbmsError> {
-        let mut prefix = if let Some(raw) = constraint {
-            RelationshipName::parse(raw)
-                .map_err(|cause| RdbmsError::RelationshipName {
-                    relationship: raw.to_owned(),
-                    cause,
-                })?
-                .to_string()
-        } else {
-            format!("{}_{}_fk", origin_table.name(), target_table.name())
-        };
-        let origin_table = origin_table.to_string();
-        let target_table = target_table.to_string();
-        let fingerprint = stable_fingerprint([
-            constraint.unwrap_or(""),
-            origin_table.as_str(),
-            origin_column.as_str(),
-            target_table.as_str(),
-            target_column.as_str(),
-        ]);
-        prefix.truncate(prefix.len().min(MAX_RELATIONSHIP_PREFIX_LEN));
-        let namespaced = format!("{prefix}__{fingerprint:016x}");
-        RelationshipName::parse(&namespaced).map_err(|cause| RdbmsError::RelationshipName {
-            relationship: namespaced,
-            cause,
-        })
-    }
-}
-
-/// A deterministic, non-cryptographic fingerprint for a relationship's canonical identity.
-///
-/// The `0xff` separator cannot occur in UTF-8, so adjacent fields remain unambiguous. A collision
-/// remains a duplicate relationship and is refused by [`Definitions::assemble`]; it can never
-/// replace an existing one.
-fn stable_fingerprint<'a>(parts: impl IntoIterator<Item = &'a str>) -> u64 {
-    const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
-    let mut fingerprint = OFFSET_BASIS;
-    for part in parts {
-        for byte in part.bytes().chain(core::iter::once(0xff)) {
-            fingerprint ^= u64::from(byte);
-            fingerprint = fingerprint.wrapping_mul(PRIME);
-        }
-    }
-    fingerprint
 }
 
 impl<R> SemanticCatalog for RdbmsCatalog<R>
@@ -613,15 +421,13 @@ where
     /// Provides `Structure`, `Descriptions`, `Relationships`, `ColumnTypes` and
     /// `ColumnDescriptions` - exactly what a dictionary *can* yield - and nothing else.
     ///
-    /// `Structure` is unconditional; the other four are declared-and-conditional. A foreign key
-    /// whose target lacks single-column primary or unique-key evidence refuses the whole load with
-    /// [`RdbmsError::TargetUniquenessUnknown`] rather than being dropped; a schema with no foreign
-    /// key lawfully carries no relationship, and one with no column comment or declared type
-    /// lawfully carries neither `ColumnDescriptions` nor `ColumnTypes` - `information_schema`
-    /// carries a `data_type` per column but a comment is optional, same as a table's own. This is
-    /// the single-column case only - a composite (multi-column) foreign key is not representable in
-    /// [`DomainRelationship`], so a [`DictionaryReader`] must drop or refuse it before it ever
-    /// reaches this conversion.
+    /// `Structure` is unconditional; the other four are declared-and-conditional. A native
+    /// relationship needs complete primary/unique target-key evidence, including every ordered
+    /// composite pair. Missing evidence refuses conversion with [`RdbmsError::TargetUniquenessUnknown`];
+    /// live readers omit constraints that lack the required enforcement and validation. Operator
+    /// assertions instead require visible endpoints and compatible types before conversion.
+    /// A schema with no foreign key lawfully carries no relationship; optional table and column
+    /// comments likewise need not be present for structure to load.
     ///
     /// What is declared is nothing more. No
     /// [`Cardinality`](sutura_domain::capabilities::DefinitionKind::Cardinality) - a foreign key
@@ -843,6 +649,24 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
+    /// Checks every declared pair against selected endpoints and compatible known types.
+    pub fn apply_relationship_declarations(
+        self,
+        declarations: &[DeclaredRelationship],
+        dialect: sutura_domain::warehouse::schema::TypeDialect,
+        unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
+    ) -> Result<Self, RdbmsError> {
+        relationships::declared::apply(self, declarations, dialect, unbounded_number)
+    }
+
+    /// Applies ordered prose without changing visible structure; counts ignored column rows.
+    pub fn overlay_descriptions(
+        self,
+        sources: &[descriptions::DescriptionOverlay],
+    ) -> Result<descriptions::OverlaidDictionary, RdbmsError> {
+        descriptions::apply(self, sources)
+    }
+
     /// A dictionary assembled from what a reader fetched.
     pub const fn new(tables: Vec<Table>, relationships: Vec<Relationship>) -> Self {
         Self {
@@ -883,87 +707,6 @@ impl Dictionary {
     #[inline]
     pub fn relationships(&self) -> &[Relationship] {
         &self.relationships
-    }
-}
-
-/// Why the target column of a foreign key is known to be individually unique.
-///
-/// This variant records what the reader found in the dictionary; it carries no constraint name and
-/// no column list, so this converter checks only that a variant is present and cannot re-derive or
-/// verify that the underlying constraint is truly single-column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SingleColumnTargetUniqueness {
-    /// The target column is the sole column of a primary key.
-    PrimaryKey,
-    /// The target column is the sole column of a unique constraint.
-    UniqueConstraint,
-}
-
-/// A join a foreign key records: the two endpoints, their columns, and single-column target-key
-/// evidence.
-///
-/// [`SingleColumnTargetUniqueness`] is evidence for the safe `ManyToOne` direction, not a metric
-/// cardinality. Without it, loading refuses before a domain relationship is emitted.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Relationship {
-    name: Option<String>,
-    origin_table: TableAddress,
-    origin_column: String,
-    target_table: TableAddress,
-    target_column: String,
-    target_uniqueness: Option<SingleColumnTargetUniqueness>,
-}
-
-impl Relationship {
-    /// A relationship's endpoints, with target-key evidence if the reader has any.
-    ///
-    /// Loading refuses this value when `target_uniqueness` is `None`.
-    pub const fn new(
-        name: Option<String>,
-        origin_table: TableAddress,
-        origin_column: String,
-        target_table: TableAddress,
-        target_column: String,
-        target_uniqueness: Option<SingleColumnTargetUniqueness>,
-    ) -> Self {
-        Self {
-            name,
-            origin_table,
-            origin_column,
-            target_table,
-            target_column,
-            target_uniqueness,
-        }
-    }
-
-    /// The foreign key's name, if the dictionary named it.
-    #[inline]
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
-    }
-
-    /// The table the foreign key starts from.
-    #[inline]
-    pub const fn origin_table(&self) -> &TableAddress {
-        &self.origin_table
-    }
-
-    /// The column the foreign key starts from.
-    #[inline]
-    pub fn origin_column(&self) -> &str {
-        &self.origin_column
-    }
-
-    /// The table the foreign key points to.
-    #[inline]
-    pub const fn target_table(&self) -> &TableAddress {
-        &self.target_table
-    }
-
-    /// The column the foreign key points to.
-    #[inline]
-    pub fn target_column(&self) -> &str {
-        &self.target_column
     }
 }
 

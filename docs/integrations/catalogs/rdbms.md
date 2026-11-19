@@ -155,7 +155,7 @@ and comments. Duplicate model names across schemas, a table with no remaining co
 selection and an unsupported unexcluded type refuse the entire load. Unbounded Oracle `NUMBER`,
 negative-scale or over-38-digit decimals, Oracle `FLOAT` / `BINARY_FLOAT` / `RAW` / `BLOB`,
 PostgreSQL `real` / `bytea` / timestamps, and unsupported Oracle timestamp precision are
-refused rather than converted to a less precise type. No key, join or cardinality is inferred.
+refused rather than converted to a less precise type. Eligible complete primary keys and foreign keys are read as described below; no metric is inferred.
 
 Native dictionaries may compose with Markdown metrics and knowledge over their models. Contributor
 ownership and declaration fidelity are checked separately before cross-catalog references link.
@@ -184,3 +184,125 @@ claim about database installations.
 The catalog signs in with its own login, `connection.user`. It never uses the credential of a data
 system, because a catalog read has no caller. Each read opens one connection and one read-only
 transaction, and rolls it back.
+
+## Descriptions from another source
+
+`descriptions_from` on an RDBMS catalog layers prose onto the selected dictionary columns.
+Entries are ordered: the first nonempty description wins, then the dictionary's own comment.
+The join uses the exact physical catalog (when present), schema, table and column. Names are
+not case-folded and catalog prefixes are not removed. Unknown and excluded columns are ignored;
+the load log records `ignored_columns`. Duplicate physical keys within one source refuse loading.
+Prose never changes columns, types, exclusions, audience, text policies or the execution allowlist.
+The catalog digest includes the resulting prose.
+
+A source can name another declared RDBMS or DataHub catalog:
+
+```yaml
+descriptions_from:
+  - catalog: documentation
+```
+
+An explicitly referenced catalog contributes descriptions only; it does not add its models or
+metrics to the serving catalog. Unrelated catalog entries keep their usual role and mixed-kind
+restrictions. References must resolve without a cycle (maximum depth 32 and 256 expanded references per consumer), and the binary must
+link the referenced reader. Each RDBMS catalog accepts at most 32 description sources.
+
+A plain table needs no special documentation view. Declare its own read-only connection and map
+its columns; use `live_row_predicate`, a closed predicate with bound values, rather than SQL:
+
+```yaml
+descriptions_from:
+  - connection:
+      host: 127.0.0.1
+      database: documentation
+      user: reader
+      password_file: /run/secrets/documentation
+      transport_mode: plaintext
+    table: inventory.column_docs
+    key: { schema: object_owner, table: object_name, column: field_name }
+    description: description
+    live_row_predicate: { column: is_deleted, operator: equals, value: "N" }
+    max_dictionary_rows: 10000
+    max_dictionary_bytes: 8388608
+```
+
+The mapping's connection supports the same PostgreSQL and Oracle transport declarations as the
+catalog's connection. Identifiers are quoted exactly as written; an Oracle mapping normally uses
+uppercase names for unquoted database columns. `key.catalog` is optional and required when the
+served dictionary carries that physical component. A mapping without it matches only addresses
+without a catalog component. Table comments can also come from referenced catalogs.
+
+Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
+accounting and the existing description byte, line and control-character checks. PostgreSQL's
+byte refusal runs after libpq has materialized its result; Oracle bills decoded cursor rows.
+These limits do not bound database scan work or elapsed query time. Referenced catalogs keep
+their own read bounds and their prose projection is additionally bounded by the consuming
+RDBMS catalog. Reloads read the description sources again before publishing a new pinned bundle.
+`prompt.list_physical_schema: true` exposes column descriptions through `describe_catalog`;
+`prompt.catalog_prose: omitted` continues to withhold them.
+
+## Relationships
+
+Native dictionaries read primary keys and foreign keys in the column read's read-only snapshot.
+A foreign key becomes `many_to_one` only when its target is the **whole** primary or unique
+constraint. Composite pairs stay ordered and complete. Selecting out a member drops the entire
+key or relationship. PostgreSQL 18 metadata must report both constraints enforced, validated and
+not deferrable, and the backing unique index valid, immediate, nonpartial and without expressions.
+Oracle requires both constraints enabled, validated and not deferrable. Other constraints are
+omitted; a unique index without a primary/unique constraint supplies no evidence here.
+
+For undeclared keys and views, add an operator assertion to the RDBMS catalog:
+
+```yaml
+relationships:
+  - name: events_apps
+    from: { table: inventory.events, columns: [tenant, app_id] }
+    to: { table: inventory.apps, columns: [tenant, id] }
+    cardinality: many_to_one
+    check_target_uniqueness: { max_rows: 10000, max_bytes: 1048576 }
+```
+
+At most 64 declarations with at most 32 distinct pairs each are accepted. Exact physical names,
+visible endpoints and known compatible mapped types are required. Equal mapped types and integer
+widths are compatible; unknown or incompatible types refuse the load, naming the endpoint.
+`many_to_one` is the only supported written cardinality. Without the optional check, uniqueness is
+an operator assertion. With it, the catalog's own connection checks nonnull full target keys on its
+first successful dictionary read. A duplicate or a row/key-byte cap overflow refuses the load: a truncated
+prefix never certifies uniqueness. Database window comparison decides duplicates, preserving
+native numeric equality. This bounds returned rows and logical key bytes, **not physical scanning,
+sorting, query time or concurrent database changes**. After success, refresh does not repeat this
+data probe; the assertion is not ongoing enforcement. Concurrent first loads can each run the
+probe. An empty target passes.
+
+`describe_catalog` lists visible relationships under each origin model, with cardinalities and
+all ordered key pairs when
+`prompt.list_physical_schema` is enabled. Both models and every key must be visible. This supplies
+join descriptions, never a metric or permission to read additional tables. Metrics still undergo
+the existing consistency and fan-out checks; these declarations change none of those rules.
+
+### A documentation relationship view
+
+In `documentation_schema` mode, `relationships_view: relationships` opts into a second view in
+`dictionary_schema`. Absence makes no second-view query. Its rows are authored many-to-one
+assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
+Configuration declarations can also be used with documentation catalogs.
+
+| Column                                           | Contract                                                        |
+| ------------------------------------------------ | --------------------------------------------------------------- |
+| `environment`                                    | Same exact environment as the column view                       |
+| `relationship_name`                              | Required identifier, shared by every pair of one relationship   |
+| `origin_catalog`, `target_catalog`               | Nullable physical catalog components                            |
+| `origin_schema`, `origin_table`, `origin_column` | Required exact physical origin                                  |
+| `target_schema`, `target_table`, `target_column` | Required exact physical target                                  |
+| `ordinal`                                        | Integer from 1 through the complete key arity                   |
+| `key_arity`                                      | Positive integer, identical on every member                     |
+| `cardinality`                                    | Exactly `many_to_one`                                           |
+| `is_deleted`                                     | PostgreSQL boolean or Oracle `NUMBER(1)`, as in the column view |
+
+All live members must be present exactly once. Incomplete ordinals, conflicting identities,
+unsupported cardinalities and missing/excluded columns refuse the load. Rows of another environment
+and deleted rows are excluded. The column view's extra `live_row_predicate` applies only to columns;
+this view uses `environment` and `is_deleted`. Metadata rows share the column read's row/byte
+budgets and snapshot, including the row past the cap; neither native nor documented relationships
+are fetched per request. Oracle folds the configured view/schema selectors as the existing column
+reader does; physical endpoint values remain exact.

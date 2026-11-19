@@ -29,6 +29,183 @@ mod resolution;
 mod text;
 mod text_prefilter;
 
+fn explicit_source_projection(sql: &str) -> bool {
+    use datafusion::sql::sqlparser::ast::{Select, SelectItem, Visit as _, Visitor};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+    use std::ops::ControlFlow;
+
+    struct Projections;
+    impl Visitor for Projections {
+        type Break = ();
+
+        fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<()> {
+            if select
+                .projection
+                .iter()
+                .any(|item| matches!(item, SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)))
+            {
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        }
+    }
+    Parser::parse_sql(&GenericDialect, sql).is_ok_and(|statements| statements.visit(&mut Projections).is_continue())
+}
+
+fn source_labels(sql: &str) -> Vec<String> {
+    use datafusion::sql::sqlparser::ast::{SelectItem, SetExpr, Statement};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+    let parsed = Parser::parse_sql(&GenericDialect, sql).unwrap();
+    let [Statement::Query(query)] = parsed.as_slice() else {
+        panic!("one source query: {sql}")
+    };
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        panic!("one output SELECT: {sql}")
+    };
+    select
+        .projection
+        .iter()
+        .map(|item| {
+            let SelectItem::ExprWithAlias { alias, .. } = item else {
+                panic!("an explicit unique source alias: {sql}")
+            };
+            alias.value.clone()
+        })
+        .collect()
+}
+
+#[test]
+fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
+    struct Recording<'a> {
+        engines: &'a mut Engines,
+        statements: &'a mut Vec<String>,
+    }
+
+    impl StatementLegs for Recording<'_> {
+        type Stop = SourceName;
+
+        fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+            self.engines.open(sources)
+        }
+
+        fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+            self.statements.push(statement.as_str().to_owned());
+            self.engines.run(source, statement)
+        }
+    }
+
+    for predicate in ["c.customer_id < 4", "c.customer_id = 1000"] {
+        for suffix in ["", " order by c.customer_id limit 200"] {
+            let sql = format!(
+                "select c.customer_id, d.customer_id, c.region as \"c0\", d.region as \"MiXeD\" \
+                 from dim_customer c join dim_customer d on c.customer_id + 1 = d.customer_id where {predicate}{suffix}"
+            );
+            let mut legs = Engines::new(None);
+            let mut statements = Vec::new();
+            let statement = RawStatement::parse(&sql).expect("a test statement is a statement");
+            let tables = tables();
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    false,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut Recording {
+                    engines: &mut legs,
+                    statements: &mut statements,
+                },
+            );
+            let Some(Ok(rows)) = answer else {
+                panic!(
+                    "duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}",
+                    legs.opened, legs.ran
+                )
+            };
+            assert_eq!(rows.columns(), ["customer_id", "customer_id", "c0", "MiXeD"]);
+            assert_eq!(
+                source_labels(statements.first().expect("a source statement")),
+                ["c0", "c1", "c2", "c3"]
+            );
+            assert_eq!(rows, legs.as_one(&sql), "positions and multiplicities: {sql}");
+            assert_eq!(legs.opened, [BTreeSet::from([named("crm")])]);
+            assert_eq!(legs.ran, [named("crm")]);
+        }
+    }
+    let mut legs = Engines::new(None);
+    let answer = asked(AREAS, true, UNBOUNDED, &mut legs);
+    let Some(Ok(rows)) = answer else {
+        panic!(
+            "all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}",
+            legs.opened, legs.ran
+        )
+    };
+    assert_eq!(rows, legs.as_one(AREAS));
+    assert_eq!(legs.opened, [BTreeSet::from([named("crm"), named("geo")])]);
+    assert_eq!(legs.ran.len(), 2);
+}
+
+/// Records the text of every leg before delegating to the engines.
+struct Texts<'a> {
+    engines: &'a mut Engines,
+    texts: Vec<String>,
+}
+
+impl StatementLegs for Texts<'_> {
+    type Stop = SourceName;
+
+    fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        self.engines.open(sources)
+    }
+
+    fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        self.texts.push(statement.as_str().to_owned());
+        self.engines.run(source, statement)
+    }
+}
+
+#[test]
+fn a_window_over_a_derived_input_sends_every_input_column_by_name() {
+    // The optimizer drops the projection that mirrors the window, and the limit keeps its input
+    // a derived table, the one shape on which the window arm itself lists the input's columns.
+    let sql = "select customer_id, region, row_number() over (order by customer_id) \
+               from (select customer_id, region from dim_customer order by customer_id limit 3)";
+    let mut engines = Engines::new(None);
+    let statement = RawStatement::parse(sql).expect("a test statement is a statement");
+    let tables = tables();
+    let mut legs = Texts {
+        engines: &mut engines,
+        texts: Vec::new(),
+    };
+    let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    let texts = legs.texts;
+    let Some(Ok(rows)) = answer else {
+        panic!("the window must run with explicit source columns: {answer:?}; sent={texts:?}")
+    };
+    let [text] = texts.as_slice() else {
+        panic!("one source statement: {texts:?}")
+    };
+    assert!(
+        text.contains("derived_window_input"),
+        "the window must sit over a derived input: {text}"
+    );
+    assert!(!text.contains('*'), "no wildcard reaches the source: {text}");
+    assert_eq!(rows.columns().len(), 3);
+    assert_eq!(rows.rows(), engines.as_one(sql).rows());
+}
+
 #[test]
 fn cube_unsigned_results_are_refused_before_open_and_signed_results_still_run() {
     for kind in [
@@ -191,6 +368,9 @@ impl StatementLegs for Engines {
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        if !explicit_source_projection(statement.as_str()) {
+            return Err(source.clone());
+        }
         self.ran.push(source.clone());
         if self.stopping.as_ref() == Some(source) {
             return Err(source.clone());

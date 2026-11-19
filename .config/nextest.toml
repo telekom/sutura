@@ -122,6 +122,7 @@ success-output = "immediate"
 real-cargo = { max-threads = 2 }
 entry-cap = { max-threads = 1 }
 paired-gate = { max-threads = 1 }
+oracle-catalog-fixture = { max-threads = 1 }
 
 [[profile.default.overrides]]
 # The composite gas cell runs TWO nested `causality::run`s (the `Pass` shape and its laundered
@@ -211,3 +212,9 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 [[profile.default.overrides]]
 filter = "binary_id(sutura-exec-clickhouse::adbc_execute_as) & test(/^adbc_execute_as::a_readonly_switched_/)"
 success-output = "immediate"
+
+# These cells recreate the same dictionary fixture tables in one provisioned Oracle schema.
+# Serialize this integration binary only; other Oracle binaries keep their own scheduling.
+[[profile.default.overrides]]
+filter = "binary_id(=sutura-catalog-rdbms::oracle_provisioned)"
+test-group = "oracle-catalog-fixture"
