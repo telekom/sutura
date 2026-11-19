@@ -51,7 +51,15 @@ impl DictionaryReader for Recorded<'_> {
     }
 }
 
+/// Cells of one test binary run as threads of one process, so the process id alone would give
+/// them one owner, one reader and one directory to drop from under each other.
+fn next_tag() -> u32 {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 struct Fixture {
+    tag: u32,
     admin: oracledb::Connection,
     owner: oracledb::Connection,
     schema: String,
@@ -74,8 +82,9 @@ impl Fixture {
             .set_trust_anchors_pem(&anchors)
             .unwrap();
         let admin = oracledb::connect(dial.clone().set_credentials("SYSTEM", &password)).unwrap();
-        let schema = format!("ND_OWNER_{}", std::process::id());
-        let reader = format!("ND_READER_{}", std::process::id());
+        let tag = next_tag();
+        let schema = format!("ND_OWNER_{}_{tag}", std::process::id());
+        let reader = format!("ND_READER_{}_{tag}", std::process::id());
         assert!(!password.contains('"'), "the generated fixture credential must be quotable");
         for user in [&schema, &reader] {
             if let Err(cause) = admin.execute(&format!("DROP USER {user} CASCADE"), &[]) {
@@ -124,7 +133,7 @@ impl Fixture {
                 }
             }
         }
-        let root = std::env::temp_dir().join(format!("sutura-native-dictionary-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sutura-native-dictionary-{}-{tag}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("password"), password).unwrap();
         let connection = format!(
@@ -133,6 +142,7 @@ impl Fixture {
             root.join("password").display()
         );
         Self {
+            tag,
             admin,
             owner,
             schema,
