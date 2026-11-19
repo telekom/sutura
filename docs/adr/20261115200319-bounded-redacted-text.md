@@ -86,7 +86,8 @@ final scalar bounds; numeric expressions are never regenerated from the engine's
 An optional `raw_prefilter` declaration records a nonempty bounded operator reason accepting
 secret-dependent search timing. It does not permit a raw result decision. The compiler may add
 a raw necessary condition only for a positive conjunctive literal contains search in one table
-and scope, with proved comparison semantics and replacement barriers. Unknown shapes preserve
+and scope, beside only conjuncts that cannot raise on any row (a plain column against literals
+of its own type), with proved comparison semantics and replacement barriers. Unknown shapes preserve
 the original redacted-only path. Each nonempty replacement must contain no whole term and block
 both boundary overlaps; the proof composes over ordered replacements and the truncation marker
 where it is searched. No inference about arbitrary regex languages is required.
@@ -94,8 +95,8 @@ where it is searched. No inference about arbitrary regex languages is required.
 DataFusion binary comparison and guarded Oracle CLOB/NCLOB comparison are the initial eligible
 venues. Oracle `UPPER` uses its binary character-set mapping; its runtime binary sort check
 retains every row on any other or NULL value. No session setting is changed, and unknown
-data-bound collations on other source columns remain ineligible. Cube's eligible path is local
-DataFusion policy work, not source scan reduction. The exact transformed predicate still decides
+data-bound collations on other source columns remain ineligible. Cube's local policy work is not
+an eligible venue and keeps the redacted-only path. The exact transformed predicate still decides
 the answer. A hidden raw term may incur extra redaction work and reveal information through
 timing; the acknowledgement records acceptance rather than preventing that disclosure.
 

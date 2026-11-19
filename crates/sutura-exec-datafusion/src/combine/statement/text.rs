@@ -177,6 +177,15 @@ pub(super) fn protected(table: &StatementTable) -> bool {
 }
 
 pub(super) fn apply(text: String, tables: &[StatementTable], dialect: TypeDialect) -> Result<String> {
+    rewrite(text, tables, dialect, true)
+}
+
+/// The Cube local policy path: Cube is not an eligible comparison arm, so it keeps the redacted-only plan.
+pub(super) fn apply_cube_local(text: String, tables: &[StatementTable]) -> Result<String> {
+    rewrite(text, tables, TypeDialect::DataFusion, false)
+}
+
+fn rewrite(text: String, tables: &[StatementTable], dialect: TypeDialect, prefiltering: bool) -> Result<String> {
     if !tables.iter().any(protected) {
         return Ok(text);
     }
@@ -184,7 +193,11 @@ pub(super) fn apply(text: String, tables: &[StatementTable], dialect: TypeDialec
     let [statement] = statements.as_mut_slice() else {
         return plan_err!("expected one source statement");
     };
-    let prefilter = super::text_prefilter::discover(statement, tables, dialect)?;
+    let prefilter = if prefiltering {
+        super::text_prefilter::discover(statement, tables, dialect)?
+    } else {
+        None
+    };
     if let ControlFlow::Break(cause) = statement.visit(&mut Views {
         tables,
         dialect,

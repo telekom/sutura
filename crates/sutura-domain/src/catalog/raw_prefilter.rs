@@ -25,7 +25,9 @@ impl TryFrom<WrittenRawPrefilter> for RawPrefilter {
 impl RawPrefilter {
     /// Records why this column may use a raw necessary-condition search.
     ///
-    /// This permits timing differences, never a result decision on unredacted text.
+    /// This permits timing differences, never a result decision on unredacted text. It also never
+    /// lets an error stand for one, so the search applies only beside conjuncts that cannot raise:
+    /// a plain column compared with literals of its own type.
     pub fn parse(reason: impl AsRef<str>) -> Result<Self, InvalidOperatorText> {
         AcknowledgementReason::written_under("raw_prefilter.acknowledged_because", reason)
             .map(|acknowledged_because| Self { acknowledged_because })

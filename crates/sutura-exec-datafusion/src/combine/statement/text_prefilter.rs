@@ -2,6 +2,7 @@
 
 use std::ops::ControlFlow;
 
+use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::common::plan_datafusion_err;
 use datafusion::error::Result;
 use datafusion::sql::sqlparser::ast::{
@@ -128,7 +129,6 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     let Some(selection) = &select.selection else {
         return Ok(None);
     };
-    let mut selected = None;
     let aliases = select
         .projection
         .iter()
@@ -137,30 +137,131 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
             _ => None,
         })
         .collect::<Vec<_>>();
-    conjuncts(selection, &mut |term| {
-        if selected.is_none() {
-            selected = condition(term, table, alias.as_ref().map(|alias| &alias.name), &aliases, dialect)?;
+    let alias = alias.as_ref().map(|alias| &alias.name);
+    let mut terms = Vec::new();
+    conjuncts(selection, &mut terms);
+    let mut chosen = None;
+    for (index, term) in terms.iter().enumerate() {
+        if let Some(condition) = condition(term, table, alias, &aliases, dialect)? {
+            chosen = Some((index, condition));
+            break;
         }
-        Ok(())
-    })?;
-    Ok(selected.map(|condition| Prefilter {
+    }
+    let Some((chosen, condition)) = chosen else {
+        return Ok(None);
+    };
+    // The source may test the raw text before any sibling, so a sibling that can raise on one row
+    // would turn "error or empty answer" into a signal about that row's unredacted text.
+    if terms
+        .iter()
+        .enumerate()
+        .any(|(index, term)| index != chosen && !cannot_raise(term, table, alias, &aliases))
+    {
+        return Ok(None);
+    }
+    Ok(Some(Prefilter {
         table: address,
         condition,
     }))
 }
 
-fn conjuncts(expression: &Expr, visit: &mut impl FnMut(&Expr) -> Result<()>) -> Result<()> {
+fn conjuncts<'a>(expression: &'a Expr, terms: &mut Vec<&'a Expr>) {
     match expression {
-        Expr::Nested(expression) => conjuncts(expression, visit),
+        Expr::Nested(expression) => conjuncts(expression, terms),
         Expr::BinaryOp {
             left,
             op: BinaryOperator::And,
             right,
         } => {
-            conjuncts(left, visit)?;
-            conjuncts(right, visit)
+            conjuncts(left, terms);
+            conjuncts(right, terms);
         }
-        other => visit(other),
+        other => terms.push(other),
+    }
+}
+
+/// Only a plain column compared with literals of its own type: no function, cast, arithmetic,
+/// subquery or column on both sides, so no row can make the source raise.
+fn cannot_raise(term: &Expr, table: &StatementTable, alias: Option<&Ident>, aliases: &[&str]) -> bool {
+    let against = |column: &Expr, literal: &Expr| {
+        plain(column, table, alias, aliases).is_some_and(|field| literal_of(literal, field.data_type()))
+    };
+    match term {
+        Expr::BinaryOp {
+            left,
+            op:
+                BinaryOperator::Eq
+                | BinaryOperator::NotEq
+                | BinaryOperator::Lt
+                | BinaryOperator::LtEq
+                | BinaryOperator::Gt
+                | BinaryOperator::GtEq,
+            right,
+        } => against(left, right) || against(right, left),
+        Expr::IsNull(column) | Expr::IsNotNull(column) => plain(column, table, alias, aliases).is_some(),
+        Expr::InList { expr, list, .. } => list.iter().all(|literal| against(expr, literal)),
+        Expr::Between { expr, low, high, .. } => against(expr, low) && against(expr, high),
+        _ => false,
+    }
+}
+
+fn plain<'a>(expression: &Expr, table: &'a StatementTable, alias: Option<&Ident>, aliases: &[&str]) -> Option<&'a Field> {
+    let column = column_of(expression, table, alias)?;
+    if aliases.contains(&column.value.as_str()) {
+        return None;
+    }
+    table.schema().field_with_name(&column.value).ok()
+}
+
+fn literal_of(expression: &Expr, kind: &DataType) -> bool {
+    let number = matches!(
+        kind,
+        DataType::Int8
+            | DataType::Int16
+            | DataType::Int32
+            | DataType::Int64
+            | DataType::UInt8
+            | DataType::UInt16
+            | DataType::UInt32
+            | DataType::UInt64
+            | DataType::Float16
+            | DataType::Float32
+            | DataType::Float64
+            | DataType::Decimal128(..)
+            | DataType::Decimal256(..)
+    );
+    match expression {
+        Expr::Value(value) => match &value.value {
+            Value::SingleQuotedString(_) => matches!(kind, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View),
+            Value::Number(..) => number,
+            Value::Boolean(_) => *kind == DataType::Boolean,
+            _ => false,
+        },
+        Expr::UnaryOp {
+            op: UnaryOperator::Minus | UnaryOperator::Plus,
+            expr,
+        } => number && matches!(expr.as_ref(), Expr::Value(value) if matches!(value.value, Value::Number(..))),
+        _ => false,
+    }
+}
+
+fn column_of<'a>(input: &'a Expr, table: &StatementTable, alias: Option<&Ident>) -> Option<&'a Ident> {
+    match input {
+        Expr::Identifier(column) => Some(column),
+        Expr::CompoundIdentifier(path) => {
+            let (column, qualifier) = path.split_last()?;
+            let qualifier: Vec<_> = qualifier.iter().map(|part| part.value.as_str()).collect();
+            let qualifier = qualifier.join(".");
+            let permitted = alias.map_or_else(
+                || {
+                    let physical = table.table().to_string();
+                    qualifier == physical || physical.rsplit('.').next() == Some(qualifier.as_str())
+                },
+                |alias| qualifier == alias.value,
+            );
+            permitted.then_some(column)
+        }
+        _ => None,
     }
 }
 
@@ -221,27 +322,8 @@ fn condition(
         }
         other => (other, false),
     };
-    let column = match input {
-        Expr::Identifier(column) => column,
-        Expr::CompoundIdentifier(path) => {
-            let Some((column, qualifier)) = path.split_last() else {
-                return Ok(None);
-            };
-            let qualifier: Vec<_> = qualifier.iter().map(|part| part.value.as_str()).collect();
-            let qualifier = qualifier.join(".");
-            let permitted = alias.map_or_else(
-                || {
-                    let physical = table.table().to_string();
-                    qualifier == physical || physical.rsplit('.').next() == Some(qualifier.as_str())
-                },
-                |alias| qualifier == alias.value,
-            );
-            if !permitted {
-                return Ok(None);
-            }
-            column
-        }
-        _ => return Ok(None),
+    let Some(column) = column_of(input, table, alias) else {
+        return Ok(None);
     };
     if aliases.contains(&column.value.as_str()) {
         return Ok(None);

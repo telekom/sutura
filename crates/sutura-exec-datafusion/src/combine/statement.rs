@@ -715,7 +715,7 @@ async fn planned(
             .find(|function| function.name() == "regexp_replace")
             .ok_or_else(|| plan_datafusion_err!("the text policy function is unavailable"))?;
         context.register_udf(replace.as_ref().clone());
-        let sql = text::apply(policy_sql, &local, TypeDialect::DataFusion)?;
+        let sql = text::apply_cube_local(policy_sql, &local)?;
         let mut rewritten = Parser::parse_sql(&GenericDialect, &sql).map_err(DataFusionError::from)?;
         let statement = rewritten
             .pop()

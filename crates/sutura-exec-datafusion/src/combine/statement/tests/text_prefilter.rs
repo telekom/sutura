@@ -28,6 +28,8 @@ fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, en
         dialect,
         Arc::new(Schema::new(vec![
             Field::new("BODY", DataType::Utf8, true).with_metadata(metadata),
+            Field::new("id", DataType::Int64, true),
+            Field::new("label", DataType::Utf8, true),
         ])),
     )
 }
@@ -224,7 +226,6 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
         TypeDialect::DuckDb,
         TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
-        TypeDialect::Cube,
     ] {
         assert!(
             raw_predicates(sql, table(dialect, &["[masked]"], true, false, true))
@@ -233,4 +234,70 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
             "{dialect:?}"
         );
     }
+}
+
+#[test]
+fn a_sibling_conjunct_that_can_raise_keeps_the_redacted_only_path() {
+    let sql = |sibling: &str| format!("SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%' AND {sibling}");
+    let enabled = || table(TypeDialect::DataFusion, &["[masked]"], true, false, true);
+    for plain in [
+        "id = 5",
+        "id <> 5",
+        "id >= -1",
+        "5 < id",
+        "id BETWEEN 1 AND 9",
+        "id IN (1, 2, 3)",
+        "label = 'x'",
+        "label IN ('a', 'b')",
+        "label IS NOT NULL",
+        "id IS NULL",
+        "(id = 5 AND label <> 'x')",
+    ] {
+        assert!(raw_predicates(&sql(plain), enabled())[0].is_some(), "{plain}");
+    }
+    for raising in [
+        "1 / (id - 5) = 0",
+        "CAST(label AS INT) = 1",
+        "id = label",
+        "label = 5",
+        "id = 'x'",
+        "id IN (1, label)",
+        "id IN (1, 'x')",
+        "id BETWEEN 1 AND label",
+        "id BETWEEN label AND 9",
+        "UPPER(label) = 'X'",
+        "id + 1 = 2",
+        "label LIKE '%x%'",
+        "id = 1.5e0 / 0",
+        "(id = 5 AND 1 / (id - 5) = 0)",
+    ] {
+        assert!(
+            raw_predicates(&sql(raising), enabled()).iter().all(Option::is_none),
+            "{raising}"
+        );
+    }
+    let oracle = || table(TypeDialect::Oracle, &["[masked]"], true, true, true);
+    let upper = |sibling: &str| format!("SELECT \"BODY\" FROM \"notes\" WHERE UPPER(\"BODY\") LIKE '%TERM%' AND {sibling}");
+    assert!(raw_predicates(&upper("id = 5"), oracle())[0].is_some());
+    assert!(
+        raw_predicates(&upper("1 / (id - 5) = 0"), oracle())
+            .iter()
+            .all(Option::is_none)
+    );
+}
+
+#[test]
+fn the_cube_local_policy_never_adds_a_raw_condition() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let acknowledged = || table(TypeDialect::Cube, &["[masked]"], true, false, true);
+    assert!(
+        raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some(),
+        "the same shape does take a raw condition where the arm is eligible"
+    );
+    let local = super::super::text::apply_cube_local(String::from(sql), &[acknowledged()])
+        .expect("the local policy rewrites an acknowledged Cube column");
+    let mut raw = RawPredicates::default();
+    assert!(parsed(&local).visit(&mut raw).is_continue());
+    assert!(!raw.0.is_empty(), "the source table must still be read");
+    assert!(raw.0.iter().all(Option::is_none), "{local}");
 }
