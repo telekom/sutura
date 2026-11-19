@@ -82,7 +82,11 @@ impl SubmissionCapture {
     }
 
     pub(super) fn seal(&self) {
-        self.0.state.lock().sealed = true;
+        let mut state = self.0.state.lock();
+        state.sealed = true;
+        let active = state.active;
+        drop(state);
+        tracing::debug!(target: "sutura_diagnostic", phase = "capture_sealed", active, "task capture phase");
     }
 
     pub(super) async fn finish(&self) -> Result<Vec<Submission>, DataFusionError> {

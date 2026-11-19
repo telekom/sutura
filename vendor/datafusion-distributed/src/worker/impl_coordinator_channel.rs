@@ -28,6 +28,9 @@ impl Worker {
         stream: BoxStream<'static, Result<CoordinatorToWorkerMsg>>,
     ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
         let key = request.task_key;
+        tracing::debug!(target: "sutura_diagnostic", phase = "worker_received", method = "CoordinatorChannel",
+            query = %key.query_id, stage = key.stage_id, task = key.task_number,
+            "distributed task phase");
         let completion_request = request.completion;
         let completion_deadline = completion_request.map(|v| tokio::time::Instant::now().checked_add(v.timeout)
             .ok_or_else(|| exec_datafusion_err!("invalid completion deadline"))).transpose()?;
@@ -183,6 +186,11 @@ impl Worker {
                 }
             }
 
+            tracing::debug!(target: "sutura_diagnostic", phase = "worker_input_end",
+                query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                input_failed = input_error.is_some(),
+                deadline_elapsed = completion_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline),
+                "distributed task phase");
             if completion_request.is_some() { stop_load_info_on_eos.cancel(); }
             let metrics_tx = task_data.metrics_tx.lock().unwrap().take();
             if let Some(Ok(plan)) = task_data.final_plan.get() {
@@ -215,6 +223,9 @@ impl Worker {
                     request.check(&records)?;
                     Ok(WorkerToCoordinatorMsg::TaskCompletion(crate::TaskCompletion { task_key: key, records }))
                 }.await;
+                tracing::debug!(target: "sutura_diagnostic", phase = "worker_completion_end",
+                    query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                    succeeded = completion.is_ok(), "distributed task phase");
                 let _ = completion_tx.send(completion);
             }
             task_data_entries.invalidate(&key).await

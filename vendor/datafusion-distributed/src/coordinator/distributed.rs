@@ -206,67 +206,87 @@ impl ExecutionPlan for DistributedExec {
         let tx = builder.tx();
 
         let completion_deadline = completion.as_ref().map(|v| v.deadline);
-        let execution = async move {
-            // Dropping this `guard` is what signals the coordinator->worker channel to be dropped,
-            // which triggers a chain reaction that ends up also gracefully closing the
-            // worker->coordinator channel. The flow looks like this:
-            // 1. The query ends normally, as all Arrow RecordBatches are already streamed.
-            // 2. The `guard` here is dropped.
-            // 3. In StageCoordinator::send_plan_task(), `end_stream_notifier` fires and the
-            //    coordinator->worker channel is gracefully ended.
-            // 4. The coordinator->worker channel EOS is received in `impl_coordinator_channel.rs`.
-            // 5. The metrics are send back in the worker->coordinator channel, and then that
-            //    channel is closed.
-            let guard = query_coordinator.end_query_guard();
+        builder.spawn(tracing::Instrument::in_current_span(async move {
+            let mut phase = "preparing";
+            tracing::debug!(target: "sutura_diagnostic", phase, "distributed query phase");
+            let execution = async {
+                // Dropping this `guard` is what signals the coordinator->worker channel to be dropped,
+                // which triggers a chain reaction that ends up also gracefully closing the
+                // worker->coordinator channel. The flow looks like this:
+                // 1. The query ends normally, as all Arrow RecordBatches are already streamed.
+                // 2. The `guard` here is dropped.
+                // 3. In StageCoordinator::send_plan_task(), `end_stream_notifier` fires and the
+                //    coordinator->worker channel is gracefully ended.
+                // 4. The coordinator->worker channel EOS is received in `impl_coordinator_channel.rs`.
+                // 5. The metrics are send back in the worker->coordinator channel, and then that
+                //    channel is closed.
+                let guard = query_coordinator.end_query_guard();
 
-            let d_cfg = DistributedConfig::from_config_options(context.session_config().options())?;
-            let result = match d_cfg.dynamic_task_count {
-                true => prepare_dynamic_plan(&query_coordinator, &base_plan).await?,
-                false => prepare_static_plan(&query_coordinator, &base_plan)?,
-            };
-
-            plan_for_viz
-                .lock()
-                .expect("poisoned lock")
-                .replace(result.plan_for_viz);
-            head_stage
-                .lock()
-                .expect("poisoned lock")
-                .replace(Arc::clone(&result.head_stage));
-            let mut stream = result.head_stage.execute(partition, context)?;
-            while let Some(msg) = stream.next().await {
-                let msg = match msg {
-                    Err(cause) if completion.is_some() => return Err(cause),
-                    msg => msg,
+                let d_cfg = DistributedConfig::from_config_options(context.session_config().options())?;
+                let result = match d_cfg.dynamic_task_count {
+                    true => prepare_dynamic_plan(&query_coordinator, &base_plan).await?,
+                    false => prepare_static_plan(&query_coordinator, &base_plan)?,
                 };
-                if tx.send(msg).await.is_err() {
-                    break; // channel closed
+
+                plan_for_viz
+                    .lock()
+                    .expect("poisoned lock")
+                    .replace(result.plan_for_viz);
+                head_stage
+                    .lock()
+                    .expect("poisoned lock")
+                    .replace(Arc::clone(&result.head_stage));
+                phase = "head_rows";
+                tracing::debug!(target: "sutura_diagnostic", phase, "distributed query phase");
+                let mut stream = result.head_stage.execute(partition, context)?;
+                let mut output_closed = false;
+                while let Some(msg) = stream.next().await {
+                    let msg = match msg {
+                        Err(cause) if completion.is_some() => return Err(cause),
+                        msg => msg,
+                    };
+                    if tx.send(msg).await.is_err() {
+                        output_closed = true;
+                        break; // channel closed
+                    }
                 }
-            }
-            if let Some(completion) = completion {
-                // A LIMIT may have left child streams alive after its own EOF.
-                drop(stream);
-                drop(guard);
-                query_coordinator.drain_pending_tasks().await?;
-                if tx.is_closed() {
-                    return exec_err!("query output dropped before completion");
+                tracing::debug!(target: "sutura_diagnostic", phase = "head_stream_end", output_closed, "distributed query phase");
+                if let Some(completion) = completion {
+                    // A LIMIT may have left child streams alive after its own EOF.
+                    drop(stream);
+                    drop(guard);
+                    tracing::debug!(target: "sutura_diagnostic", phase = "end_guard_dropped", "distributed query phase");
+                    phase = "completion_wait";
+                    tracing::debug!(target: "sutura_diagnostic", phase, "distributed query phase");
+                    query_coordinator.drain_pending_tasks().await?;
+                    if tx.is_closed() {
+                        return exec_err!("query output dropped before completion");
+                    }
+                    completion.finish()?;
+                    tracing::debug!(target: "sutura_diagnostic", phase = "completion_ready", "distributed query phase");
+                    drop(tx);
+                } else {
+                    drop(tx);
+                    drop(guard);
+                    tracing::debug!(target: "sutura_diagnostic", phase = "end_guard_dropped", "distributed query phase");
+                    phase = "completion_wait";
+                    tracing::debug!(target: "sutura_diagnostic", phase, "distributed query phase");
+                    query_coordinator.drain_pending_tasks().await?;
                 }
-                completion.finish()?;
-                drop(tx);
-            } else {
-                drop(tx);
-                drop(guard);
-                query_coordinator.drain_pending_tasks().await?;
-            }
-            Ok(())
-        };
-        builder.spawn(async move {
+                Ok(())
+            };
             match completion_deadline {
-                Some(deadline) => tokio::time::timeout_at(deadline, execution).await
-                    .map_err(|cause| datafusion::common::exec_datafusion_err!("query completion deadline: {cause}"))?,
+                Some(deadline) => match tokio::time::timeout_at(deadline, execution).await {
+                    Ok(result) => result,
+                    Err(cause) => {
+                        tracing::debug!(target: "sutura_diagnostic", phase = "execution_deadline", waiting_phase = phase,
+                            "distributed query phase");
+                        Err(datafusion::common::exec_datafusion_err!("query completion deadline: {cause}"))
+                    }
+                },
                 None => execution.await,
             }
-        });
+        }));
 
         Ok(builder.build())
     }

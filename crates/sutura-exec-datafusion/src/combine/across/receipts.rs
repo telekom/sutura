@@ -99,7 +99,19 @@ pub(super) fn install(mut builder: SessionStateBuilder) -> SessionStateBuilder {
     } else {
         config
     };
-    let producer = TaskCompletionProducer::new(|_, plan, request| Box::pin(produce(plan, request)));
+    let producer = TaskCompletionProducer::new(|key, plan, request| {
+        let diagnostic = tracing::debug_span!(target: "sutura_diagnostic", "task_capture",
+            query = %key.query_id, stage = key.stage_id, task = key.task_number);
+        Box::pin(tracing::Instrument::instrument(
+            async move {
+                tracing::debug!(target: "sutura_diagnostic", phase = "capture_producer_start", "task capture phase");
+                let records = produce(plan, request).await;
+                tracing::debug!(target: "sutura_diagnostic", phase = "capture_producer_end", succeeded = records.is_ok(), "task capture phase");
+                records
+            },
+            diagnostic,
+        ))
+    });
     *builder.config() = Some(config.with_extension(Arc::new(producer)));
     builder
 }

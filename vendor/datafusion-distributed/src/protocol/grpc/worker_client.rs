@@ -115,6 +115,7 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
         let elapsed_compute_clone = elapsed_compute.clone();
         MetricBuilder::new(&metrics).build(MetricValue::ElapsedCompute(elapsed_compute.clone()));
 
+        let key = request.task_key;
         let target_partition_range = request.target_partition_start..request.target_partition_end;
         let request = pb::ExecuteTaskRequest {
             task_key: Some(encode_task_key(request.task_key)),
@@ -164,11 +165,17 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
                     // anyway trigger the task execution and cancel it immediately so that the
                     // cancellation is propagated also in the remote worker. Otherwise, it might
                     // hang forever waiting for someone to execute it.
-                    let _ = self_clone.execute_task(Request::from_parts(
+                    tracing::debug!(target: "sutura_diagnostic", phase = "rpc_start", method = "ExecuteTask",
+                        query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                        cancelled_before_poll = true, "distributed task phase");
+                    let result = self_clone.execute_task(Request::from_parts(
                         metadata_for_task,
                         Extensions::default(),
                         request_for_task,
                     )).await;
+                    tracing::debug!(target: "sutura_diagnostic", phase = "rpc_cancelled", method = "ExecuteTask",
+                        query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                        headers_received = result.is_ok(), "distributed task phase");
                     return
                 },
                 _ = first_poll_notify_for_task.notified() => {}
@@ -179,10 +186,21 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
                 Extensions::default(),
                 request_for_task,
             );
+            tracing::debug!(target: "sutura_diagnostic", phase = "rpc_start", method = "ExecuteTask",
+                query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                "distributed task phase");
             let mut interleaved_stream = match self_clone.execute_task(request).await {
                 Ok(v) => v.into_inner(),
-                Err(err) => return fanout(&per_partition_tx, err),
+                Err(err) => {
+                    tracing::debug!(target: "sutura_diagnostic", phase = "rpc_error", method = "ExecuteTask",
+                        query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                        status = %err.code(), "distributed task phase");
+                    return fanout(&per_partition_tx, err);
+                }
             };
+            tracing::debug!(target: "sutura_diagnostic", phase = "rpc_headers", method = "ExecuteTask",
+                query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                "distributed task phase");
 
             loop {
                 // Backpressure gate. Per-partition channels are unbounded, so we cap
@@ -194,7 +212,12 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
                 while memory_reservation.size() >= buffer_budget_bytes {
                     tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => return,
+                        _ = cancel.cancelled() => {
+                            tracing::debug!(target: "sutura_diagnostic", phase = "rpc_cancelled", method = "ExecuteTask",
+                                query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                                waiting_phase = "buffer", "distributed task phase");
+                            return;
+                        },
                         _ = mem_available_notify_for_task.notified() => {}
                     }
                 }
@@ -202,12 +225,27 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
                 // Check for cancellation while waiting for the next message.
                 let flight_data = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
+                    _ = cancel.cancelled() => {
+                            tracing::debug!(target: "sutura_diagnostic", phase = "rpc_cancelled", method = "ExecuteTask",
+                                query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                                waiting_phase = "body", "distributed task phase");
+                            return;
+                        },
                     msg = interleaved_stream.next() => {
                         match msg {
                             Some(Ok(v)) => v,
-                            Some(Err(err)) => return fanout(&per_partition_tx, err),
-                            None => return, // Stream exhausted
+                            Some(Err(err)) => {
+                                tracing::debug!(target: "sutura_diagnostic", phase = "rpc_body_error", method = "ExecuteTask",
+                                    query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                                    status = %err.code(), "distributed task phase");
+                                return fanout(&per_partition_tx, err);
+                            }
+                            None => {
+                                tracing::debug!(target: "sutura_diagnostic", phase = "rpc_eof", method = "ExecuteTask",
+                                    query = %key.query_id, stage = key.stage_id, task = key.task_number,
+                                    "distributed task phase");
+                                return;
+                            }
                         }
                     }
                 };
