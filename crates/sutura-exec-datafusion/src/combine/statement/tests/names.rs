@@ -120,3 +120,31 @@ fn a_native_oracle_statement_over_a_column_name_holding_a_quote_is_refused() {
         }
     }
 }
+
+#[test]
+fn a_text_policy_view_over_an_unread_column_name_holding_a_quote_is_refused() {
+    let protected = text("sales_area").with_metadata(HashMap::from([(
+        String::from("sutura:text_policy"),
+        String::from(r#"{"max_text_bytes":128}"#),
+    )]));
+    for dialect in DIALECTS {
+        for (name, written) in [("its", true), ("it's", false)] {
+            let tables = regions_with(dialect, vec![text("region"), protected.clone(), text(name)]);
+            let mut legs = Recorded::default();
+            let answer = answered(r#"select "sales_area" from "dim_region""#, &tables, &mut legs);
+            if written {
+                assert!(
+                    matches!(answer, Some(Err(StatementStopped::Leg(_)))),
+                    "{dialect:?}: {name}: {answer:?}"
+                );
+                assert!(!legs.statements.is_empty(), "{dialect:?}: {name}");
+            } else {
+                assert!(
+                    matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+                    "{dialect:?}: {name}: {answer:?}"
+                );
+                assert_eq!(legs.opened, 0, "{dialect:?}: {name}");
+            }
+        }
+    }
+}

@@ -15,7 +15,7 @@ use sutura_domain::catalog::TextPolicy;
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
-use super::literal::{literal, spelled};
+use super::literal::{literal, quotable_table, spelled};
 
 const KEY: &str = "sutura:text_policy";
 const LOB_KEY: &str = "sutura:oracle_lob";
@@ -242,6 +242,10 @@ impl VisitorMut for Views<'_> {
         else {
             return ControlFlow::Continue(());
         };
+        // The view lists every column of the table, read or not, so each name is checked here.
+        if !quotable_table(table) {
+            return ControlFlow::Break(plan_datafusion_err!("a name holds a backslash or a quote character"));
+        }
         let projection = table
             .schema()
             .fields()
