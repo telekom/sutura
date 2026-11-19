@@ -234,6 +234,9 @@ pub enum FixtureNotUsable {
     /// nothing.
     #[error("a fixture has a header and no rows")]
     NoRows,
+    /// The column asked to carry a collation is absent, or is not text.
+    #[error("the fixture has no text column to collate")]
+    NotCollatable,
     /// A cell cannot be rendered as the type its column was inferred to be.
     #[error("row {row}, column {column} of a fixture is not a {expected}")]
     Cell {
@@ -249,12 +252,34 @@ pub(crate) struct Fixture {
     columns: Vec<(String, ColumnType)>,
     /// One entry per data row, each already a parenthesised tuple of literals.
     tuples: Vec<String>,
+    /// The text column stored with case-insensitive collation, the shape a binary search must refuse.
+    collated: Option<String>,
 }
 
 impl Fixture {
     /// How many data rows this fixture carries, which is what a caller asserts a load moved.
     pub(crate) const fn rows(&self) -> usize {
         self.tuples.len()
+    }
+
+    /// Stores `column` as `STRING COLLATE 'und:ci'`, the only collation a fixture may declare.
+    pub(crate) fn collate(mut self, column: &ColumnName) -> Result<Self, FixtureNotUsable> {
+        let text = self
+            .columns
+            .iter()
+            .any(|&(ref name, kind)| name == column.as_str() && kind == ColumnType::String);
+        if !text {
+            return Err(FixtureNotUsable::NotCollatable);
+        }
+        self.collated = Some(column.as_str().to_owned());
+        Ok(self)
+    }
+
+    /// The `SELECT` clause that gives the collated column its collation, empty when none is declared.
+    fn collation(&self) -> String {
+        self.collated.as_ref().map_or_else(String::new, |name| {
+            format!(" REPLACE (COLLATE(`{name}`, 'und:ci') AS `{name}`)")
+        })
     }
 
     /// The single statement that replaces the table with this fixture's rows.
@@ -290,9 +315,10 @@ impl Fixture {
         let mut out = format!(
             "CREATE OR REPLACE TABLE `{}` \
              OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {} HOUR)) \
-             AS SELECT * FROM UNNEST([STRUCT<{}>",
+             AS SELECT *{} FROM UNNEST([STRUCT<{}>",
             table,
             EXPIRATION_HOURS,
+            self.collation(),
             declared.join(", ")
         );
         // `STRUCT` before every later element, because a one-column bare tuple `(x)` is a parenthesised
@@ -322,7 +348,8 @@ impl Fixture {
             }
         }
         let mut out = format!(
-            "CREATE OR REPLACE TABLE `{table}` OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {EXPIRATION_HOURS} HOUR)) AS SELECT run.fixture_row.* FROM UNNEST([STRUCT<fixture_row STRUCT<{declared}>, fixture_count INT64>"
+            "CREATE OR REPLACE TABLE `{table}` OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {EXPIRATION_HOURS} HOUR)) AS SELECT run.fixture_row.*{} FROM UNNEST([STRUCT<fixture_row STRUCT<{declared}>, fixture_count INT64>",
+            self.collation()
         );
         for (index, (tuple, count)) in runs.into_iter().enumerate() {
             if index > 0 {
@@ -430,7 +457,23 @@ pub(crate) fn read_fixture(text: &str) -> Result<Fixture, FixtureNotUsable> {
         tuples.push(format!("({})", rendered.join(", ")));
     }
 
-    Ok(Fixture { columns, tuples })
+    Ok(Fixture {
+        columns,
+        tuples,
+        collated: None,
+    })
+}
+
+/// The fixture at `csv` with its text column `collated` stored case-insensitively.
+pub(crate) fn read_collated_fixture<E>(csv: &std::path::Path, collated: &ColumnName) -> Result<Fixture, FixtureNotLoaded<E>>
+where
+    E: core::error::Error + 'static,
+{
+    let path = || csv.display().to_string();
+    let text = std::fs::read_to_string(csv).map_err(|cause| FixtureNotLoaded::Unreadable { path: path(), cause })?;
+    read_fixture(&text)
+        .and_then(|fixture| fixture.collate(collated))
+        .map_err(|cause| FixtureNotLoaded::NotUsable { path: path(), cause })
 }
 
 /// Why a fixture did not reach the dataset.
@@ -487,7 +530,7 @@ pub type Dropped<E> = Result<(), FixtureNotLoaded<E>>;
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::QualifiedTable;
+    use sutura_domain::model::{ColumnName, QualifiedTable};
 
     use super::{ColumnType, FixtureNotUsable, read_fixture};
 
@@ -652,6 +695,36 @@ mod tests {
         // fail, so an empty fixture is a refusal at the loader rather than four empty tables.
         assert!(matches!(read_fixture("k,v\n"), Err(FixtureNotUsable::NoRows)));
         assert!(matches!(read_fixture(""), Err(FixtureNotUsable::NoHeader)));
+    }
+
+    #[test]
+    fn a_collated_column_is_re_selected_through_collate_in_both_statement_shapes() {
+        let table = QualifiedTable::parse("acme-data.fixtures.ci").expect("a qualified table");
+        let column = ColumnName::parse("v").expect("a column name");
+        let plain = read_fixture("k,v\n1,Term\n2,term\n").expect("a fixture");
+        let sql = plain.collate(&column).expect("a text column").create_statement(&table);
+        assert!(
+            sql.contains("AS SELECT * REPLACE (COLLATE(`v`, 'und:ci') AS `v`) FROM UNNEST([STRUCT<`k` INT64, `v` STRING>"),
+            "{sql}"
+        );
+        let repeated = read_fixture("k,v\n1,Term\n1,Term\n").expect("a fixture");
+        let sql = repeated.collate(&column).expect("a text column").create_statement(&table);
+        assert!(
+            sql.contains("AS SELECT run.fixture_row.* REPLACE (COLLATE(`v`, 'und:ci') AS `v`) FROM UNNEST("),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn only_a_present_text_column_can_be_collated() {
+        let fixture = || read_fixture("k,v\n1,Term\n").expect("a fixture");
+        for name in ["k", "absent"] {
+            let column = ColumnName::parse(name).expect("a column name");
+            assert_eq!(
+                fixture().collate(&column).expect_err("not text"),
+                FixtureNotUsable::NotCollatable
+            );
+        }
     }
 
     #[test]

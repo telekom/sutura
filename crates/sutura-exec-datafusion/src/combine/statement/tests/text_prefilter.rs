@@ -7,6 +7,8 @@ use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFact
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 
+use sutura_domain::catalog::Collation;
+
 use super::*;
 
 fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, enabled: bool) -> StatementTable {
@@ -367,5 +369,52 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
             rewritten.contains(&format!("AS {quote}BODY{quote}")),
             "{dialect:?}: {rewritten}"
         );
+    }
+}
+
+fn bigquery_conditions(collation: Option<&Collation>) -> Vec<Option<Expr>> {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let source = table(TypeDialect::BigQuery, &["[masked]"], true, false, true);
+    let fields = source
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut field = field.as_ref().clone();
+            if let Some(collation) = collation.filter(|_| field.name() == "BODY") {
+                collation.pin_onto(&mut field);
+            }
+            field
+        })
+        .collect::<Vec<_>>();
+    let pinned = StatementTable::new(
+        source.source().clone(),
+        source.table().clone(),
+        TypeDialect::BigQuery,
+        Arc::new(Schema::new(fields)),
+    );
+    raw_predicates(sql, pinned)
+}
+
+#[test]
+fn bigquery_takes_the_raw_condition_only_over_a_column_pinned_binary() {
+    let binary = bigquery_conditions(Some(&Collation::Binary));
+    let [Some(condition)] = binary.as_slice() else {
+        panic!("one raw necessary condition over a binary pin");
+    };
+    let Statement::Query(expected) = parsed("SELECT 1 FROM notes WHERE (`notes`.`BODY` LIKE '%TERM%')") else {
+        panic!("a query");
+    };
+    let SetExpr::Select(expected) = *expected.body else {
+        panic!("a select");
+    };
+    assert_eq!(
+        Some(condition),
+        expected.selection.as_ref(),
+        "backticks, qualified by the table"
+    );
+    for collation in [None, Some(Collation::Unknown), Some(Collation::named("und:ci"))] {
+        let conditions = bigquery_conditions(collation.as_ref());
+        assert!(conditions.iter().all(Option::is_none), "{collation:?}: {conditions:?}");
     }
 }
