@@ -157,7 +157,7 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // and it did not complete - a syntax error or a constraint. `docs/adr/0022`'s
         // Decision 3 governs what the DETAIL may say once it is built; this is only the status.
         // `PolicySearchNeedsNarrowing` shares it too: the caller must narrow the statement, and
-        // retrying it as is runs out of room again. `DeadlineExceeded` shares it, the same status the certified path's own
+        // retrying it as is runs past the deadline again. `DeadlineExceeded` shares it, the same status the certified path's own
         // `RefusalReason::DeadlineExceeded` gets (`sutura_http::wire::refusal`): a statement this
         // deployment stopped, not a data system that failed to answer, so a caller must narrow the
         // statement rather than retry it as is.

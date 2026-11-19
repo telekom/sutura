@@ -209,16 +209,16 @@ pub enum RawRefusalReason {
     /// Refused before any leg exists, so nothing reached a data system. Carries no source name: the
     /// caller already holds its own tool's source list.
     PlanSpansMoreThanOneSource,
-    /// A statement over a column under a text policy ran out of room before it finished: its part
-    /// ran past the request's deadline, or - at a source whose policy runs in this deployment - its
-    /// scan outgrew the per-leg row cap before any filter over the masked text could narrow it.
+    /// A statement that reads a column under a text policy ran past the request's deadline: a part
+    /// at its source, or the local part of the plan when a part's policy runs here.
     ///
     /// **A backstop, not a fix, and the limit stated with the claim.** The policy masks every row it
     /// reads before the statement's own predicate sees it, so a search with no other filter reads the
-    /// whole column. This refusal names that cause where a generic timeout or size refusal would not;
-    /// it does not make the search finish, and a statement over a policy column that is not a search
-    /// is named the same way when it runs out of room. A filter on a column without a policy narrows
-    /// it. See `docs/raw-text-search.md`.
+    /// whole column. This refusal names that cause where a generic timeout would not; it does not
+    /// make the statement finish, and a statement over a policy column that is not a search is named
+    /// the same way. A filter on a column without a policy narrows it, except at a Cube source, whose
+    /// protected tables are read whole (`docs/raw-text-search.md`). **What it discloses:** that a
+    /// column the caller can already read carries a text policy, and nothing about the policy.
     PolicySearchNeedsNarrowing,
 }
 
@@ -274,7 +274,7 @@ impl fmt::Display for RawRefusalReason {
             ),
             Self::PolicySearchNeedsNarrowing => write!(
                 f,
-                "a full-text search over a column under a text policy needs a narrowing filter; add a filter on a column without a policy"
+                "a statement over a column under a text policy ran out of time; add a filter on a column without a policy"
             ),
         }
     }

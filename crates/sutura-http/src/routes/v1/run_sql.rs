@@ -88,7 +88,7 @@ const TAG: &str = "run_sql";
                            `code: deadline_exceeded` - this deployment stopped the statement after \
                            the asker's own per-request budget; narrow the statement rather than \
                            retrying it as is. `code: policy_search_needs_narrowing` - a statement \
-                           over a column under a text policy ran out of room; add a filter on a \
+                           over a column under a text policy ran out of time; add a filter on a \
                            column without a policy.",
             body = RawOutcomeBody
         ),

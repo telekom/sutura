@@ -1,9 +1,5 @@
 //! A search over a column under a text policy at a Cube source, end to end: the real planner, the real
 //! Cube adapter over a scripted transport, and the cap Cube's SQL answer is held to.
-//!
-//! Cube cannot apply a text policy, so the engine does, over the raw rows the leg answers. The leg's
-//! row cap then counts rows before any filter over the masked text, which is what a refusal for it
-//! has to say.
 
 use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{Audience, Column, ColumnType, Definitions, Description, Model, TextPolicy};
@@ -130,11 +126,14 @@ fn refused(sql: &str, columns: usize) -> RawRefusalReason {
     }
 }
 
+/// A Cube source holding a protected table is sent only bare scans, so a filter on a column without a
+/// policy cannot narrow the answer, and the search keeps its size refusal rather than a remedy that
+/// does not apply.
 #[test]
-fn a_search_over_a_policy_column_that_outgrows_the_cube_row_cap_says_it_needs_a_filter() {
+fn a_search_over_a_protected_cube_table_past_the_row_cap_keeps_its_size_refusal() {
     assert_eq!(
         refused("select id from docs where body like '%needle%'", 2),
-        RawRefusalReason::PolicySearchNeedsNarrowing
+        RawRefusalReason::ResultTooLarge
     );
 }
 

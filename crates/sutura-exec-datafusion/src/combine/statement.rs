@@ -165,7 +165,7 @@ where
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
     legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
-    let reads_policy = policy_of(&parts).is_read();
+    let policy_runs_locally = parts.iter().any(|part| part.policy == PolicyRead::Locally);
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
@@ -193,7 +193,7 @@ where
             .map_err(|cause| CombineError::Execute { cause })?;
         collected(frame, question.working_set_bytes(), working_set).await
     })
-    .ok_or(if reads_policy {
+    .ok_or(if policy_runs_locally {
         StatementStopped::PolicySearchDeadlineExceeded
     } else {
         StatementStopped::DeadlineExceeded

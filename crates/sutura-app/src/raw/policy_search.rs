@@ -152,7 +152,7 @@ fn refused(says: Says, ends: Ends) -> RawRefusalReason {
         1 << 20,
         test_deadline(),
     )
-    .expect("a part that ran out of room is an answer, not a failure");
+    .expect("a part that ended in a refusal is an answer, not a failure");
     match ran.into_outcome() {
         RawOutcome::Refusal { reason } => reason,
         rows @ RawOutcome::Rows { .. } => panic!("expected a refusal, not {rows:?}"),
@@ -184,28 +184,17 @@ fn a_leg_past_its_deadline_is_named_only_when_it_read_a_policy_column() {
     );
 }
 
+/// A policy read renames a deadline and nothing else: a source's own size refusals, and the row cap,
+/// are what they were. A Cube source holding a protected table is sent only bare scans, so a filter
+/// could not narrow them.
 #[test]
-fn a_leg_a_source_will_not_return_whole_is_named_only_when_the_policy_ran_after_it() {
-    assert_eq!(
-        refused(Says::LegReads(PolicyRead::Locally), Ends::TooMuchData),
-        RawRefusalReason::PolicySearchNeedsNarrowing
-    );
-    for read in [PolicyRead::AtSource, PolicyRead::Unread] {
+fn a_policy_read_does_not_rename_a_size_refusal() {
+    for read in [PolicyRead::Unread, PolicyRead::AtSource, PolicyRead::Locally] {
         assert_eq!(
             refused(Says::LegReads(read), Ends::TooMuchData),
             RawRefusalReason::ResultTooLarge,
             "{read:?}"
         );
-    }
-}
-
-#[test]
-fn a_leg_past_the_row_cap_is_named_only_when_the_policy_ran_after_it() {
-    assert_eq!(
-        refused(Says::LegReads(PolicyRead::Locally), Ends::Rows(past_the_cap())),
-        RawRefusalReason::PolicySearchNeedsNarrowing
-    );
-    for read in [PolicyRead::AtSource, PolicyRead::Unread] {
         assert_eq!(
             refused(Says::LegReads(read), Ends::Rows(past_the_cap())),
             RawRefusalReason::TooManyRows { limit: MAX_ROWS },

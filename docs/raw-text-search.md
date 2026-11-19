@@ -61,30 +61,37 @@ baseline query time and opted-in query time separately, along with exact result 
 hidden-secret probes. They describe their engine version and fixture, not a production latency
 guarantee.
 
-## A search that runs out of room
+## A statement over a policy column that runs out of time
 
 A text policy masks every row of the column before the statement's own predicate sees it, so a
 search over a policy column with no other filter reads the whole column. Where such a statement
-cannot finish, the refusal is `policy_search_needs_narrowing` (`422`), not a generic timeout or size
-refusal. Add a filter on a column without a policy so that fewer rows reach the masking.
+runs past the request's deadline, the refusal is `policy_search_needs_narrowing` (`422`), not a
+generic `deadline_exceeded`. Add a filter on a column without a policy so that fewer rows reach the
+masking.
 
-It is named in three cases, and only when the statement reads a column under a text policy:
+It is named in two cases, and only when the statement reads a column under a text policy:
 
 - A part of the statement runs past the request's deadline at its source, on any engine.
-- The local part of the plan runs past the request's deadline.
-- A Cube part answers more rows than the per-leg row cap. Cube cannot apply a text policy, so this
-  deployment applies it over the rows Cube answers, and the cap counts those rows before any filter
-  over the masked text. At every other source the policy runs first, so the same cap is an ordinary
-  `too_many_rows` or `result_too_large`.
+- The local part of the plan runs past the request's deadline, and a part's policy runs in this
+  deployment. That is the case at a Cube source. A policy that ran at its source and a local join
+  that then timed out keep `deadline_exceeded`.
 
 What this does not do:
 
 - It is a backstop, not a fix. The statement still does not finish, and the policy still masks
   every row it reads. The refusal only names the cause and the remedy.
+- It does not help at Cube. A Cube source holding a protected table is sent only bare scans, and
+  the policy and every predicate run in this deployment over the rows Cube answers. A filter on a
+  column without a policy is therefore not sent to Cube, and a protected Cube table with more than
+  10,000 rows cannot be searched. That size refusal stays `result_too_large` or `too_many_rows`.
+  Pushing policy-free conjuncts to Cube is separate work.
 - A timeout of a statement that reads no policy column keeps `deadline_exceeded`. A budget already
   spent before a part runs, and a timeout while planning, also keep it: neither reads a column.
 - The engine decides "reads a column" from the columns the planned scans project. A statement over
   a policy column that is not a search, such as one that only projects it, is named the same way
-  when it runs out of room.
+  when it times out.
 - No separate time budget is added. The refusal rides the request's existing deadline, so it
   arrives when that deadline does, not earlier.
+
+The reason shows that a column the caller can already read carries a text policy. It names no
+column, pattern or replacement, and nothing about the policy beyond its existence.

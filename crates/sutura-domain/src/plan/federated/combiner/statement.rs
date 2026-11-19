@@ -127,8 +127,8 @@ impl<'a> StatementQuestion<'a> {
 
 /// Whether a source part reads a column under a text policy, and where that policy runs.
 ///
-/// Decides what a part that ran out of room means: a part that never read masked text is a large or
-/// slow statement, and a part that did is a search the policy made unfinishable. **The limit:** the
+/// Decides what a part that ran past the deadline means: a part that never read masked text is a slow
+/// statement, and a part that did is one the policy made unfinishable. **The limit:** the
 /// engine reads it off the planned scans' projected columns, so a column the planner pruned is not
 /// read, and a part that reads a policy column only to project it is read all the same.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,7 +139,7 @@ pub enum PolicyRead {
     /// answers are already masked and filtered.
     AtSource,
     /// A column under a text policy is read and the engine applies the policy to the rows after the
-    /// leg answers, so the leg's own row cap counts rows before any filter over the masked text.
+    /// leg answers, so the local part of the plan does the masking.
     Locally,
 }
 
@@ -211,8 +211,8 @@ pub enum StatementStopped<S> {
     AnswerTooLarge,
     /// Planning or the local part of the plan ran past the request's deadline.
     DeadlineExceeded,
-    /// The local part of a plan that reads a column under a text policy ran past the request's
-    /// deadline: a search over masked text no filter narrowed.
+    /// The local part of a plan ran past the request's deadline, and a part's text policy runs in
+    /// this process ([`PolicyRead::Locally`]), so the local part is what masks and filters the text.
     PolicySearchDeadlineExceeded,
 }
 

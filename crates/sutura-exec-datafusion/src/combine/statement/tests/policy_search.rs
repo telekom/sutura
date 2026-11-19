@@ -24,10 +24,51 @@ fn region_table(dialect: TypeDialect, protected: bool) -> StatementTable {
     )
 }
 
+/// Customers at `crm`, a `DuckDB` source, beside `dim_region` as `region_table` has it.
+fn customers_and(region: StatementTable) -> Vec<StatementTable> {
+    vec![
+        StatementTable::new(
+            named("crm"),
+            QualifiedTable::parse("dim_customer").expect("a table"),
+            TypeDialect::DuckDb,
+            customers().schema(),
+        ),
+        region,
+    ]
+}
+
 /// Runs every leg at `engines` and notes what each was told about the policy.
 struct Reading<'a> {
     engines: &'a mut Engines,
-    told: Vec<PolicyRead>,
+    told: Vec<(SourceName, PolicyRead)>,
+}
+
+/// Notes what each leg was told, and stops at the first.
+struct Noting {
+    told: Vec<(SourceName, PolicyRead)>,
+}
+
+impl StatementLegs for Noting {
+    type Stop = SourceName;
+
+    fn open(&mut self, _sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        Ok(())
+    }
+
+    fn run(&mut self, source: &SourceName, _statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        Err(source.clone())
+    }
+
+    fn run_planned(
+        &mut self,
+        source: &SourceName,
+        _statement: &RawStatement,
+        _tables: &BTreeSet<QualifiedTable>,
+        policy: PolicyRead,
+    ) -> Result<RawRows, Self::Stop> {
+        self.told.push((source.clone(), policy));
+        Err(source.clone())
+    }
 }
 
 impl StatementLegs for Reading<'_> {
@@ -48,22 +89,21 @@ impl StatementLegs for Reading<'_> {
         _tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
-        self.told.push(policy);
+        self.told.push((source.clone(), policy));
         self.engines.run(source, statement)
     }
 }
 
 fn answer(
     sql: &str,
-    table: StatementTable,
+    tables: &[StatementTable],
     deadline: Deadline,
     legs: &mut impl StatementLegs<Stop = SourceName>,
 ) -> StatementAnswer<SourceName> {
     let statement = RawStatement::parse(sql).expect("a test statement is a statement");
-    let tables = [table];
     DataFusionCombiner::new()
         .expect("a combiner builds")
-        .answer_statement(StatementQuestion::new(&statement, &tables, false, UNBOUNDED, deadline), legs)
+        .answer_statement(StatementQuestion::new(&statement, tables, true, UNBOUNDED, deadline), legs)
 }
 
 #[test]
@@ -88,12 +128,12 @@ fn a_leg_is_told_whether_it_reads_a_policy_column_and_where_the_policy_runs() {
         };
         let answered = answer(
             sql,
-            region_table(dialect, true),
+            &[region_table(dialect, true)],
             opened(Duration::ZERO, Duration::from_secs(60)),
             &mut legs,
         );
         assert!(matches!(answered, Some(Ok(_))), "{dialect:?}: {sql}: {answered:?}");
-        assert_eq!(legs.told, [expected], "{dialect:?}: {sql}");
+        assert_eq!(legs.told, [(named("geo"), expected)], "{dialect:?}: {sql}");
     }
 }
 
@@ -106,21 +146,21 @@ fn a_table_with_no_policy_column_tells_its_leg_nothing_was_read() {
     };
     let answered = answer(
         "select region from dim_region where sales_area like '%apac%'",
-        region_table(TypeDialect::Cube, false),
+        &[region_table(TypeDialect::Cube, false)],
         opened(Duration::ZERO, Duration::from_secs(60)),
         &mut legs,
     );
     assert!(matches!(answered, Some(Ok(_))), "{answered:?}");
-    assert_eq!(legs.told, [PolicyRead::Unread]);
+    assert_eq!(legs.told, [(named("geo"), PolicyRead::Unread)]);
 }
 
 /// Twenty local self-joins of a three-row table, which Cube's joins keep local: a count no budget of
-/// two seconds can reach the end of. Past the deadline the stop names the policy only where a policy
-/// column was read.
-#[test]
-fn a_local_part_past_the_deadline_names_the_policy_only_when_it_read_one() {
-    let aliases = || (0..20).map(|alias| format!("r{alias}"));
-    let sql = format!(
+/// two seconds can reach the end of.
+const SELF_JOINS: usize = 20;
+
+fn self_join() -> String {
+    let aliases = || (0..SELF_JOINS).map(|alias| format!("r{alias}"));
+    format!(
         "select max({}) from {}",
         aliases()
             .map(|alias| format!("{alias}.sales_area"))
@@ -130,26 +170,131 @@ fn a_local_part_past_the_deadline_names_the_policy_only_when_it_read_one() {
             .map(|alias| format!("dim_region {alias}"))
             .collect::<Vec<_>>()
             .join(", "),
+    )
+}
+
+/// Twelve pairs of a customer and a region table cross joined over two sources, as the existing
+/// deadline cell has it: a local join no two seconds can finish.
+fn federated_cross_join() -> String {
+    let pairs = 0..12;
+    format!(
+        "select sum({}), max({}) from {}",
+        pairs
+            .clone()
+            .map(|pair| format!("c{pair}.customer_id"))
+            .collect::<Vec<_>>()
+            .join(" + "),
+        pairs
+            .clone()
+            .map(|pair| format!("r{pair}.sales_area"))
+            .collect::<Vec<_>>()
+            .join(" || "),
+        pairs
+            .map(|pair| format!("dim_customer c{pair}, dim_region r{pair}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+fn late(sql: &str, tables: &[StatementTable]) -> StatementAnswer<SourceName> {
+    let mut legs = Engines::new(None);
+    let started = Instant::now();
+    let answered = answer(sql, tables, opened(Duration::ZERO, Duration::from_secs(2)), &mut legs);
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "stopped long after the deadline: {:?}",
+        started.elapsed()
     );
-    for protected in [true, false] {
-        let mut legs = Engines::new(None);
-        let started = Instant::now();
-        let answered = answer(
-            &sql,
-            region_table(TypeDialect::Cube, protected),
-            opened(Duration::ZERO, Duration::from_secs(2)),
-            &mut legs,
-        );
-        match (protected, &answered) {
-            (true, Some(Err(StatementStopped::PolicySearchDeadlineExceeded)))
-            | (false, Some(Err(StatementStopped::DeadlineExceeded))) => {}
-            _ => panic!("protected={protected}: {answered:?}"),
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(30),
-            "protected={protected} stopped long after the deadline: {:?}",
-            started.elapsed()
-        );
-        assert!(!legs.ran.is_empty(), "the legs ran before the local part did");
+    assert!(!legs.ran.is_empty(), "the legs ran before the local part did");
+    answered
+}
+
+#[test]
+fn a_local_part_past_the_deadline_names_the_policy_where_a_part_runs_it_locally() {
+    let answered = late(&self_join(), &[region_table(TypeDialect::Cube, true)]);
+    assert!(
+        matches!(answered, Some(Err(StatementStopped::PolicySearchDeadlineExceeded))),
+        "{answered:?}"
+    );
+    let answered = late(&federated_cross_join(), &customers_and(region_table(TypeDialect::Cube, true)));
+    assert!(
+        matches!(answered, Some(Err(StatementStopped::PolicySearchDeadlineExceeded))),
+        "{answered:?}"
+    );
+}
+
+#[test]
+fn a_local_part_past_the_deadline_stays_generic_without_a_policy_column() {
+    let answered = late(&self_join(), &[region_table(TypeDialect::Cube, false)]);
+    assert!(
+        matches!(answered, Some(Err(StatementStopped::DeadlineExceeded))),
+        "{answered:?}"
+    );
+}
+
+/// The same statement and tables but for `geo`'s dialect: the policy ran at the source, so a local
+/// join that then timed out says nothing about the policy.
+#[test]
+fn a_local_join_that_times_out_after_a_policy_ran_at_its_source_stays_generic() {
+    let answered = late(
+        &federated_cross_join(),
+        &customers_and(region_table(TypeDialect::Postgres, true)),
+    );
+    assert!(
+        matches!(answered, Some(Err(StatementStopped::DeadlineExceeded))),
+        "{answered:?}"
+    );
+}
+
+#[test]
+fn each_leg_of_a_federation_is_told_about_its_own_part_only() {
+    let mut engines = Engines::new(None);
+    let mut legs = Reading {
+        engines: &mut engines,
+        told: Vec::new(),
+    };
+    let sql = "select r.sales_area, count(*) as customers from dim_customer c join dim_region r on c.region = r.region \
+               group by r.sales_area";
+    let answered = answer(
+        sql,
+        &customers_and(region_table(TypeDialect::Postgres, true)),
+        opened(Duration::ZERO, Duration::from_secs(60)),
+        &mut legs,
+    );
+    assert!(matches!(answered, Some(Ok(_))), "{answered:?}");
+    legs.told.sort_by(|first, second| first.0.cmp(&second.0));
+    assert_eq!(
+        legs.told,
+        [(named("crm"), PolicyRead::Unread), (named("geo"), PolicyRead::AtSource)]
+    );
+}
+
+#[test]
+fn the_native_oracle_number_path_tells_its_leg_whether_it_reads_a_policy_column() {
+    let metadata = |key: &str, value: &str| std::collections::HashMap::from([(String::from(key), String::from(value))]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false).with_metadata(metadata(
+            "sutura:text_policy",
+            r#"{"max_text_bytes":128,"redact":[{"pattern":"e","replace":"*"}]}"#,
+        )),
+        Field::new("sales_area", DataType::Utf8, false).with_metadata(metadata("sutura:unbounded_number", "utf8")),
+    ]));
+    let tables = [StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("dim_region").expect("a table"),
+        TypeDialect::Oracle,
+        schema,
+    )];
+    for (sql, expected) in [
+        (
+            r#"select min("sales_area") from "dim_region" where "region" like 'e%'"#,
+            PolicyRead::AtSource,
+        ),
+        (r#"select min("sales_area") from "dim_region""#, PolicyRead::Unread),
+    ] {
+        let mut legs = Noting { told: Vec::new() };
+        let answered = answer(sql, &tables, opened(Duration::ZERO, Duration::from_secs(60)), &mut legs);
+        assert!(matches!(answered, Some(Err(StatementStopped::Leg(_)))), "{sql}: {answered:?}");
+        assert_eq!(legs.told, [(named("geo"), expected)], "{sql}");
     }
 }
