@@ -517,3 +517,32 @@ fn rdbms_relationship_declarations_require_exact_complete_typed_shapes_and_bound
         load(&format!("{base}{invalid}")).expect_err("an invalid relationship declaration refuses");
     }
 }
+
+#[test]
+fn rdbms_relationship_declarations_are_capped_at_64_declarations_and_32_pairs() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declarations = |count: usize, pairs: usize| {
+        let columns = (0..pairs).map(|column| format!("c{column}")).collect::<Vec<_>>().join(", ");
+        let entries = (0..count)
+            .map(|index| {
+                format!("      - from: {{table: public.events{index}, columns: [{columns}]}}\n        to: {{table: public.apps, columns: [{columns}]}}\n        cardinality: many_to_one\n")
+            })
+            .collect::<Vec<_>>()
+            .concat();
+        format!("{base}    relationships:\n{entries}")
+    };
+    let accepted = |count, pairs| {
+        let settings = load(&declarations(count, pairs)).expect("a declaration set at its cap loads");
+        let relationships = settings.catalogs().each().next().unwrap().rdbms().unwrap().relationships();
+        assert_eq!((relationships.len(), relationships[0].from().columns().len()), (count, pairs));
+    };
+    accepted(64, 1);
+    accepted(1, 32);
+    for (count, pairs) in [(65, 1), (1, 33)] {
+        let chain = refusal(&declarations(count, pairs));
+        assert!(
+            chain.contains("at most 64 many_to_one declarations"),
+            "{count}x{pairs}: {chain}"
+        );
+    }
+}
