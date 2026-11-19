@@ -130,5 +130,28 @@ models:
       - subscription_key
       - usage_date
     description: One row per subscription per day on which it used anything.
+  text_prefilter:
+    name: text_prefilter
+    source: local
+    table: text_prefilter
+    columns:
+      body:
+        name: body
+        data_type: string
+        description: ""
+        nullable: ~
+      cohort:
+        name: cohort
+        data_type: string
+        description: ""
+        nullable: ~
+      fixture_row:
+        name: fixture_row
+        data_type: number
+        description: ""
+        nullable: ~
+    primary_key:
+      - fixture_row
+    description: Generated million-row protected-text equality fixture.
 relationships: {}
 metrics: {}
