@@ -308,9 +308,22 @@ fn holding(tables: &[(&str, RecordBatch)]) -> SessionContext {
     context
 }
 
+/// `statement` with each `ClickHouse` UTF-8 function spelled as the `DataFusion` function it stands
+/// for, so the engine standing in for a source can run text written for `ClickHouse`.
+fn as_datafusion(statement: &str) -> String {
+    super::CHARACTER_FUNCTIONS
+        .iter()
+        .fold(statement.to_owned(), |text, (plain, utf8)| {
+            text.replace(&format!("{utf8}("), &format!("{plain}("))
+        })
+}
+
 fn rows_of(runtime: &Runtime, context: &SessionContext, statement: &str) -> RawRows {
     runtime.block_on(async {
-        let frame = context.sql(statement).await.expect("the engine plans the text it is handed");
+        let frame = context
+            .sql(&as_datafusion(statement))
+            .await
+            .expect("the engine plans the text it is handed");
         let mut read = Accumulating::announcing(
             Arc::clone(frame.schema().inner()),
             usize::MAX,
