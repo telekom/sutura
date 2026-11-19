@@ -4,7 +4,7 @@
       "label": "restore-implicit-root-wildcard-projection",
       "package": "sutura-exec-datafusion",
       "tests": [
-        "bare_scan"
+        "join_fetch"
       ],
       "preimage_sha256": "01d85104e912f042b3e2c275778b2d53673495f05a47618fce7145c5f6567d2f",
       "mutated_sha256": "73db3c1b44918cd893fd8605c1ec3eb896e7b21b083d7650d1fbdbeef18755c6",
@@ -190,7 +190,8 @@
     "normal_lob": "crates/sutura-exec-datafusion/src/combine/statement/tests/text.rs",
     "native_lob": "crates/sutura-exec-datafusion/src/combine/statement/tests/text.rs",
     "bare_scan": "crates/sutura-exec-datafusion/src/combine/statement/tests/scan_only.rs",
-    "alias_derive": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs"
+    "alias_derive": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
+    "join_fetch": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs"
   },
   "test_identities": {
     "normal_duplicate_outputs": [
@@ -216,6 +217,10 @@
     "alias_derive": [
       "sutura-exec-datafusion",
       "combine::statement::tests::oracle::aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect"
+    ],
+    "join_fetch": [
+      "sutura-exec-datafusion",
+      "combine::statement::tests::oracle::a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect"
     ]
   },
   "test_functions": {
@@ -242,6 +247,10 @@
     "alias_derive": {
       "name": "aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect",
       "indent": ""
+    },
+    "join_fetch": {
+      "name": "a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect",
+      "indent": ""
     }
   },
   "cargo_profile": "ci",
@@ -250,6 +259,6 @@
   "comparison_sha": "38de15bece6539352d4831d464188e386043593d",
   "request_id": "af64619b-8cec-446d-bdee-b3edf953872b",
   "helper_ref": "ci/explicit-projection-remaining-1970-af64619b",
-  "ownership_sha256": "5559e64a7f614c4a66dbdfd09a89724a731867c6a07aa24b739fd1f1bc59d53f",
+  "ownership_sha256": "2db976a334efa1aa50c7077f69c754e726389de4a9c298b1c8faee9ac3a25c6d",
   "runner_sha256": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707"
 }

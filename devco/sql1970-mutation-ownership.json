@@ -1,5 +1,5 @@
 {
-  "status": "EXACT_SOURCE_REMAINING_TEN_EXISTING_BARE_SCAN_OWNER_REQUIRES_HOSTED_ASSERTION_PROOF",
+  "status": "EXACT_SOURCE_REMAINING_TEN_JOIN_FETCH_SOLE_OWNER_STATIC_R3",
   "source_sha": "f3fc15632ea5e0f6b6c1e2df78e7da664ddcb9b0",
   "source_tree": "e9635d02892ced3a6c68951bafd91c8b13250da3",
   "comparison_sha": "38de15bece6539352d4831d464188e386043593d",
@@ -320,52 +320,79 @@
           "text": "            assert_eq!(legs.statements.len(), parts, \"{dialect:?}: {sql}\");"
         }
       ]
+    },
+    "join_fetch": {
+      "path": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
+      "binary": "sutura-exec-datafusion",
+      "full_test": "combine::statement::tests::oracle::a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect",
+      "function": "a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect",
+      "start_line": 435,
+      "end_line": 497,
+      "function_sha256": "eb34fff376d41987815751f890a2a12d95197311547a2a09f89665bde5ceb8c0",
+      "file_sha256": "e36430691e99ba30b33846c3c069cd8f4aeaacd7dbed651b6d0353e0fe6f72ee",
+      "assertions": [
+        {
+          "first_line": 486,
+          "last_line": 488,
+          "kind": "required_source_execution",
+          "text": "        let rows = legs\n            .run(&named(\"geo\"), &RawStatement::parse(&sql).expect(\"a source statement\"))\n            .unwrap_or_else(|cause| panic!(\"{dialect:?}: {cause}: {sql}\"));"
+        },
+        {
+          "first_line": 489,
+          "last_line": 489,
+          "kind": "assertion",
+          "text": "        assert_eq!(rows.rows().len(), 1, \"{dialect:?}: the joined scan lost its fetch: {sql}\");"
+        },
+        {
+          "first_line": 490,
+          "last_line": 495,
+          "kind": "assertion",
+          "text": "        assert_eq!(\n            rows,\n            legs.engines\n                .as_one(\"select region as left_region, region as right_region from dim_region limit 1\"),\n            \"{dialect:?}: {sql}\"\n        );"
+        }
+      ],
+      "line_shift_from_head": 0
     }
   },
   "mutants": {
     "restore-implicit-root-wildcard-projection": {
       "owning_cells": {
-        "bare_scan": {
-          "path": "crates/sutura-exec-datafusion/src/combine/statement/tests/scan_only.rs",
+        "join_fetch": {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/tests/oracle.rs",
           "binary": "sutura-exec-datafusion",
-          "full_test": "combine::statement::tests::scan_only::every_column_of_one_source_runs_whole_at_it",
-          "function": "answered_at_geo",
-          "start_line": 11,
-          "end_line": 22,
-          "line_shift_from_head": 0,
-          "function_sha256": "7b45a41df4e3aac8e4db91490866ca2f5586a4e9bd70af5a159786635524e9b2",
+          "full_test": "combine::statement::tests::oracle::a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect",
+          "function": "a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect",
+          "start_line": 435,
+          "end_line": 497,
+          "function_sha256": "eb34fff376d41987815751f890a2a12d95197311547a2a09f89665bde5ceb8c0",
+          "file_sha256": "e36430691e99ba30b33846c3c069cd8f4aeaacd7dbed651b6d0353e0fe6f72ee",
           "assertions": [
             {
-              "first_line": 15,
-              "last_line": 17,
-              "kind": "required_successful_answer",
-              "text": "        let Some(Ok(rows)) = answer else {\n            panic!(\"{statement}: a scan of one answering source is answered: {answer:?}\");\n        };"
+              "first_line": 486,
+              "last_line": 488,
+              "kind": "required_source_execution",
+              "text": "        let rows = legs\n            .run(&named(\"geo\"), &RawStatement::parse(&sql).expect(\"a source statement\"))\n            .unwrap_or_else(|cause| panic!(\"{dialect:?}: {cause}: {sql}\"));"
             },
             {
-              "first_line": 18,
-              "last_line": 18,
+              "first_line": 489,
+              "last_line": 489,
               "kind": "assertion",
-              "text": "        assert_eq!(rows, legs.as_one(statement), \"{statement}\");"
+              "text": "        assert_eq!(rows.rows().len(), 1, \"{dialect:?}: the joined scan lost its fetch: {sql}\");"
             },
             {
-              "first_line": 19,
-              "last_line": 19,
+              "first_line": 490,
+              "last_line": 495,
               "kind": "assertion",
-              "text": "        assert_eq!(legs.opened, [BTreeSet::from([named(\"geo\")])], \"{statement}\");"
-            },
-            {
-              "first_line": 20,
-              "last_line": 20,
-              "kind": "assertion",
-              "text": "        assert_eq!(legs.ran, [named(\"geo\")], \"{statement}\");"
+              "text": "        assert_eq!(\n            rows,\n            legs.engines\n                .as_one(\"select region as left_region, region as right_region from dim_region limit 1\"),\n            \"{dialect:?}: {sql}\"\n        );"
             }
-          ]
+          ],
+          "line_shift_from_head": 0
         }
       },
-      "required_failure": "The selected exact bare-scan test must fail first at its domain answer requirement in answered_at_geo (line16), reporting Some(Err(NotPlanned)) after the final projection guard rejects the restored wildcard. Exclude setup, compile, deadline, unrelated helper/owner failures. Row/open/run assertions remain unchanged; head and restored complete binaries must pass.",
+      "required_failure": "The selected exact tests must fail at their own meaningful first assertion. The bare-scan cell must fail at its domain answer requirement in answered_at_geo (line16), reporting Some(Err(NotPlanned)); the join-fetch cell must fail first at its source-execution requirement in a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect (lines 486-488, panic 488), with DuckDb, geo and the generated nested SELECT * SQL. Exclude setup, compile, deadline, unrelated helper/owner failures and later row assertions. Head and restored complete binaries must pass.",
       "expected_callsite_diagnostics": [
-        "scan_only.rs:16",
-        "Some(Err(NotPlanned))"
+        "scan_only.rs:16 with Some(Err(NotPlanned))",
+        "oracle.rs:488:37 with DuckDb and geo",
+        "generated SQL contains INNER JOIN (SELECT * FROM \"dim_region\" LIMIT 1) AS \"r\""
       ]
     },
     "restore-wildcard-before-alias-derive": {

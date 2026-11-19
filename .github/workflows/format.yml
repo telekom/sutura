@@ -105,8 +105,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HELPER_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test "$(sha256sum devco/inbound_verifier_proof.py)" = "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707  devco/inbound_verifier_proof.py"
-          test "$(sha256sum devco/sql1909-finishing-mutations.json)" = "8da86e5d3a81905ad5e7774488b1d5ac7662960a8889687a16cc9ff4b0afb4bd  devco/sql1909-finishing-mutations.json"
-          test "$(sha256sum devco/sql1970-mutation-ownership.json)" = "5559e64a7f614c4a66dbdfd09a89724a731867c6a07aa24b739fd1f1bc59d53f  devco/sql1970-mutation-ownership.json"
+          test "$(sha256sum devco/sql1909-finishing-mutations.json)" = "15fe6074e84d422a1a6e0fc03cd6a7172903c5bc30ef3bce1f952e31a44a29e2  devco/sql1909-finishing-mutations.json"
+          test "$(sha256sum devco/sql1970-mutation-ownership.json)" = "2db976a334efa1aa50c7077f69c754e726389de4a9c298b1c8faee9ac3a25c6d  devco/sql1970-mutation-ownership.json"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'workflow_dispatch'
