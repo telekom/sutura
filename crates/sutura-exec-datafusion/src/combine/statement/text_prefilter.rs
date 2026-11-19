@@ -10,7 +10,7 @@ use datafusion::sql::sqlparser::ast::{
     BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
     ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
 };
-use sutura_domain::catalog::{PrefilterCapability, TextPolicy};
+use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
@@ -346,6 +346,9 @@ fn condition(
     let Ok(field) = table.schema().field_with_name(&column.value) else {
         return Ok(None);
     };
+    if !capability.admits(&Collation::of_field(field)) {
+        return Ok(None);
+    }
     let Some(encoded) = field.metadata().get("sutura:text_policy") else {
         return Ok(None);
     };
@@ -405,7 +408,7 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
         escape_char: None,
     };
     match capability {
-        PrefilterCapability::DataFusion => Expr::Nested(Box::new(raw)),
+        PrefilterCapability::DataFusion | PrefilterCapability::ClickHouse => Expr::Nested(Box::new(raw)),
         PrefilterCapability::Oracle => {
             let sort = Expr::Function(Function {
                 name: ObjectName::from(vec![Ident::new("SYS_CONTEXT")]),
