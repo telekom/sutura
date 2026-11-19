@@ -166,6 +166,11 @@ impl<'a> UnparserAggScope<'a> {
 
 impl Unparser<'_> {
     pub fn plan_to_sql(&self, plan: &LogicalPlan) -> Result<ast::Statement> {
+        let statement = self.plan_to_sql_unchecked(plan);
+        self.quotable(statement)
+    }
+
+    fn plan_to_sql_unchecked(&self, plan: &LogicalPlan) -> Result<ast::Statement> {
         let mut plan = normalize_union_schema(plan)?;
         if !self.dialect.supports_qualify() {
             plan = rewrite_qualify(plan)?;
@@ -604,6 +609,7 @@ impl Unparser<'_> {
                     )
                 })?;
 
+                self.admit_name(&flatten_alias_name);
                 flatten.alias(Some(ast::TableAlias {
                     name: Ident::with_quote('"', &flatten_alias_name),
                     columns: vec![],
@@ -1570,6 +1576,7 @@ impl Unparser<'_> {
             LogicalPlan::SubqueryAlias(plan_alias) => {
                 let (plan, mut columns) =
                     subquery_alias_inner_query_and_columns(plan_alias);
+                columns.iter().for_each(|column| self.admit_name(&column.value));
                 let unparsed_table_scan = self.unparse_table_scan_pushdown(
                     plan,
                     Some(plan_alias.alias.clone()),
@@ -1838,6 +1845,7 @@ impl Unparser<'_> {
                     // handler so SELECT items and the FLATTEN relation
                     // reference the same name.
                     if let Some(alias) = select.current_flatten_alias() {
+                        self.admit_name(&alias);
                         flatten_relation.alias(Some(ast::TableAlias {
                             name: Ident::with_quote('"', &alias),
                             columns: vec![],
@@ -2474,6 +2482,7 @@ impl Unparser<'_> {
         match expr {
             Expr::Alias(Alias { expr, name, .. }) => {
                 let inner = self.expr_to_sql(expr)?;
+                self.admit_name(name);
 
                 // Determine the alias name to use
                 let col_name = if let Some(rewritten_name) =
