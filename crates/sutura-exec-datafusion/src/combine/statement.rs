@@ -92,6 +92,7 @@ where
 {
     let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause))?;
     let working_set = working_set_of(question.working_set_bytes());
+    let mut legs = projection::Guarded::new(legs);
     let fetched = Arc::new(Fetched::default());
     let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
     let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
@@ -150,8 +151,8 @@ where
             })
             .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
-        projection::open(legs, &sources, [&native])?;
-        let rows = legs.run_planned(source, &native, &scans).map_err(StatementStopped::Leg)?;
+        legs.open(&sources, [&native])?;
+        let rows = legs.run_planned(source, &native, &scans)?;
         return projection::output(&native_schema, rows)
             .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
     }
@@ -162,12 +163,13 @@ where
         .map(|part| Ok((part.statement(whole, &tables, &native_schema)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
-    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;
+    legs.open(&sources, statements.iter().map(|(statement, _tables)| statement))?;
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
-        let rows = legs.run_planned(&part.source, statement, tables).map_err(|cause| {
-            tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
-            StatementStopped::Leg(cause)
+        let rows = legs.run_planned(&part.source, statement, tables).inspect_err(|stopped| {
+            if matches!(stopped, StatementStopped::Leg(_)) {
+                tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
+            }
         })?;
         if whole {
             return projection::output(part.plan.schema().inner(), rows)
