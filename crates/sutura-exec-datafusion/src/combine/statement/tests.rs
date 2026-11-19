@@ -28,6 +28,92 @@ mod registration;
 mod resolution;
 mod text;
 
+fn explicit_source_projection(sql: &str) -> bool {
+    use datafusion::sql::sqlparser::ast::{Select, SelectItem, Visit as _, Visitor};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+    use std::ops::ControlFlow;
+
+    struct Projections;
+    impl Visitor for Projections {
+        type Break = ();
+
+        fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<()> {
+            if select
+                .projection
+                .iter()
+                .any(|item| matches!(item, SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)))
+            {
+                return ControlFlow::Break(());
+            }
+            ControlFlow::Continue(())
+        }
+    }
+    Parser::parse_sql(&GenericDialect, sql).is_ok_and(|statements| statements.visit(&mut Projections).is_continue())
+}
+
+fn source_labels(sql: &str) -> Vec<String> {
+    use datafusion::sql::sqlparser::ast::{SelectItem, SetExpr, Statement};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+    let parsed = Parser::parse_sql(&GenericDialect, sql).unwrap();
+    let [Statement::Query(query)] = parsed.as_slice() else {
+        panic!("one source query: {sql}")
+    };
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        panic!("one output SELECT: {sql}")
+    };
+    select
+        .projection
+        .iter()
+        .map(|item| {
+            let SelectItem::ExprWithAlias { alias, .. } = item else {
+                panic!("an explicit unique source alias: {sql}")
+            };
+            alias.value.clone()
+        })
+        .collect()
+}
+
+#[test]
+fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
+    for predicate in ["c.customer_id < 4", "c.customer_id = 1000"] {
+        for suffix in ["", " order by c.customer_id limit 200"] {
+            let sql = format!(
+                "select c.customer_id, d.customer_id, c.region as \"c0\", d.region as \"MiXeD\" \
+                 from dim_customer c join dim_customer d on c.customer_id + 1 = d.customer_id where {predicate}{suffix}"
+            );
+            let mut legs = Engines::new(None);
+            let answer = asked(&sql, false, UNBOUNDED, &mut legs);
+            let Some(Ok(rows)) = answer else {
+                panic!(
+                    "duplicate outputs must run: {sql}: {answer:?}; opened={:?}; ran={:?}",
+                    legs.opened, legs.ran
+                )
+            };
+            assert_eq!(rows.columns(), ["customer_id", "customer_id", "c0", "MiXeD"]);
+            assert_eq!(
+                source_labels(legs.statements.first().expect("a source statement")),
+                ["c0", "c1", "c2", "c3"]
+            );
+            assert_eq!(rows, legs.as_one(&sql), "positions and multiplicities: {sql}");
+            assert_eq!(legs.opened, [BTreeSet::from([named("crm")])]);
+            assert_eq!(legs.ran, [named("crm")]);
+        }
+    }
+    let mut legs = Engines::new(None);
+    let answer = asked(AREAS, true, UNBOUNDED, &mut legs);
+    let Some(Ok(rows)) = answer else {
+        panic!(
+            "all final federation parts must be admitted before open: {answer:?}; opened={:?}; ran={:?}",
+            legs.opened, legs.ran
+        )
+    };
+    assert_eq!(rows, legs.as_one(AREAS));
+    assert_eq!(legs.opened, [BTreeSet::from([named("crm"), named("geo")])]);
+    assert_eq!(legs.ran.len(), 2);
+}
+
 #[test]
 fn cube_unsigned_results_are_refused_before_open_and_signed_results_still_run() {
     for kind in [
@@ -152,6 +238,7 @@ struct Engines {
     stopping: Option<SourceName>,
     opened: Vec<BTreeSet<SourceName>>,
     ran: Vec<SourceName>,
+    statements: Vec<String>,
 }
 
 impl Engines {
@@ -167,6 +254,7 @@ impl Engines {
             stopping: stopping.map(named),
             opened: Vec::new(),
             ran: Vec::new(),
+            statements: Vec::new(),
         }
     }
 
@@ -190,6 +278,10 @@ impl StatementLegs for Engines {
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        if !explicit_source_projection(statement.as_str()) {
+            return Err(source.clone());
+        }
+        self.statements.push(statement.as_str().to_owned());
         self.ran.push(source.clone());
         if self.stopping.as_ref() == Some(source) {
             return Err(source.clone());

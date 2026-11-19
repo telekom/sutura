@@ -73,6 +73,8 @@ use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBa
 use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
+#[cfg(feature = "fixtures")]
+use crate::fixture::FixtureError;
 use crate::parameters::OracleParam;
 
 mod batches;
@@ -454,6 +456,28 @@ impl OracleWarehouse {
             credential.password().expose_secret(),
             result_budget,
         )
+    }
+
+    /// A real CLOB/NCLOB past the first SQL window, beside ordinary text and an exact NUMBER.
+    /// Fixed fixture rows keep the policy-expression venue independent of the CSV type inference.
+    #[cfg(feature = "fixtures")]
+    pub fn load_text_policy_fixture(&self) -> Result<(), FixtureError> {
+        let _guard = self.execution_lock.lock();
+        for sql in [
+            r#"CREATE TABLE "policy_text" ("id" NUMBER(19,0), "label" VARCHAR2(4000), "script" CLOB, "national" NCLOB, "native_number" NUMBER)"#,
+            r#"INSERT INTO "policy_text" VALUES (1, RPAD('public', 300, 'x'), TO_CLOB(RPAD('x', 4000, 'x')) || TO_CLOB(' secret END tail'), TO_NCLOB(RPAD('x', 4000, 'x')) || TO_NCLOB(' secret END tail'), 123456789012345678901234567890)"#,
+            r#"INSERT INTO "policy_text" VALUES (2, 'short', TO_CLOB('secret END'), TO_NCLOB('secret END'), 2)"#,
+        ] {
+            self.connection.execute(sql, &[]).map_err(|cause| FixtureError::Statement {
+                subject: String::from("creating the text-policy fixture"),
+                cause: DriverError::from(cause),
+            })?;
+        }
+        self.connection.commit().map_err(|cause| FixtureError::Statement {
+            subject: String::from("committing the text-policy fixture"),
+            cause: DriverError::from(cause),
+        })?;
+        fixture::snapshot::await_read_only(self, "policy_text")
     }
 
     /// This adapter, its lookup legs split by flashback query (`split: flashback`), once its boot

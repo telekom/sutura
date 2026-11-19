@@ -275,12 +275,18 @@ impl Unparser<'_> {
             return Ok(*body);
         }
 
-        // If no projection is set, add a wildcard projection to the select
-        // which will be translated to `SELECT *` in the SQL statement
+        // Keep the plan's declared output even when optimization removed its projection.
         if !select_builder.already_projected() {
-            select_builder.projection(vec![ast::SelectItem::Wildcard(
-                ast::WildcardAdditionalOptions::default(),
-            )]);
+            let expressions = if plan.schema().fields().is_empty() {
+                self.empty_projection_fallback()
+            } else {
+                plan.schema().columns().into_iter().map(Expr::Column).collect()
+            };
+            select_builder.projection(
+                expressions.iter()
+                    .map(|expression| self.select_item_to_sql(expression))
+                    .collect::<Result<Vec<_>>>()?,
+            );
         }
 
         let mut twj = select_builder.pop_from().unwrap();
@@ -497,7 +503,8 @@ impl Unparser<'_> {
         let mut derived_builder = DerivedRelationBuilder::default();
         derived_builder.lateral(lateral).alias(alias).subquery({
             let inner_statement = self.plan_to_sql(plan)?;
-            if let ast::Statement::Query(inner_query) = inner_statement {
+            if let ast::Statement::Query(mut inner_query) = inner_statement {
+                self.name_derived_outputs(inner_query.body.as_mut(), plan.schema())?;
                 inner_query
             } else {
                 return internal_err!(
@@ -510,6 +517,41 @@ impl Unparser<'_> {
         Ok(())
     }
 
+    // A parent addresses the plan's declared output names, not the source engine's
+    // spelling of an unnamed expression (which differs from DataFusion's).
+    fn name_derived_outputs(&self, body: &mut SetExpr, schema: &DFSchema) -> Result<()> {
+        match body {
+            SetExpr::Select(select) => {
+                if schema.fields().is_empty() {
+                    return Ok(());
+                }
+                assert_or_internal_err!(
+                    select.projection.len() == schema.fields().len(),
+                    "Derived projection must match its declared schema"
+                );
+                select.projection = std::mem::take(&mut select.projection)
+                    .into_iter()
+                    .zip(schema.fields())
+                    .map(|(item, field)| match item {
+                        ast::SelectItem::UnnamedExpr(expr)
+                            if !matches!(expr, ast::Expr::Identifier(_) | ast::Expr::CompoundIdentifier(_)) =>
+                        {
+                            ast::SelectItem::ExprWithAlias {
+                                expr,
+                                alias: self.new_ident_quoted_if_needs(field.name().clone()),
+                            }
+                        }
+                        other => other,
+                    })
+                    .collect();
+                Ok(())
+            }
+            SetExpr::Query(query) => self.name_derived_outputs(query.body.as_mut(), schema),
+            SetExpr::SetOperation { left, .. } => self.name_derived_outputs(left.as_mut(), schema),
+            _ => Ok(()),
+        }
+    }
+
     fn derive_with_dialect_alias(
         &self,
         alias: &str,
@@ -519,11 +561,11 @@ impl Unparser<'_> {
         columns: Vec<Ident>,
     ) -> Result<()> {
         // A wrapper must export the qualifier its parent expressions render.
-        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
+        let qualifier = plan.schema().iter().find_map(|(name, _)| name);
         if let Some(table_ref) = qualifier
             && (matches!(table_ref, TableReference::Bare { .. })
                 || !self.dialect.full_qualified_col())
-            && plan.schema().iter().all(|(name, _)| name == qualifier)
+            && plan.schema().iter().all(|(name, _)| name.is_none() || name == qualifier)
         {
             return self.derive(
                 plan,
@@ -1563,6 +1605,17 @@ impl Unparser<'_> {
                     select.already_projected(),
                 )?;
 
+                if !select.already_projected()
+                    && (unparsed_table_scan.is_none()
+                        || matches!(&unparsed_table_scan, Some(LogicalPlan::Limit(_))))
+                {
+                    select.projection(
+                        plan_alias.schema.columns().into_iter()
+                            .map(|column| self.select_item_to_sql(&Expr::Column(column)))
+                            .collect::<Result<Vec<_>>>()?,
+                    );
+                }
+
                 // A scan fetch is an inner row window, not a replacement for the caller's limit.
                 if let Some(unparsed) = &unparsed_table_scan
                     && matches!(unparsed, LogicalPlan::Limit(_))
@@ -1618,13 +1671,6 @@ impl Unparser<'_> {
                     );
                 }
 
-                // if the child plan is a TableScan with pushdown operations, we don't need to
-                // create an additional subquery for it
-                if !select.already_projected() && unparsed_table_scan.is_none() {
-                    select.projection(vec![ast::SelectItem::Wildcard(
-                        ast::WildcardAdditionalOptions::default(),
-                    )]);
-                }
                 let plan = unparsed_table_scan.unwrap_or_else(|| plan.clone());
                 if !columns.is_empty()
                     && !self.dialect.supports_column_alias_in_table_alias()

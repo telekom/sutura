@@ -54,9 +54,13 @@ cells measure their fixtures, not arbitrary regex coverage or deployment grants.
 
 Oracle CLOB and NCLOB policies keep the full redacted value inside source SQL. `LIKE`, `instr`
 (rendered as Oracle `INSTR`) and `substr` windows therefore search and read beyond the first output
-window. Every returned text expression is bounded after source operators, under the smallest bound
-of the part's LOB policies. This can also shorten an unrelated text output from that part. Pinned
-schema metadata distinguishes CLOB from NCLOB and participates in the schema digest. A LOB-bearing
+window. Protected text outputs and text expressions derived from them are bounded after source
+operators, under the smallest bound of the part's LOB policies. Unrelated text and scalar results
+pass through. Typed output lineage is preserved before optimization, through projections,
+aggregates, windows and union arms. CASE conditions, aggregate filters and ordering, and window
+partitioning and ordering do not carry value lineage; other transformations conservatively carry
+their inputs. Pinned schema metadata distinguishes CLOB from NCLOB and
+participates in the schema digest. A LOB-bearing
 part of a federated or otherwise local plan refuses before credentials open: a clipped intermediate
 value must never decide a later local operator.
 
@@ -64,8 +68,9 @@ The output uses Oracle's existing regex and LOB substring primitives. A candidat
 only explicitly enumerated printable ASCII, tab, carriage return and newline uses one UTF-8 byte
 per character; other windows retain the conservative four-byte reservation. This is a narrow ASCII
 fast path, not byte-exact packing of arbitrary Unicode. CLOB output is capped at 4000 bytes. NCLOB
-output, and derived text whose metadata cannot establish CLOB, is capped at 2000 bytes when the part
-reads NCLOB, to respect the separate national-character scalar ceiling as well. Both caps include
+output and text derived from NCLOB are capped at 2000 bytes to respect the separate
+national-character scalar ceiling as well. An expression or union output with both LOB kinds uses
+the NCLOB ceiling; a CLOB-only expression keeps its own ceiling even beside an NCLOB output. Both caps include
 the visible truncation marker. A configured smaller policy bound still wins. The native cells check
 both LOB kinds, a late non-ASCII character, late search terms, masked late secrets and explicit read
 windows. Their fixtures do not establish every source charset or regex collation.

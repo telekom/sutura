@@ -2,6 +2,15 @@
 source: crates/sutura-app/tests/golden/statements.rs
 expression: output
 ---
+bare_join_left_filter_limit: 84 rows; columns: ["subscription_key", "subscription_key"]
+  84 x [Integer(1002), Integer(1002)]
+bare_join_right_filter: 84 rows; columns: ["subscription_key", "subscription_key"]
+  42 x [Integer(1001), Integer(1001)]
+  42 x [Integer(1002), Integer(1002)]
+bare_join_explicit_alias: 84 rows; columns: ["subscription_key", "right_key"]
+  84 x [Integer(1002), Integer(1002)]
+bare_join_ordered_limit: 84 rows; columns: ["subscription_key", "subscription_key"]
+  84 x [Integer(1002), Integer(1002)]
 join_left_filter_limit: 84 rows; columns: ["left_key", "right_key", "usage_day", "billing_month"]
   1 x [Integer(1002), Integer(1002), Integer(1), Integer(1)]
   1 x [Integer(1002), Integer(1002), Integer(1), Integer(2)]

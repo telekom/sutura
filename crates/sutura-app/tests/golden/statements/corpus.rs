@@ -17,6 +17,7 @@ pub(super) enum JoinRows {
     LeftFilter,
     RightFilter,
     OrderedWindow,
+    OrderedKeys,
     NestedWindow,
     LimitedInput,
 }
@@ -51,6 +52,7 @@ pub(super) enum Expected {
     Limited { wide: bool },
     Grouped,
     Joined(JoinRows),
+    BareJoined { shape: JoinRows, right_alias: bool },
 }
 
 impl Expected {
@@ -61,6 +63,8 @@ impl Expected {
             Self::Count(_) => &["n"],
             Self::Grouped => &["key", "n"],
             Self::Joined(_) => &["left_key", "right_key", "usage_day", "billing_month"],
+            Self::BareJoined { right_alias: false, .. } => &["subscription_key", "subscription_key"],
+            Self::BareJoined { right_alias: true, .. } => &["subscription_key", "right_key"],
         };
         names.iter().map(|name| (*name).to_owned()).collect()
     }
@@ -86,6 +90,42 @@ const COUNT: &str = "COUNT(*) AS \"n\"";
 const JOINED: &str = "CAST(\"a\".\"subscription_key\" AS BIGINT) AS \"left_key\", CAST(\"b\".\"subscription_key\" AS BIGINT) AS \"right_key\", CAST(EXTRACT(DAY FROM \"a\".\"usage_date\") AS BIGINT) AS \"usage_day\", CAST(EXTRACT(MONTH FROM \"b\".\"month\") AS BIGINT) AS \"billing_month\"";
 
 pub(super) const CASES: &[Case] = &[
+    Case {
+        name: "bare_join_left_filter_limit",
+        projection: "\"a\".\"subscription_key\", \"b\".\"subscription_key\"",
+        from: "%TABLE% \"a\" JOIN %SUBSCRIPTIONS% \"b\" ON \"a\".\"subscription_key\" = \"b\".\"subscription_key\" AND \"a\".\"subscription_key\" BETWEEN 1001 AND 1002 WHERE \"a\".\"voice_min\" = 0 LIMIT 200",
+        expected: Expected::BareJoined {
+            shape: JoinRows::LeftFilter,
+            right_alias: false,
+        },
+    },
+    Case {
+        name: "bare_join_right_filter",
+        projection: "\"a\".\"subscription_key\", \"b\".\"subscription_key\"",
+        from: "%TABLE% \"a\" JOIN %SUBSCRIPTIONS% \"b\" ON \"a\".\"subscription_key\" = \"b\".\"subscription_key\" AND \"a\".\"subscription_key\" BETWEEN 1001 AND 1002 WHERE \"b\".\"month\" >= DATE '2026-04-01'",
+        expected: Expected::BareJoined {
+            shape: JoinRows::RightFilter,
+            right_alias: false,
+        },
+    },
+    Case {
+        name: "bare_join_explicit_alias",
+        projection: "\"a\".\"subscription_key\", \"b\".\"subscription_key\" AS \"right_key\"",
+        from: "%TABLE% \"a\" JOIN %SUBSCRIPTIONS% \"b\" ON \"a\".\"subscription_key\" = \"b\".\"subscription_key\" AND \"a\".\"subscription_key\" BETWEEN 1001 AND 1002 WHERE \"a\".\"voice_min\" = 0 LIMIT 200",
+        expected: Expected::BareJoined {
+            shape: JoinRows::LeftFilter,
+            right_alias: true,
+        },
+    },
+    Case {
+        name: "bare_join_ordered_limit",
+        projection: "\"a\".\"subscription_key\", \"b\".\"subscription_key\"",
+        from: "%TABLE% \"a\" JOIN %SUBSCRIPTIONS% \"b\" ON \"a\".\"subscription_key\" = \"b\".\"subscription_key\" AND \"a\".\"subscription_key\" BETWEEN 1001 AND 1002 WHERE \"a\".\"voice_min\" = 0 ORDER BY \"a\".\"subscription_key\", \"b\".\"subscription_key\" LIMIT 200",
+        expected: Expected::BareJoined {
+            shape: JoinRows::OrderedKeys,
+            right_alias: false,
+        },
+    },
     // The joined fixture fits below 200 rows, so unordered LIMIT keeps the full multiset.
     Case {
         name: "join_left_filter_limit",

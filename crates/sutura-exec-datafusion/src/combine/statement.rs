@@ -33,6 +33,7 @@
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
 
 use std::collections::BTreeSet;
+use std::ops::ControlFlow;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
@@ -41,7 +42,7 @@ use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{DataFusionError, ExprSchema as _, SchemaError, plan_datafusion_err, plan_err};
+use datafusion::common::{Column, DFSchema, DataFusionError, ExprSchema as _, SchemaError, plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
@@ -53,6 +54,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
 use datafusion::sql::parser::Statement as EngineStatement;
+use datafusion::sql::sqlparser::ast::{Expr as SqlExpr, Ident, ObjectName, VisitMut as _, VisitorMut};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -79,6 +81,7 @@ use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
 
 mod oracle;
+mod projection;
 mod resolve;
 mod text;
 
@@ -130,7 +133,7 @@ where
         let [native] = native.as_mut_slice() else {
             return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
         };
-        let scans = resolve::statement(native, &native_tables)
+        let scans = resolve::explicit_statement(native, &native_tables)
             .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
         let read: Vec<_> = native_tables
             .into_iter()
@@ -139,25 +142,27 @@ where
         let text = oracle::native(native)
             .and_then(|sql| text::apply(sql, &read, TypeDialect::Oracle))
             .and_then(|sql| {
-                if read.iter().any(text::oracle_lobs) {
-                    text::bounded_native_oracle_rows(&sql, &native_schema, &read)
+                if read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema) {
+                    text::native_oracle_rows(&sql, &native_schema, &read)
                 } else {
                     Ok(sql)
                 }
             })
             .map_err(|cause| unplanned("the numeric statement did not unparse", &cause))?;
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
-        legs.open(&sources).map_err(StatementStopped::Leg)?;
-        return legs.run_planned(source, &native, &scans).map_err(StatementStopped::Leg);
+        projection::open(legs, &sources, [&native])?;
+        let rows = legs.run_planned(source, &native, &scans).map_err(StatementStopped::Leg)?;
+        return projection::output(&native_schema, rows)
+            .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
     }
     // A bare marked scan still needs fitting to its declared text representation.
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
-        .map(|part| Ok((part.statement(whole, &tables)?, part.scan_tables(&tables)?)))
+        .map(|part| Ok((part.statement(whole, &tables, &native_schema)?, part.scan_tables(&tables)?)))
         .collect::<Planned<Vec<_>>>()
         .map_err(|cause| unplanned("a part did not unparse", &cause))?;
-    legs.open(&sources).map_err(StatementStopped::Leg)?;
+    projection::open(legs, &sources, statements.iter().map(|(statement, _tables)| statement))?;
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs.run_planned(&part.source, statement, tables).map_err(|cause| {
@@ -165,7 +170,8 @@ where
             StatementStopped::Leg(cause)
         })?;
         if whole {
-            return Ok(rows);
+            return projection::output(part.plan.schema().inner(), rows)
+                .map_err(|cause| unplanned("the source output did not fit", &cause));
         }
         let batches =
             fitted(&rows, part.plan.schema().inner()).map_err(|cause| unplanned("a leg did not fit its part", &cause))?;
@@ -425,7 +431,7 @@ impl Part {
 
     /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
     /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
-    fn statement(&self, whole: bool, tables: &[StatementTable]) -> Planned<RawStatement> {
+    fn statement(&self, whole: bool, tables: &[StatementTable], output_schema: &Schema) -> Planned<RawStatement> {
         let scanned = self.scan_tables(tables)?;
         let read: Vec<_> = tables
             .iter()
@@ -436,7 +442,7 @@ impl Part {
         if full_lobs && !whole {
             return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
         }
-        let text = if whole && !full_lobs {
+        let text = if whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner()) {
             unparsed(&self.plan, self.dialect)?
         } else {
             unparsed(&labelled(&self.plan)?, self.dialect)?
@@ -447,7 +453,7 @@ impl Part {
             text::apply(text, &read, self.dialect)?
         };
         let text = if full_lobs {
-            text::bounded_oracle_rows(&text, self.plan.schema().inner(), &read)?
+            text::bounded_oracle_rows(&text, output_schema, &read)?
         } else {
             text
         };
@@ -729,7 +735,12 @@ async fn planned(
     } else {
         plan
     };
-    // The native output keeps its markers even when an optimizer rule drops field metadata.
+    let plan = if tables.iter().any(text::oracle_lobs) {
+        text::oracle_lob_outputs(plan)?
+    } else {
+        plan
+    };
+    // Whole-source outputs keep their markers even when an optimizer rule drops field metadata.
     let native_schema = Arc::clone(plan.schema().inner());
     let frame = context.execute_logical_plan(plan).await?;
     Ok((frame.into_optimized_plan()?, numeric_operations, native_schema))
@@ -755,6 +766,28 @@ fn field_not_found(cause: &DataFusionError) -> bool {
 
 /// `part` with output columns labelled `c0..cn`, adding a projection when the cut owns an alias or filter.
 fn labelled(part: &LogicalPlan) -> Planned<LogicalPlan> {
+    // Keep aliases at the projection that owns the values. A wrapper above a row window
+    // cannot address duplicate names or qualifiers hidden by that derived SELECT.
+    match part {
+        LogicalPlan::Sort(sort) => {
+            let mut sort = sort.clone();
+            sort.expr = std::mem::take(&mut sort.expr)
+                .into_iter()
+                .map(|mut key| {
+                    key.expr = labelled_reference(key.expr, sort.input.schema())?;
+                    Ok(key)
+                })
+                .collect::<Planned<_>>()?;
+            sort.input = Arc::new(labelled(&sort.input)?);
+            return Ok(LogicalPlan::Sort(sort));
+        }
+        LogicalPlan::Limit(limit) => {
+            let mut limit = limit.clone();
+            limit.input = Arc::new(labelled(&limit.input)?);
+            return Ok(LogicalPlan::Limit(limit));
+        }
+        _ => {}
+    }
     let (expressions, input) = match part {
         LogicalPlan::Projection(projection) => (projection.expr.clone(), Arc::clone(&projection.input)),
         _ => (
@@ -770,11 +803,39 @@ fn labelled(part: &LogicalPlan) -> Planned<LogicalPlan> {
     Ok(LogicalPlan::Projection(Projection::try_new(columns, input)?))
 }
 
+fn labelled_reference(expression: Expr, schema: &DFSchema) -> Planned<Expr> {
+    expression
+        .transform(|expression| {
+            if let Expr::Column(column) = &expression
+                && let Ok(index) = schema.index_of_column(column)
+            {
+                return Ok(Transformed::yes(Expr::Column(Column::new_unqualified(label(index)))));
+            }
+            Ok(Transformed::no(expression))
+        })
+        .map(|transformed| transformed.data)
+}
+
 fn label(index: usize) -> String {
     format!("c{index}")
 }
 
 fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
+    struct ClickHouseFunctions;
+
+    impl VisitorMut for ClickHouseFunctions {
+        type Break = DataFusionError;
+
+        fn post_visit_expr(&mut self, expression: &mut SqlExpr) -> ControlFlow<Self::Break> {
+            if let SqlExpr::Function(function) = expression
+                && function.name.to_string().eq_ignore_ascii_case("strpos")
+            {
+                function.name = ObjectName::from(vec![Ident::new("positionUTF8")]);
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
     if dialect == TypeDialect::Cube
         && plan
             .schema()
@@ -785,9 +846,13 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
         return plan_err!("Cube cannot preserve this unsigned result type");
     }
     let text = |spelling: &dyn Dialect| {
-        Unparser::new(spelling)
-            .plan_to_sql(plan)
-            .map(|statement| statement.to_string())
+        let mut statement = Unparser::new(spelling).plan_to_sql(plan)?;
+        if dialect == TypeDialect::ClickHouse
+            && let ControlFlow::Break(cause) = statement.visit(&mut ClickHouseFunctions)
+        {
+            return Err(cause);
+        }
+        Ok(statement.to_string())
     };
     match dialect {
         TypeDialect::DuckDb => text(&DuckDBDialect::new()),

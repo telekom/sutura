@@ -51,6 +51,9 @@ impl StatementLegs for OracleLegs {
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        if !explicit_source_projection(statement.as_str()) {
+            return Err(source.clone());
+        }
         if *source == named("geo") {
             self.statements.push(String::from(statement.as_str()));
             eprintln!("source SQL: {}", statement.as_str());
@@ -99,6 +102,112 @@ impl VisitorMut for OracleLimits {
             limit_by: Vec::new(),
         });
         ControlFlow::Continue(())
+    }
+}
+
+#[test]
+fn a_labelled_wrapper_addresses_mixed_columns_and_unnamed_expressions_in_every_dialect() {
+    use datafusion::datasource::{MemTable, provider_as_source};
+    use datafusion::functions::expr_fn::{length, substring, upper};
+    use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Projection, col, lit};
+
+    let batch = regions();
+    let source = provider_as_source(Arc::new(
+        MemTable::try_new(batch.schema(), vec![vec![batch]]).expect("a source table"),
+    ));
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        for (expression, reference) in [
+            (length(col("dim_region.sales_area")).alias("n"), "length(sales_area)"),
+            (
+                substring(col("dim_region.sales_area"), lit(5_i64), lit(3_i64)),
+                "substr(sales_area, 5, 3)",
+            ),
+            (upper(col("dim_region.sales_area")), "upper(sales_area)"),
+        ] {
+            for computed_first in [false, true] {
+                let mut columns = vec![col("dim_region.region"), expression.clone()];
+                if computed_first {
+                    columns.reverse();
+                }
+                let plan = LogicalPlanBuilder::scan("dim_region", Arc::clone(&source), None)
+                    .expect("a scan")
+                    .project(columns)
+                    .expect("mixed outputs")
+                    .sort(vec![col("dim_region.region").sort(true, true)])
+                    .expect("a sort outside the computed projection")
+                    .limit(0, Some(3))
+                    .expect("a source window")
+                    .build()
+                    .expect("a plan");
+                let wrapper = LogicalPlan::Projection(
+                    Projection::try_new(
+                        plan.schema()
+                            .columns()
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, column)| Expr::Column(column).alias(format!("c{index}")))
+                            .collect(),
+                        Arc::new(plan.clone()),
+                    )
+                    .expect("a parent projection over a derived input"),
+                );
+                for labelled in [super::super::labelled(&plan).expect("positional output names"), wrapper] {
+                    let sql = super::super::unparsed(&labelled, dialect).expect("the shared wrapper unparses");
+                    let mut legs = OracleLegs {
+                        engines: Engines::new(None),
+                        statements: Vec::new(),
+                    };
+                    let rows = legs
+                        .run(&named("geo"), &RawStatement::parse(&sql).expect("one statement"))
+                        .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+                    let columns = if computed_first {
+                        format!("{reference} AS c0, region AS c1")
+                    } else {
+                        format!("region AS c0, {reference} AS c1")
+                    };
+                    assert_eq!(
+                        rows,
+                        legs.engines
+                            .as_one(&format!("SELECT {columns} FROM dim_region ORDER BY region LIMIT 3")),
+                        "{dialect:?}: {sql}"
+                    );
+                }
+            }
+        }
+        let left = LogicalPlanBuilder::scan("a", Arc::clone(&source), None).expect("the left input");
+        let right = LogicalPlanBuilder::scan("b", Arc::clone(&source), None)
+            .expect("the right input")
+            .build()
+            .expect("the right plan");
+        let joined = left
+            .cross_join(right)
+            .expect("two input qualifiers")
+            .project(vec![col("a.region"), col("b.region"), upper(col("a.sales_area"))])
+            .expect("duplicate names beside an expression")
+            .sort(vec![col("a.region").sort(true, true), col("b.region").sort(true, true)])
+            .expect("stable duplicate-key order")
+            .limit(1, Some(3))
+            .expect("a row window")
+            .build()
+            .expect("the joined plan");
+        let labelled = super::super::labelled(&joined).expect("duplicate outputs labelled at their owning projection");
+        let sql = super::super::unparsed(&labelled, dialect).expect("the joined wrapper unparses");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let actual = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("one joined statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        assert_eq!(actual, legs.engines.as_one("SELECT a.region AS c0, b.region AS c1, upper(a.sales_area) AS c2 FROM dim_region a CROSS JOIN dim_region b ORDER BY a.region, b.region LIMIT 3 OFFSET 1"), "{dialect:?}: {sql}");
     }
 }
 
@@ -232,6 +341,18 @@ fn mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening() {
             (
                 r#"select "sales_area" from "dim_region" where "sales_area" > 9 order by "sales_area""#,
                 &["10", "95", "960", "4000"],
+            ),
+            (
+                r#"select * from "dim_region" where "sales_area" > 9 order by "sales_area""#,
+                &["10", "95", "960", "4000"],
+            ),
+            (
+                r#"select r.* from "dim_region" r where r."sales_area" > 9 order by r."sales_area""#,
+                &["10", "95", "960", "4000"],
+            ),
+            (
+                r#"with r as (select "sales_area" as n from "dim_region") select * from r order by n"#,
+                &["9", "10", "95", "960", "4000"],
             ),
             (
                 r#"select "sales_area" from "dim_region" where "sales_area" in (9, 4000) order by "sales_area""#,
@@ -611,5 +732,66 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             };
             assert_eq!(legs.statements.len(), parts, "{dialect:?}: {sql}");
         }
+    }
+}
+
+#[test]
+fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
+    let physical = RecordBatch::try_from_iter([("sales_area", Arc::new(Int64Array::from(vec![9, 10, 20])) as ArrayRef)])
+        .expect("physical source numbers");
+    let schema = Schema::new(vec![Field::new("sales_area", DataType::Utf8, false).with_metadata(
+        std::collections::HashMap::from([(String::from("sutura:unbounded_number"), String::from("utf8"))]),
+    )]);
+    let tables = [StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("dim_region").expect("a table"),
+        TypeDialect::Oracle,
+        Arc::new(schema),
+    )];
+    for predicate in [r#"a."sales_area" = 9"#, r#"a."sales_area" = 1000"#] {
+        let statement = RawStatement::parse(format!(
+            r#"SELECT a."sales_area", b."sales_area" FROM "dim_region" a JOIN "dim_region" b ON a."sales_area" < b."sales_area" WHERE b."sales_area" = 10 AND {predicate}"#
+        )).expect("an admitted native numeric query");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        drop(
+            legs.engines
+                .at
+                .insert(named("geo"), holding(&[("dim_region", physical.clone())])),
+        );
+        let answer = DataFusionCombiner::new().expect("a combiner").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                false,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!(
+                "native duplicate outputs must run: {answer:?}; opened={:?}; ran={:?}",
+                legs.engines.opened, legs.engines.ran
+            )
+        };
+        assert_eq!(rows.columns(), ["sales_area", "sales_area"]);
+        assert_eq!(
+            source_labels(legs.statements.first().expect("a native source statement")),
+            ["c0", "c1"]
+        );
+        let expected = if predicate.contains("1000") {
+            vec![]
+        } else {
+            vec![vec![
+                sutura_domain::warehouse::Value::Integer(9),
+                sutura_domain::warehouse::Value::Integer(10),
+            ]]
+        };
+        assert_eq!(rows.rows(), expected);
+        assert_eq!(legs.engines.opened, [BTreeSet::from([named("geo")])]);
+        assert_eq!(legs.statements.len(), 1);
     }
 }
