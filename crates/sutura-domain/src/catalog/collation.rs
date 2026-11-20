@@ -142,7 +142,6 @@ impl Collation {
     /// [`Self::Unknown`] writes nothing, so a field with no collation fact hashes as it always did.
     ///
     /// The pin writes the fact only for a column the dialect reads as text, from the catalog's
-
     /// column or the dialect. Public for the cells that build a pinned field outside the domain: the
     /// `BigQuery` golden `text_prefilter` cell and the combiner's prefilter unit test.
 
