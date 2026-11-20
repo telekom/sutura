@@ -889,7 +889,7 @@ mod adbc_execute_as_legs {
         }
 
         #[test]
-        fn a_large_table_the_ready_workers_cannot_split_is_read_whole_and_answers_a_narrow_lookup() {
+        fn a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup() {
             let Some(tier) = Tier::here("buckets_whole") else {
                 return;
             };
