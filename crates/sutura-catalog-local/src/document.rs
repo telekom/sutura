@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Anchor, AnchorValue, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidComparison,
+    Anchor, AnchorValue, Collation, Column, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidComparison,
     InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidSharedCalendars, InvalidViaChain, JoinKey, JoinKeys,
     MaxTextBytes, Metric, Model, RawPrefilter, Redaction, Relationship, SharedCalendars, TextPolicy, ViaChain,
 };
@@ -254,6 +254,11 @@ pub enum ColumnEntryDoc {
         redact: Vec<Redaction>,
         #[serde(default)]
         raw_prefilter: Option<RawPrefilter>,
+        /// How the source compares this column's text: `binary`, or the collation's name. An
+        /// authored claim, trusted as far as its author is; absent is unknown, and unknown is
+        /// never binary.
+        #[serde(default)]
+        collation: Option<String>,
     },
 }
 
@@ -273,7 +278,17 @@ impl ColumnEntryDoc {
                 max_text_bytes,
                 redact,
                 raw_prefilter,
+                collation,
             } => {
+                let collation = collation
+                    .as_deref()
+                    .map(Collation::declared)
+                    .transpose()
+                    .map_err(|cause| InvalidModelDocument::Collation {
+                        column: name.clone(),
+                        cause,
+                    })?
+                    .unwrap_or_default();
                 let text = TextPolicy::parse(max_text_bytes, redact, raw_prefilter).map_err(|cause| {
                     InvalidModelDocument::TextPolicy {
                         column: name.clone(),
@@ -281,7 +296,7 @@ impl ColumnEntryDoc {
                     }
                 })?;
                 Column::from_metadata(name, r#type.as_deref(), description.as_deref(), nullable)
-                    .map(|column| column.with_text_policy(text))
+                    .map(|column| column.with_text_policy(text).with_collation(collation))
                     .map_err(|refusal| {
                         let (column, cause) = refusal.into_parts();
                         InvalidModelDocument::ColumnDescription { column, cause }
@@ -324,6 +339,11 @@ pub struct ModelDoc {
 /// Why a model document could not become a domain [`Model`].
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidModelDocument {
+    #[error("column {column} declares a collation that is not usable: {cause}")]
+    Collation {
+        column: ColumnName,
+        cause: sutura_domain::catalog::InvalidCollationName,
+    },
     #[error("column {column} has an invalid text policy: {cause}")]
     TextPolicy {
         column: ColumnName,
@@ -780,3 +800,6 @@ mod relationship_tests;
 
 #[cfg(test)]
 mod raw_prefilter_tests;
+
+#[cfg(test)]
+mod collation_tests;

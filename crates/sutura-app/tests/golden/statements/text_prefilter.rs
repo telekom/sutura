@@ -120,14 +120,16 @@ fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_j
     if dialect == TypeDialect::Oracle {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
+    // What pinning records for an engine that fixes the collation itself; ClickHouse is admitted by it alone.
+    let mut body = Field::new("body", DataType::Utf8, true).with_metadata(metadata);
+    if let Some(collation) = dialect.engine_collation() {
+        collation.pin_onto(&mut body);
+    }
     StatementTable::new(
         source(),
         path.clone(),
         dialect,
-        Arc::new(Schema::new(vec![
-            Field::new("body", DataType::Utf8, true).with_metadata(metadata),
-            Field::new("cohort", DataType::Utf8, true),
-        ])),
+        Arc::new(Schema::new(vec![body, Field::new("cohort", DataType::Utf8, true)])),
     )
 }
 
@@ -304,7 +306,10 @@ where
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle)
+    matches!(
+        dialect,
+        TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::ClickHouse
+    )
 }
 
 /// How many times the statements the source received search for `term`.
@@ -314,6 +319,23 @@ fn searches_in(planned: &[String], term: &str) -> usize {
         .iter()
         .map(|statement| statement.to_ascii_uppercase().matches(&needle).count())
         .sum()
+}
+
+/// How many times the statements the source received search the stored column, named through its table.
+///
+/// `ClickHouse` resolves a bare name to the projection alias beside it unless `prefer_column_name_to_alias`
+/// is set, so an unqualified raw test reads the redacted value: every answer stays equal and no row is
+/// ever skipped. Only the text of the statement tells the two apart here, and no other engine is read.
+/// The view is aliased with the table's own name, so the caller's predicate in the outer `WHERE`
+/// reads the same qualified column; only the view's own condition, which the view's closing alias
+/// follows, counts.
+fn stored_searches_in(planned: &[String], dialect: TypeDialect, path: &QualifiedTable, term: &str) -> usize {
+    if dialect != TypeDialect::ClickHouse {
+        return 0;
+    }
+    let table = path.name().as_str();
+    let needle = format!("WHERE (`{table}`.`body` LIKE '%{term}%')) AS `{table}`");
+    planned.iter().map(|statement| statement.matches(&needle).count()).sum()
 }
 
 /// Only an eligible arm may add one raw search, and exactly where the shape qualifies. The `UPPER`
@@ -389,11 +411,13 @@ where
             );
             let mut answers = Vec::new();
             let mut searches = Vec::new();
+            let mut stored = Vec::new();
             for (mode, policy) in [("baseline", &disabled), ("opted-in", &enabled)] {
                 let start = Instant::now();
                 let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
                 searches.push(searches_in(&planned, term));
+                stored.push(stored_searches_in(&planned, dialect, &path, term));
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
                     W::NAME,
@@ -410,6 +434,13 @@ where
                 W::NAME
             );
             assert_raw_condition(dialect, profile, upper, (searches[0], searches[1]));
+            if dialect == TypeDialect::ClickHouse {
+                assert_eq!(
+                    stored,
+                    [0, usize::from(full_table)],
+                    "the view's own raw search names the stored column, never the alias: {profile} upper={upper}"
+                );
+            }
             if profile == "barrier" && !upper {
                 assert_eq!(
                     answers[0]
