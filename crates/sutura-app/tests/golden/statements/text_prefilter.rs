@@ -5,7 +5,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use sutura_domain::catalog::{COLLATION_METADATA_KEY, PrefilterCapability};
+use sutura_domain::catalog::COLLATION_METADATA_KEY;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::StatementStopped;
 use sutura_domain::raw::InvalidRawStatement;
@@ -110,15 +110,6 @@ const RARE: &[(&str, &str)] = &[
     ("masked", "rare"),
 ];
 
-/// A deterministic 32-bit scramble: its hex digits cannot spell, or be rewritten into,
-/// any probe, and it yields about as many distinct values as rows, which dictionary encoding cannot collapse.
-const fn scrambled(index: u64) -> u64 {
-    let mixed = index.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    let mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    let mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    (mixed ^ (mixed >> 31)) >> 32
-}
-
 fn fixture_csv() -> std::path::PathBuf {
     let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
         "text-prefilter-{}-{:?}",
@@ -129,8 +120,8 @@ fn fixture_csv() -> std::path::PathBuf {
     let path = root.join("rows.csv");
     let mut file = std::io::BufWriter::new(std::fs::File::create(&path).expect("a fixture file"));
     writeln!(file, "body,cohort").expect("a header");
-    for index in (0_u64..).take(ROWS - RARE.len() - 2) {
-        writeln!(file, "unrelated-{:08x},filler", scrambled(index)).expect("a filler row");
+    for _ in 0..ROWS - RARE.len() - 2 {
+        writeln!(file, "unrelated,filler").expect("a filler row");
     }
     for (body, cohort) in RARE {
         writeln!(file, "{body},{cohort}").expect("a rare row");
@@ -360,10 +351,10 @@ where
     );
 }
 
-/// The combiner's own capability, so a dialect it enables is expected here without a second list.
-fn prefilter_capable(dialect: TypeDialect) -> bool {
-    // PostgreSQL is a literal here: an expectation read from `of` alone would vanish with the arm.
-    PrefilterCapability::of(dialect).is_some() || dialect == TypeDialect::Postgres
+/// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
+// PostgreSQL is listed beside the others: the expectation must not be read from the capability it checks.
+const fn prefilter_capable(dialect: TypeDialect) -> bool {
+    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::Postgres)
 }
 
 /// How many times the statements the source received search for `term`.

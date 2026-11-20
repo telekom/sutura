@@ -22,8 +22,12 @@ pub(super) struct Prefilter {
 }
 
 impl Prefilter {
-    pub(super) fn for_table(&self, table: &StatementTable) -> Option<&Expr> {
-        (self.table == table.table().to_string()).then_some(&self.condition)
+    pub(super) fn is_for(&self, table: &StatementTable) -> bool {
+        self.table == table.table().to_string()
+    }
+
+    pub(super) fn into_condition(self) -> Expr {
+        self.condition
     }
 }
 

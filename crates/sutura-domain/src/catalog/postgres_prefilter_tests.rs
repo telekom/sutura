@@ -21,3 +21,22 @@ fn postgres_is_the_one_prefilter_arm_that_asks_the_pinned_column() {
         );
     }
 }
+
+#[test]
+fn the_engines_without_a_prefilter_arm_exclude_postgres() {
+    let capable = [
+        (TypeDialect::DataFusion, PrefilterCapability::DataFusion),
+        (TypeDialect::Oracle, PrefilterCapability::Oracle),
+    ];
+    for (dialect, capability) in capable {
+        assert_eq!(PrefilterCapability::of(dialect), Some(capability), "{dialect:?}");
+    }
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::Cube,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+    ] {
+        assert_eq!(PrefilterCapability::of(dialect), None, "{dialect:?}");
+    }
+}
