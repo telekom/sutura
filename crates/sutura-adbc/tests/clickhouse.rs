@@ -32,7 +32,9 @@ mod tests {
     const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
     const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
     const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
-    const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
+    const QUERY_TIMEOUT: &str = "clickhouse.client.timeout_seconds.query";
+    /// The spelling the vendored patch started from; no longer an option.
+    const OLD_QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
 
     fn mounted() -> ManagedDriver {
         let library = std::env::var("SUTURA_CLICKHOUSE_ADBC_DRIVER")
@@ -103,13 +105,20 @@ mod tests {
         let mut connection = database.new_connection().expect("a connection opens");
         let timeout = || OptionConnection::Other(QUERY_TIMEOUT.to_owned());
         connection
-            .set_option(timeout(), "7".into())
-            .expect("a whole number of seconds is accepted");
-        assert_eq!(connection.get_option_string(timeout()).expect("the timeout reads back"), "7");
+            .set_option(timeout(), "0.25".into())
+            .expect("a fraction of a second is accepted");
+        assert_eq!(
+            connection.get_option_string(timeout()).expect("the timeout reads back"),
+            "0.25"
+        );
         let zero = connection
             .set_option(timeout(), "0".into())
             .expect_err("zero seconds is refused");
         assert_eq!(zero.status, Status::InvalidArguments, "{zero:?}");
+        let old = connection
+            .set_option(OptionConnection::Other(OLD_QUERY_TIMEOUT.to_owned()), "7".into())
+            .expect_err("the old spelling is no longer an option");
+        assert_eq!(old.status, Status::InvalidArguments, "{old:?}");
     }
 
     /// The mounted library exports the entrypoint the linked route declares, `AdbcClickhouseInit`.

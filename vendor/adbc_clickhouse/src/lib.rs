@@ -96,6 +96,7 @@
 //! set option [`options::OUTPUT_STRING_AS_STRING`] to `"false"` to make ClickHouse report
 //! all strings as binary strings instead. This may be set at the connection or statement level.
 use crate::options::{OptionValueExt, ProductInfo};
+use crate::timeout::Timeouts;
 use adbc_core::error::{Error, Status};
 use adbc_core::options::{InfoCode, ObjectDepth, OptionConnection, OptionDatabase, OptionValue};
 use adbc_core::{Connection, Database, Driver, Optionable, schemas};
@@ -106,7 +107,6 @@ use rand::distr::{Alphanumeric, SampleString};
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::runtime::{Handle, Runtime, RuntimeFlavor};
 use url::Url;
 
@@ -125,10 +125,13 @@ macro_rules! err_unimplemented {
     };
 }
 
+#[cfg(test)]
+mod fake_server;
 pub mod options;
 mod reader;
 mod schema;
 mod statement;
+mod timeout;
 mod tls;
 mod writer;
 
@@ -901,9 +904,8 @@ impl ClickhouseConnection {
                     value.try_string(key)?,
                 );
             }
-            options::QUERY_TIMEOUT => {
-                self.client
-                    .set_query_timeout(options::parse_timeout(key, &value.try_string(key)?)?);
+            options::QUERY_TIMEOUT_SECONDS | options::UPDATE_TIMEOUT_SECONDS => {
+                self.client.set_timeout(key, &value.try_string(key)?)?;
             }
             other => {
                 return Err(Error::with_message_and_status(
@@ -931,13 +933,9 @@ impl ClickhouseConnection {
                 .get_option(options::as_setting::SESSION_ID)
                 .unwrap_or("")
                 .into()),
-            options::QUERY_TIMEOUT => self
-                .client
-                .query_timeout()
-                .map(|timeout| timeout.as_secs().to_string())
-                .ok_or_else(|| {
-                    Error::with_message_and_status("no query timeout configured", Status::NotFound)
-                }),
+            options::QUERY_TIMEOUT_SECONDS | options::UPDATE_TIMEOUT_SECONDS => {
+                self.client.timeout(key)
+            }
             other if tls::is_tls_option(other) => self.tls.read_back(other),
             other => Err(Error::with_message_and_status(
                 format!("unknown connection option {other:?}"),
@@ -956,8 +954,8 @@ struct AugmentedClient {
     original_client: Arc<Client>,
     // `Client` implements `Clone`, but it's a deep copy
     modified_client: Option<Arc<Client>>,
-    /// Client-side bound on how long a query may wait for the server.
-    query_timeout: Option<Duration>,
+    /// Client-side time bounds; none by default.
+    timeouts: Timeouts,
 }
 
 impl AugmentedClient {
@@ -965,16 +963,20 @@ impl AugmentedClient {
         Self {
             original_client: Arc::new(client),
             modified_client: None,
-            query_timeout: None,
+            timeouts: Timeouts::default(),
         }
     }
 
-    fn set_query_timeout(&mut self, timeout: Duration) {
-        self.query_timeout = Some(timeout);
+    fn set_timeout(&mut self, key: &str, value: &str) -> Result<()> {
+        self.timeouts.set(key, value)
     }
 
-    fn query_timeout(&self) -> Option<Duration> {
-        self.query_timeout
+    fn timeout(&self, key: &str) -> Result<String> {
+        self.timeouts.get(key)
+    }
+
+    fn timeouts(&self) -> Timeouts {
+        self.timeouts
     }
 
     fn set_product_info(&mut self, product_info: &ProductInfo) {

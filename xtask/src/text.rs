@@ -156,11 +156,15 @@ fn is_vendored_prose(path: &str) -> bool {
 /// gate's own refusal is what does. A hand-authored patch is the whole point of the file, the
 /// same way a fuzz seed's bytes are the whole point of it.
 ///
+/// `nix/patches/**` is the same property for upstream commit patches a nix derivation applies:
+/// each file is pinned by the hash of its bytes, and the blank context lines of a unified diff
+/// are bare-space lines this gate would otherwise refuse or strip.
+///
 /// WIDER than `VENDORED_PROSE`, which exempts only the em dash: this also exempts the
 /// whitespace and final-newline rules. Conflict markers and the size limit still apply,
 /// because those are about a file being well-formed rather than about its formatting - a bad
 /// merge in a vendored tree is still a bad merge, and an enormous blob is still a problem.
-const BYTE_EXACT: &[&str] = &["vendor/", "fuzz/seeds/", "devco/claim-mutations/"];
+const BYTE_EXACT: &[&str] = &["vendor/", "fuzz/seeds/", "devco/claim-mutations/", "nix/patches/"];
 
 /// Is this path byte-exact, exempt from the formatting rules?
 fn is_byte_exact(path: &str) -> bool {
@@ -511,6 +515,24 @@ mod tests {
                 .iter()
                 .any(|f| matches!(*f, Finding::ConflictMarker { .. })),
             "conflict markers are still reported in vendored source"
+        );
+    }
+
+    #[test]
+    fn a_vendored_nix_patch_keeps_its_bytes() {
+        let patch = "@@ -1,3 +1,3 @@\n context\n \n-old\n+new\n";
+        let vendored = "nix/patches/actionlint/x.patch";
+        assert_eq!(inspect(vendored, patch), vec![], "the diff's own bytes are the point");
+        assert_eq!(fixed(vendored, patch), patch, "`--fix` returns the patch unchanged");
+        assert!(
+            !inspect("nix/x.patch", patch).is_empty(),
+            "a file outside the directory is checked"
+        );
+        assert!(
+            inspect(vendored, "<<<<<<< HEAD\nold\n>>>>>>> theirs\n")
+                .iter()
+                .any(|f| matches!(*f, Finding::ConflictMarker { .. })),
+            "conflict markers are still reported under nix/patches/"
         );
     }
 

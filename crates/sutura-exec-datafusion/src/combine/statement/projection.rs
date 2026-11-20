@@ -8,7 +8,7 @@ use datafusion::sql::sqlparser::ast::{Expr, Select, SelectItem, Statement, Visit
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::{Parser, ParserError};
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{StatementLegs, StatementStopped};
+use sutura_domain::plan::{PolicyRead, StatementLegs, StatementStopped};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::RawRows;
 use sutura_domain::warehouse::schema::TypeDialect;
@@ -100,6 +100,7 @@ where
         source: &SourceName,
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
+        policy: PolicyRead,
     ) -> Stopped<RawRows, L::Stop> {
         if !self.admitted.contains(statement.as_str()) {
             return Err(super::unplanned(
@@ -108,7 +109,7 @@ where
             ));
         }
         self.legs
-            .run_planned(source, statement, tables)
+            .run_planned(source, statement, tables, policy)
             .map_err(StatementStopped::Leg)
     }
 }
@@ -163,7 +164,7 @@ mod tests {
 
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use sutura_domain::model::SourceName;
-    use sutura_domain::plan::{StatementLegs, StatementStopped};
+    use sutura_domain::plan::{PolicyRead, StatementLegs, StatementStopped};
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::RawRows;
     use sutura_domain::warehouse::schema::TypeDialect;
@@ -306,7 +307,9 @@ mod tests {
         let admitted = RawStatement::parse("SELECT count(*) FROM items").unwrap();
         let mut guarded = Guarded::new(&mut legs);
         guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
-        guarded.run_planned(&source(), &admitted, &BTreeSet::new()).unwrap();
+        guarded
+            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread)
+            .unwrap();
         assert_eq!(legs.opened, 1);
         assert_eq!(legs.ran, 1);
     }
@@ -318,10 +321,10 @@ mod tests {
         let other = RawStatement::parse("SELECT id FROM other_items").unwrap();
         let mut legs = Legs::default();
         let mut guarded = Guarded::new(&mut legs);
-        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new());
+        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread);
         assert!(matches!(before_open, Err(StatementStopped::NotPlanned)), "{before_open:?}");
         guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
-        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new());
+        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread);
         assert!(matches!(other_text, Err(StatementStopped::NotPlanned)), "{other_text:?}");
         assert_eq!(legs.ran, 0);
     }

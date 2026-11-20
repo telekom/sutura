@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use sutura_domain::model::TableName;
-use sutura_domain::plan::StatementStopped;
+use sutura_domain::plan::{PolicyRead, StatementStopped};
 use sutura_domain::raw::InvalidRawStatement;
 use sutura_exec_datafusion::CombineError;
 
@@ -176,9 +176,10 @@ impl<W: DataSystemUnderTest> StatementLegs for Recorded<'_, W> {
         source: &SourceName,
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
+        policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
         self.statements.push(String::from(statement.as_str()));
-        self.inner.run_planned(source, statement, tables)
+        self.inner.run_planned(source, statement, tables, policy)
     }
 }
 

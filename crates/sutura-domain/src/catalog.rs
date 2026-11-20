@@ -30,7 +30,7 @@ mod pattern;
 mod raw_prefilter;
 mod text;
 mod unlinked;
-pub use raw_prefilter::RawPrefilter;
+pub use raw_prefilter::{PrefilterCapability, RawPrefilter};
 pub use text::{InvalidTextPolicy, MaxTextBytes, Redaction, TextPolicy};
 
 pub use audience::{Audience, AudienceGrant, GrantedAudiences, InvalidAudienceGrant};
@@ -876,5 +876,7 @@ pub struct Metric {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod prefilter_capability_tests;
 #[cfg(test)]
 mod raw_prefilter_tests;

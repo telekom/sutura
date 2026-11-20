@@ -157,7 +157,7 @@ const RAW: Subject = Subject {
     name: "RawRefusalReason",
     declared_in: "crates/sutura-domain/src/raw.rs",
     allow_file: "devco/raw-refusals-unprovoked-allow",
-    variants: variants(10),
+    variants: variants(11),
 };
 
 /// One refused TLS configuration: the certificate and key `sutura_config::TlsMaterial` parsed are

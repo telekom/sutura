@@ -229,3 +229,9 @@ path = "vendor/adbc_clickhouse/**"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2025 ClickHouse, LLC."
 SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+[[annotations]]
+path = "nix/patches/actionlint/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2021 rhysd and the actionlint contributors"
+SPDX-License-Identifier = "MIT"
