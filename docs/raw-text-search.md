@@ -64,7 +64,6 @@ measured. Non-LOB Oracle columns and other source dialects retain redacted-only 
 their pinned schemas do not establish binary comparison semantics. This is a generic policy with
 conservative engine eligibility, not universal acceleration.
 
-
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
 collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
@@ -91,7 +90,6 @@ redacted predicate still decides. DuckDB's global `default_collation` setting ch
 `ILIKE` but not `LIKE` (measured on 2.0.0), and a raw statement cannot set it. Adding the fact moves
 the schema digest of every schema that now carries one, once, at upgrade: any with a DataFusion,
 ClickHouse or DuckDB text column, and any native Postgres read. A schema with none hashes as before.
-
 
 ClickHouse has no column collation and its `LIKE` is case-sensitive. ClickHouse documents `LIKE`
 matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted

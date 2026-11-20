@@ -294,7 +294,6 @@ fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
         Some("unreadable"),
         None,
     ] {
-
         assert!(
             raw_predicates(sql, collated(&enabled, pinned)).iter().all(Option::is_none),
             "{pinned:?}"

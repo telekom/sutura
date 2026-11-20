@@ -418,7 +418,9 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
         escape_char: None,
     };
     match capability {
-        PrefilterCapability::DataFusion | PrefilterCapability::DuckDb | PrefilterCapability::ClickHouse => Expr::Nested(Box::new(raw)),
+        PrefilterCapability::DataFusion | PrefilterCapability::DuckDb | PrefilterCapability::ClickHouse => {
+            Expr::Nested(Box::new(raw))
+        }
 
         PrefilterCapability::Oracle => {
             let sort = Expr::Function(Function {
