@@ -6,7 +6,6 @@ use std::ops::ControlFlow;
 use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
-use sutura_domain::catalog::COLLATION_METADATA_KEY;
 
 use super::*;
 
