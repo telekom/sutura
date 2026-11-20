@@ -6,7 +6,6 @@ use std::ops::ControlFlow;
 use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
-use sutura_domain::catalog::COLLATION_METADATA_KEY;
 
 use super::*;
 
@@ -49,9 +48,9 @@ fn collated(source: &StatementTable, collation: Option<&str>) -> StatementTable 
         .map(|field| {
             let mut metadata = field.metadata().clone();
             if field.name() == "BODY" {
-                drop(metadata.remove(COLLATION_METADATA_KEY));
+                drop(metadata.remove("sutura:collation"));
                 if let Some(collation) = collation {
-                    drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
+                    drop(metadata.insert(String::from("sutura:collation"), String::from(collation)));
                 }
             }
             field.as_ref().clone().with_metadata(metadata)

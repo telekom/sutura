@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
-use sutura_domain::catalog::COLLATION_METADATA_KEY;
 
 use super::super::text_prefilter::discover;
 use super::*;
@@ -18,7 +17,7 @@ fn notes(dialect: TypeDialect, collation: Option<&str>, replacement: &str) -> St
     });
     let mut metadata = HashMap::from([(String::from("sutura:text_policy"), policy.to_string())]);
     if let Some(collation) = collation {
-        drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
+        drop(metadata.insert(String::from("sutura:collation"), String::from(collation)));
     }
     StatementTable::new(
         named("data"),
