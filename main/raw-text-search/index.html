@@ -2720,6 +2720,29 @@ uses its binary character-set uppercase mapping, not <code>NLS_UPPER</code>. At 
 session setting is changed. Non-LOB Oracle columns and other source dialects retain redacted-only
 execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.</p>
+<p>Pinned text columns carry a collation fact, <code>sutura:collation</code> in the schema's field metadata and
+under the schema digest, so a change re-pins. <code>binary</code> means byte-for-byte comparison; a named
+collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
+only on a column whose declared type the dialect reads as text, never on one that fell back to
+text. DataFusion and ClickHouse have no per-column collation and pin <code>binary</code>, over any collation a
+catalog authors for them. A native Postgres dictionary records the column's collation for the
+base types <code>text</code>, <code>varchar</code>, <code>bpchar</code> and <code>name</code> only: the database default is <code>binary</code> for
+<code>LIKE</code>, because it is always deterministic, and so are the built-in <code>pg_catalog.C</code> and
+<code>pg_catalog.POSIX</code>. Any other collation is recorded by its schema-qualified name and is never
+binary, including a user schema's own <code>C</code>. A <code>citext</code> column or a domain over text is unknown. A
+Markdown column may declare <code>collation: binary</code> or a name. That declaration is an authored claim,
+trusted as far as its author is. Two models over one physical column that pin different known
+collations are refused at pinning, naming the column; an unknown one contradicts nothing. Oracle
+records nothing here, because its check is the run-time <code>NLS_SORT</code> above. No other dialect reads
+the fact yet; recording it enables no engine.</p>
+<p>What <code>binary</code> does not cover. It holds for <code>LIKE</code> and equality, not for ordering under a locale, and
+a type can still change equality: Postgres <code>bpchar</code> ignores trailing spaces in <code>=</code>. A
+<code>postgres_fdw</code> foreign table's <code>default</code> is the remote server's default. ClickHouse tables on the
+MySQL engine compare <code>=</code>, <code>&lt;</code> and <code>&gt;</code> on the MySQL server, while <code>LIKE</code> stays in ClickHouse.
+DuckDB's global <code>default_collation</code> setting can contradict an authored <code>binary</code>. Adding the fact
+moves the schema digest of every schema that now carries one, once, at upgrade: any with a
+DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
+before.</p>
 <p>The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
 does not establish a speedup. Native measurements must report actual row count, setup time,
