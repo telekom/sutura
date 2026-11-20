@@ -6,11 +6,13 @@
 //! than the conjunct selects is corrected; one that answers fewer is not, which is why only a
 //! comparison that cannot be stricter at Cube is listed.
 
+use std::sync::Arc;
+
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, DFSchema, ExprSchema as _, ScalarValue};
 use datafusion::logical_expr::expr::InList;
 use datafusion::logical_expr::utils::{conjunction, split_conjunction};
-use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
+use datafusion::logical_expr::{BinaryExpr, Expr, Filter, LogicalPlan, Operator, Projection};
 
 use super::text::KEY;
 
@@ -23,6 +25,19 @@ use super::text::KEY;
 /// the engine rewrites `flag = true` to a bare column, whose reading as a condition Cube is not
 /// known to share. A function, cast, arithmetic or a subquery is not, because it could raise at Cube
 /// on a row the local plan never reaches.
+pub(super) fn is_filtered_scan(node: &LogicalPlan) -> bool {
+    matches!(node, LogicalPlan::Filter(filter) if matches!(filter.input.as_ref(), LogicalPlan::TableScan(_)))
+}
+
+pub(super) fn cube_scan(filter: &Filter) -> datafusion::error::Result<Option<LogicalPlan>> {
+    let Some(pushed) = answered_by_cube(&filter.predicate, filter.input.schema()) else {
+        return Ok(None);
+    };
+    let scan = LogicalPlan::Filter(Filter::try_new(pushed, Arc::clone(&filter.input))?);
+    let columns = scan.schema().columns().into_iter().map(Expr::Column).collect();
+    Ok(Some(LogicalPlan::Projection(Projection::try_new(columns, Arc::new(scan))?)))
+}
+
 pub(super) fn answered_by_cube(predicate: &Expr, schema: &DFSchema) -> Option<Expr> {
     conjunction(
         split_conjunction(predicate)

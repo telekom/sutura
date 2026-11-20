@@ -377,13 +377,11 @@ impl OptimizerRule for Cutter {
             }))
         };
         plan.transform_down_with_subqueries(|node| {
-            let filtered_scan =
-                matches!(&node, LogicalPlan::Filter(filter) if matches!(filter.input.as_ref(), LogicalPlan::TableScan(_)));
+            let filtered_scan = pushdown::is_filtered_scan(&node);
             if self.2 && !filtered_scan && !matches!(node, LogicalPlan::TableScan(_)) {
                 return Ok(Transformed::no(node));
             }
-            let mut safe = true;
-            let mut scans = false;
+            let (mut safe, mut scans) = (true, false);
             node.apply_with_subqueries(|input| {
                 scans |= matches!(input, LogicalPlan::TableScan(_));
                 safe &= number_text_safe(input)?;
@@ -403,14 +401,10 @@ impl OptimizerRule for Cutter {
             if self.2
                 && let LogicalPlan::Filter(filter) = &node
             {
-                // The policy runs above the leaf, over what Cube answers, so a conjunct that reads no
-                // policy column narrows the rows it sees. The whole filter stays above, as a check.
-                let Some(pushed) = pushdown::answered_by_cube(&filter.predicate, filter.input.schema()) else {
+                let Some(scan) = pushdown::cube_scan(filter)? else {
                     return Ok(Transformed::no(node));
                 };
-                let scan = LogicalPlan::Filter(Filter::try_new(pushed, Arc::clone(&filter.input))?);
-                let columns = scan.schema().columns().into_iter().map(Expr::Column).collect();
-                let cut = leaf(LogicalPlan::Projection(Projection::try_new(columns, Arc::new(scan))?));
+                let cut = leaf(scan);
                 let kept = LogicalPlan::Filter(Filter::try_new(filter.predicate.clone(), Arc::new(cut.data))?);
                 return Ok(Transformed::new(kept, true, TreeNodeRecursion::Jump));
             }
