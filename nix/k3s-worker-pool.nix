@@ -480,7 +480,8 @@ pkgs.testers.runNixOSTest {
 
 
     def one(selector):
-        found = pods(selector)
+        # A rollout returns once the new pod is ready; the old one may still be terminating.
+        found = [p for p in pods(selector) if not p["metadata"].get("deletionTimestamp")]
         assert len(found) == 1 and ready(found[0]), found
         return found[0]
 
