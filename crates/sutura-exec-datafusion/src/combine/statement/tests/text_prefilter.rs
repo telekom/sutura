@@ -343,7 +343,7 @@ fn a_replacement_that_differs_only_in_case_never_passes_the_proof_where_a_collat
 fn a_non_ascii_replacement_never_passes_the_proof() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%K%'";
     let duckdb = |replacement| duckdb_collated(&table(TypeDialect::DuckDb, &[replacement], true, false, true), Some("binary"));
-    assert!(raw_predicates(sql, duckdb("[masked]"))[0].is_some());
+    assert!(raw_predicates(sql, duckdb("[redacted]"))[0].is_some());
     let kelvin = "[\u{212A}]";
     for source in [duckdb(kelvin), table(TypeDialect::DataFusion, &[kelvin], true, false, true)] {
         assert!(raw_predicates(sql, source).iter().all(Option::is_none));
