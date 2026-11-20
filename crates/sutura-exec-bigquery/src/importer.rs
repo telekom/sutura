@@ -312,10 +312,15 @@ impl Fixture {
         // The `OPTIONS` block sits between the table name and the `AS`, which is the shape the
         // endpoint accepts for a `CREATE ... AS SELECT`. The interval comes from a constant rather
         // than a caller, so no path can create a table that never expires.
+        let (projection, alias) = if self.collated.is_some() {
+            ("fixture.*", " AS fixture")
+        } else {
+            ("*", "")
+        };
         let mut out = format!(
             "CREATE OR REPLACE TABLE `{}` \
              OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {} HOUR)) \
-             AS SELECT fixture.*{} FROM UNNEST([STRUCT<{}>",
+             AS SELECT {projection}{} FROM UNNEST([STRUCT<{}>",
             table,
             EXPIRATION_HOURS,
             self.collation("fixture"),
@@ -330,7 +335,8 @@ impl Fixture {
             }
             out.push_str(tuple);
         }
-        out.push_str("]) AS fixture");
+        out.push_str("])");
+        out.push_str(alias);
         out
     }
 
