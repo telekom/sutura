@@ -5,7 +5,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use sutura_domain::catalog::{COLLATION_METADATA_KEY, PrefilterCapability};
+use sutura_domain::catalog::COLLATION_METADATA_KEY;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::{PolicyRead, StatementStopped};
 use sutura_domain::raw::InvalidRawStatement;
