@@ -19,10 +19,7 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
         TypeDialect::Postgres,
         TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
-<<<<<<< HEAD
-    ] {
-        assert_eq!(PrefilterCapability::of(dialect), None, "{dialect:?}");
-=======
+
         TypeDialect::Oracle,
     ] {
         let carries = match dialect {
@@ -35,6 +32,6 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
             TypeDialect::Oracle => true,
         };
         assert_eq!(PrefilterCapability::of(dialect).is_some(), carries, "{dialect:?}");
->>>>>>> b691bf5e4 (test(sql): decide every dialect's prefilter arm in one exhaustive match)
+
     }
 }
