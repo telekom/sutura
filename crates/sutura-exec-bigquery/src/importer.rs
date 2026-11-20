@@ -276,9 +276,9 @@ impl Fixture {
     }
 
     /// The `SELECT` clause that gives the collated column its collation, empty when none is declared.
-    fn collation(&self) -> String {
+    fn collation(&self, qualifier: &str) -> String {
         self.collated.as_ref().map_or_else(String::new, |name| {
-            format!(" REPLACE (COLLATE(`{name}`, 'und:ci') AS `{name}`)")
+            format!(" REPLACE (COLLATE({qualifier}.`{name}`, 'und:ci') AS `{name}`)")
         })
     }
 
@@ -315,10 +315,10 @@ impl Fixture {
         let mut out = format!(
             "CREATE OR REPLACE TABLE `{}` \
              OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {} HOUR)) \
-             AS SELECT *{} FROM UNNEST([STRUCT<{}>",
+             AS SELECT fixture.*{} FROM UNNEST([STRUCT<{}>",
             table,
             EXPIRATION_HOURS,
-            self.collation(),
+            self.collation("fixture"),
             declared.join(", ")
         );
         // `STRUCT` before every later element, because a one-column bare tuple `(x)` is a parenthesised
@@ -330,7 +330,7 @@ impl Fixture {
             }
             out.push_str(tuple);
         }
-        out.push_str("])");
+        out.push_str("]) AS fixture");
         out
     }
 
@@ -349,7 +349,7 @@ impl Fixture {
         }
         let mut out = format!(
             "CREATE OR REPLACE TABLE `{table}` OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {EXPIRATION_HOURS} HOUR)) AS SELECT run.fixture_row.*{} FROM UNNEST([STRUCT<fixture_row STRUCT<{declared}>, fixture_count INT64>",
-            self.collation()
+            self.collation("run.fixture_row")
         );
         for (index, (tuple, count)) in runs.into_iter().enumerate() {
             if index > 0 {
@@ -704,13 +704,13 @@ mod tests {
         let plain = read_fixture("k,v\n1,Term\n2,term\n").expect("a fixture");
         let sql = plain.collate(&column).expect("a text column").create_statement(&table);
         assert!(
-            sql.contains("AS SELECT * REPLACE (COLLATE(`v`, 'und:ci') AS `v`) FROM UNNEST([STRUCT<`k` INT64, `v` STRING>"),
+            sql.contains("AS SELECT fixture.* REPLACE (COLLATE(fixture.`v`, 'und:ci') AS `v`) FROM UNNEST([STRUCT<`k` INT64, `v` STRING>"),
             "{sql}"
         );
         let repeated = read_fixture("k,v\n1,Term\n1,Term\n").expect("a fixture");
         let sql = repeated.collate(&column).expect("a text column").create_statement(&table);
         assert!(
-            sql.contains("AS SELECT run.fixture_row.* REPLACE (COLLATE(`v`, 'und:ci') AS `v`) FROM UNNEST("),
+            sql.contains("AS SELECT run.fixture_row.* REPLACE (COLLATE(run.fixture_row.`v`, 'und:ci') AS `v`) FROM UNNEST("),
             "{sql}"
         );
     }
