@@ -5,7 +5,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use sutura_domain::catalog::Collation;
+use sutura_domain::catalog::{COLLATION_METADATA_KEY, Collation};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::StatementStopped;
 use sutura_domain::raw::InvalidRawStatement;
@@ -134,6 +134,24 @@ fn fixture_csv() -> std::path::PathBuf {
     path
 }
 
+/// A field carrying `collation` as the pin writes it; the read-back fails if that encoding moves.
+fn pinned_with(mut field: Field, collation: &Collation) -> Field {
+    let encoded = match collation {
+        Collation::Binary => Some(String::from("binary")),
+        Collation::Named(name) => Some(format!("named:{name}")),
+        Collation::Unknown => None,
+    };
+    if let Some(encoded) = encoded {
+        field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), encoded);
+    }
+    assert_eq!(
+        &Collation::of_field(&field),
+        collation,
+        "the pinned collation encoding changed"
+    );
+    field
+}
+
 /// The fixture table as every engine here stores it: byte-wise, which a `BigQuery` catalog must say.
 fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_json::Value>) -> StatementTable {
     admitted_as(path, dialect, policy, &Collation::Binary)
@@ -152,8 +170,7 @@ fn admitted_as(
     if dialect == TypeDialect::Oracle {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
-    let mut body = Field::new("body", DataType::Utf8, true).with_metadata(metadata);
-    collation.pin_onto(&mut body);
+    let body = pinned_with(Field::new("body", DataType::Utf8, true).with_metadata(metadata), collation);
     StatementTable::new(
         source(),
         path.clone(),
