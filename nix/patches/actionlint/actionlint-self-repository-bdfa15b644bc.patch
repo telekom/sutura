@@ -1,0 +1,437 @@
+From bdfa15b644bc27b4c5944be36003c0edc9ef41d2 Mon Sep 17 00:00:00 2001
+From: Arlo O'Keeffe <tiger@k5d.de>
+Date: Tue, 1 Sep 2026 13:47:10 +0200
+Subject: [PATCH] support the "$/" self-repository `uses:` syntax
+
+A `uses:` value starting with `$/` resolves against the repository running the
+workflow at the exact commit running it, so it carries no `@ref` and needs no
+checkout. GitHub added the form on 2026-07-30, and it is accepted everywhere the
+workspace-relative `./` form is: workflow steps, composite action steps, nested
+composition, and reusable workflow calls.
+
+Both forms name the same file, so `canonLocalUsesSpec` normalises `$/{path}` to
+`./{path}` rather than teaching every call site a second prefix. The metadata
+caches are keyed by spec: a reusable workflow reached as `./x.yml` from one
+caller and `$/x.yml` from another has to hit the same entry, and
+`LocalReusableWorkflowCache.WriteWorkflowCallEvent` writes its keys in the `./`
+form.
+
+`isWorkflowCallUsesRepoFormat` needed the prefix as well. It rejects a leading
+`.` so a local call is never mistaken for a repository one; without the same
+guard, `$/path/to/x.yml@ref` parsed as owner `$`, repo `path` and was accepted
+as a valid repository reference rather than reported.
+
+Closes #711
+
+Claude-Session: https://claude.ai/code/session_01HTxHGsgUiWCG3gmvhjcoy6
+---
+ action_metadata.go                            |  9 ++-
+ docs/checks.md                                |  9 ++-
+ reusable_workflow.go                          |  8 ++-
+ rule_action.go                                |  2 +-
+ rule_expression.go                            |  2 +-
+ rule_workflow_call.go                         | 16 ++---
+ rule_workflow_call_test.go                    |  4 ++
+ testdata/err/upper_case_duplicate_keys.out    |  2 +-
+ testdata/err/workflow_call_job.out            |  8 +--
+ testdata/examples/workflow_call_jobs.out      |  2 +-
+ testdata/projects/self_repository_uses.out    |  2 +
+ .../self_repository_uses/action/action.yaml   | 15 +++++
+ .../self_repository_uses/action/index.js      |  0
+ .../workflows/reusable.yaml                   |  8 +++
+ .../self_repository_uses/workflows/test.yaml  | 19 ++++++
+ uses.go                                       | 27 +++++++++
+ uses_test.go                                  | 58 +++++++++++++++++++
+ 17 files changed, 170 insertions(+), 21 deletions(-)
+ create mode 100644 testdata/projects/self_repository_uses.out
+ create mode 100644 testdata/projects/self_repository_uses/action/action.yaml
+ create mode 100644 testdata/projects/self_repository_uses/action/index.js
+ create mode 100644 testdata/projects/self_repository_uses/workflows/reusable.yaml
+ create mode 100644 testdata/projects/self_repository_uses/workflows/test.yaml
+ create mode 100644 uses.go
+ create mode 100644 uses_test.go
+
+diff --git a/action_metadata.go b/action_metadata.go
+index 9f21120..d1711dd 100644
+--- a/action_metadata.go
++++ b/action_metadata.go
+@@ -235,13 +235,18 @@ func (c *LocalActionsCache) writeCache(key string, val *ActionMetadata) {
+ }
+ 
+ // FindMetadata finds metadata for given spec. The spec should indicate for local action hence it
+-// should start with "./". The first return value can be nil even if error did not occur.
++// should start with "./" or with the self-repository prefix "$/". The first return value can be
++// nil even if error did not occur.
+ // LocalActionCache caches that the action was not found. At first search, it returns an error that
+ // the action was not found. But at the second search, it does not return an error even if the result
+ // is nil. This behavior prevents repeating to report the same error from multiple places.
+ // Calling this method is thread-safe.
+ func (c *LocalActionsCache) FindMetadata(spec string) (*ActionMetadata, bool, error) {
+-	if c.proj == nil || !strings.HasPrefix(spec, "./") {
++	if c.proj == nil {
++		return nil, false, nil
++	}
++	spec, ok := canonLocalUsesSpec(spec)
++	if !ok {
+ 		return nil, false, nil
+ 	}
+ 
+diff --git a/docs/checks.md b/docs/checks.md
+index 4f18945..7ec6bbb 100644
+--- a/docs/checks.md
++++ b/docs/checks.md
+@@ -1751,14 +1751,19 @@ test.yaml:13:15: specifying action ".github/my-actions/do-something" in invalid
+ 
+ [Playground](https://rhysd.github.io/actionlint/#eNpczbEOwyAMBNA9X+EtE0XqyNRfAWIBTbGj2K7Uv69olYXppHsnHVOAw6QuT04SFgBF0ZEAp5G44ZaM1NwrDvuRKB7yXwE4MEEJELM2JvG5Yt7ZdOKrfrzvk6wb5x3P4H3rsWBYJ7+VptWS7x93fWzshDtqbVS+AQAA//+oTjwo)
+ 
+-Action needs to be specified in a format defined in [the document][action-uses-doc]. There are 3 types of actions:
++Action needs to be specified in a format defined in [the document][action-uses-doc]. There are 4 types of actions:
+ 
+ - action hosted on GitHub: `owner/repo/path@ref`
+ - local action: `./path/to/my-action`
++- self-repository action: `$/path/to/my-action`
+ - Docker action: `docker://image:tag`
+ 
+ actionlint checks values at `uses:` sections follow one of these formats.
+ 
++The self-repository form resolves against the repository running the workflow at the exact commit running it, so it
++needs no checkout and takes no `@ref`. It is accepted everywhere the workspace-relative `./` form is, and actionlint
++resolves both to the same path in the repository.
++
+ Note that actionlint does not report any error when a directory for a local action does not exist in the repository because it is
+ a common case where the action is managed in a separate repository and the action directory is cloned at running the workflow.
+ (See [#25][issue-25] and [#40][issue-40] for more details).
+@@ -2264,7 +2269,7 @@ test.yaml:6:5: when a reusable workflow is called with "uses", "runs-on" is not
+   |
+ 6 |     runs-on: ubuntu-latest
+   |     ^~~~~~~~
+-test.yaml:9:11: reusable workflow call "./.github/workflows/ci.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
++test.yaml:9:11: reusable workflow call "./.github/workflows/ci.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml" nor "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+   |
+ 9 |     uses: ./.github/workflows/ci.yml@main
+   |           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+diff --git a/reusable_workflow.go b/reusable_workflow.go
+index 3becd80..bdf4f12 100644
+--- a/reusable_workflow.go
++++ b/reusable_workflow.go
+@@ -196,7 +196,7 @@ func (c *LocalReusableWorkflowCache) writeCache(key string, val *ReusableWorkflo
+ }
+ 
+ // FindMetadata finds/parses a reusable workflow metadata located by the 'spec' argument. When project
+-// is not set to 'proj' field or the spec does not start with "./", this method immediately returns with nil.
++// is not set to 'proj' field or the spec is not a local reference, this method immediately returns with nil.
+ //
+ // Note that an error is not cached. At first search, let's say this method returned an error since
+ // the reusable workflow is invalid. In this case, calling this method with the same spec later will
+@@ -205,7 +205,11 @@ func (c *LocalReusableWorkflowCache) writeCache(key string, val *ReusableWorkflo
+ //
+ // Calling this method is thread-safe.
+ func (c *LocalReusableWorkflowCache) FindMetadata(spec string) (*ReusableWorkflowMetadata, error) {
+-	if c.proj == nil || !strings.HasPrefix(spec, "./") || ContainsExpression(spec) {
++	if c.proj == nil || ContainsExpression(spec) {
++		return nil, nil
++	}
++	spec, ok := canonLocalUsesSpec(spec)
++	if !ok {
+ 		return nil, nil
+ 	}
+ 
+diff --git a/rule_action.go b/rule_action.go
+index ea18483..9c1ee20 100644
+--- a/rule_action.go
++++ b/rule_action.go
+@@ -328,7 +328,7 @@ func (rule *RuleAction) VisitStep(n *Step) error {
+ 
+ 	spec := e.Uses.Value
+ 
+-	if strings.HasPrefix(spec, "./") {
++	if _, ok := canonLocalUsesSpec(spec); ok {
+ 		// Relative to repository root
+ 		rule.checkLocalAction(spec, e)
+ 		return nil
+diff --git a/rule_expression.go b/rule_expression.go
+index eab7a93..2564079 100644
+--- a/rule_expression.go
++++ b/rule_expression.go
+@@ -330,7 +330,7 @@ func (rule *RuleExpression) getActionOutputsType(spec *String) *ObjectType {
+ 		return NewMapObjectType(StringType{})
+ 	}
+ 
+-	if strings.HasPrefix(spec.Value, "./") {
++	if _, ok := canonLocalUsesSpec(spec.Value); ok {
+ 		meta, _, err := rule.localActions.FindMetadata(spec.Value)
+ 		if err != nil {
+ 			rule.Error(spec.Pos, err.Error())
+diff --git a/rule_workflow_call.go b/rule_workflow_call.go
+index 4641112..a77706d 100644
+--- a/rule_workflow_call.go
++++ b/rule_workflow_call.go
+@@ -61,16 +61,16 @@ func (rule *RuleWorkflowCall) VisitJobPre(n *Job) error {
+ 		return nil
+ 	}
+ 
+-	if strings.HasPrefix(u.Value, "./") {
++	if s, ok := canonLocalUsesSpec(u.Value); ok {
+ 		// When the specification is invalid and it is local reusable workflow call, remember it caused
+ 		// an error by setting `nil` to cache. This can prevent redundant 'could not read workflow call'
+ 		// error.
+-		rule.cache.writeCache(u.Value, nil)
++		rule.cache.writeCache(s, nil)
+ 	}
+ 
+ 	rule.Errorf(
+ 		u.Pos,
+-		"reusable workflow call %q at \"uses\" is not following the format \"owner/repo/path/to/workflow.yml@ref\" nor \"./path/to/workflow.yml\". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details",
++		"reusable workflow call %q at \"uses\" is not following the format \"owner/repo/path/to/workflow.yml@ref\" nor \"./path/to/workflow.yml\" nor \"$/path/to/workflow.yml\". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details",
+ 		u.Value,
+ 	)
+ 	return nil
+@@ -145,10 +145,11 @@ func (rule *RuleWorkflowCall) checkWorkflowCallUsesLocal(call *WorkflowCall) {
+ 	rule.Debug("Validated reusable workflow %q", u.Value)
+ }
+ 
+-// Parse ./{path/{filename}
++// Parse ./{path}/{filename} or $/{path}/{filename}
+ // https://docs.github.com/en/actions/learn-github-actions/reusing-workflows#calling-a-reusable-workflow
+ func isWorkflowCallUsesLocalFormat(u string) bool {
+-	if !strings.HasPrefix(u, "./") {
++	u, ok := canonLocalUsesSpec(u)
++	if !ok {
+ 		return false
+ 	}
+ 	u = strings.TrimPrefix(u, "./")
+@@ -165,8 +166,9 @@ func isWorkflowCallUsesLocalFormat(u string) bool {
+ // Parse {owner}/{repo}/{path to workflow.yml}@{ref}
+ // https://docs.github.com/en/actions/learn-github-actions/reusing-workflows#calling-a-reusable-workflow
+ func isWorkflowCallUsesRepoFormat(u string) bool {
+-	// Repo reference must start with owner
+-	if strings.HasPrefix(u, ".") {
++	// Repo reference must start with owner. Without the second check, "$/path/to/x.yml@ref" parses
++	// as owner "$" and is accepted as a repo reference.
++	if strings.HasPrefix(u, ".") || strings.HasPrefix(u, selfRepositoryUsesPrefix) {
+ 		return false
+ 	}
+ 
+diff --git a/rule_workflow_call_test.go b/rule_workflow_call_test.go
+index adaf57e..5feec6c 100644
+--- a/rule_workflow_call_test.go
++++ b/rule_workflow_call_test.go
+@@ -19,8 +19,12 @@ func TestRuleWorkflowCallCheckWorkflowCallUsesFormat(t *testing.T) {
+ 		{"owner/repo/x.yml@@", true},
+ 		{"owner/repo/x.yml@release/v1", true},
+ 		{"./path/to/x.yml", true},
++		{"$/path/to/x.yml", true},
+ 		{"${{ env.FOO }}", true},
+ 		{"./path/to/x.yml@ref", false},
++		{"$/path/to/x.yml@ref", false},
++		{"$/", false},
++		{"$", false},
+ 		{"/path/to/x.yml@ref", false},
+ 		{"./", false},
+ 		{".", false},
+diff --git a/testdata/err/upper_case_duplicate_keys.out b/testdata/err/upper_case_duplicate_keys.out
+index 5094d8d..c7c887d 100644
+--- a/testdata/err/upper_case_duplicate_keys.out
++++ b/testdata/err/upper_case_duplicate_keys.out
+@@ -6,6 +6,6 @@ test.yaml:26:9: key "VERSION_NAME" is duplicated in "matrix" section. previously
+ test.yaml:32:7: key "REDIS" is duplicated in "services" section. previously defined at line:30,col:7. note that this key is case insensitive [syntax-check]
+ test.yaml:38:11: key "foo" is duplicated in "env" section. previously defined at line:37,col:11. note that this key is case insensitive [syntax-check]
+ test.yaml:42:11: key "FOO" is duplicated in "with" section. previously defined at line:41,col:11. note that this key is case insensitive [syntax-check]
+-test.yaml:44:11: reusable workflow call "owner/repo@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
++test.yaml:44:11: reusable workflow call "owner/repo@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml" nor "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+ test.yaml:47:7: key "FOO_input" is duplicated in "with" section. previously defined at line:46,col:7. note that this key is case insensitive [syntax-check]
+ test.yaml:50:7: key "FOO_secret" is duplicated in "secrets" section. previously defined at line:49,col:7. note that this key is case insensitive [syntax-check]
+diff --git a/testdata/err/workflow_call_job.out b/testdata/err/workflow_call_job.out
+index 1b98825..9f7d22c 100644
+--- a/testdata/err/workflow_call_job.out
++++ b/testdata/err/workflow_call_job.out
+@@ -2,7 +2,7 @@ test.yaml:6:5: when a reusable workflow is called with "uses", "steps" is not av
+ test.yaml:10:5: "with" is only available for a reusable workflow call with "uses" but "uses" is not found in job "call2" [syntax-check]
+ test.yaml:17:5: "secrets" is only available for a reusable workflow call with "uses" but "uses" is not found in job "call3" [syntax-check]
+ test.yaml:24:10: string should not be empty [syntax-check]
+-test.yaml:27:11: reusable workflow call "./foo/bar/workflow.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+-test.yaml:30:11: reusable workflow call "/foo/bar/workflow.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+-test.yaml:33:11: reusable workflow call "foo/workflow.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+-test.yaml:36:11: reusable workflow call "foo/bar/workflow.yml" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
++test.yaml:27:11: reusable workflow call "./foo/bar/workflow.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml" nor "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
++test.yaml:30:11: reusable workflow call "/foo/bar/workflow.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml" nor "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
++test.yaml:33:11: reusable workflow call "foo/workflow.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml" nor "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
++test.yaml:36:11: reusable workflow call "foo/bar/workflow.yml" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml" nor "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+diff --git a/testdata/examples/workflow_call_jobs.out b/testdata/examples/workflow_call_jobs.out
+index 3db0765..d6b91bd 100644
+--- a/testdata/examples/workflow_call_jobs.out
++++ b/testdata/examples/workflow_call_jobs.out
+@@ -1,4 +1,4 @@
+ test.yaml:6:5: when a reusable workflow is called with "uses", "runs-on" is not available. only following keys are allowed: "name", "uses", "with", "secrets", "needs", "if", and "permissions" in job "job1" [syntax-check]
+-test.yaml:9:11: reusable workflow call "./.github/workflows/ci.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
++test.yaml:9:11: reusable workflow call "./.github/workflows/ci.yml@main" at "uses" is not following the format "owner/repo/path/to/workflow.yml@ref" nor "./path/to/workflow.yml" nor "$/path/to/workflow.yml". see https://docs.github.com/en/actions/learn-github-actions/reusing-workflows for more details [workflow-call]
+ test.yaml:12:5: "with" is only available for a reusable workflow call with "uses" but "uses" is not found in job "job3" [syntax-check]
+ /test\.yaml:19:11: could not read reusable workflow file for "\./\.github/workflows/not-existing\.yml": .+ \[workflow-call\]/
+diff --git a/testdata/projects/self_repository_uses.out b/testdata/projects/self_repository_uses.out
+new file mode 100644
+index 0000000..5fa4e71
+--- /dev/null
++++ b/testdata/projects/self_repository_uses.out
+@@ -0,0 +1,2 @@
++/workflows/test\.yaml:14:15: missing input "name" which is required by action "My action" defined at "\$\/action"\. all required inputs are "name" \[action\]/
++/workflows/test\.yaml:16:11: input "nam" is not defined in action "My action" defined at "\$\/action"\. available inputs are "name" \[action\]/
+diff --git a/testdata/projects/self_repository_uses/action/action.yaml b/testdata/projects/self_repository_uses/action/action.yaml
+new file mode 100644
+index 0000000..35077b3
+--- /dev/null
++++ b/testdata/projects/self_repository_uses/action/action.yaml
+@@ -0,0 +1,15 @@
++name: 'My action'
++description: 'my action'
++
++inputs:
++  name:
++    description: 'your name'
++    required: true
++
++outputs:
++  greeting:
++    description: 'greeting for you'
++
++runs:
++  using: 'node20'
++  main: 'index.js'
+diff --git a/testdata/projects/self_repository_uses/action/index.js b/testdata/projects/self_repository_uses/action/index.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/testdata/projects/self_repository_uses/workflows/reusable.yaml b/testdata/projects/self_repository_uses/workflows/reusable.yaml
+new file mode 100644
+index 0000000..812503e
+--- /dev/null
++++ b/testdata/projects/self_repository_uses/workflows/reusable.yaml
+@@ -0,0 +1,8 @@
++on:
++  workflow_call:
++
++jobs:
++  callee:
++    runs-on: ubuntu-latest
++    steps:
++      - run: hello
+diff --git a/testdata/projects/self_repository_uses/workflows/test.yaml b/testdata/projects/self_repository_uses/workflows/test.yaml
+new file mode 100644
+index 0000000..0894fdc
+--- /dev/null
++++ b/testdata/projects/self_repository_uses/workflows/test.yaml
+@@ -0,0 +1,19 @@
++on: push
++
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    steps:
++      - id: ok
++        uses: $/action
++        with:
++          name: rhysd
++      - run: echo '${{ steps.ok.outputs.greeting }}'
++      # ERROR: The input name is misspelled, so it is both undefined and missing a required one.
++      # Both errors prove the metadata behind "$/" was resolved rather than skipped.
++      - uses: $/action
++        with:
++          nam: rhysd
++
++  call:
++    uses: $/workflows/reusable.yaml
+diff --git a/uses.go b/uses.go
+new file mode 100644
+index 0000000..b9ae59b
+--- /dev/null
++++ b/uses.go
+@@ -0,0 +1,27 @@
++package actionlint
++
++import "strings"
++
++// selfRepositoryUsesPrefix marks the "self-repository" form of `uses:`. It resolves against the
++// repository running the workflow at the exact commit running it, so it carries no `@ref` and is
++// accepted everywhere the workspace-relative `./` form is: workflow steps, composite action steps,
++// nested composition, and reusable workflow calls.
++// https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/
++const selfRepositoryUsesPrefix = "$/"
++
++// canonLocalUsesSpec converts a `uses:` value naming an action or a reusable workflow in the
++// workflow's own repository into its canonical `./{path}` form, and reports whether the value was
++// such a reference at all.
++//
++// Callers normalise rather than test for either prefix because the metadata caches are keyed by
++// spec. LocalReusableWorkflowCache.WriteWorkflowCallEvent writes its keys in the `./` form, so a
++// `$/` caller looking the unnormalised spec up finds nothing that was written ahead of it.
++func canonLocalUsesSpec(spec string) (string, bool) {
++	if strings.HasPrefix(spec, "./") {
++		return spec, true
++	}
++	if p, ok := strings.CutPrefix(spec, selfRepositoryUsesPrefix); ok {
++		return "./" + p, true
++	}
++	return "", false
++}
+diff --git a/uses_test.go b/uses_test.go
+new file mode 100644
+index 0000000..78777eb
+--- /dev/null
++++ b/uses_test.go
+@@ -0,0 +1,58 @@
++package actionlint
++
++import "testing"
++
++func TestCanonLocalUsesSpec(t *testing.T) {
++	tests := []struct {
++		what string
++		spec string
++		want string
++		ok   bool
++	}{
++		{"workspace relative action", "./action", "./action", true},
++		{"workspace relative nested path", "./.github/actions/my-action", "./.github/actions/my-action", true},
++		{"workspace relative workflow", "./.github/workflows/ci.yml", "./.github/workflows/ci.yml", true},
++		{"self repository action", "$/action", "./action", true},
++		{"self repository nested path", "$/.github/actions/my-action", "./.github/actions/my-action", true},
++		{"self repository workflow", "$/.github/workflows/ci.yml", "./.github/workflows/ci.yml", true},
++		{"self repository with empty path", "$/", "./", true},
++		{"repository action", "owner/repo@v1", "", false},
++		{"repository action with path", "owner/repo/path@v1", "", false},
++		{"docker action", "docker://alpine:3.18", "", false},
++		{"dollar without slash", "$action", "", false},
++		{"dollar alone", "$", "", false},
++		{"parent relative path", "../action", "", false},
++		{"empty", "", "", false},
++	}
++
++	for _, tc := range tests {
++		t.Run(tc.what, func(t *testing.T) {
++			have, ok := canonLocalUsesSpec(tc.spec)
++			if ok != tc.ok {
++				t.Fatalf("wanted ok=%v but have ok=%v for spec %q", tc.ok, ok, tc.spec)
++			}
++			if have != tc.want {
++				t.Fatalf("wanted %q but have %q for spec %q", tc.want, have, tc.spec)
++			}
++		})
++	}
++}
++
++// Both spellings must land on the same cache key, which is the property the metadata caches depend
++// on: LocalReusableWorkflowCache.WriteWorkflowCallEvent writes its keys in the "./" form, and a
++// "$/" caller that looked up anything else would never find them.
++func TestCanonLocalUsesSpecAgreesBetweenForms(t *testing.T) {
++	for _, path := range []string{"action", ".github/actions/my-action", ".github/workflows/ci.yml"} {
++		local, ok := canonLocalUsesSpec("./" + path)
++		if !ok {
++			t.Fatalf("%q was not recognised as a local spec", "./"+path)
++		}
++		self, ok := canonLocalUsesSpec("$/" + path)
++		if !ok {
++			t.Fatalf("%q was not recognised as a local spec", "$/"+path)
++		}
++		if local != self {
++			t.Errorf("%q and %q canonicalise differently: %q vs %q", "./"+path, "$/"+path, local, self)
++		}
++	}
++}

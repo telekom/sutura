@@ -1,0 +1,175 @@
+From 644076a59742c2d1540ebd4686eab3c308f0e562 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pawe=C5=82=20Gronowski?= <git@grono.dev>
+Date: Wed, 22 Apr 2026 13:58:56 +0200
+Subject: [PATCH] concurrency: Add support for `queue` key
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GitHub Actions shipped a new `queue` key under the `concurrency` section
+to allow pending workflow runs to queue instead of being cancelled.
+
+Allowed values are "max" and "single" (default).
+The combination of `queue: max` with `cancel-in-progress: true` is not
+permitted.
+
+Reference: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency#example-queueing-multiple-pending-runs
+
+Signed-off-by: Paweł Gronowski <git@grono.dev>
+---
+ ast.go                               |  2 ++
+ parse.go                             | 15 ++++++++++++++-
+ rule_expression.go                   |  1 +
+ testdata/err/case_sensitive_keys.out |  4 ++--
+ testdata/err/concurrency_queue.out   |  2 ++
+ testdata/err/concurrency_queue.yaml  | 15 +++++++++++++++
+ testdata/err/unexpected_keys.out     |  2 +-
+ testdata/ok/concurrency_queue.yaml   | 22 ++++++++++++++++++++++
+ 8 files changed, 59 insertions(+), 4 deletions(-)
+ create mode 100644 testdata/err/concurrency_queue.out
+ create mode 100644 testdata/err/concurrency_queue.yaml
+ create mode 100644 testdata/ok/concurrency_queue.yaml
+
+diff --git a/ast.go b/ast.go
+index 335f5c3..08e5bf8 100644
+--- a/ast.go
++++ b/ast.go
+@@ -400,6 +400,8 @@ type Concurrency struct {
+ 	Group *String
+ 	// CancelInProgress is a flag that shows if canceling this workflow cancels other jobs in progress.
+ 	CancelInProgress *Bool
++	// Queue is the queue strategy for pending workflow runs. Valid values are "single" (default) and "max".
++	Queue *String
+ 	// Pos is a position in source.
+ 	Pos *Pos
+ }
+diff --git a/parse.go b/parse.go
+index 77c8921..36b7854 100644
+--- a/parse.go
++++ b/parse.go
+@@ -820,13 +820,26 @@ func (p *parser) parseConcurrency(pos *Pos, n *yaml.Node) *Concurrency {
+ 			ret.Group = p.parseString(e.val, false)
+ 		case "cancel-in-progress":
+ 			ret.CancelInProgress = p.parseBool(e.val)
++		case "queue":
++			ret.Queue = p.parseString(e.val, false)
++			if ret.Queue != nil && !ret.Queue.ContainsExpression() {
++				switch ret.Queue.Value {
++				case "max", "single":
++					// ok
++				default:
++					p.errorf(e.val, "invalid value %q for \"queue\" in \"concurrency\" section. valid values are \"max\" and \"single\"", ret.Queue.Value)
++				}
++			}
+ 		default:
+-			p.unexpectedKey(e.key, "concurrency", []string{"group", "cancel-in-progress"})
++			p.unexpectedKey(e.key, "concurrency", []string{"cancel-in-progress", "group", "queue"})
+ 		}
+ 	}
+ 	if ret.Group == nil {
+ 		p.errorAt(pos, "group name is missing in \"concurrency\" section")
+ 	}
++	if ret.Queue != nil && ret.CancelInProgress != nil && !ret.Queue.ContainsExpression() && ret.Queue.Value == "max" && ret.CancelInProgress.Expression == nil && ret.CancelInProgress.Value {
++		p.errorfAt(ret.Queue.Pos, "\"queue: max\" cannot be combined with \"cancel-in-progress: true\" in \"concurrency\" section")
++	}
+ 	return ret
+ }
+ 
+diff --git a/rule_expression.go b/rule_expression.go
+index eab7a93..19fd0e7 100644
+--- a/rule_expression.go
++++ b/rule_expression.go
+@@ -511,6 +511,7 @@ func (rule *RuleExpression) checkConcurrency(c *Concurrency, workflowKey string)
+ 	}
+ 	rule.checkString(c.Group, workflowKey)
+ 	rule.checkBool(c.CancelInProgress, workflowKey)
++	rule.checkString(c.Queue, workflowKey)
+ }
+ 
+ func (rule *RuleExpression) checkDefaults(d *Defaults, workflowKey string) {
+diff --git a/testdata/err/case_sensitive_keys.out b/testdata/err/case_sensitive_keys.out
+index 353f1f5..9b88e62 100644
+--- a/testdata/err/case_sensitive_keys.out
++++ b/testdata/err/case_sensitive_keys.out
+@@ -8,9 +8,9 @@ test.yaml:22:9: unexpected key "DESCRIPTION" for outputs at workflow_call event.
+ test.yaml:25:5: unexpected key "BRANCHES" for "push" section. expected one of "branches", "branches-ignore", "paths", "paths-ignore", "tags", "tags-ignore", "types", "workflows" [syntax-check]
+ test.yaml:28:3: expected "run" key for "defaults" section but got "RUN" [syntax-check]
+ test.yaml:30:5: unexpected key "SHELL" for "run" section. expected one of "shell", "working-directory" [syntax-check]
+-test.yaml:33:3: unexpected key "GROUP" for "concurrency" section. expected one of "cancel-in-progress", "group" [syntax-check]
++test.yaml:33:3: unexpected key "GROUP" for "concurrency" section. expected one of "cancel-in-progress", "group", "queue" [syntax-check]
+ test.yaml:39:5: unexpected key "NAME" for "job" section. expected one of "concurrency", "container", "continue-on-error", "defaults", "env", "environment", "if", "name", "needs", "outputs", "permissions", "runs-on", "secrets", "services", "snapshot", "steps", "strategy", "timeout-minutes", "uses", "with" [syntax-check]
+-test.yaml:41:7: unexpected key "GROUP" for "concurrency" section. expected one of "cancel-in-progress", "group" [syntax-check]
++test.yaml:41:7: unexpected key "GROUP" for "concurrency" section. expected one of "cancel-in-progress", "group", "queue" [syntax-check]
+ test.yaml:44:7: unexpected key "NAME" for "environment" section. expected one of "deployment", "name", "url" [syntax-check]
+ test.yaml:47:7: expected "run" key for "defaults" section but got "RUN" [syntax-check]
+ test.yaml:49:9: unexpected key "SHELL" for "run" section. expected one of "shell", "working-directory" [syntax-check]
+diff --git a/testdata/err/concurrency_queue.out b/testdata/err/concurrency_queue.out
+new file mode 100644
+index 0000000..a74dff2
+--- /dev/null
++++ b/testdata/err/concurrency_queue.out
+@@ -0,0 +1,2 @@
++test.yaml:5:10: invalid value "invalid" for "queue" in "concurrency" section. valid values are "max" and "single" [syntax-check]
++test.yaml:13:14: "queue: max" cannot be combined with "cancel-in-progress: true" in "concurrency" section [syntax-check]
+diff --git a/testdata/err/concurrency_queue.yaml b/testdata/err/concurrency_queue.yaml
+new file mode 100644
+index 0000000..7722388
+--- /dev/null
++++ b/testdata/err/concurrency_queue.yaml
+@@ -0,0 +1,15 @@
++on: push
++
++concurrency:
++  group: test
++  queue: invalid
++
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    concurrency:
++      group: job-test
++      cancel-in-progress: true
++      queue: max
++    steps:
++      - run: echo
+diff --git a/testdata/err/unexpected_keys.out b/testdata/err/unexpected_keys.out
+index c2b6e83..3d31694 100644
+--- a/testdata/err/unexpected_keys.out
++++ b/testdata/err/unexpected_keys.out
+@@ -8,7 +8,7 @@ test.yaml:22:9: unexpected key "invalid_key" for outputs at workflow_call event.
+ test.yaml:23:5: unexpected key "invalid_key" for "workflow_call" section. expected one of "inputs", "outputs", "secrets" [syntax-check]
+ test.yaml:27:5: unexpected key "invalid_key" for "run" section. expected one of "shell", "working-directory" [syntax-check]
+ test.yaml:28:3: expected "run" key for "defaults" section but got "invalid_key" [syntax-check]
+-test.yaml:32:3: unexpected key "invalid_key" for "concurrency" section. expected one of "cancel-in-progress", "group" [syntax-check]
++test.yaml:32:3: unexpected key "invalid_key" for "concurrency" section. expected one of "cancel-in-progress", "group", "queue" [syntax-check]
+ test.yaml:38:7: unexpected key "invalid_key" for "environment" section. expected one of "deployment", "name", "url" [syntax-check]
+ test.yaml:40:7: unexpected key "invalid_key" for "strategy" section. expected one of "fail-fast", "matrix", "max-parallel" [syntax-check]
+ test.yaml:46:9: unexpected key "invalid_key" for "credentials" section. expected one of "password", "username" [syntax-check]
+diff --git a/testdata/ok/concurrency_queue.yaml b/testdata/ok/concurrency_queue.yaml
+new file mode 100644
+index 0000000..969dce5
+--- /dev/null
++++ b/testdata/ok/concurrency_queue.yaml
+@@ -0,0 +1,22 @@
++on: push
++
++concurrency:
++  group: deploy-queue
++  queue: max
++
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    concurrency:
++      group: job-queue
++      cancel-in-progress: false
++      queue: max
++    steps:
++      - run: echo "deploy"
++  test2:
++    runs-on: ubuntu-latest
++    concurrency:
++      group: job-single
++      queue: single
++    steps:
++      - run: echo "single"

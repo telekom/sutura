@@ -1,0 +1,317 @@
+From b02c24b743cc88a26b280339814eb4ece91c32cb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 3 Sep 2026 09:25:49 +0000
+Subject: [PATCH] report `uses:` specs the way the workflow wrote them
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+`LocalReusableWorkflowCache.FindMetadata` shadowed its `spec` parameter with the
+canonicalised form, so a workflow calling `$/.github/workflows/x.yml` was told
+`could not read reusable workflow file for "./.github/workflows/x.yml"` — a path
+that appears nowhere in its source. Keeping the canonical form in a separate
+`key` leaves the cache lookups unchanged and lets the two error messages quote
+the spelling the author actually used. `LocalActionsCache.FindMetadata` reports
+`dir` rather than the spec so its diagnostics were already right, but it gets
+the same split to keep the two caches reading alike.
+
+The cross-syntax cache sharing this design rests on had no test at the cache
+level: `uses_test.go` only covers `canonLocalUsesSpec` itself, which cannot
+catch a call site that looks up the unnormalised spec. Both caches now assert
+all four write/read spelling combinations against the existing
+`testdata/reusable_workflow_metadata` and `testdata/action_metadata` fixtures.
+Reverting either `writeCache` call to key on the raw spec fails them.
+
+`docs/checks.md` described the reusable workflow checks as working on calls
+"starting with `./`", which is no longer the whole story.
+
+Reported by @chuckatkins on rhysd/actionlint#732.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Nykir5DEU7QM6F3Kp1corc
+---
+ action_metadata.go         | 14 +++++++------
+ action_metadata_test.go    | 39 +++++++++++++++++++++++++++++++++++++
+ docs/checks.md             | 16 ++++++++-------
+ reusable_workflow.go       | 14 +++++++------
+ reusable_workflow_test.go  | 40 ++++++++++++++++++++++++++++++++++++++
+ rule_workflow_call_test.go | 18 +++++++++++++++++
+ 6 files changed, 122 insertions(+), 19 deletions(-)
+
+diff --git a/action_metadata.go b/action_metadata.go
+index d1711dd..dd115ac 100644
+--- a/action_metadata.go
++++ b/action_metadata.go
+@@ -245,22 +245,24 @@ func (c *LocalActionsCache) FindMetadata(spec string) (*ActionMetadata, bool, er
+ 	if c.proj == nil {
+ 		return nil, false, nil
+ 	}
+-	spec, ok := canonLocalUsesSpec(spec)
++	// The cache is keyed by the canonical form so that both spellings share one entry, while `spec`
++	// stays as the workflow author wrote it for logging.
++	key, ok := canonLocalUsesSpec(spec)
+ 	if !ok {
+ 		return nil, false, nil
+ 	}
+ 
+-	if m, ok := c.readCache(spec); ok {
++	if m, ok := c.readCache(key); ok {
+ 		c.debug("Cache hit for %s: %v", spec, m)
+ 		return m, true, nil
+ 	}
+ 
+-	dir := filepath.Join(c.proj.RootDir(), filepath.FromSlash(spec))
++	dir := filepath.Join(c.proj.RootDir(), filepath.FromSlash(key))
+ 	b, f, ok := c.readLocalActionMetadataFile(dir)
+ 	if !ok {
+ 		c.debug("No action metadata found in %s", dir)
+ 		// Remember action was not found
+-		c.writeCache(spec, nil)
++		c.writeCache(key, nil)
+ 		// Do not complain about the action does not exist (#25, #40).
+ 		// It seems a common pattern that the local action does not exist in the repository
+ 		// (e.g. Git submodule) and it is cloned at running workflow (due to a private repository).
+@@ -269,7 +271,7 @@ func (c *LocalActionsCache) FindMetadata(spec string) (*ActionMetadata, bool, er
+ 
+ 	var meta ActionMetadata
+ 	if err := yaml.Unmarshal(b, &meta); err != nil {
+-		c.writeCache(spec, nil) // Remember action was invalid
++		c.writeCache(key, nil) // Remember action was invalid
+ 
+ 		// Unwrap type error when a single type error occurs to simplify the error message
+ 		var m string
+@@ -289,7 +291,7 @@ func (c *LocalActionsCache) FindMetadata(spec string) (*ActionMetadata, bool, er
+ 	meta.dir = dir
+ 
+ 	c.debug("New metadata parsed from action %s: %v", dir, &meta)
+-	c.writeCache(spec, &meta)
++	c.writeCache(key, &meta)
+ 	return &meta, false, nil
+ }
+ 
+diff --git a/action_metadata_test.go b/action_metadata_test.go
+index f51e320..37819c5 100644
+--- a/action_metadata_test.go
++++ b/action_metadata_test.go
+@@ -710,3 +710,42 @@ func TestLocalActionsCacheFactory(t *testing.T) {
+ 		t.Errorf("null cache must be returned if given project is nil: %v", c4)
+ 	}
+ }
++
++// Both `uses:` spellings for an action in the workflow's own repository point at one directory, so
++// looking one up must hit the entry the other populated rather than re-reading the metadata file.
++func TestLocalActionsFindMetadataSharesEntryBetweenUsesForms(t *testing.T) {
++	tests := []struct {
++		what   string
++		writes string
++		reads  string
++	}{
++		{"local write, local read", "./action-yml", "./action-yml"},
++		{"self-repository write, self-repository read", "$/action-yml", "$/action-yml"},
++		{"local write, self-repository read", "./action-yml", "$/action-yml"},
++		{"self-repository write, local read", "$/action-yml", "./action-yml"},
++	}
++
++	for _, tc := range tests {
++		t.Run(tc.what, func(t *testing.T) {
++			proj := &Project{filepath.Join("testdata", "action_metadata"), nil}
++			c := NewLocalActionsCache(proj, nil)
++
++			written, cached, err := c.FindMetadata(tc.writes)
++			if err != nil {
++				t.Fatal(err)
++			}
++			testCheckCachedFlag(t, false, cached)
++			testDiffActionMetadata(t, testGetWantedActionMetadata(), written)
++			testCheckActionMetadataPath(t, "action-yml", written)
++
++			read, cached, err := c.FindMetadata(tc.reads)
++			if err != nil {
++				t.Fatal(err)
++			}
++			testCheckCachedFlag(t, true, cached)
++			if written != read {
++				t.Errorf("%q did not hit the cache entry written by %q", tc.reads, tc.writes)
++			}
++		})
++	}
++}
+diff --git a/docs/checks.md b/docs/checks.md
+index 7ec6bbb..7c2cd85 100644
+--- a/docs/checks.md
++++ b/docs/checks.md
+@@ -1828,8 +1828,9 @@ test.yaml:13:11: input "additions" is not defined in action "My action" defined
+ 
+ <!-- Skip playground link -->
+ 
+-When a local action is run in `uses:` of `step:`, actionlint reads `action.yml` file in the local action directory and
+-validates inputs at `with:` in the workflow are correct. Missing required inputs and unexpected inputs can be detected.
++When an action in the same repository is run in `uses:` of `step:` (with either the `./` or the `$/` form), actionlint
++reads the `action.yml` file in that action's directory and validates inputs at `with:` in the workflow are correct.
++Missing required inputs and unexpected inputs can be detected.
+ 
+ <a id="check-popular-action-inputs"></a>
+ ## Popular action inputs validation at `with:`
+@@ -2290,11 +2291,12 @@ For example, `secrets:` is not available when running steps in a normal job. And
+ a reusable workflow since the called workflow determines which OS is used. actionlint checks such keys are used correctly
+ to call a reusable workflow or to run steps in a normal job.
+ 
+-And the workflow syntax at `uses:` must follow the format `owner/repo/path/to/workflow.yml@ref` as described in
++And the workflow syntax at `uses:` must follow one of the formats `owner/repo/path/to/workflow.yml@ref`,
++`./path/to/workflow.yml`, or `$/path/to/workflow.yml` as described in
+ [the official document][create-reusable-workflow-doc]. actionlint checks if the value follows the format.
+ 
+-actionlint also validates the called workflow file is actually existing when it is a local workflow (starting with `./`).
+-actionlint reports an error when it does not exist.
++actionlint also validates the called workflow file is actually existing when it is in the same repository (starting
++with `./` or `$/`). actionlint reports an error when it does not exist.
+ 
+ ### Check types of `inputs.*` and `secrets.*` in reusable workflow
+ 
+@@ -2530,7 +2532,7 @@ And reusable workflows must define types of their inputs by `type:` field. Workf
+ expressions (`inputs: ${{ ... }}`) to the inputs or secrets. actionlint checks types of values passed to inputs in workflow call.
+ When a type of input doesn't match to its definition, actionlint reports an error.
+ 
+-Note that this check only works with local reusable workflow (it starts with `./`).
++Note that this check only works with a reusable workflow in the same repository (it starts with `./` or `$/`).
+ 
+ ### Check outputs of workflow call in downstream jobs
+ 
+@@ -2592,7 +2594,7 @@ object types in downstream jobs.
+ In the above example, `get-build-info.yaml` has one output `version`. actionlint types the outputs object of workflow call job
+ as `{version: string}`. In the downstream job, actionlint can report an error at undefined key `tag` in the object.
+ 
+-Note that this check only works with local reusable workflow (starting with `./`).
++Note that this check only works with a reusable workflow in the same repository (starting with `./` or `$/`).
+ 
+ <a id="id-naming-convention"></a>
+ ## ID naming convention
+diff --git a/reusable_workflow.go b/reusable_workflow.go
+index bdf4f12..a7c229c 100644
+--- a/reusable_workflow.go
++++ b/reusable_workflow.go
+@@ -208,32 +208,34 @@ func (c *LocalReusableWorkflowCache) FindMetadata(spec string) (*ReusableWorkflo
+ 	if c.proj == nil || ContainsExpression(spec) {
+ 		return nil, nil
+ 	}
+-	spec, ok := canonLocalUsesSpec(spec)
++	// The cache is keyed by the canonical form so that both spellings share one entry, but errors
++	// quote `spec` so they name the workflow the way the workflow author wrote it.
++	key, ok := canonLocalUsesSpec(spec)
+ 	if !ok {
+ 		return nil, nil
+ 	}
+ 
+-	if m, ok := c.readCache(spec); ok {
++	if m, ok := c.readCache(key); ok {
+ 		c.debug("Cache hit for %s: %v", spec, m)
+ 		return m, nil
+ 	}
+ 
+-	file := filepath.Join(c.proj.RootDir(), filepath.FromSlash(spec))
++	file := filepath.Join(c.proj.RootDir(), filepath.FromSlash(key))
+ 	src, err := os.ReadFile(file)
+ 	if err != nil {
+-		c.writeCache(spec, nil) // Remember the workflow file was not found
++		c.writeCache(key, nil) // Remember the workflow file was not found
+ 		return nil, fmt.Errorf("could not read reusable workflow file for %q: %w", spec, err)
+ 	}
+ 
+ 	m, err := parseReusableWorkflowMetadata(src)
+ 	if err != nil {
+-		c.writeCache(spec, nil) // Remember the workflow file was invalid
++		c.writeCache(key, nil) // Remember the workflow file was invalid
+ 		msg := strings.ReplaceAll(err.Error(), "\n", " ")
+ 		return nil, fmt.Errorf("error while parsing reusable workflow %q: %s", spec, msg)
+ 	}
+ 
+ 	c.debug("New reusable workflow metadata at %s: %v", file, m)
+-	c.writeCache(spec, m)
++	c.writeCache(key, m)
+ 	return m, nil
+ }
+ 
+diff --git a/reusable_workflow_test.go b/reusable_workflow_test.go
+index f37f5d1..7b69857 100644
+--- a/reusable_workflow_test.go
++++ b/reusable_workflow_test.go
+@@ -920,3 +920,43 @@ func TestReusableWorkflowCacheFactory(t *testing.T) {
+ 		t.Errorf("Null cache should be returned when project is nil: %v", c4)
+ 	}
+ }
++
++// The "./" and "$/" spellings name the same file, so they must share one cache entry regardless of
++// which one populated it. Callers rely on this: LocalReusableWorkflowCache.WriteWorkflowCallEvent
++// only ever writes keys in the "./" form, so a "$/" caller looking up anything else would miss
++// every entry written ahead of it.
++func TestReusableWorkflowCacheFindMetadataSharesEntryBetweenUsesForms(t *testing.T) {
++	tests := []struct {
++		what   string
++		writes string
++		reads  string
++	}{
++		{"local write, local read", "./ok.yaml", "./ok.yaml"},
++		{"self-repository write, self-repository read", "$/ok.yaml", "$/ok.yaml"},
++		{"local write, self-repository read", "./ok.yaml", "$/ok.yaml"},
++		{"self-repository write, local read", "$/ok.yaml", "./ok.yaml"},
++	}
++
++	for _, tc := range tests {
++		t.Run(tc.what, func(t *testing.T) {
++			proj := &Project{filepath.Join("testdata", "reusable_workflow_metadata"), nil}
++			c := NewLocalReusableWorkflowCache(proj, "", nil)
++
++			written, err := c.FindMetadata(tc.writes)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if diff := cmp.Diff(written, testReusableWorkflowWantedMetadata); diff != "" {
++				t.Fatal(diff)
++			}
++
++			read, err := c.FindMetadata(tc.reads)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if written != read {
++				t.Errorf("%q did not hit the cache entry written by %q", tc.reads, tc.writes)
++			}
++		})
++	}
++}
+diff --git a/rule_workflow_call_test.go b/rule_workflow_call_test.go
+index 5feec6c..efe8a1a 100644
+--- a/rule_workflow_call_test.go
++++ b/rule_workflow_call_test.go
+@@ -224,6 +224,14 @@ func TestRuleWorkflowCallCheckReusableWorkflowCall(t *testing.T) {
+ 			inputs:  []string{"required_input"},
+ 			secrets: []string{"required_secret"},
+ 		},
++		{
++			// The cache above was populated under "./workflow0.yaml", so resolving this proves the
++			// two spellings reach one entry rather than each needing their own.
++			what:    "self-repository spelling of a workflow cached as local",
++			uses:    "$/workflow0.yaml",
++			inputs:  []string{"required_input"},
++			secrets: []string{"required_secret"},
++		},
+ 		{
+ 			what:    "unknown workflow",
+ 			uses:    "./unknown-workflow.yaml",
+@@ -233,6 +241,16 @@ func TestRuleWorkflowCallCheckReusableWorkflowCall(t *testing.T) {
+ 				"could not read reusable workflow file for \"./unknown-workflow.yaml\":",
+ 			},
+ 		},
++		{
++			// The error quotes the spec as written rather than the canonical form it is looked up by.
++			what:    "unknown workflow in self-repository spelling",
++			uses:    "$/unknown-self-workflow.yaml",
++			inputs:  []string{"aaa", "bbb"},
++			secrets: []string{"xxx", "yyy"},
++			errs: []string{
++				"could not read reusable workflow file for \"$/unknown-self-workflow.yaml\":",
++			},
++		},
+ 		{
+ 			what:    "missing required input and secret",
+ 			uses:    "./workflow0.yaml",
