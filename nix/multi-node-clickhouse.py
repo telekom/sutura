@@ -434,9 +434,13 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
         since = checkpoint()
         endpoint = "https://reader1:8443/worker.WorkerService/ExecuteTask"
         request = f"curl -sS --max-time 10 --http2 --cacert {material}/ca.pem -X POST -H 'Content-Type: application/grpc' {endpoint}"
-        query.fail(
-            f"{request} --cert {material}/stranger.pem --key {material}/stranger.key"
+        query.succeed(
+            f"{request} --cert {material}/query.pem --key {material}/query.key -o /dev/null"
         )
+        for presented in ("stranger", "idp"):
+            query.fail(
+                f"{request} --cert {material}/{presented}.pem --key {material}/{presented}.key"
+            )
         status = query.succeed(f"{request} -o /dev/null -w '%{{http_code}}'").strip()
         assert status == "401", status
         no_data("certificates", since)
@@ -446,6 +450,12 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
         serving(service)
         with subtest(f"{stimulus} reading grant fails at its real receiver"):
             since = checkpoint()
+            cursors = [
+                machine.succeed("journalctl -u sutura -n 1 --show-cursor -o cat")
+                .rsplit("-- cursor: ", 1)[1]
+                .strip()
+                for machine in (reader1, reader2)
+            ]
             status, reply = ask()
             assert (
                 status == "503"
@@ -460,6 +470,20 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
             journal = query.succeed(f"journalctl -u {service} -o cat")
             output.joinpath(f"clickhouse-{stimulus}-journal.log").write_text(journal)
             assert diagnostic in journal, (stimulus, journal)
+            received = [
+                machine.succeed(
+                    f"journalctl -u sutura --after-cursor={shlex.quote(cursor)} -o cat"
+                )
+                for machine, cursor in zip((reader1, reader2), cursors)
+            ]
+            output.joinpath(f"clickhouse-{stimulus}-readers.log").write_text(
+                "\n".join(received)
+            )
+            assert any(
+                diagnostic in line and "refused" in line
+                for log in received
+                for line in log.splitlines()
+            ), (stimulus, received)
             no_data(stimulus, since)
         query.succeed(f"systemctl stop {service}")
         serving("sutura")

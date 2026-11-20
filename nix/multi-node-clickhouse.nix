@@ -2,6 +2,8 @@
 # rows trigger the production split; forty returned groups prove routing, not capacity or clusters.
 # query_log separates LIMIT 0 metadata from bucket data and records caller and reader addresses.
 # IPv4 ingress is default-deny; IPv6 is disabled and unmeasured. No human sign-in is exercised.
+# Nodes are signed by one CA and the database and identity provider by another, so the CA a node
+# accepts client certificates from does not also vouch for the servers it dials.
 { pkgs, sutura, clickhouse, clickhouseDriver, example }:
 let
   python = pkgs.python3.withPackages (p: [ p.pyjwt p.cryptography ]);
@@ -15,17 +17,22 @@ let
     mkdir "$out" && cd "$out"
     printf '[req]\ndistinguished_name=dn\nx509_extensions=ca\nprompt=no\n[dn]\nCN=multi-node-clickhouse-ca\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\nsubjectKeyIdentifier=hash\n' > ca.cnf
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.pem -days 3650 -config ca.cnf
-    for node in query reader1 reader2 db idp; do
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout server-ca.key -out server-ca.pem -days 3650 -config ca.cnf -subj /CN=multi-node-clickhouse-server-ca
+    issue() {
+      authority=$1; node=$2
       openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout $node.key -out $node.csr -subj /CN=$node
       printf 'subjectAltName=DNS:%s\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\n' $node > $node.ext
-      openssl x509 -req -in $node.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out $node.pem -days 3650 -extfile $node.ext
+      openssl x509 -req -in $node.csr -CA $authority.pem -CAkey $authority.key -CAcreateserial -out $node.pem -days 3650 -extfile $node.ext
       rm $node.csr $node.ext
-    done
+    }
+    for node in query reader1 reader2; do issue ca $node; done
+    for node in db idp; do issue server-ca $node; done
+    cat ca.pem server-ca.pem > anchors.pem
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout other.key -out other.pem -days 3650 -config ca.cnf -subj /CN=other-ca
     openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout stranger.key -out stranger.csr -subj /CN=stranger
     printf 'basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n' > stranger.ext
     openssl x509 -req -in stranger.csr -CA other.pem -CAkey other.key -CAcreateserial -out stranger.pem -days 3650 -extfile stranger.ext
-    rm ca.key ca.srl ca.cnf other.key other.pem other.srl stranger.csr stranger.ext
+    rm ca.key ca.srl server-ca.key server-ca.srl ca.cnf other.key other.pem other.srl stranger.csr stranger.ext
     openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:prime256v1 -out issuer.key
     openssl pkey -in issuer.key -pubout -out issuer.pub
     ${issuer} jwks issuer.pub ${kid} > jwks.json
@@ -82,7 +89,7 @@ let
     user = "sutura";
     password_file = "${material}/password";
     transport_mode = "verified";
-    transport_anchors = "${material}/ca.pem";
+    transport_anchors = "${material}/server-ca.pem";
     posture = "impersonation-at-source";
   };
   buckets = { hash_buckets_acknowledged_because = "this fixed local shard is immutable during the venue; buckets have no common snapshot"; };
@@ -111,7 +118,7 @@ let
     };
     security = offHost // {
       identity = "multi-user";
-      outbound.transport_anchors = "${material}/ca.pem";
+      outbound.transport_anchors = "${material}/anchors.pem";
       inbound = {
         mode = "direct";
         resource = "https://query";

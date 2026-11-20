@@ -1513,6 +1513,7 @@ jobs:
       oracle_tier: ${{ steps.classify.outputs.data_source_oracle == 'true' || steps.classify.outputs.catalog_rdbms == 'true' }}
       multi_node: ${{ steps.classify.outputs.data_source_node == 'true' || steps.classify.outputs.data_source_clickhouse == 'true' || steps.classify.outputs.identity == 'true' }}
       multi_node_postgres: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true' || steps.classify.outputs.identity == 'true' }}
+      multi_node_clickhouse: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true' || steps.classify.outputs.data_source_datafusion == 'true' || steps.classify.outputs.identity == 'true' }}
       chart: ${{ steps.classify.outputs.chart }}
       catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
       catalog_openmetadata: ${{ steps.classify.outputs.catalog_openmetadata }}
@@ -2369,9 +2370,9 @@ jobs:
   # Fixed local-shard ClickHouse fleet with fixture callers; source identity and reader placement,
   # not cluster support or capacity. Run-or-fail and queue reuse follow multi-node-postgres.
   multi-node-clickhouse:
-    needs: [ci, queue-validated]
-    if: (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node_clickhouse != 'true'
-    runs-on: rust-mcp-32core
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.multi_node_clickhouse == 'true' && needs.queue-validated.outputs.multi_node_clickhouse != 'true' }}
+    runs-on: rust-mcp-16core
     timeout-minutes: 60
     permissions:
       contents: read
@@ -2728,7 +2729,7 @@ jobs:
           MNPG_RESULT: ${{ needs.multi-node-postgres.result }}
           MNPG_SELECTED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node_postgres != 'true' }}
           MNCH_RESULT: ${{ needs.multi-node-clickhouse.result }}
-          MNCH_SELECTED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node_clickhouse != 'true' }}
+          MNCH_SELECTED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.data_source_datafusion == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node_clickhouse != 'true' }}
           K3S_RESULT: ${{ needs.k3s-autoscaling.result }}
           K3S_SELECTED: ${{ needs.ci.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true' }}
           DH_RESULT: ${{ needs.ci-datahub-tier.result }}

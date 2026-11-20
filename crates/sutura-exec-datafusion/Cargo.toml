@@ -131,6 +131,7 @@ distributed = [
   "dep:datafusion-proto",
   "dep:prost",
   "dep:parking_lot",
+  "dep:tracing",
   "tokio/net",
   "tokio/sync",
 ]
