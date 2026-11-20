@@ -132,6 +132,18 @@ fn failed(cause: DataFusionError) -> CombineError {
 
 #[test]
 fn a_dealt_legs_declaration_has_the_same_size_for_ten_rows_and_a_hundred_thousand() {
+    use datafusion_proto::physical_plan::{AsExecutionPlan as _, DefaultPhysicalExtensionCodec};
+    use datafusion_proto::protobuf::PhysicalPlanNode;
+    use prost::Message as _;
+
+    // The meter must see rows: a scan the plan carries grows with them.
+    let carried = |rows| {
+        PhysicalPlanNode::try_from_physical_plan(scan(&leg(2, 5, rows)), &DefaultPhysicalExtensionCodec {})
+            .expect("a memory scan encodes")
+            .encoded_len()
+    };
+    assert!(carried(10_000) > 100 * carried(1), "the meter no longer sees rows in a plan");
+
     let small = declared(&leaf(&leg(2, 5, 1), 3));
     let large = declared(&leaf(&leg(2, 5, 10_000), 3));
     assert_eq!(
@@ -144,20 +156,6 @@ fn a_dealt_legs_declaration_has_the_same_size_for_ten_rows_and_a_hundred_thousan
         "a declaration of {} bytes carries more than a schema and a feed",
         large.len()
     );
-}
-
-#[test]
-fn a_leg_carried_in_its_plan_grows_with_its_rows_which_is_what_the_declaration_above_measures_against() {
-    use datafusion_proto::physical_plan::{AsExecutionPlan as _, DefaultPhysicalExtensionCodec};
-    use datafusion_proto::protobuf::PhysicalPlanNode;
-    use prost::Message as _;
-
-    let size = |rows| {
-        PhysicalPlanNode::try_from_physical_plan(scan(&leg(2, 5, rows)), &DefaultPhysicalExtensionCodec {})
-            .expect("a memory scan encodes")
-            .encoded_len()
-    };
-    assert!(size(10_000) > 100 * size(1), "the control no longer sees rows in a plan");
 }
 
 #[test]

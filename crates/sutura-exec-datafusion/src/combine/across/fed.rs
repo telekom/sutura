@@ -1,7 +1,7 @@
 //! A dealt leg's rows, fed to the task that scans them on the stream its plan was set over, and
 //! never carried inside that plan.
 //!
-//! A leg's scan, planned across nodes, is replaced by a [`FedRowsExec`] that holds the leg's schema
+//! A leg's scan, planned across nodes, is replaced by a `FedRowsExec` that holds the leg's schema
 //! and the declaration of a work-unit feed (`datafusion-distributed`'s own, unchanged). The node
 //! that planned the question keeps the rows; each task is sent its share as Arrow IPC batches after
 //! its plan, so the plan's size does not depend on the data and lands before any consumer's wait for
@@ -20,12 +20,12 @@
 //!   is unbounded and outside its pool, as the plan that carried the rows was, so a slow consumer
 //!   leaves a share queued there. This moves where the rows wait; it does not bound them.
 //! - A feed whose stream ends without the end marker, or whose count disagrees with it, fails the
-//!   task as [`Unfed::Cut`] or [`Unfed::Miscounted`], relayed as a lost node. A feed read by a node
+//!   task as `Unfed::Cut` or `Unfed::Miscounted`, relayed as a lost node. A feed read by a node
 //!   that holds the question's key can still lie about its rows: it is as trusted as the plan that
 //!   carried them was.
 //! - A feed is read once per partition: a stage that executes a fed partition twice fails with the
 //!   engine's "already consumed", where a plan that carried its rows scanned them twice.
-//! - A message holds the units ready at one poll, which [`Dealt`] keeps to about one for each
+//! - A message holds the units ready at one poll, which `Dealt` keeps to about one for each
 //!   partition by yielding between units. A unit is one source batch, so a message is only as small
 //!   as the batches a source streams.
 //! - Plan bytes are measured on the leaf's encoding and by the engine's own `plan_bytes` log in the
@@ -356,7 +356,7 @@ pub(super) fn dealable(leaf: &Arc<dyn ExecutionPlan>) -> Option<&MemorySourceCon
     (rows.fetch().is_none() && rows.sort_information().is_empty()).then_some(rows)
 }
 
-/// `event`'s leg scan as a [`FedRowsExec`] whose feed deals each task every `task_count`th batch of
+/// `event`'s leg scan as a `FedRowsExec` whose feed deals each task every `task_count`th batch of
 /// each partition, so the tasks read the leg's rows between them and none twice.
 pub(super) fn dealt(event: ScaleUpLeafNodeEvent<'_>) -> Option<Result<ScaleUpLeafNodeEventResponse>> {
     let rows = dealable(event.plan)?;
@@ -376,7 +376,7 @@ struct Declared {
     partitions: u64,
 }
 
-/// `node`, a [`FedRowsExec`], written into `buf`.
+/// `node`, a `FedRowsExec`, written into `buf`.
 pub(super) fn encode(node: &Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
     let leaf = node
         .downcast_ref::<FedRowsExec>()
@@ -393,7 +393,7 @@ pub(super) fn encode(node: &Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result
         .map_err(|cause| DataFusionError::External(Box::new(cause)))
 }
 
-/// A [`FedRowsExec`] that reads its rows off the feed a [`Declared`] names.
+/// A `FedRowsExec` that reads its rows off the feed a [`Declared`] names.
 pub(super) fn decode(buf: &[u8], inputs: &[Arc<dyn ExecutionPlan>]) -> Result<Arc<dyn ExecutionPlan>> {
     let malformed = || DataFusionError::Internal(String::from("a fed scan did not decode"));
     if !inputs.is_empty() {

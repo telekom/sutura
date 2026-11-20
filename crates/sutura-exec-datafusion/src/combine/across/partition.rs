@@ -596,7 +596,7 @@ impl ExecutionPlan for PartitionScanExec {
 }
 
 /// The composite user codec for a reading worker: [`super::ceiling::Codec`]'s stage marker, this
-/// module's [`PartitionScanExec`], or [`super::fed::FedRowsExec`], told apart by a leading tag byte
+/// module's [`PartitionScanExec`], or `super::fed::FedRowsExec`, told apart by a leading tag byte
 /// on decode and dispatched by type on encode. Anything else is refused rather than guessed at.
 #[derive(Debug)]
 pub(super) struct Codec;

@@ -2,7 +2,7 @@
 //! `docs/adr/20261030182759-shuffle-across-nodes.md`.
 //!
 //! **A leg's rows are dealt across the nodes.** A leg is a `MemTable`, and its scan, like every node
-//! above it, asks for one task per declared node; [`fed::dealt`] splits the scan batch by batch, one
+//! above it, asks for one task per declared node; `fed::dealt` splits the scan batch by batch, one
 //! share per task. Each node scans and repartitions a share of the rows, where a leg planned as one
 //! task would run on this node alone, and this node's own worker would then refuse a question one node
 //! refuses for its working set. A stage above a hash repartition - the join's or the aggregate's -
@@ -633,7 +633,7 @@ fn reads_no_source(event: WorkerPlanRewriteEvent<'_>) -> Result<WorkerPlanRewrit
 }
 
 /// A leaf that reads no source: another node's stage, rows the plan itself carries, or rows the
-/// stream the plan was set over feeds ([`fed::FedRowsExec`]).
+/// stream the plan was set over feeds (`fed::FedRowsExec`).
 fn carried(leaf: &Arc<dyn ExecutionPlan>) -> bool {
     leaf.as_network_boundary().is_some()
         || leaf.is::<EmptyExec>()
