@@ -100,6 +100,10 @@ tonic = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
 # The node authorities those nodes' certificates are signed by.
 rcgen = { workspace = true }
+# The body a counting layer wraps, to read the length a call's first gRPC message declares
+# (`combine::tests::across`). Already in the graph through `tonic`, and a direct dependency of
+# `sutura-http` too.
+http-body = "1"
 # The generated protobuf shapes `combine::tests::across::physical_nodes` and `::decode` encode a
 # malformed Explain, Unnest, Filter, CsvScan, ParquetScan or Empty stage from. Already in the graph
 # through `datafusion-distributed`'s decode route.
