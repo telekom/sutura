@@ -22,6 +22,7 @@ use tokio::runtime::Runtime;
 
 use crate::combine::DataFusionCombiner;
 
+mod cube_pushdown;
 #[cfg(test)]
 pub(super) mod literals;
 #[cfg(test)]
