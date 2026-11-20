@@ -14,6 +14,7 @@ use super::*;
 
 // The causality base run restores the domain before this test file is compiled. Keep the fixture
 // helper buildable there; branch-provided inherent methods take precedence on the real run.
+#[expect(dead_code, reason = "only the causality base compilation uses this fallback")]
 trait EngineCollationFixture {
     fn engine_collation(self) -> Option<&'static sutura_domain::catalog::Collation>;
 }
@@ -24,6 +25,7 @@ impl EngineCollationFixture for TypeDialect {
     }
 }
 
+#[expect(dead_code, reason = "only the causality base compilation uses this fallback")]
 trait PinCollationFixture {
     fn pin_onto(&self, field: &mut Field);
 }
