@@ -118,8 +118,8 @@ collation keeps the redacted-only path. The pin is a claim and nothing reads the
 replacement barrier for this arm folds ASCII case: the term and the replacements are ASCII, and a
 case-insensitive collation then cannot make a replacement match. A wrong pin on a `NOCASE` column
 keeps every row; without the fold it dropped one, and the row that survived disclosed whether the
-hidden text held the term. What remains is an incomplete answer at most, from collation effects on
-non-ASCII stored text. Cube's local policy work is not an eligible venue and keeps the
+hidden text held the term. What remains is an incomplete answer at most, under collations or `DuckDB` versions
+the measurements have not covered. Cube's local policy work is not an eligible venue and keeps the
 redacted-only path. The exact transformed predicate still decides the answer. A hidden raw term may
 incur extra redaction work and reveal information through timing; the acknowledgement records
 acceptance rather than preventing that disclosure.
