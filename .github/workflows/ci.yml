@@ -888,7 +888,7 @@ jobs:
               checks+=(.#checks.x86_64-linux.postgres-tier)
             fi
             if [ "$TIERS" = "true" ] || [ "$CLICKHOUSE" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.clickhouse-tier)
+              checks+=(.#checks.x86_64-linux.clickhouse-tier .#checks.x86_64-linux.vendored-clickhouse-adbc)
             fi
             if [ "$TIERS" = "true" ] || [ "$ORACLE" = "true" ]; then
               checks+=(.#checks.x86_64-linux.vendored-oracledb)
@@ -934,6 +934,13 @@ jobs:
       - name: ClickHouse tier
         if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.clickhouse-tier -L
+
+      # The vendored ClickHouse driver's own unit tests (`nix/vendored-clickhouse-adbc.nix`), which the
+      # workspace excludes and the per-triple driver build does not run. Gated on the ClickHouse category
+      # like the tier above; a change under `vendor/adbc_clickhouse/` selects it.
+      - name: Vendored ClickHouse driver tests
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true') && github.event_name != 'push'
+        run: nix build .#checks.x86_64-linux.vendored-clickhouse-adbc -L
 
       # The vendored Oracle driver's own unit tests (`nix/vendored-oracledb.nix`), which the
       # workspace excludes, so `Tests` never compiles them. They cover the patched modules, which
