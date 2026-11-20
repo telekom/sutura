@@ -46,7 +46,7 @@ use crate::plan::split::{Granted, PartitionReader};
 use crate::warehouse::ResultBatches;
 
 mod statement;
-pub use statement::{StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
+pub use statement::{PolicyRead, StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
 
 /// One leg's result, tagged with the side the [`LegPlan`] it was executed from named.
 ///

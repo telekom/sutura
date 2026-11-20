@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use arrow_schema::{DataType, Field, Schema};
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{FederationCombiner as _, StatementLegs, StatementQuestion, StatementTable};
+use sutura_domain::plan::{FederationCombiner as _, PolicyRead, StatementLegs, StatementQuestion, StatementTable};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::schema::TypeDialect;
@@ -61,6 +61,7 @@ impl StatementLegs for Native<'_> {
         source: &SourceName,
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
+        _policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
         if source != &self::source() {
             return Err(NativeStop::Source {

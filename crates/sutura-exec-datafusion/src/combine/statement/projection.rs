@@ -8,9 +8,10 @@ use datafusion::sql::sqlparser::ast::{Expr, Select, SelectItem, Statement, Visit
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::{Parser, ParserError};
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{StatementLegs, StatementStopped};
+use sutura_domain::plan::{PolicyRead, StatementLegs, StatementStopped};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::RawRows;
+use sutura_domain::warehouse::schema::TypeDialect;
 
 /// Why the final source text, or the rows a source answered to it, were not admitted.
 #[derive(Debug, thiserror::Error)]
@@ -42,13 +43,19 @@ pub(super) fn output(schema: &Schema, rows: RawRows) -> Result<RawRows, Inadmiss
     if answered != expected {
         return Err(Inadmissible::WidthMismatch { answered, expected });
     }
-    if !duplicate_names(schema) {
-        return Ok(rows);
+    let labelled = rows
+        .columns()
+        .iter()
+        .enumerate()
+        .all(|(index, column)| *column == super::label(index));
+    if !labelled {
+        return if duplicate_names(schema) {
+            Err(Inadmissible::WrongLabels)
+        } else {
+            Ok(rows)
+        };
     }
-    let (columns, rows) = rows.into_parts();
-    if columns != (0..expected).map(super::label).collect::<Vec<_>>() {
-        return Err(Inadmissible::WrongLabels);
-    }
+    let (_labels, rows) = rows.into_parts();
     Ok(RawRows::of(
         schema.fields().iter().map(|field| field.name().clone()).collect(),
         rows,
@@ -78,10 +85,10 @@ where
     pub(super) fn open<'a>(
         &mut self,
         sources: &BTreeSet<SourceName>,
-        statements: impl IntoIterator<Item = &'a RawStatement>,
+        statements: impl IntoIterator<Item = (&'a RawStatement, TypeDialect)>,
     ) -> Stopped<(), L::Stop> {
-        for statement in statements {
-            checked(statement.as_str())
+        for (statement, dialect) in statements {
+            checked(statement.as_str(), dialect)
                 .map_err(|cause| super::unplanned("the final source projection was not admitted", &cause))?;
             self.admitted.insert(statement.as_str().to_owned());
         }
@@ -93,6 +100,7 @@ where
         source: &SourceName,
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
+        policy: PolicyRead,
     ) -> Stopped<RawRows, L::Stop> {
         if !self.admitted.contains(statement.as_str()) {
             return Err(super::unplanned(
@@ -101,13 +109,22 @@ where
             ));
         }
         self.legs
-            .run_planned(source, statement, tables)
+            .run_planned(source, statement, tables, policy)
             .map_err(StatementStopped::Leg)
     }
 }
 
-fn checked(sql: &str) -> Result<(), Inadmissible> {
-    let statements = Parser::parse_sql(&GenericDialect, sql)?;
+/// Read with the source's backslash escapes: a `BigQuery` or `ClickHouse` literal escapes its
+/// backslash and quote. Every other source reads a literal as `GenericDialect` does, whose grammar
+/// also takes what the planner writes there, such as an aggregate `FILTER` for Oracle.
+fn checked(sql: &str, dialect: TypeDialect) -> Result<(), Inadmissible> {
+    let reader = match dialect {
+        TypeDialect::BigQuery | TypeDialect::ClickHouse => super::literal::reader(dialect),
+        TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::Oracle | TypeDialect::DataFusion => {
+            &GenericDialect {}
+        }
+    };
+    let statements = Parser::parse_sql(reader, sql)?;
     if !matches!(statements.as_slice(), [Statement::Query(_)]) {
         return Err(Inadmissible::NotOneQuery);
     }
@@ -147,9 +164,10 @@ mod tests {
 
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use sutura_domain::model::SourceName;
-    use sutura_domain::plan::{StatementLegs, StatementStopped};
+    use sutura_domain::plan::{PolicyRead, StatementLegs, StatementStopped};
     use sutura_domain::raw::RawStatement;
     use sutura_domain::warehouse::RawRows;
+    use sutura_domain::warehouse::schema::TypeDialect;
 
     use std::ops::ControlFlow;
 
@@ -181,15 +199,18 @@ mod tests {
             "SELECT id FROM items WHERE EXISTS (SELECT * FROM other_items)",
             "SELECT (SELECT * FROM other_items) FROM items",
         ] {
-            let cause = checked(sql).expect_err("no wildcard source projection is admitted");
+            let cause = checked(sql, TypeDialect::DataFusion).expect_err("no wildcard source projection is admitted");
             assert!(matches!(cause, Inadmissible::WildcardProjection), "{sql}: {cause}");
         }
         assert!(matches!(
-            checked("SELECT id FROM items; SELECT id FROM other_items"),
+            checked("SELECT id FROM items; SELECT id FROM other_items", TypeDialect::DataFusion),
             Err(Inadmissible::NotOneQuery)
         ));
-        assert!(matches!(checked("SELECT FROM"), Err(Inadmissible::Unparsed(_))));
-        assert!(checked("SELECT (i.*) FROM items i").is_err());
+        assert!(matches!(
+            checked("SELECT FROM", TypeDialect::DataFusion),
+            Err(Inadmissible::Unparsed(_))
+        ));
+        assert!(checked("SELECT (i.*) FROM items i", TypeDialect::DataFusion).is_err());
         for sql in [
             "SELECT count(*) FROM items",
             "SELECT id * 2, '*' AS marker FROM items",
@@ -198,7 +219,7 @@ mod tests {
             "SELECT id /* * projection comment */ FROM items -- *",
             "SELECT count(i.*) FROM items i",
         ] {
-            assert!(checked(sql).is_ok(), "{sql}");
+            assert!(checked(sql, TypeDialect::DataFusion).is_ok(), "{sql}");
         }
     }
 
@@ -274,7 +295,10 @@ mod tests {
         ] {
             let statements: Vec<_> = sqls.into_iter().map(|sql| RawStatement::parse(sql).unwrap()).collect();
             let mut legs = Legs::default();
-            let result = Guarded::new(&mut legs).open(&sources, &statements);
+            let result = Guarded::new(&mut legs).open(
+                &sources,
+                statements.iter().map(|statement| (statement, TypeDialect::DataFusion)),
+            );
             assert!(matches!(result, Err(StatementStopped::NotPlanned)), "{result:?}");
             assert_eq!(legs.opened, 0);
             assert_eq!(legs.ran, 0);
@@ -282,8 +306,10 @@ mod tests {
         let mut legs = Legs::default();
         let admitted = RawStatement::parse("SELECT count(*) FROM items").unwrap();
         let mut guarded = Guarded::new(&mut legs);
-        guarded.open(&sources, [&admitted]).unwrap();
-        guarded.run_planned(&source(), &admitted, &BTreeSet::new()).unwrap();
+        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
+        guarded
+            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread)
+            .unwrap();
         assert_eq!(legs.opened, 1);
         assert_eq!(legs.ran, 1);
     }
@@ -295,10 +321,10 @@ mod tests {
         let other = RawStatement::parse("SELECT id FROM other_items").unwrap();
         let mut legs = Legs::default();
         let mut guarded = Guarded::new(&mut legs);
-        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new());
+        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread);
         assert!(matches!(before_open, Err(StatementStopped::NotPlanned)), "{before_open:?}");
-        guarded.open(&sources, [&admitted]).unwrap();
-        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new());
+        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
+        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread);
         assert!(matches!(other_text, Err(StatementStopped::NotPlanned)), "{other_text:?}");
         assert_eq!(legs.ran, 0);
     }
