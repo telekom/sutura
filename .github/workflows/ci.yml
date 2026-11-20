@@ -1701,7 +1701,8 @@ jobs:
 
   # The real DataHub tier supplies the certified metric and the ADBC driver executes it against
   # fixture tables this run created in BigQuery. The Keycloak tier verifies the caller; the source
-  # deliberately uses the acknowledged shared CI identity. The dataset group serializes writes.
+  # deliberately uses the acknowledged shared CI identity. The test creates per-run table names,
+  # so independent jobs can write the shared dataset without a dataset-wide queue.
   # The same app runs the two `delegation_adbc` cells, which need only the driver this job mounts.
   # Forks, Dependabot and merge groups cannot receive the bq-test credential; the aggregate below
   # requires this leg for every selected same-repository pull request and push.
@@ -1717,10 +1718,6 @@ jobs:
     # not established; 60s is unmeasured). Silence past 60s still FAILS - `compose.rs`'s `absent` veto.
     env:
       SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
-    concurrency:
-      group: e2e-datahub-adbc-${{ vars.SUTURA_BQ_DATASET }}
-      queue: max
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1791,11 +1788,8 @@ jobs:
     permissions:
       contents: read
     environment: bq-test
-    # One dataset, fixed table names: the group serializes every run that writes them.
-    concurrency:
-      group: bigquery-conformance-${{ vars.SUTURA_BQ_DATASET }}
-      queue: max
-      cancel-in-progress: false
+    # The adapter suffixes every physical table with GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT, so
+    # merge-group runs and retries can share the configured dataset without replacing fixtures.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -50,6 +50,9 @@ jobs:
     # `workflow_dispatch` from a fork cannot reach a push-protected environment either - naming it
     # here is the mechanism, not decoration.
     environment: bq-test
+    # The two tables below are environment-provisioned with table-level grants for caller A and
+    # caller B. Keep this leg serialized until that fixture provisioning also derives those grants
+    # from a run-specific suffix; the conformance and DataHub legs use per-run table names.
     concurrency:
       group: bigquery-declared-principal-${{ vars.SUTURA_BQ_DATASET }}
       cancel-in-progress: false
