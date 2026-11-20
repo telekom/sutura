@@ -21,8 +21,8 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
     ] {
         if dialect == TypeDialect::DuckDb {
             assert!(PrefilterCapability::of(dialect).is_some(), "{dialect:?}");
-        } else {
-            assert_eq!(PrefilterCapability::of(dialect), None, "{dialect:?}");
+            continue;
         }
+        assert_eq!(PrefilterCapability::of(dialect), None, "{dialect:?}");
     }
 }
