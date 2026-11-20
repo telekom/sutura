@@ -28,6 +28,7 @@ pub(super) mod literals;
 mod names;
 mod oracle;
 mod policy_search;
+mod raw_condition;
 #[cfg(test)]
 mod registration;
 mod resolution;

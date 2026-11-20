@@ -21,6 +21,7 @@ use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
 use super::literal::{literal, quotable_table, spelled};
+use super::text_prefilter::Prefilter;
 
 const KEY: &str = "sutura:text_policy";
 const LOB_KEY: &str = "sutura:oracle_lob";
@@ -485,7 +486,7 @@ fn rewrite(statement: &mut Statement, tables: &[StatementTable], dialect: TypeDi
 struct Views<'a> {
     tables: &'a [StatementTable],
     dialect: TypeDialect,
-    prefilter: Option<super::text_prefilter::Prefilter>,
+    prefilter: Option<Prefilter>,
 }
 
 impl VisitorMut for Views<'_> {
@@ -548,9 +549,11 @@ impl VisitorMut for Views<'_> {
                 };
                 let policy: TextPolicy =
                     serde_json::from_str(encoded).map_err(|cause| plan_datafusion_err!("invalid pinned text policy: {cause}"))?;
+                // The alias beside it is this column's own name: qualified, the raw read cannot be taken for it.
+                let raw = raw_column(self.dialect, table.table().name().as_str(), field.name()).to_string();
                 Ok(format!(
                     "{} AS {name}",
-                    expression(&name, &policy, self.dialect, !field.metadata().contains_key(LOB_KEY))
+                    expression(&raw, &policy, self.dialect, !field.metadata().contains_key(LOB_KEY))
                 ))
             })
             .collect::<Result<Vec<_>>>();
@@ -560,12 +563,11 @@ impl VisitorMut for Views<'_> {
         };
         let alias_name = Ident::with_quote(quote(self.dialect), table.table().name().as_str());
         let keyword = if self.dialect == TypeDialect::Oracle { "" } else { "AS " };
-        let selection = self
+        let condition = self
             .prefilter
-            .as_ref()
-            .and_then(|prefilter| prefilter.for_table(table))
-            .map_or_else(String::new, |condition| format!(" WHERE {condition}"));
-        let sql = format!("SELECT * FROM (SELECT {projection} FROM {name}{selection}) {keyword}{alias_name}");
+            .take_if(|prefilter| prefilter.is_for(table))
+            .map(Prefilter::into_condition);
+        let sql = format!("SELECT * FROM (SELECT {projection} FROM {name}) {keyword}{alias_name}");
         let mut parsed = match Parser::parse_sql(&GenericDialect, &sql) {
             Ok(parsed) => parsed,
             Err(cause) => return ControlFlow::Break(cause.into()),
@@ -579,10 +581,17 @@ impl VisitorMut for Views<'_> {
         let Some(mut view) = select.from.pop() else {
             return ControlFlow::Break(plan_datafusion_err!("text view has no table"));
         };
-        if let TableFactor::Derived { alias: target, .. } = &mut view.relation
-            && alias.is_some()
+        if let TableFactor::Derived {
+            subquery, alias: target, ..
+        } = &mut view.relation
         {
-            *target = alias.take();
+            if alias.is_some() {
+                *target = alias.take();
+            }
+            // The typed condition joins the parsed view, so the statement's one final write covers its literals.
+            if let (Some(condition), SetExpr::Select(inner)) = (condition, subquery.body.as_mut()) {
+                inner.selection = Some(condition);
+            }
         }
         *factor = view.relation;
         ControlFlow::Continue(())
@@ -594,6 +603,14 @@ const fn quote(dialect: TypeDialect) -> char {
         TypeDialect::BigQuery | TypeDialect::ClickHouse => '`',
         _ => '"',
     }
+}
+
+/// The stored column of a source table, qualified so that a projection alias of the same name never shadows it.
+pub(super) fn raw_column(dialect: TypeDialect, table: &str, column: &str) -> Expr {
+    Expr::CompoundIdentifier(vec![
+        Ident::with_quote(quote(dialect), table),
+        Ident::with_quote(quote(dialect), column),
+    ])
 }
 
 /// The view is parsed here before the statement holding it is written for `dialect`, so its literals
