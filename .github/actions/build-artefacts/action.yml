@@ -127,7 +127,7 @@ runs:
           # a warm workspace an append would report this artefact twice.
           printf '%s|%s|%s\n' "$bin" "$TARGET" "$linkage" > "facts/${key}.txt"
         done
-        ls -l dist
+        nix build ".#sutura-sql-${TARGET}${SUFFIX}" -L -o result-sql
 
     # Built and RUN here, pushed by `publish`. Building the image in the job that holds
     # `packages: write` was the alternative and it is worse in both directions: that job
