@@ -34,7 +34,7 @@ impl PrefilterCapability {
     #[must_use]
     pub const fn admits(self, collation: &Collation) -> bool {
         match self {
-            Self::DataFusion | Self::Oracle => true,
+            Self::DataFusion | Self::Oracle | Self::Postgres => true,
             Self::ClickHouse => collation.is_binary(),
         }
     }
