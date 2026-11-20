@@ -3528,9 +3528,13 @@ information about the original value. A redacted view must apply its transformat
 operations. Pattern rules can miss a secret or fail to match a new format; exercise them against
 representative data and keep the underlying permissions restricted even when those checks pass.</p>
 <p>Cube's SQL planner cannot execute regex replacement. For Cube, the runtime fetches bounded source
-rows and applies the policy locally before query predicates, ordering, joins and aggregates. Raw
-values therefore enter the process; source row caps, memory limits or deadlines can refuse queries
-that would otherwise push down. Other data systems apply their policies in source-side views.</p>
+rows and applies the policy locally before query predicates, ordering, joins and aggregates that
+read a policy column. Raw values therefore enter the process; source row caps, memory limits or
+deadlines can refuse queries that would otherwise push down. A <code>WHERE</code> conjunct that reads no policy
+column and is one of the listed exact comparisons (<code>docs/raw-text-search.md</code>, "Narrowing a Cube
+search") is also sent to Cube, so the 10,000-row answer cap counts the rows it keeps. The policy
+still runs locally before any conjunct over a policy column. Other data systems apply their
+policies in source-side views.</p>
 <p>Text policies require a build with SQL planning. In a Markdown physical model, declare them on a
 text column:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">columns</span><span class="p">:</span>
