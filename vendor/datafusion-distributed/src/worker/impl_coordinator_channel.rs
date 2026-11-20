@@ -28,9 +28,10 @@ impl Worker {
         stream: BoxStream<'static, Result<CoordinatorToWorkerMsg>>,
     ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
         let key = request.task_key;
+        // Absent for a plan that arrived decoded, in process: it was never encoded, so it has no size.
         let plan_bytes = match &request.plan {
-            crate::MaybeEncoded::Encoded(bytes) => bytes.len(),
-            crate::MaybeEncoded::Decoded(_) => 0,
+            crate::MaybeEncoded::Encoded(bytes) => Some(bytes.len()),
+            crate::MaybeEncoded::Decoded(_) => None,
         };
         let building = std::time::Instant::now();
         let completion_request = request.completion;
