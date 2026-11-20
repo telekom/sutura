@@ -205,7 +205,7 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
                 )
 
         # The same source also listens on plaintext TCP inside its VM; no remote role may use it.
-        db.succeed("nc -4 -z -w 2 127.0.0.1 1521")
+        db.succeed("nc -4 -z -w 2 db 1521")
         for name, machine in machines.items():
             if name != "db":
                 machine.fail("nc -4 -z -w 2 db 1521")
@@ -369,6 +369,7 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
         query.fail(
             f"{request} --cert {material}/stranger.pem --key {material}/stranger.key"
         )
+        query.fail(f"{request} --cert {material}/idp.pem --key {material}/idp.key")
         status = query.succeed(f"{request} -o /dev/null -w '%{{http_code}}'").strip()
         assert status == "401", status
 
