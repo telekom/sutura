@@ -357,7 +357,7 @@ where
 /// never read from the capability it checks.
 #[expect(
     clippy::match_same_arms,
-    reason = "one arm per dialect, so a new dialect must be decided here"
+    reason = "one arm per line, so each engine PR flips only its own line and merges cleanly"
 )]
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
     match dialect {

@@ -6,7 +6,7 @@ use crate::warehouse::schema::TypeDialect;
 #[test]
 #[expect(
     clippy::match_same_arms,
-    reason = "one arm per dialect, so a new dialect must be decided here"
+    reason = "one arm per line, so each engine PR flips only its own line and merges cleanly"
 )]
 fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
     // One arm per dialect and no wildcard: a new dialect is a compile error here until it is decided.
