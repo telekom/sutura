@@ -5,9 +5,9 @@ index ac32179de..cc12d93ca 100644
 @@ -296,7 +296,7 @@ impl Nodes {
              .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| {
                  // Any other leaf, answered `None`, is planned as one task, which routes to this node.
-                 (!event.plan.children().is_empty() || dealable(event.plan).is_some())
+                 (!event.plan.children().is_empty() || fed::dealable(event.plan).is_some())
 -                    .then(|| Ok(DesiredTaskCountEventResponse::desired(count)))
 +                    .then(|| Ok(DesiredTaskCountEventResponse::desired(1)))
              })
-             .with_distributed_scale_up_leaf_node_handler(dealt)
-             .with_distributed_planner();
+             .with_distributed_scale_up_leaf_node_handler(fed::dealt)
+             .with_distributed_work_unit_feed(|leaf: &fed::FedRowsExec| Some(&leaf.feed))
