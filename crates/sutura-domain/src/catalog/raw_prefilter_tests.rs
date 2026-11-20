@@ -104,8 +104,6 @@ fn a_raw_prefilter_without_a_redaction_rule_is_refused() {
         Err(InvalidTextPolicy::PrefilterWithoutRedaction)
     );
 }
-<<<<<<< HEAD
-=======
 
 #[test]
 fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
@@ -141,8 +139,4 @@ fn bigquery_admits_a_column_only_when_the_catalog_pins_it_binary() {
         );
     }
 }
->>>>>>> 047022b9b (feat: let a text search over BigQuery take the raw prefilter)
 
-use super::{
-    Collation, Column, Definitions, Description, InvalidTextPolicy, Model, PrefilterCapability, RawPrefilter, TextPolicy,
-};
