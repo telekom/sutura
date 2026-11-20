@@ -12,18 +12,17 @@ use super::*;
 /// What the engine answered, as far as a public log may say: rows, or the class of refusal.
 type Reply = Result<OrderedRows, &'static str>;
 
-fn reply(outcome: Result<Answered, FixtureQueryError>, term: &str) -> (Reply, usize) {
-    match outcome {
-        Ok((rows, planned)) => (Ok(sorted(rows)), searches_in(&planned, term)),
-        Err(cause) => {
-            let class = if cause.to_string().to_ascii_lowercase().contains("collat") {
-                "collation"
-            } else {
-                "other"
-            };
-            (Err(class), 0)
-        }
-    }
+fn reply(outcome: Observed, term: &str) -> (Reply, usize) {
+    let (outcome, planned) = outcome;
+    let reply = match outcome {
+        Ok(rows) => Ok(sorted(rows)),
+        Err(cause) => Err(if cause.to_string().to_ascii_lowercase().contains("collat") {
+            "collation"
+        } else {
+            "other"
+        }),
+    };
+    (reply, searches_in(&planned, term))
 }
 
 fn shown(reply: &Reply) -> String {
@@ -143,11 +142,10 @@ where
     for (profile, term, disabled) in &probes {
         let (baseline, base_searches, opted, searches) = both(warehouse, collated, dialect, &Collation::Binary, (disabled, term));
         println!(
-            "raw-prefilter-collation: engine={} pin=mislabelled-binary profile={profile} term={term} baseline={} opted-in={} raw_searches_added={}",
+            "raw-prefilter-collation: engine={} pin=mislabelled-binary profile={profile} term={term} baseline={} opted-in={} raw_searches_baseline={base_searches} raw_searches_opted_in={searches}",
             W::NAME,
             shown(&baseline),
-            shown(&opted),
-            searches - base_searches
+            shown(&opted)
         );
     }
 }
@@ -169,7 +167,7 @@ where
     let sql = format!("SELECT \"body\" FROM {} WHERE \"body\" LIKE '%{term}%'", quoted(table));
     let [(baseline, base_searches), (opted, opted_searches)] = [disabled, &enabled].map(|policy| {
         reply(
-            execute_recorded(warehouse, admitted_as(table, dialect, Some(policy), collation), &sql),
+            execute_observed(warehouse, admitted_as(table, dialect, Some(policy), collation), &sql),
             term,
         )
     });
