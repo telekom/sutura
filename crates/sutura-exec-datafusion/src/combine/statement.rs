@@ -26,6 +26,7 @@
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
 //! | value-dependent uses of an explicit NUMBER-to-Utf8 mapping run unchanged at one Oracle source or are refused before credentials open | no local lexical answer is returned; source scalar syntax still belongs to Oracle |
 //! | Cube text policies run locally before query operators because its SQL planner lacks regex replacement | scans still run at Cube; raw values enter this process and existing row, memory and deadline caps apply |
+//! | a Cube scan under a text policy is sent only the equality, list and null-test conjuncts that read no policy column | a text order, a number, a time or a boolean could make Cube answer fewer rows than the engine keeps; the whole filter also runs locally, which corrects a Cube that answers more, never fewer |
 //! | Cube joins run locally, including joins over one source | supported child plans still run at Cube; extra source rows can exhaust the existing per-leg row cap, working set or deadline |
 //! | Cube scalar result fields of UInt16, UInt32 or UInt64 are refused before credentials open | its pinned wire serializer narrows them to signed widths; the guard reads planned output types, not actual engine values, and establishes no general numeric conformance |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
@@ -34,21 +35,20 @@
 
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Instant;
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
-use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{DataFusionError, ExprSchema as _, SchemaError, plan_datafusion_err, plan_err};
+use datafusion::common::{DataFusionError, SchemaError, plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
-use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
+use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider};
 use datafusion::error::Result as Planned;
 use datafusion::execution::{SessionStateBuilder, SessionStateDefaults};
-use datafusion::logical_expr::{Expr, Extension, LogicalPlan, Projection, ScalarUDF, TableSource};
-use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
+use datafusion::logical_expr::{Expr, LogicalPlan, Projection, ScalarUDF, TableSource};
+use datafusion::optimizer::Optimizer;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coop::CooperativeExec;
@@ -66,7 +66,7 @@ use datafusion::sql::unparser::dialect::{
 use datafusion::sql::unparser::{Unparser, UnquotableName};
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
-    FederationPlanner, FederationProvider, get_table_source,
+    FederationProvider, get_table_source,
 };
 use sutura_domain::model::{ProjectName, QualifiedTable, SourceName};
 use sutura_domain::plan::{PolicyRead, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
@@ -77,12 +77,15 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use tokio::runtime::Runtime;
 
+use self::cut::{Cutter, Fetched, number_text, number_text_safe};
 use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
 
+mod cut;
 mod literal;
 mod oracle;
 mod projection;
+mod pushdown;
 mod resolve;
 mod text;
 mod text_prefilter;
@@ -173,6 +176,7 @@ where
             .zip(&statements)
             .map(|(part, (statement, _tables))| (statement, part.dialect)),
     )?;
+    let policy_runs_locally = parts.iter().any(|part| part.policy == PolicyRead::Locally);
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
@@ -200,7 +204,11 @@ where
             .map_err(|cause| CombineError::Execute { cause })?;
         collected(frame, question.working_set_bytes(), working_set).await
     })
-    .ok_or(StatementStopped::DeadlineExceeded)?;
+    .ok_or(if policy_runs_locally {
+        StatementStopped::PolicySearchDeadlineExceeded
+    } else {
+        StatementStopped::DeadlineExceeded
+    })?;
     let answered = match local {
         Ok(answered) => answered,
         Err(CombineError::Exhausted { .. }) => return Err(StatementStopped::AnswerTooLarge),
@@ -249,9 +257,6 @@ impl PhysicalOptimizerRule for Yielding {
     }
 }
 
-/// Each part's plan beside the rows its leg came back with.
-type Leaves = Vec<(LogicalPlan, Vec<RecordBatch>)>;
-
 /// One listed source, as the federation rule sees it: two tables' scans fuse when their sources do.
 struct Source {
     name: SourceName,
@@ -287,125 +292,6 @@ impl TableSource for Table {
 impl FederatedTableSource for Table {
     fn federation_provider(&self) -> Arc<dyn FederationProvider> {
         Arc::<Source>::clone(&self.source)
-    }
-}
-
-/// Each part's plan beside the rows its leg came back with, set once every leg has run.
-#[derive(Debug, Default)]
-struct Fetched(OnceLock<Leaves>);
-
-#[async_trait::async_trait]
-impl FederationPlanner for Fetched {
-    async fn plan_federation(&self, node: &FederatedPlanNode, _: &dyn Session) -> Planned<Arc<dyn ExecutionPlan>> {
-        let Some((_, batches)) = self
-            .0
-            .get()
-            .and_then(|parts| parts.iter().find(|(plan, _)| plan == node.plan()))
-        else {
-            return plan_err!("a part of the plan was planned before its leg ran");
-        };
-        let leaf: Arc<dyn ExecutionPlan> =
-            MemorySourceConfig::try_new_exec(core::slice::from_ref(batches), Arc::clone(node.plan().schema().inner()), None)?;
-        Ok(leaf)
-    }
-}
-
-/// The rule a source's sub-plan is handed to: it makes the sub-plan a leaf, planned over its leg's rows.
-#[derive(Debug)]
-struct Cutter(Arc<Fetched>, TypeDialect, bool);
-
-fn number_text(schema: &SchemaRef) -> bool {
-    schema
-        .fields()
-        .iter()
-        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
-}
-
-/// Passthrough projections preserve the mapped representation. Value-dependent uses cannot run
-/// locally as text; inspect inputs because their column can be absent from the output.
-fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
-    if let LogicalPlan::Distinct(datafusion::logical_expr::Distinct::All(input)) = plan {
-        return Ok(!number_text(input.schema().inner()));
-    }
-    let mut safe = true;
-    plan.apply_expressions(|expression| {
-        if matches!(plan, LogicalPlan::Projection(_))
-            && (matches!(expression, Expr::Column(_))
-                || matches!(expression, Expr::Alias(alias) if matches!(alias.expr.as_ref(), Expr::Column(_))))
-        {
-            return Ok(TreeNodeRecursion::Continue);
-        }
-        expression.apply(|part| {
-            if let Expr::Column(column) = part {
-                for input in plan.inputs() {
-                    safe &= input
-                        .schema()
-                        .field_from_column(column)
-                        .or_else(|_| input.schema().field_with_unqualified_name(&column.name))
-                        .map_or_else(
-                            |_| !number_text(input.schema().inner()),
-                            |field| field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8"),
-                        );
-                }
-            }
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-        Ok(TreeNodeRecursion::Continue)
-    })?;
-    Ok(safe)
-}
-
-impl OptimizerRule for Cutter {
-    fn name(&self) -> &'static str {
-        "sutura_statement_cut"
-    }
-
-    fn rewrite(&self, plan: LogicalPlan, _: &dyn OptimizerConfig) -> Planned<Transformed<LogicalPlan>> {
-        let mut already_cut = false;
-        plan.apply_with_subqueries(|node| {
-            already_cut |= part_of(node).is_some();
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-        if already_cut {
-            return Ok(Transformed::no(plan));
-        }
-        let leaf = |plan| {
-            let planner: Arc<dyn FederationPlanner> = Arc::<Fetched>::clone(&self.0);
-            Transformed::yes(LogicalPlan::Extension(Extension {
-                node: Arc::new(FederatedPlanNode::new(plan, planner)),
-            }))
-        };
-        plan.transform_down_with_subqueries(|node| {
-            if self.2 && !matches!(node, LogicalPlan::TableScan(_)) {
-                return Ok(Transformed::no(node));
-            }
-            let mut safe = true;
-            let mut scans = false;
-            node.apply_with_subqueries(|input| {
-                scans |= matches!(input, LogicalPlan::TableScan(_));
-                safe &= number_text_safe(input)?;
-                // Keep Cube joins local while the same cut pushes their supported children down.
-                if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {
-                    safe = false;
-                }
-                Ok(if safe {
-                    TreeNodeRecursion::Continue
-                } else {
-                    TreeNodeRecursion::Stop
-                })
-            })?;
-            if !safe || !scans {
-                return Ok(Transformed::no(node));
-            }
-            let node = if matches!(&node, LogicalPlan::TableScan(_)) {
-                let columns = node.schema().columns().into_iter().map(Expr::Column).collect();
-                LogicalPlan::Projection(Projection::try_new(columns, Arc::new(node))?)
-            } else {
-                node
-            };
-            let cut = leaf(node);
-            Ok(Transformed::new(cut.data, true, TreeNodeRecursion::Jump))
-        })
     }
 }
 

@@ -127,11 +127,14 @@ impl<'a> StatementQuestion<'a> {
 
 /// Whether a source part reads a column under a text policy, and where that policy runs.
 ///
-/// Decides what a leg that ran past the deadline means: one that never read masked text is a slow
-/// statement, and one whose source applies the policy itself ([`Self::AtSource`]) is a search a filter
-/// on another column narrows. **The limit:** the engine reads it off the planned scans' projected
-/// columns, so a column the planner pruned is not read, and a part that reads a policy column only to
-/// project it is read all the same.
+/// Decides what a part that ran out of room means: one that never read masked text is a large or slow
+/// statement, and one that did is a search a filter on another column narrows, at the source that
+/// applies the policy ([`Self::AtSource`]) and at Cube ([`Self::Locally`]), whose protected scans are
+/// sent the filter's conjuncts that read no policy column. **The limit:** the engine reads it off the
+/// planned scans' projected columns, so a column the planner pruned is not read, and a part that reads
+/// a policy column only to project it is read all the same; and at Cube only an equality, list or null
+/// test of a text column narrows the leg (`docs/raw-text-search.md`), so the remedy is named even for
+/// a filter Cube is not sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PolicyRead {
     /// No column under a text policy is read.
@@ -140,8 +143,8 @@ pub enum PolicyRead {
     /// answers are already masked and filtered.
     AtSource,
     /// A column under a text policy is read and the engine applies the policy to the rows after the
-    /// leg answers, as at a Cube source. Cube is sent only bare scans for a protected table, so a
-    /// filter on another column does not narrow its answer, and no remedy is named for it.
+    /// leg answers, as at a Cube source. The leg's row cap counts rows before any filter over the
+    /// masked text, and only a conjunct that reads no policy column reaches Cube.
     Locally,
 }
 
@@ -213,6 +216,10 @@ pub enum StatementStopped<S> {
     AnswerTooLarge,
     /// Planning or the local part of the plan ran past the request's deadline.
     DeadlineExceeded,
+    /// The local part of a plan whose policy runs here, over the rows a Cube leg answered, ran past
+    /// the request's deadline: a search over masked text that a filter on a column without a policy
+    /// narrows, because that filter reaches Cube.
+    PolicySearchDeadlineExceeded,
 }
 
 /// The combiner's answer to a statement: `None` where it plans none.

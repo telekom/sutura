@@ -208,24 +208,37 @@ fn late(sql: &str, tables: &[StatementTable]) -> StatementAnswer<SourceName> {
     answered
 }
 
-/// No local-part stop names the policy: at Cube a filter on another column does not reach the source,
-/// and where the policy ran at its source the local join is not what the policy made slow.
+/// A local part past the deadline is named where a policy ran here, over the rows a Cube leg answered:
+/// a filter on a column without a policy reaches Cube and narrows them. Where no policy was read, or it
+/// ran at its source, a local join that ran out of time is not what the policy made slow.
 #[test]
-fn a_local_part_past_the_deadline_stays_generic_whether_or_not_it_read_a_policy_column() {
-    for (sql, tables) in [
-        (self_join(), vec![region_table(TypeDialect::Cube, true)]),
-        (self_join(), vec![region_table(TypeDialect::Cube, false)]),
-        (federated_cross_join(), customers_and(region_table(TypeDialect::Cube, true))),
+fn a_local_part_past_the_deadline_is_named_only_where_a_policy_ran_here() {
+    for (sql, tables, named) in [
+        (self_join(), vec![region_table(TypeDialect::Cube, true)], true),
+        (
+            federated_cross_join(),
+            customers_and(region_table(TypeDialect::Cube, true)),
+            true,
+        ),
+        (self_join(), vec![region_table(TypeDialect::Cube, false)], false),
         (
             federated_cross_join(),
             customers_and(region_table(TypeDialect::Postgres, true)),
+            false,
         ),
     ] {
         let answered = late(&sql, &tables);
-        assert!(
-            matches!(answered, Some(Err(StatementStopped::DeadlineExceeded))),
-            "{answered:?}"
-        );
+        if named {
+            assert!(
+                matches!(answered, Some(Err(StatementStopped::PolicySearchDeadlineExceeded))),
+                "{answered:?}"
+            );
+        } else {
+            assert!(
+                matches!(answered, Some(Err(StatementStopped::DeadlineExceeded))),
+                "{answered:?}"
+            );
+        }
     }
 }
 

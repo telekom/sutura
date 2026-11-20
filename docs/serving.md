@@ -219,9 +219,13 @@ operations. Pattern rules can miss a secret or fail to match a new format; exerc
 representative data and keep the underlying permissions restricted even when those checks pass.
 
 Cube's SQL planner cannot execute regex replacement. For Cube, the runtime fetches bounded source
-rows and applies the policy locally before query predicates, ordering, joins and aggregates. Raw
-values therefore enter the process; source row caps, memory limits or deadlines can refuse queries
-that would otherwise push down. Other data systems apply their policies in source-side views.
+rows and applies the policy locally before query predicates, ordering, joins and aggregates that
+read a policy column. Raw values therefore enter the process; source row caps, memory limits or
+deadlines can refuse queries that would otherwise push down. A `WHERE` conjunct that reads no policy
+column and is one of the listed exact comparisons (`docs/raw-text-search.md`, "Narrowing a Cube
+search") is also sent to Cube, so the 10,000-row answer cap counts the rows it keeps. The policy
+still runs locally before any conjunct over a policy column. Other data systems apply their
+policies in source-side views.
 
 Text policies require a build with SQL planning. In a Markdown physical model, declare them on a
 text column:
@@ -280,8 +284,8 @@ Hidden tables have the same detail as absent tables; excluded columns have the s
 columns. Recognized unsupported input is `unsupported_syntax` with a fixed construct description,
 including `select 1`, table functions and `FETCH FIRST`. A planned source part that fails without a
 more specific safe refusal is `source_failed`; other planning or local execution failures remain
-`statement_failed`. A statement part that reads a column under a text policy and runs past the deadline at a source that
-applies it is `policy_search_needs_narrowing`; see [raw text search](raw-text-search.md). These details contain no engine or source
+`statement_failed`. A statement part that reads a column under a text policy and runs out of room, past the deadline or at
+Cube past the row cap, is `policy_search_needs_narrowing`; see [raw text search](raw-text-search.md). These details contain no engine or source
 error text. `describe_catalog` helps discover the admitted catalog; the operator can enable `prompt.list_physical_schema` to list physical
 names. These categories describe the planned path; a build without `sql` retains its source's generic
 `statement_failed` refusal.

@@ -65,26 +65,29 @@ guarantee.
 
 A text policy masks every row of the column before the statement's own predicate sees it, so a
 search over a policy column with no other filter reads the whole column. Where such a statement
-runs past the request's deadline at a source that applies the policy itself, the refusal is
-`policy_search_needs_narrowing` (`422`), not a generic `deadline_exceeded`. Add a filter on a column
-without a policy so that fewer rows reach the masking.
+runs past the request's deadline, the refusal is `policy_search_needs_narrowing` (`422`), not a
+generic `deadline_exceeded`. Add a filter on a column without a policy so that fewer rows reach the
+masking.
 
-It is named only when a part of the statement reads a column under a text policy and the source
-applies the policy. The reason is given where the source applies the policy; at Cube it is given once
-filters reach Cube, which a separate change adds.
+It is named only when a part of the statement reads a column under a text policy. At a source that
+applies the policy itself that is a leg past the deadline. At Cube, where the policy runs here over
+the rows Cube answers, it is also a leg that answers more than the 10,000-row cap or the answer size
+limit, and a local part past the deadline, because a filter on a column without a policy now reaches
+Cube (see "Narrowing a Cube search").
 
 What this does not do:
 
 - It is a backstop, not a fix. The statement still does not finish, and the policy still masks
   every row it reads. The refusal only names the cause and the remedy.
-- It is not given at Cube. A Cube source holding a protected table is sent only bare scans, and the
-  policy and every predicate run in this deployment over the rows Cube answers. A filter on a column
-  without a policy is not sent to Cube, so the remedy cannot help there. A timeout stays
-  `deadline_exceeded`, and a protected Cube table with more than 10,000 rows cannot be searched: that
-  size refusal stays `result_too_large` or `too_many_rows`.
-- A timeout in the local part of the plan stays `deadline_exceeded`, whether or not a policy column
-  was read. So does a timeout of a statement that reads no policy column, a budget already spent
-  before a part runs, and a timeout while planning.
+- At Cube the remedy is narrower than the sentence says. Only an equality, list or null test of a
+  text column without a policy reaches Cube; a filter of any other shape is run here over the rows
+  Cube answers, so adding one leaves the statement as it was and the same refusal returns.
+- A timeout in the local part of the plan is named only where a policy ran here, over Cube's rows.
+  After a policy that ran at its source, a local join that ran out of time stays `deadline_exceeded`,
+  as does a timeout of a statement that reads no policy column, a budget already spent before a part
+  runs, and a timeout while planning. A Cube part that answers past the row cap or the answer size
+  is named only when it read a policy column; one that did not stays `too_many_rows` or
+  `result_too_large`, as does a size refusal at any other source.
 - The engine decides "reads a column" from the columns the planned scans project. A statement over
   a policy column that is not a search, such as one that only projects it, is named the same way
   when it times out.
@@ -93,3 +96,32 @@ What this does not do:
 
 The reason shows that a column the caller can already read carries a text policy. It names no
 column, pattern or replacement, and nothing about the policy beyond its existence.
+
+## Narrowing a Cube search
+
+Cube cannot apply a text policy, so the engine applies it over the raw rows Cube answers, and a
+Cube answer holds at most 10,000 rows. A search over a protected Cube table that reads more than
+that could not answer even with a narrowing filter. Cube is therefore sent the part of the `WHERE`
+that reads no policy column. This needs no declaration, and it adds no raw condition on a policy
+column.
+
+A conjunct is sent only when it is one of these, over a column that carries no text policy:
+
+- a text column equal to a text literal, or in a list of text literals;
+- `IS NULL` or `IS NOT NULL` of any such column;
+- an `AND` or `OR` of those, because the engine spells a short `IN` list as an `OR`.
+
+Every other conjunct stays local, over the masked text: any conjunct that reads a policy column, a
+text order or inequality, `LIKE`, a number, a time or a boolean, and anything with a function, cast,
+arithmetic, `NOT` or subquery, and an `OR` with one such side. The limit is deliberate. Cube
+compares text by its warehouse's collation and holds numbers at their own precision, so only the
+listed forms cannot make Cube answer fewer rows than the engine would keep. A conjunct that raises at Cube on a row the local plan
+would not reach changes which statements fail, so none that can raise is sent.
+
+Each sent conjunct also stays in the local filter, above the policy, so a Cube that answers more
+rows than the conjunct selects is corrected. A Cube that answers fewer is not, and nothing here
+proves that none does: the listed forms are chosen so that equal text is equal under any collation,
+and the proof of that is by reading, not by a Cube run. The 10,000-row cap, the memory budget and
+the deadline still apply to what comes back, so a filter that leaves more than 10,000 rows, or a
+search whose only condition reads the policy column, still cannot answer, and is refused as
+`policy_search_needs_narrowing`.
