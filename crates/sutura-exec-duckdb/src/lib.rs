@@ -341,28 +341,7 @@ fn prepared(database: &ManagedDatabase, sql: &str) -> Result<ManagedStatement, D
 /// cannot be read.
 #[cfg(feature = "fixtures")]
 pub fn write_database(path: &Path, tables: &[(TableName, std::path::PathBuf)]) -> Result<(), DuckDbError> {
-    write_tables(&database(path, &[])?, tables, None)
-}
-
-/// [`write_database`] with each table's `column` stored `VARCHAR COLLATE NOCASE`.
-///
-/// The trap a case-sensitive `LIKE` assumption must not fall into: `DuckDB`'s catalog views report
-/// the type as plain `VARCHAR`, so nothing but a declaration says the column is collated.
-///
-/// # Errors
-///
-/// As [`write_database`], and [`DuckDbError::Attach`] where the column does not exist.
-#[cfg(feature = "fixtures")]
-pub fn write_nocase_database(path: &Path, tables: &[(TableName, std::path::PathBuf)], column: &str) -> Result<(), DuckDbError> {
-    write_tables(&database(path, &[])?, tables, Some(column))
-}
-
-#[cfg(feature = "fixtures")]
-fn write_tables(
-    database: &ManagedDatabase,
-    tables: &[(TableName, std::path::PathBuf)],
-    nocase: Option<&str>,
-) -> Result<(), DuckDbError> {
+    let database = database(path, &[])?;
     for (table, csv) in tables {
         let attach = |cause| DuckDbError::Attach {
             table: String::from(table.as_str()),
@@ -370,24 +349,15 @@ fn write_tables(
             cause,
         };
         let literal = csv.display().to_string().replace('\'', "''");
-        let mut sql = vec![format!(
+        let sql = format!(
             "CREATE OR REPLACE TABLE \"{}\" AS SELECT * FROM read_csv_auto('{literal}')",
             table.as_str()
-        )];
-        sql.extend(nocase.map(|column| {
-            format!(
-                "ALTER TABLE \"{}\" ALTER \"{}\" TYPE VARCHAR COLLATE NOCASE",
-                table.as_str(),
-                column.replace('"', "\"\"")
-            )
-        }));
-        for sql in sql {
-            let mut statement = prepared(database, &sql).map_err(|error| match error {
-                DuckDbError::Prepare { cause } => attach(cause),
-                other => other,
-            })?;
-            statement.execute().map(drop).map_err(attach)?;
-        }
+        );
+        let mut statement = prepared(&database, &sql).map_err(|error| match error {
+            DuckDbError::Prepare { cause } => attach(cause),
+            other => other,
+        })?;
+        statement.execute().map(drop).map_err(attach)?;
     }
     Ok(())
 }
