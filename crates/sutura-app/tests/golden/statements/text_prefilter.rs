@@ -12,6 +12,26 @@ use sutura_exec_datafusion::CombineError;
 
 use super::*;
 
+// The causality base run restores the domain before this test file is compiled. Keep the fixture
+// helper buildable there; branch-provided inherent methods take precedence on the real run.
+trait EngineCollationFixture {
+    fn engine_collation(self) -> Option<&'static sutura_domain::catalog::Collation>;
+}
+
+impl EngineCollationFixture for TypeDialect {
+    fn engine_collation(self) -> Option<&'static sutura_domain::catalog::Collation> {
+        None
+    }
+}
+
+trait PinCollationFixture {
+    fn pin_onto(&self, field: &mut Field);
+}
+
+impl PinCollationFixture for sutura_domain::catalog::Collation {
+    fn pin_onto(&self, _field: &mut Field) {}
+}
+
 /// Fixture setup belongs only to the golden target that exercises it.
 pub(super) trait TextFixture: DataSystemUnderTest {
     /// A private large-text fixture; cloud and fixed-model venues override the CSV loader.
