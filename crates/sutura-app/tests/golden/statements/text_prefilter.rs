@@ -15,6 +15,7 @@ use super::*;
 
 // The causality base run restores the adapter before this test file is compiled. Keep the
 // declaration buildable there; on the branch the inherent loader below takes precedence.
+#[expect(dead_code, reason = "only the causality base compilation uses this fallback")]
 trait PostgresFixtureStatements {
     fn load_statements(&self, table: &TableName, statements: &str) -> Result<(), &'static str>;
 }
@@ -91,6 +92,9 @@ macro_rules! text_fixture {
     (postgres, $adapter:ty) => {
         impl TextFixture for $adapter {
             fn open_collated_table(&self) -> Option<QualifiedTable> {
+                // Keep the fallback trait method part of the base compile while the adapter's
+                // inherent loader is selected for the actual branch run.
+                let _ = <Self as PostgresFixtureStatements>::load_statements;
                 let table = TableName::parse(collation::TABLE).expect("a fixture name");
                 self.load_statements(&table, collation::FIXTURE)
                     .expect("the collated fixture loads");
