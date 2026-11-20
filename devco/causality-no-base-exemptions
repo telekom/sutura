@@ -482,4 +482,3 @@ a_collation_that_is_not_a_name_refuses_the_document # a cell of document/collati
 differently_spelled_aliases_of_one_physical_column_may_not_pin_different_known_collations # a cell of schema/collation_tests.rs, a module new in this change (declared in schema.rs, which the base run reverts); it names Collation, which the base lacks; killed when the alias match is exact on the table path
 # DuckDB raw prefilter cells (module introduced by the adapter change; no base result).
 a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary # a cell of statement/tests/duckdb_binary.rs, a module new in this change; killed when the binary guard is removed
-duckdb_is_a_capable_arm # a cell of catalog/duckdb_capability_tests.rs, a module new in this change; killed when DuckDb is removed from the capability map
