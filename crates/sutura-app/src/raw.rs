@@ -671,6 +671,10 @@ mod tests {
 mod legs;
 
 #[cfg(test)]
+#[cfg(feature = "sql")]
+mod cube_pushdown;
+
+#[cfg(test)]
 mod planned;
 
 #[cfg(test)]

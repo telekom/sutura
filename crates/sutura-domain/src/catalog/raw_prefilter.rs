@@ -17,6 +17,9 @@ pub enum PrefilterCapability {
     /// A `STRING` column the catalog pins as [`Collation::Binary`]: a collated `LIKE` is no
     /// byte-wise test, and the dictionary's `COLLATION_NAME` is evidence only an author or reader brings.
     BigQuery,
+    /// No column has a collation, and `LIKE` is a plain substring search for the admitted ASCII-alphanumeric
+    /// needle; admitted for a column pinned binary.
+    ClickHouse,
 }
 
 impl PrefilterCapability {
@@ -26,18 +29,19 @@ impl PrefilterCapability {
             TypeDialect::DataFusion => Some(Self::DataFusion),
             TypeDialect::Oracle => Some(Self::Oracle),
             TypeDialect::BigQuery => Some(Self::BigQuery),
-            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::Postgres | TypeDialect::ClickHouse => None,
+            TypeDialect::ClickHouse => Some(Self::ClickHouse),
+            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::Postgres => None,
         }
     }
 
     /// Whether this arm may test a column pinned with `collation`. `LIKE` follows a column's
     /// collation, so an arm whose engine binds one per column needs the pin to say byte-wise;
-    /// [`Collation::Unknown`] never does.
+    /// [`Collation::Unknown`] never does. ClickHouse also requires the explicit binary fact.
     #[must_use]
     pub const fn admits(self, collation: &Collation) -> bool {
         match self {
             Self::DataFusion | Self::Oracle => true,
-            Self::BigQuery => collation.is_binary(),
+            Self::BigQuery | Self::ClickHouse => collation.is_binary(),
         }
     }
 }
