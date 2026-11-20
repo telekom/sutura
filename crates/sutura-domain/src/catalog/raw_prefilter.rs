@@ -14,7 +14,8 @@ pub enum PrefilterCapability {
     DataFusion,
     /// A CLOB column read under a binary session sort.
     Oracle,
-    /// `LIKE` is byte-wise and no column has a collation; admitted for a column pinned binary.
+    /// No column has a collation, and `LIKE` is a plain substring search for the admitted ASCII-alphanumeric
+    /// needle; admitted for a column pinned binary.
     ClickHouse,
 }
 
