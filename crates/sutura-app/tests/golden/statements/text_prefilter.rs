@@ -457,24 +457,19 @@ fn assert_backticked(planned: [&[String]; 2], path: &QualifiedTable, term: &str,
     );
 }
 
-pub(super) fn native<W>()
+#[derive(Clone, Copy)]
+pub(super) enum Coverage {
+    Profiles,
+    HiddenValues,
+    Collation,
+    All,
+}
+
+fn verify_profiles<W>(warehouse: &W, path: &QualifiedTable, dialect: TypeDialect, base: &serde_json::Value)
 where
-    W: TextFixture + Sync,
+    W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    let base = serde_json::json!({"max_text_bytes":128,"redact":[{"pattern":"secret_[^ ]+","replace":"[masked]"}]});
-    let mut enabled = base.clone();
-    enabled["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
-    // This runs before availability: base must refuse the new opt-in rather than silently skip it.
-    let _: sutura_domain::catalog::TextPolicy = serde_json::from_value(enabled).expect("the acknowledged opt-in parses");
-    if !runs_here::<W>() {
-        return;
-    }
-    let setup = Instant::now();
-    let csv = fixture_csv();
-    let (warehouse, path) = W::open_text_fixture(csv.clone());
-    let dialect = warehouse.type_dialect().expect("a registered native dialect");
-    observe_population(&warehouse, &path, dialect, setup);
     let profiles = [
         ("barrier", "TERM", vec![("secret_[^ ]+", "[masked]")]),
         ("replacement-creates", "TERM", vec![("secret_[^ ]+", "[TERM]")]),
@@ -504,7 +499,7 @@ where
             let narrowed = if full_table { "" } else { " AND \"cohort\" <> 'filler'" };
             let sql = format!(
                 "SELECT \"body\" FROM {} WHERE {expression} LIKE '%{term}%'{narrowed}",
-                quoted(&path)
+                quoted(path)
             );
             let mut answers = Vec::new();
             let mut searches = Vec::new();
@@ -512,10 +507,10 @@ where
             let mut stored = Vec::new();
             for (mode, policy) in [("baseline", &disabled), ("opted-in", &enabled)] {
                 let start = Instant::now();
-                let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
+                let (rows, planned) = execute_recorded(warehouse, admitted(path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
                 searches.push(searches_in(&planned, term));
-                stored.push(stored_searches_in(&planned, dialect, &path, term));
+                stored.push(stored_searches_in(&planned, dialect, path, term));
                 statements.push(planned);
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
@@ -534,7 +529,7 @@ where
             );
             assert_raw_condition(dialect, profile, upper, (searches[0], searches[1]));
             if dialect == TypeDialect::BigQuery {
-                assert_backticked([&statements[0], &statements[1]], &path, term, profile == "barrier" && !upper);
+                assert_backticked([&statements[0], &statements[1]], path, term, profile == "barrier" && !upper);
             }
 
             if dialect == TypeDialect::ClickHouse {
@@ -568,61 +563,89 @@ where
             }
         }
     }
-    for enabled in [false, true] {
-        let mut policy = base.clone();
-        if enabled {
-            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
+}
+
+pub(super) fn native<W>(coverage: Coverage)
+where
+    W: TextFixture + Sync,
+    W::Error: Send,
+{
+    let base = serde_json::json!({"max_text_bytes":128,"redact":[{"pattern":"secret_[^ ]+","replace":"[masked]"}]});
+    let mut enabled = base.clone();
+    enabled["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
+    // This runs before availability: base must refuse the new opt-in rather than silently skip it.
+    let _: sutura_domain::catalog::TextPolicy = serde_json::from_value(enabled).expect("the acknowledged opt-in parses");
+    if !runs_here::<W>() {
+        return;
+    }
+    let setup = Instant::now();
+    let csv = fixture_csv();
+    let (warehouse, path) = W::open_text_fixture(csv.clone());
+    let dialect = warehouse.type_dialect().expect("a registered native dialect");
+    observe_population(&warehouse, &path, dialect, setup);
+    if matches!(coverage, Coverage::Profiles | Coverage::All) {
+        verify_profiles(&warehouse, &path, dialect, &base);
+    }
+    if matches!(coverage, Coverage::HiddenValues | Coverage::All) {
+        for enabled in [false, true] {
+            let mut policy = base.clone();
+            if enabled {
+                policy["raw_prefilter"] =
+                    serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
+            }
+            let sql = format!(
+                "SELECT \"body\" FROM {} WHERE \"body\" IS NULL AND \"cohort\" = 'rare'",
+                quoted(&path)
+            );
+            assert_eq!(
+                execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
+                    .expect("a native NULL query executes")
+                    .rows(),
+                &[vec![Value::Null]],
+                "the typed NULL survives at {}",
+                W::NAME
+            );
         }
-        let sql = format!(
-            "SELECT \"body\" FROM {} WHERE \"body\" IS NULL AND \"cohort\" = 'rare'",
-            quoted(&path)
-        );
-        assert_eq!(
-            execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
-                .expect("a native NULL query executes")
-                .rows(),
-            &[vec![Value::Null]],
-            "the typed NULL survives at {}",
-            W::NAME
-        );
+        for term in [
+            "TERM",
+            "SECRET",
+            "SECRET_",
+            "SECRET_T",
+            "SECRET_TE",
+            "SECRET_TER",
+            "SECRET_TERM",
+        ] {
+            let mut policy = base.clone();
+            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
+            let raw = format!(
+                "SELECT count(*) FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
+                quoted(&path)
+            );
+            assert_eq!(
+                execute(&warehouse, admitted(&path, dialect, None), &raw)
+                    .expect("the raw hidden rows really contain the probe")
+                    .rows(),
+                &[vec![Value::Integer(if matches!(term, "SECRET" | "SECRET_") { 4 } else { 3 })]],
+                "a probe must search actual hidden values at {}",
+                W::NAME
+            );
+            let sql = format!(
+                "SELECT \"body\" FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
+                quoted(&path)
+            );
+            assert!(
+                execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
+                    .expect("a hidden-secret probe executes")
+                    .rows()
+                    .is_empty(),
+                "{} hidden probe {term}",
+                W::NAME
+            );
+        }
     }
-    for term in [
-        "TERM",
-        "SECRET",
-        "SECRET_",
-        "SECRET_T",
-        "SECRET_TE",
-        "SECRET_TER",
-        "SECRET_TERM",
-    ] {
-        let mut policy = base.clone();
-        policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
-        let raw = format!(
-            "SELECT count(*) FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
-            quoted(&path)
-        );
-        assert_eq!(
-            execute(&warehouse, admitted(&path, dialect, None), &raw)
-                .expect("the raw hidden rows really contain the probe")
-                .rows(),
-            &[vec![Value::Integer(if matches!(term, "SECRET" | "SECRET_") { 4 } else { 3 })]],
-            "a probe must search actual hidden values at {}",
-            W::NAME
-        );
-        let sql = format!(
-            "SELECT \"body\" FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
-            quoted(&path)
-        );
-        assert!(
-            execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
-                .expect("a hidden-secret probe executes")
-                .rows()
-                .is_empty(),
-            "{} hidden probe {term}",
-            W::NAME
-        );
-    }
-    if let Some(collated) = warehouse.open_collated_fixture(&csv, &path) {
+    if matches!(coverage, Coverage::Collation | Coverage::All)
+        && let Some(collated) = warehouse.open_collated_fixture(&csv, &path)
+    {
         collation::trap(&warehouse, &path, &collated, dialect);
         warehouse.close_text_fixture(&collated);
     }
@@ -633,11 +656,29 @@ where
 macro_rules! system {
     // Cube reads every raw row before any operator and never takes the prefilter: nothing to compare.
     (cube, $warehouse:ty) => {};
+    (bigquery, $warehouse:ty) => {
+        mod bigquery {
+            #[test]
+            fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
+                super::native::<$warehouse>(super::Coverage::Profiles);
+            }
+
+            #[test]
+            fn bigquery_hidden_values_remain_redacted_with_the_raw_prefilter() {
+                super::native::<$warehouse>(super::Coverage::HiddenValues);
+            }
+
+            #[test]
+            fn bigquery_collation_prevents_the_raw_prefilter() {
+                super::native::<$warehouse>(super::Coverage::Collation);
+            }
+        }
+    };
     ($name:ident, $warehouse:ty) => {
         mod $name {
             #[test]
             fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
-                super::native::<$warehouse>();
+                super::native::<$warehouse>(super::Coverage::All);
             }
         }
     };
