@@ -122,7 +122,7 @@ fn opted_in_literal_contains_adds_only_a_raw_necessary_condition() {
     let [Some(condition)] = conditions.as_slice() else {
         panic!("one raw necessary condition: {conditions:?}");
     };
-    let expected = parsed("SELECT 1 FROM notes WHERE (\"BODY\" LIKE '%TERM%')");
+    let expected = parsed("SELECT 1 FROM notes WHERE (\"notes\".\"BODY\" LIKE '%TERM%')");
     let Statement::Query(expected) = expected else {
         panic!("a query");
     };
@@ -184,7 +184,7 @@ fn oracle_raw_lob_prefilter_uses_an_explicit_null_safe_binary_sort_guard() {
         panic!("one guarded raw condition: {conditions:?}");
     };
     let expected = parsed(
-        "SELECT 1 FROM notes WHERE CASE WHEN SYS_CONTEXT('USERENV', 'NLS_SORT') COLLATE BINARY = 'BINARY' THEN CASE WHEN UPPER(\"BODY\") LIKE '%TERM%' THEN 1 ELSE 0 END ELSE 1 END = 1",
+        "SELECT 1 FROM notes WHERE CASE WHEN SYS_CONTEXT('USERENV', 'NLS_SORT') COLLATE BINARY = 'BINARY' THEN CASE WHEN UPPER(\"notes\".\"BODY\") LIKE '%TERM%' THEN 1 ELSE 0 END ELSE 1 END = 1",
     );
     let Statement::Query(expected) = expected else {
         panic!("a query");
@@ -325,4 +325,26 @@ fn the_cube_local_policy_never_adds_a_raw_condition() {
     assert!(parsed(&local).visit(&mut raw).is_continue());
     assert!(!raw.0.is_empty(), "the source table must still be read");
     assert!(raw.0.iter().all(Option::is_none), "{local}");
+}
+
+#[test]
+fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() {
+    let sql = "SELECT \"BODY\" FROM \"notes\"";
+    for (dialect, quote, read) in [
+        (TypeDialect::ClickHouse, '`', "replaceRegexpAll(`notes`.`BODY`,"),
+        (TypeDialect::BigQuery, '`', "REGEXP_REPLACE(`notes`.`BODY`,"),
+        (TypeDialect::DataFusion, '"', "REGEXP_REPLACE(\"notes\".\"BODY\","),
+    ] {
+        let rewritten = super::super::text::apply(
+            String::from(sql),
+            &[table(dialect, &["[masked]"], false, false, false)],
+            dialect,
+        )
+        .expect("a protected table rewrites");
+        assert!(rewritten.contains(read), "{dialect:?}: {rewritten}");
+        assert!(
+            rewritten.contains(&format!("AS {quote}BODY{quote}")),
+            "{dialect:?}: {rewritten}"
+        );
+    }
 }

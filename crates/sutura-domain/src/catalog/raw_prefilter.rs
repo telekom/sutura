@@ -1,6 +1,32 @@
 //! A per-column acknowledgement of secret-dependent raw-search work.
 
 use crate::source::{AcknowledgementReason, InvalidOperatorText};
+use crate::warehouse::schema::TypeDialect;
+
+/// The source engine families that can carry the raw necessary condition.
+///
+/// The one place that decides it: another source may bind a linguistic collation to a column, so an
+/// engine is added here only with comparison evidence, and the exhaustive match in [`Self::of`] makes
+/// a new dialect a compile error until someone decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefilterCapability {
+    DataFusion,
+    /// A CLOB column read under a binary session sort.
+    Oracle,
+}
+
+impl PrefilterCapability {
+    #[must_use]
+    pub const fn of(dialect: TypeDialect) -> Option<Self> {
+        match dialect {
+            TypeDialect::DataFusion => Some(Self::DataFusion),
+            TypeDialect::Oracle => Some(Self::Oracle),
+            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::Postgres | TypeDialect::ClickHouse | TypeDialect::BigQuery => {
+                None
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields, try_from = "WrittenRawPrefilter")]
