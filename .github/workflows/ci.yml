@@ -493,7 +493,7 @@ jobs:
             echo "no usable base: everything will run"
           fi
 
-      # >>> THREE STAGES, AND THEY ARE THE EXECUTION ORDER (#639 slice I). <<<
+      # >>> TWO PHASES, WITH THE CARGO ROOTS REALISED TOGETHER AFTER CLASSIFICATION. <<<
       #
       # WHAT WAS HERE, AND WHY IT WAS A LIE OF SEQUENCE. One `nix build` took every check root at
       # once - hygiene, licensing, formatting, lint, tests, both service tiers and doctests,
@@ -513,7 +513,7 @@ jobs:
       #     tier steps, and 5 realised the Rust closure and skipped every Rust verdict.
       #
       # THE CUT IS WHERE THE DEPENDENCY CLOSURE FALLS, not where a reader would group the checks,
-      # because that is the only line a stage can actually gate on:
+      # because that is the only line a phase can actually gate on:
       #
       #   1. `fmt` and `reuse` need no `cargoArtifacts` at all - `craneLib.cargoFmt` reads the
       #      filtered source and `nix/reuse.nix` runs a tool over the tree - so they can report
@@ -522,7 +522,8 @@ jobs:
       #   2. `hygiene` and `clippy` both take `inheritedArtifacts ciArtifacts` (`flake.nix`) -
       #      hygiene compiles the xtask binary, clippy the workspace - so neither can precede the
       #      closure, and this is the stage that pays for it.
-      #   3. the test roots: the expensive half that a red in stage 1 or 2 no longer launches.
+      #   3. the test roots: realised with the lint roots below, so independent cargo derivations
+      #      can run at the same time on this runner and share the local Nix store.
       #
       # WITHIN a stage the roots still reach nix in ONE invocation, which keeps #562's measurement
       # rather than trading it away: nix starts only as many builds as it has runnable derivations,
@@ -530,14 +531,13 @@ jobs:
       # fetches, and the host sat **77% idle on average** that way (`runner-probe.yml`, 32-core).
       # `max-jobs` was never the constraint - the number of roots was.
       #
-      # WHAT THIS GIVES UP, SAID PLAINLY: overlap ACROSS stages. `clippy` no longer compiles while
-      # `nextest` does. That is the price of the ask and not an oversight - and these three steps
-      # are also the instrument that finally prices it, because one merged step could report only a
-      # single total, which is why no figure above attributes time to any individual check.
+      # LINT AND TEST ROOTS ARE ONE PREFETCH GRAPH. Nix schedules independent derivations together,
+      # while the verdict steps below remain separate and attributable. This keeps the shared local
+      # store and avoids compiling the source closure once per runner.
       #
       # WHAT IT DOES NOT FIX. `API reference pages` was the first red in 17 of those 43 failures -
       # the largest single cause - at a median of 758 s. `api-docs` needs the same closure and is
-      # itself the long root, so it stays in stage 3 overlapping the tests and its latency is
+      # itself the long root, so it stays in the test graph overlapping the tests and its latency is
       # unchanged. Staging cannot make a gate report sooner when that gate IS the long pole.
       #
       # EVERY ROOT NOW CARRIES ITS OWN STEP'S CONDITION, and that is the whole of the claim: a root
@@ -549,10 +549,10 @@ jobs:
       # it is pre-existing, reaches steps this change does not touch, and is not fixed here.
       # `reuse` and `hygiene` stay unconditional because their own steps are: they judge every file.
       #
-      # ONLY THE GRAPH ROOTS OF STAGE 1 ARE CLOSURE-FREE - the claim is about the roots, not about
+      # ONLY THE GRAPH ROOTS OF PHASE 1 ARE CLOSURE-FREE - the claim is about the roots, not about
       # a region of the file. `Workflow static analysis` reaches `packages.xtask` (20-21 s measured
       # on the runs that selected it) and `Supply chain` fetches an advisory database, so neither
-      # belongs in stage 1 at all: both MOVE to sit after `Clippy` - at the base this branch diffs
+      # belongs in phase 1 at all: both MOVE to sit after `Clippy` - at the base this branch diffs
       # against (#667, `70d5665f`) both sat BEFORE `Clippy`, at line 527 and 537 against 564, so this
       # is a relocation and not a restatement of where they already were. The paragraph below says
       # why the new placement is correct rather than a preference.
@@ -570,7 +570,7 @@ jobs:
       # `steps.classify.outputs.rust` - classify has not run yet - so it now builds `fmt`'s check
       # root UNCONDITIONALLY, measured at <= 8 s p90 for the two-root graph on this repository's
       # runs, not zero. WHAT THIS DOES NOT FIX: the 238 s p90 IS the `packages.xtask` closure, and
-      # stage 2 pays it regardless when the run is Rust-shaped - ordering removes it from the
+      # phase 2 pays it regardless when the run is Rust-shaped - ordering removes it from the
       # critical path in front of the cheap gates, it does not remove the cost. Making classify
       # itself cheaper would mean reimplementing its path-to-area map in shell, the drifting
       # duplicate this repository has already refused once.
@@ -590,7 +590,7 @@ jobs:
       #     repository. Nothing could do that before #642. This is the revert for these two, not
       #     a draft being tidied up before it shipped. `The attribution document generates
       #     completely` was NOT hoisted by #642 - on `main` at #667 (70d5665f) it already sat
-      #     after `Clippy`, in stage 2 - so it only moved here because it sits between the other
+      #     after `Clippy`, in phase 2 - so it only moved here because it sits between the other
       #     two in the file; the paragraph above about the cost of a later position does not
       #     apply to it.
       #   * `Structural gates` DOES now report after `Format`, and this is a TRADE TAKEN
@@ -618,7 +618,7 @@ jobs:
       # prefetch, never coverage, and it is visible in the one place that already measures it: a
       # verdict step whose median is 0 s stops being 0 s the moment its root is not realised above.
       #
-      # EACH STAGE IS A PREFETCH, NOT A VERDICT, and that is what keeps per-step attribution. Every
+      # EACH PREFETCH IS NOT A VERDICT, and that is what keeps per-step attribution. Every
       # check below still runs its own `nix build`, still owns its own log and still fails its own
       # step by name - it just finds its result already in the local store. So `continue-on-error`
       # is not a way to hide a red: if a derivation fails here, the step that owns it fails
@@ -630,8 +630,8 @@ jobs:
       # `Workflow static analysis` below.
       # #985 D2 (owner decision, issuecomment-5900985733): push `ci` is reduced to its 3 unique
       # outputs (CRAP baseline, last-validated marker, main-scoped Nix-store cache save). Every step
-      # below this point that verifies the tree - the closure-free gates, the stage-2 lint gates, the
-      # stage-3 tests and tiers - is gated off on `push`, because the merge queue already verified
+      # below this point that verifies the tree - the closure-free gates, the lint gates, the tests
+      # and tiers - is gated off on `push`, because the merge queue already verified
       # the same tree (`causality` and `postgres-linked-driver`, which #1280 moved out of this one,
       # and `shipped-features`, which #1696 did, carry the same `!= 'push'`). `github.event_name != 'push'` on each step is
       # the mechanism; `xtask/src/workflows/obligations.rs` pins it on Secrets, Licensing and Chart
@@ -756,15 +756,13 @@ jobs:
         if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.fmt -L
 
-      # >>> STAGE 2: THE DEPENDENCY CLOSURE IS PAID FOR HERE, AND THE TESTS ARE NOT YET RUN. <<<
+      # >>> PHASE 2: THE DEPENDENCY CLOSURE IS PAID FOR HERE, AND LINT/TEST ROOTS RUN TOGETHER. <<<
       #
-      # `hygiene` compiles the xtask binary and `clippy` the workspace, both on top of
-      # `ciArtifacts`, so this is the stage that pays for `sutura-deps` and stage 3 reuses it from
-      # the local store - which is how the shared dependency artifact survives the split. The
-      # stage-1 header above carries why the cut is here and what the lost cross-stage overlap
-      # costs.
+      # `hygiene` compiles the xtask binary, `clippy` the workspace and the test roots their
+      # binaries, all on top of `ciArtifacts`. This phase pays for `sutura-deps` once and Nix
+      # shares the resulting local store across the independent roots.
       #
-      # THE HEADING NAMES WHAT THE STAGE'S GRAPH ROOT REALISES, NOT A PROPERTY OF EVERY STEP IN
+      # THE HEADING NAMES WHAT THE PHASE'S GRAPH ROOT REALISES, NOT A PROPERTY OF EVERY STEP IN
       # IT. It used to read "the gates that need the dependency closure", which this change made
       # false of a step it moved: `apps.deny` is a `writeShellScript` that puts the toolchain and
       # `cargo-deny` on `PATH` and runs `cargo deny check` (`flake.nix`), so `Supply chain` builds
@@ -783,12 +781,34 @@ jobs:
         uses: $/.github/actions/measure-host
         env:
           RUST: ${{ steps.classify.outputs.rust }}
+          API: ${{ steps.classify.outputs.api }}
+          TIERS: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' }}
+          IDENTITY: ${{ steps.classify.outputs.identity }}
+          POSTGRES: ${{ steps.classify.outputs.data_source_postgres }}
+          CLICKHOUSE: ${{ steps.classify.outputs.data_source_clickhouse }}
+          ORACLE: ${{ steps.classify.outputs.data_source_oracle }}
         with:
-          label: xtask and lint gate graph
+          label: lint and test graphs
           run: |-
             set -eu
             checks=(.#checks.x86_64-linux.hygiene)
             if [ "$RUST" = "true" ]; then checks+=(.#checks.x86_64-linux.clippy); fi
+            if [ "$RUST" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.nextest .#checks.x86_64-linux.doctest .#checks.x86_64-linux.crap)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$IDENTITY" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.keycloak-tier)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$POSTGRES" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.postgres-tier)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$CLICKHOUSE" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.clickhouse-tier .#checks.x86_64-linux.vendored-clickhouse-adbc)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$ORACLE" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.vendored-oracledb)
+            fi
+            if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
             nix build -L --keep-going "${checks[@]}"
 
       - name: Structural gates
@@ -830,75 +850,6 @@ jobs:
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true' && github.event_name != 'push'
         run: bash nix/lint-workflows.sh
-
-      # >>> STAGE 3: THE TEST ROOTS, WHICH A RED IN STAGE 1 OR 2 NO LONGER LAUNCHES. <<<
-      #
-      # Every root carries the condition of the step that reads it, which is the half that was
-      # unconditional before: 45 of 324 successful jobs realised both service tiers - a Keycloak
-      # JVM and a Postgres server - and then skipped both tier steps. `doctest` inherits
-      # `checks.nextest`'s artifacts (`flake.nix`), so it was never parallel with nextest and this
-      # stage does not make it serial. `api-docs` sits here rather than in stage 2 although it
-      # needs only `ciArtifacts`: it is the long root, so hoisting it would put every test behind
-      # it and buy nothing - see the stage-1 header on the failure it is most often the cause of.
-      # `crap` was the one `rust` root left out, so `CRAP score` built it serially after this
-      # stage: 39-55 s on 22 successful pull-request and merge-queue runs of 2026-11-01. Like
-      # `nextest` it inherits `ciArtifacts`, which stage 2 already realised, so here the two
-      # overlap. Push skips this step, so there `CRAP score` still builds it alone.
-      #
-      # AN EMPTY SELECTION IS A LEGITIMATE DOCS-ONLY RUN and not a misconfiguration, so it is
-      # answered before the array is expanded - `set -u` makes an empty `"${checks[@]}"` an error on
-      # older bash releases, and the runner's bash is not the only shell this has to survive. No
-      # release number here on purpose: nothing in this repository compares one, so it would be a
-      # second copy of a fact with no home to rot against.
-      #
-      # THAT `exit 0` ENDS THE BODY AND NOT THE STEP, which is a property of `measure-host` running
-      # the body under `bash -c` rather than `eval` - see that action, where the `eval` it replaced
-      # also made every body's `set -eu` inert. Under the old wrapper this branch would have exited
-      # the step's own shell and skipped the report, so the "one label per stage" claim above would
-      # have been false on exactly the run that most needs it.
-      #
-      # **AND THIS BRANCH HAS EXECUTED IN NO VENUE.** The docs-only probe measured for #639 slice I
-      # still selected both service tiers, because a docs-only diff then flipped the CATEGORY axis
-      # to `core`; it now selects no category, so a docs-only diff outside every area reaches this
-      # branch. Until such a run is cited it is reasoned and linted, not observed - cite it as such.
-      - name: Realise the test graph in one invocation
-        if: github.event_name != 'push'
-        continue-on-error: true
-        uses: $/.github/actions/measure-host
-        env:
-          RUST: ${{ steps.classify.outputs.rust }}
-          API: ${{ steps.classify.outputs.api }}
-          TIERS: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' }}
-          IDENTITY: ${{ steps.classify.outputs.identity }}
-          POSTGRES: ${{ steps.classify.outputs.data_source_postgres }}
-          CLICKHOUSE: ${{ steps.classify.outputs.data_source_clickhouse }}
-          ORACLE: ${{ steps.classify.outputs.data_source_oracle }}
-        with:
-          label: test graph
-          run: |-
-            set -eu
-            checks=()
-            if [ "$RUST" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.nextest .#checks.x86_64-linux.doctest .#checks.x86_64-linux.crap)
-            fi
-            if [ "$TIERS" = "true" ] || [ "$IDENTITY" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.keycloak-tier)
-            fi
-            if [ "$TIERS" = "true" ] || [ "$POSTGRES" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.postgres-tier)
-            fi
-            if [ "$TIERS" = "true" ] || [ "$CLICKHOUSE" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.clickhouse-tier .#checks.x86_64-linux.vendored-clickhouse-adbc)
-            fi
-            if [ "$TIERS" = "true" ] || [ "$ORACLE" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.vendored-oracledb)
-            fi
-            if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
-            if [ "${#checks[@]}" -eq 0 ]; then
-              echo "no test root is selected by this classification"
-              exit 0
-            fi
-            nix build -L --keep-going "${checks[@]}"
 
       - name: Tests
         if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
