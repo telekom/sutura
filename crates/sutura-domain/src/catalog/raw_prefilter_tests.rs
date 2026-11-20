@@ -135,4 +135,3 @@ fn clickhouse_is_admitted_for_a_binary_column_only_and_the_other_arms_ignore_the
         assert!(capability.admits(&Collation::Unknown), "{capability:?}");
     }
 }
-
