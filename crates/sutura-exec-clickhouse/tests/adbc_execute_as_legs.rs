@@ -887,5 +887,38 @@ mod adbc_execute_as_legs {
             let split_rows = RowSet::new(whole_rows.columns().to_vec(), all).expect("the same columns");
             agreeing(&whole_rows, &split_rows);
         }
+
+        #[test]
+        fn a_large_table_the_ready_workers_cannot_split_is_read_whole_and_answers_a_narrow_lookup() {
+            let Some(tier) = Tier::here("buckets_whole") else {
+                return;
+            };
+            load_bucket_fixture(&tier);
+            let warehouse = tier
+                .at(LEGS, SourcePosture::ImpersonationAtSource)
+                .with_hash_buckets(&declared());
+            let leg = lookup();
+            let caller = switched_to("sutura_switched");
+            let planned = warehouse
+                .split_by_estimate(
+                    &leg,
+                    &caller,
+                    corpus::deadline(),
+                    NonZeroU64::MIN,
+                    NonZeroUsize::MIN,
+                    NonZeroUsize::MIN,
+                )
+                .expect("the lookup estimates under the caller");
+            assert!(
+                matches!(planned, Planned::Whole),
+                "a table the workers cannot split is not a refusal of the caller's own leg"
+            );
+            let answered = warehouse
+                .execute(Executable::Leg(&leg), &caller, corpus::deadline())
+                .expect("the whole lookup answers")
+                .to_rows()
+                .expect("the lookup decodes");
+            assert_eq!(answered.rows().len(), 34);
+        }
     }
 }
