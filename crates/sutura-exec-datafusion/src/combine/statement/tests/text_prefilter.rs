@@ -243,7 +243,7 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     }
     let clickhouse = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
     assert!(
-        raw_predicates(sql, collated(&clickhouse, &[("BODY", "binary")]))
+        raw_predicates(sql, collated(&clickhouse, Some("binary")))
             .iter()
             .any(Option::is_some),
         "ClickHouse takes the new binary-column arm"
@@ -251,7 +251,7 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
 }
 
 /// `source` with the named columns pinned as a read leaves them: each is the pinned collation text.
-fn collated(source: &StatementTable, pins: &[(&str, &str)]) -> StatementTable {
+fn postgres_collated(source: &StatementTable, pins: &[(&str, &str)]) -> StatementTable {
     let fields = source
         .schema()
         .fields()
@@ -276,7 +276,7 @@ fn collated(source: &StatementTable, pins: &[(&str, &str)]) -> StatementTable {
 fn a_postgres_column_takes_the_raw_condition_only_where_it_is_pinned_binary() {
     let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     let source = || table(TypeDialect::Postgres, &["[masked]"], true, false, true);
-    let conditions = raw_predicates(sql, collated(&source(), &[("BODY", "binary")]));
+    let conditions = raw_predicates(sql, postgres_collated(&source(), &[("BODY", "binary")]));
     let [Some(condition)] = conditions.as_slice() else {
         panic!("one raw necessary condition: {conditions:?}");
     };
@@ -289,7 +289,9 @@ fn a_postgres_column_takes_the_raw_condition_only_where_it_is_pinned_binary() {
     ] {
         let pins: Vec<_> = collation.map(|text| ("BODY", text)).into_iter().collect();
         assert!(
-            raw_predicates(sql, collated(&source(), &pins)).iter().all(Option::is_none),
+            raw_predicates(sql, postgres_collated(&source(), &pins))
+                .iter()
+                .all(Option::is_none),
             "{collation:?}"
         );
     }
@@ -300,7 +302,7 @@ fn a_postgres_column_takes_the_raw_condition_only_where_it_is_pinned_binary() {
 #[test]
 fn a_binary_postgres_column_keeps_every_barrier_and_has_no_upper_arm() {
     let eligible = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
-    let binary = |source: &StatementTable| collated(source, &[("BODY", "binary")]);
+    let binary = |source: &StatementTable| postgres_collated(source, &[("BODY", "binary")]);
     // The arm exists, so every refusal below is the barrier's and not an absent arm's.
     let source = table(TypeDialect::Postgres, &["[masked]"], true, false, true);
     assert!(raw_predicates(eligible, binary(&source))[0].is_some());
@@ -338,7 +340,7 @@ fn a_postgres_sibling_on_another_policy_column_must_be_pinned_binary_too() {
             (vec![("BODY", "binary")], false),
             (vec![("BODY", "binary"), ("name", "named:public.folded")], false),
         ] {
-            let applied = raw_predicates(&sql(sibling), collated(&source(), &pins))
+            let applied = raw_predicates(&sql(sibling), postgres_collated(&source(), &pins))
                 .iter()
                 .any(Option::is_some);
             assert_eq!(applied, applies, "{sibling} {pins:?}");
@@ -346,7 +348,7 @@ fn a_postgres_sibling_on_another_policy_column_must_be_pinned_binary_too() {
     }
     // A sibling on a column with no policy is read through no regex.
     assert!(
-        raw_predicates(&sql("\"id\" = 5"), collated(&source(), &[("BODY", "binary")]))
+        raw_predicates(&sql("\"id\" = 5"), postgres_collated(&source(), &[("BODY", "binary")]))
             .iter()
             .any(Option::is_some)
     );
@@ -454,21 +456,41 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
     }
 }
 
+/// `table` with its text column pinned under `collation`, as pinning would have written it.
+fn collated(table: &StatementTable, collation: Option<&str>) -> StatementTable {
+    let fields = table
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut metadata = field.metadata().clone();
+            if field.name() == "BODY"
+                && let Some(collation) = collation
+            {
+                drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
+            }
+            field.as_ref().clone().with_metadata(metadata)
+        })
+        .collect::<Vec<_>>();
+    StatementTable::new(
+        table.source().clone(),
+        table.table().clone(),
+        table.dialect(),
+        Arc::new(Schema::new(fields)),
+    )
+}
+
 #[test]
 fn clickhouse_prefilters_a_binary_column_with_the_stored_column_named_through_its_table() {
     let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     let base = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
-    let conditions = raw_predicates(sql, collated(&base, &[("BODY", "binary")]));
+    let conditions = raw_predicates(sql, collated(&base, Some("binary")));
     let [Some(condition)] = conditions.as_slice() else {
         panic!("one raw necessary condition: {conditions:?}");
     };
     assert_eq!(condition.to_string(), "(`notes`.`BODY` LIKE '%TERM%')");
-    let rewritten = super::super::text::apply(
-        String::from(sql),
-        &[collated(&base, &[("BODY", "binary")])],
-        TypeDialect::ClickHouse,
-    )
-    .expect("a protected table rewrites");
+    let rewritten = super::super::text::apply(String::from(sql), &[collated(&base, Some("binary"))], TypeDialect::ClickHouse)
+        .expect("a protected table rewrites");
     assert!(
         rewritten.contains("FROM \"notes\" WHERE (`notes`.`BODY` LIKE '%TERM%')) AS `notes`"),
         "the condition filters the stored table inside the view: {rewritten}"
