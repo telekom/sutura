@@ -45,8 +45,8 @@ contain no full term, and start and end with characters absent from that term. T
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.
 
-The current eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's byte-wise `LIKE`
-and Oracle native CLOB/NCLOB `LIKE`, with an optional `UPPER` around that column on Oracle. Cube's local policy execution is not
+The current eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's `LIKE` for the
+admitted needle shape and Oracle native CLOB/NCLOB `LIKE`, with an optional `UPPER` around that column on Oracle. Cube's local policy execution is not
 an eligible arm and keeps redacted-only execution. Oracle
 uses its binary character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary
 `NLS_SORT` permits raw row rejection; every other value, including NULL, retains all rows. No
@@ -73,13 +73,23 @@ reads the fact so far.
 What `binary` does not cover. It holds for `LIKE` and equality, not for ordering under a locale, and
 a type can still change equality: Postgres `bpchar` ignores trailing spaces in `=`. A
 `postgres_fdw` foreign table's `default` is the remote server's default. ClickHouse tables on the
-MySQL engine compare `=`, `<` and `>` on the MySQL server, while `LIKE` stays in ClickHouse.
+MySQL engine compare `=`, `<` and `>` on the MySQL server, and the raw `LIKE` is forwarded there
+too: ClickHouse's external-database query transform allows `like` and `notLike`, and the MySQL
+storage engine passes no blocklist, so on a MySQL or PostgreSQL engine table the raw test runs
+under the remote's collation. That is safe for the admitted needle (ASCII alphanumeric, no
+wildcard, no escape): a case- or accent-insensitive remote returns more rows, never fewer, and
+the exact redacted predicate still decides. Before PostgreSQL 18 a nondeterministic collation
+makes the remote refuse `LIKE`, which costs availability, not secrecy. This is read from
+ClickHouse's behaviour, not measured here.
 DuckDB's global `default_collation` setting can contradict an authored `binary`. Adding the fact
 moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
 
-ClickHouse has no column collation and its `LIKE` is case-sensitive and byte-wise, so a column of its
+ClickHouse has no column collation and its `LIKE` is case-sensitive. ClickHouse documents `LIKE`
+matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted
+needle shape only: ASCII alphanumeric, no `_`, no escape, which makes the pattern a plain substring
+search. A column of its
 pinned schema carries the collation fact `binary` and a column pinned anything else (unknown or a
 named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
 test reads the stored column qualified by its table, in the form `` `table`.`column` ``: ClickHouse
@@ -90,7 +100,10 @@ the two reads apart, so only the recorded timings show the effect. The redaction
 `replaceRegexpAll` are RE2 expressions, and a replacement is a literal (`$` and `\` are refused), so
 no backreference can rebuild a term from a matched value. ClickHouse has no `UPPER` arm. The
 ClickHouse tier measures equality and timings; the RE2 and alias statements above are documented
-behaviour, not measured here.
+behaviour, not measured here. ClickHouse column types are authored in the catalog: nothing reads
+`system.columns`. The adapter pins neither the analyzer setting nor `prefer_column_name_to_alias`;
+a raw test that read the alias would be safe, since it only repeats the redacted predicate, and
+would lose the speedup.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone

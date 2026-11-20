@@ -326,13 +326,15 @@ fn searches_in(planned: &[String], term: &str) -> usize {
 /// `ClickHouse` resolves a bare name to the projection alias beside it unless `prefer_column_name_to_alias`
 /// is set, so an unqualified raw test reads the redacted value: every answer stays equal and no row is
 /// ever skipped. Only the text of the statement tells the two apart here, and no other engine is read.
-/// The caller's own predicate is unparsed through the same table name, so only the parenthesised
-/// condition inside the view's `WHERE` counts.
+/// The view is aliased with the table's own name, so the caller's predicate in the outer `WHERE`
+/// reads the same qualified column; only the view's own condition, which the view's closing alias
+/// follows, counts.
 fn stored_searches_in(planned: &[String], dialect: TypeDialect, path: &QualifiedTable, term: &str) -> usize {
     if dialect != TypeDialect::ClickHouse {
         return 0;
     }
-    let needle = format!("WHERE (`{}`.`body` LIKE '%{term}%')", path.name().as_str());
+    let table = path.name().as_str();
+    let needle = format!("WHERE (`{table}`.`body` LIKE '%{term}%')) AS `{table}`");
     planned.iter().map(|statement| statement.matches(&needle).count()).sum()
 }
 
@@ -436,7 +438,7 @@ where
                 assert_eq!(
                     stored,
                     [0, usize::from(full_table)],
-                    "the one raw search ClickHouse receives names the stored column, never the alias: {profile} upper={upper}"
+                    "the view's own raw search names the stored column, never the alias: {profile} upper={upper}"
                 );
             }
             if profile == "barrier" && !upper {
