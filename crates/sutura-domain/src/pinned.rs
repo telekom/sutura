@@ -704,6 +704,11 @@ impl AnchorReport {
 pub enum NotValidated {
     #[error("model {model} declares a text policy: it requires a mapped text column and no certified metric reading that column")]
     TextPolicy { model: ModelName },
+    #[error("model {model} pins column {column} under a collation another model over the same physical column contradicts")]
+    CollationDisagreement {
+        model: ModelName,
+        column: crate::model::ColumnName,
+    },
     #[error("metric {metric} reads text-policy column {model}.{column}; certified execution cannot apply that policy")]
     MetricReadsProtectedText {
         metric: MetricName,
