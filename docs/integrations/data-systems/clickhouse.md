@@ -45,6 +45,12 @@ bucket of a delegated source is not read with the token of the caller. A serving
 when the source with the key is its only source, or when no `server.nodes` peer lists the source in
 its `sources`.
 
+The estimate that decides the split reads `system.parts` as the caller, so every caller of such a
+source needs `GRANT SELECT(rows, data_uncompressed_bytes, active, database, table) ON system.parts`.
+A caller without it gets the denial from the source for that lookup leg: the leg is refused, and
+not read whole. The estimate counts the table, not the rows the leg's filter and your row policy
+keep. A table that the ready nodes cannot split is read whole, as without this key.
+
 Each bucket is a separate read, so the buckets do not share one snapshot. All the rows of one key
 are read in the same bucket. Under concurrent writes, a key that changes can be read in one bucket,
 in two buckets, or in none. With fewer than two nodes that read the source, the buckets cannot be

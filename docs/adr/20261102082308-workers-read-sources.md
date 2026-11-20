@@ -484,9 +484,17 @@ Limits:
   no request when it connects and its only send is a statement's fetch, and a partition goes
   through the same driver. The tier's `system.query_log` shows, for that database, the wrapper and
   the inner `SELECT` and no other finished statement. Nothing here would catch the later one.
-- **Not built.** No ClickHouse leg is split, and no worker reads a ClickHouse partition. The tier
-  cells that read a whole leg under the switch come with the change that lifts the adapter's
-  refusal. No cell reads a split one.
+- **The estimate is of the root table, so a shortfall reads whole.** The planning node reads the
+  root table's active parts from `system.parts`, under the leg's own identity, so every caller of
+  an opted-in source needs `SELECT(rows, data_uncompressed_bytes, active, database, table) ON
+  system.parts`; a caller without it is refused with the source's denial, and is not read whole.
+  The estimate does not see the leg's filter or the caller's row policy. A table past what the
+  ready workers can split is therefore read whole, as before, under the adapter's own bounds, and
+  is never refused for a size the caller may not see.
+- **Built for ClickHouse hash buckets.** The planning node splits an opted-in lookup leg, and a
+  reading worker reads each bucket as the service user or as the caller's switched principal,
+  and refuses any other kind's switched grant. Not measured: a real fleet with two callers
+  granted differently, per-worker placement and a clustered ClickHouse.
 
 ## Sixth amendment, 2026-11-06: a BigQuery pool leg is split, and a reading worker reads it with the caller's token
 
