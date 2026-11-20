@@ -103,7 +103,6 @@ fn a_raw_prefilter_without_a_redaction_rule_is_refused() {
     );
 }
 
-
 #[test]
 fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
     let capable = [

@@ -502,5 +502,4 @@ mod provisioned {
         );
         assert_eq!(collation("amount"), Some(Collation::Unknown), "bigint has no collation");
     }
-
 }

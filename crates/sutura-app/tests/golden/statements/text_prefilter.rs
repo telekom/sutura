@@ -352,7 +352,6 @@ where
     );
 }
 
-
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
 ///
 /// One arm per dialect and no wildcard, so a new dialect must be decided here, and the expectation is
@@ -371,7 +370,6 @@ const fn prefilter_capable(dialect: TypeDialect) -> bool {
         TypeDialect::BigQuery => false,
         TypeDialect::Oracle => true,
     }
-
 }
 
 /// How many times the statements the source received search for `term`.

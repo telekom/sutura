@@ -4,7 +4,6 @@ use super::PrefilterCapability;
 use crate::warehouse::schema::TypeDialect;
 
 #[test]
-
 #[expect(
     clippy::match_same_arms,
     reason = "one arm per line, so each engine PR flips only its own line and merges cleanly"
@@ -14,12 +13,10 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
     for dialect in [
         TypeDialect::DuckDb,
         TypeDialect::DataFusion,
-
         TypeDialect::Cube,
         TypeDialect::Postgres,
         TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
-
         TypeDialect::Oracle,
     ] {
         let carries = match dialect {
@@ -32,6 +29,5 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
             TypeDialect::Oracle => true,
         };
         assert_eq!(PrefilterCapability::of(dialect).is_some(), carries, "{dialect:?}");
-
     }
 }
