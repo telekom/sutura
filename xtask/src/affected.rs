@@ -15,9 +15,9 @@
 //!
 //! The selection fails OPEN exactly the way [`crate::changes::classify`] does: an empty diff, a git refusal,
 //! an unmapped path or a registry the derive could not read all set `core`, and `core` subsumes
-//! every category. A path [`crate::changes::is_docs_only`] accepts selects nothing, so a docs-only
-//! diff runs no category leg. A new adapter arrives by registering it in the registry (or by being a crate);
-//! no workflow line is asked to know its name in advance.
+//! every category. Explicit tooling-only paths and docs-only paths select no category. A new adapter
+//! arrives by registering it in the registry (or by being a crate); no workflow line is asked to
+//! know its name in advance.
 //!
 //! `Cargo.lock` is named by no crate or registry; the `lockfile` submodule attributes its diff to
 //! the adapters the changed packages reach, and fails closed to `core` on anything else, so it only
@@ -80,7 +80,7 @@ use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::Path;
 
-use crate::conformance::scan;
+use crate::{conformance::scan, repo};
 
 /// The registry, read as data. **Read-only** - it is the input, never a target of this change.
 const REGISTRY: &str = "crates/sutura-app/tests/adapters/adapters.rs";
@@ -93,6 +93,17 @@ const DATA_SOURCE_PREFIX: &str = "sutura-exec-";
 const CATALOG_PREFIX: &str = "sutura-catalog-";
 const DATA_SOURCE_PATH: &str = "crates/sutura-exec-";
 const CATALOG_PATH: &str = "crates/sutura-catalog-";
+
+const TOOLING_ONLY_PATHS: &[&str] = &[
+    "xtask/**",
+    "nix/actionlint.nix",
+    "nix/patches/actionlint/**",
+    "REUSE.toml",
+    ".github/actionlint.yaml",
+    "clippy.toml",
+    "dprint.json",
+    "rustfmt.toml",
+];
 
 /// Paths that are the identity half of the runtime: the inbound transport, the security settings
 /// and the brokers. Named here so a direct edit starts the identity tier; everything else under
@@ -236,8 +247,8 @@ fn select(paths: &[String], declared: Option<&BTreeSet<String>>, locks: Option<&
             selected.insert(format!("catalog_{tail}"));
         } else if let Some(category) = declared.and_then(|declared| derived_category(path, declared)) {
             selected.insert(category);
-        } else if crate::changes::is_docs_only(path) {
-            reasons.push(format!("{path} is docs-only - selects no category"));
+        } else if crate::changes::is_docs_only(path) || repo::matches_any(TOOLING_ONLY_PATHS, path) {
+            reasons.push(format!("{path} selects no category"));
         } else {
             core = true;
             reasons.push(format!("{path} matches no category - running every category"));
@@ -556,6 +567,13 @@ mod tests {
         ] {
             assert!(cats.needs(cat), "{cat} must run when core runs");
         }
+    }
+
+    #[test]
+    fn tooling_only_skips_categories_but_tier_changes_stay_core() {
+        let cats = selected(&["REUSE.toml", "VENDOR.md", "xtask/src/text.rs"]);
+        assert!(!cats.core && cats.selected.is_empty());
+        assert!(selected(&["nix/postgres-tier.nix"]).core);
     }
 
     #[test]

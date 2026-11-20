@@ -513,8 +513,9 @@ fn rows_in_fixture(key: &DeclaredKey<'_>) -> u64 {
 
 /// **The `bigquery-conformance` job's first step**: replace every table `BIGQUERY_TABLES` names -
 /// one per example CSV, then the two-fact ratio's two - in the dataset `SUTURA_BQ_DATASET` names,
-/// then prove the identity can READ through the driver. Every `bigquery` cell after it reads those
-/// tables and none writes - the registration says why.
+/// adding the current GitHub run id and attempt to each physical name, then prove the identity can
+/// READ through the driver. Every `bigquery` cell after it reads those tables and none writes - the
+/// registration says why.
 ///
 /// `#[ignore]`d because it needs a real dataset, the driver and a credential, and it PANICS on a
 /// missing one rather than skipping: a provisioning step that skipped would leave every cell after
@@ -569,10 +570,8 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
                 csv
             },
         );
-        let table = sutura_domain::model::QualifiedTable::new(
-            Some(qualifier.clone()),
-            sutura_domain::model::TableName::parse(name).expect("a dataset table is named"),
-        );
+        let table =
+            sutura_domain::model::QualifiedTable::new(Some(qualifier.clone()), crate::adapters::bigquery::physical_table(name));
         let loaded = warehouse
             .load_fixture(&table, &csv)
             .unwrap_or_else(|e| panic!("{table} did not load:\n{}", chain(&e)));
