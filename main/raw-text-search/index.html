@@ -621,6 +621,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raw text search
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -637,6 +655,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#a-statement-over-a-policy-column-that-runs-out-of-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A statement over a policy column that runs out of time
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2587,6 +2635,25 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#a-statement-over-a-policy-column-that-runs-out-of-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A statement over a policy column that runs out of time
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -2659,6 +2726,35 @@ does not establish a speedup. Native measurements must report actual row count, 
 baseline query time and opted-in query time separately, along with exact result equality and
 hidden-secret probes. They describe their engine version and fixture, not a production latency
 guarantee.</p>
+<h2 id="a-statement-over-a-policy-column-that-runs-out-of-time">A statement over a policy column that runs out of time<a class="headerlink" href="#a-statement-over-a-policy-column-that-runs-out-of-time" title="Permanent link">&para;</a></h2>
+<p>A text policy masks every row of the column before the statement's own predicate sees it, so a
+search over a policy column with no other filter reads the whole column. Where such a statement
+runs past the request's deadline at a source that applies the policy itself, the refusal is
+<code>policy_search_needs_narrowing</code> (<code>422</code>), not a generic <code>deadline_exceeded</code>. Add a filter on a column
+without a policy so that fewer rows reach the masking.</p>
+<p>It is named only when a part of the statement reads a column under a text policy and the source
+applies the policy. The reason is given where the source applies the policy; at Cube it is given once
+filters reach Cube, which a separate change adds.</p>
+<p>What this does not do:</p>
+<ul>
+<li>It is a backstop, not a fix. The statement still does not finish, and the policy still masks
+  every row it reads. The refusal only names the cause and the remedy.</li>
+<li>It is not given at Cube. A Cube source holding a protected table is sent only bare scans, and the
+  policy and every predicate run in this deployment over the rows Cube answers. A filter on a column
+  without a policy is not sent to Cube, so the remedy cannot help there. A timeout stays
+  <code>deadline_exceeded</code>, and a protected Cube table with more than 10,000 rows cannot be searched: that
+  size refusal stays <code>result_too_large</code> or <code>too_many_rows</code>.</li>
+<li>A timeout in the local part of the plan stays <code>deadline_exceeded</code>, whether or not a policy column
+  was read. So does a timeout of a statement that reads no policy column, a budget already spent
+  before a part runs, and a timeout while planning.</li>
+<li>The engine decides "reads a column" from the columns the planned scans project. A statement over
+  a policy column that is not a search, such as one that only projects it, is named the same way
+  when it times out.</li>
+<li>No separate time budget is added. The refusal rides the request's existing deadline, so it
+  arrives when that deadline does, not earlier.</li>
+</ul>
+<p>The reason shows that a column the caller can already read carries a text policy. It names no
+column, pattern or replacement, and nothing about the policy beyond its existence.</p>
 
 
 

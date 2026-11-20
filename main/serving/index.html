@@ -3579,8 +3579,9 @@ Hidden tables have the same detail as absent tables; excluded columns have the s
 columns. Recognized unsupported input is <code>unsupported_syntax</code> with a fixed construct description,
 including <code>select 1</code>, table functions and <code>FETCH FIRST</code>. A planned source part that fails without a
 more specific safe refusal is <code>source_failed</code>; other planning or local execution failures remain
-<code>statement_failed</code>. These details contain no engine or source error text. <code>describe_catalog</code> helps
-discover the admitted catalog; the operator can enable <code>prompt.list_physical_schema</code> to list physical
+<code>statement_failed</code>. A statement part that reads a column under a text policy and runs past the deadline at a source that
+applies it is <code>policy_search_needs_narrowing</code>; see <a href="../raw-text-search/">raw text search</a>. These details contain no engine or source
+error text. <code>describe_catalog</code> helps discover the admitted catalog; the operator can enable <code>prompt.list_physical_schema</code> to list physical
 names. These categories describe the planned path; a build without <code>sql</code> retains its source's generic
 <code>statement_failed</code> refusal.</p>
 <p>With the switch
