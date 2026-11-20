@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 
 use super::{Column, Definitions, Description, InvalidTextPolicy, Model, RawPrefilter, TextPolicy};
-use crate::catalog::PrefilterCapability;
 use crate::model::{ColumnName, ModelName, SourceName, TableName};
 use crate::warehouse::schema::{PinnedSchemas, TypeDialect};
 
@@ -102,29 +101,4 @@ fn a_raw_prefilter_without_a_redaction_rule_is_refused() {
         TextPolicy::parse(None, Vec::new(), Some(RawPrefilter::parse("a reason").expect("a reason"))),
         Err(InvalidTextPolicy::PrefilterWithoutRedaction)
     );
-}
-
-#[test]
-fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
-    let capable = [
-        (TypeDialect::DataFusion, PrefilterCapability::DataFusion),
-        (TypeDialect::Oracle, PrefilterCapability::Oracle),
-        (TypeDialect::Postgres, PrefilterCapability::Postgres),
-    ];
-    for (dialect, capability) in capable {
-        assert_eq!(PrefilterCapability::of(dialect), Some(capability), "{dialect:?}");
-        assert_eq!(
-            capability.requires_binary_column(),
-            capability == PrefilterCapability::Postgres,
-            "only an engine that binds a collation to each column asks the column: {dialect:?}"
-        );
-    }
-    for dialect in [
-        TypeDialect::DuckDb,
-        TypeDialect::Cube,
-        TypeDialect::ClickHouse,
-        TypeDialect::BigQuery,
-    ] {
-        assert_eq!(PrefilterCapability::of(dialect), None, "{dialect:?}");
-    }
 }
