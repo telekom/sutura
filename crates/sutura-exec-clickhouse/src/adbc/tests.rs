@@ -18,7 +18,7 @@ use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::Warehouse as _;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 
-use super::{AdbcClickHouseWarehouse, AdbcError, ResultBudget, bound_by, rewrite_placeholders};
+use super::{AdbcClickHouseWarehouse, AdbcError, ResultBudget, STREAM_TIMED_OUT, bound_by, rewrite_placeholders};
 
 fn warehouse(posture: SourcePosture) -> AdbcClickHouseWarehouse {
     AdbcClickHouseWarehouse::new(
@@ -221,11 +221,17 @@ fn a_spent_deadline_sets_no_bound_at_all() {
 #[test]
 fn a_read_of_the_stream_that_outran_the_deadline_is_a_deadline_not_a_source_fault() {
     let warehouse = warehouse(corpus::posture());
-    let driver_bound = ArrowError::ExternalError("External error: query result stream timed out".into());
-    let server_bound = ArrowError::ExternalError("Code: 159. DB::Exception: Timeout exceeded: elapsed 1003 ms".into());
-    let other = ArrowError::ExternalError("Code: 497. DB::Exception: Not enough privileges".into());
+    let batch_error = |text: String| AdbcError::Batch(ArrowError::ExternalError(text.into()));
 
-    assert!(warehouse.deadline_exceeded(&AdbcError::Batch(driver_bound)));
-    assert!(warehouse.deadline_exceeded(&AdbcError::Batch(server_bound)));
-    assert!(!warehouse.deadline_exceeded(&AdbcError::Batch(other)));
+    let driver_bound = batch_error(format!("External error: {STREAM_TIMED_OUT}"));
+    let server_bound = batch_error(String::from("Code: 159. DB::Exception: Timeout exceeded: elapsed 1003 ms"));
+    assert!(warehouse.deadline_exceeded(&driver_bound));
+    assert!(warehouse.deadline_exceeded(&server_bound));
+
+    let other_code = batch_error(String::from("Code: 497. DB::Exception: Not enough privileges"));
+    let other_code_with_the_words = batch_error(format!("Code: 497. DB::Exception: {STREAM_TIMED_OUT}"));
+    let words_in_the_middle = batch_error(format!("{STREAM_TIMED_OUT}, and then the server refused it"));
+    assert!(!warehouse.deadline_exceeded(&other_code));
+    assert!(!warehouse.deadline_exceeded(&other_code_with_the_words));
+    assert!(!warehouse.deadline_exceeded(&words_in_the_middle));
 }

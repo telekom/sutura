@@ -956,6 +956,8 @@ fn execute_streaming_ingest(
 
     let end = insert.end();
 
+    // Expiry drops this future, which does not abort the request: `clickhouse` reads the response
+    // in a spawned task that only its own `end_timeout` aborts.
     let result = tokio.block_on(deadline.bound(end))?;
 
     result.map_err(|e| {

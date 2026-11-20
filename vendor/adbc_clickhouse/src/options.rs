@@ -168,20 +168,23 @@ pub const OUTPUT_STRING_AS_STRING: &str = "clickhouse.client.output_string_as_st
 /// has ended.
 ///
 /// The limit is a single deadline, computed when `execute()` is called. It bounds the wait for
-/// the first response and then every later read of the [`RecordBatchReader`]. Also, a read after
-/// the deadline has passed fails even if its data has already arrived.
+/// the first response, which includes opening the connection, and then every later read of the
+/// [`RecordBatchReader`]. A later read fails once the deadline has passed, even if its data has
+/// already arrived. The one exception is the first batch: `execute()` reads it before it returns,
+/// and the reader hands it out without a check.
 ///
 /// When the deadline passes, the call or read that was waiting returns an error and the client
 /// drops the in-flight HTTP request. Start of the query: the error has [`Status::Timeout`].
-/// Later in the stream: the `ArrowError` text is `query result stream timed out`, and the reader
-/// then yields no more batches. A timeout never yields a successful partial result.
+/// Later in the stream: the `ArrowError` text ends with `query result stream timed out`, and the
+/// reader then yields no more batches. A timeout never yields a successful partial result.
 ///
 /// **Limits.** Dropping the HTTP request is not proof that the server stopped the query: that
 /// depends on server settings such as `cancel_http_readonly_queries_on_client_close`. Pair this
 /// option with the server-side `max_execution_time` setting to bound the server's work. The limit
-/// does not cover opening the connection, and it does not interrupt a read that is already
-/// running in this process: a caller that stops calling `next()` is not interrupted. It
-/// complements, but does not replace, true cancellation (see [#20]).
+/// does not cover the connection-level metadata calls (`get_table_schema()`), which run without
+/// a bound, and it does not interrupt a caller that has stopped calling `next()`. Across the C
+/// interface the timeout is only error text; a typed signal needs upstream support in
+/// `adbc_ffi`. This option complements, but does not replace, true cancellation (see [#20]).
 ///
 /// May be set on [`ClickhouseConnection`] or [`ClickhouseStatement`].
 /// A value set on a `Connection` propagates to every `Statement` created from it,
@@ -227,10 +230,12 @@ pub const QUERY_TIMEOUT_SECONDS: &str = "clickhouse.client.timeout_seconds.query
 /// ingest it bounds the wait for the server to finish the insert; the batches are first written to
 /// a buffer, and that step is not interrupted but does use up the limit.
 ///
-/// When the deadline passes, `execute_update()` returns an error with [`Status::Timeout`] and
-/// drops the in-flight HTTP request. The limits of [`QUERY_TIMEOUT_SECONDS`] apply: this is not
-/// proof that the server stopped the statement, and for an insert it does not say whether the
-/// server committed the rows.
+/// When the deadline passes, `execute_update()` returns an error with [`Status::Timeout`]. For a
+/// plain statement the client drops the in-flight HTTP request. **For a streaming ingest it does
+/// not:** the `clickhouse` client reads the response in a background task, and only its own
+/// `end_timeout` aborts that task, so the request keeps running and the server may still commit
+/// the rows after the error. The limits of [`QUERY_TIMEOUT_SECONDS`] also apply: dropping a request
+/// is not proof that the server stopped the statement.
 ///
 /// May be set on [`ClickhouseConnection`] or [`ClickhouseStatement`], and the value has the same
 /// format, inheritance and default as [`QUERY_TIMEOUT_SECONDS`].

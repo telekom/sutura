@@ -38,8 +38,11 @@ use crate::settings;
 use crate::sum::{self, SlotScale, SumType};
 
 const QUERY_TIMEOUT_SECONDS: &str = "clickhouse.client.timeout_seconds.query";
-/// What the vendored driver's error text carries when a read of the result stream outran
-/// `QUERY_TIMEOUT_SECONDS` (`vendor/adbc_clickhouse/src/reader.rs`).
+/// What the vendored driver's error text ends with when a read of the result stream outran
+/// `QUERY_TIMEOUT_SECONDS` (`vendor/adbc_clickhouse/src/reader.rs`, `STREAM_TIMED_OUT`). Only text
+/// crosses the driver's C interface: a typed signal needs upstream support (`adbc_ffi`'s
+/// `ErrorFromArrayStream` carries none). The tier cell `a_stream_that_outruns_the_deadline_is_a_deadline`
+/// ties this text to the driver the tier mounts.
 const STREAM_TIMED_OUT: &str = "query result stream timed out";
 const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
 const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
@@ -585,12 +588,15 @@ where
     Ok(seconds)
 }
 
-/// Whether a read of the result stream ended in the deadline: the driver's own client-side bound,
-/// or the server's `TIMEOUT_EXCEEDED` arriving in the stream. Read from text, the one thing that
-/// crosses the driver's C interface.
+/// Whether a read of the result stream ended in the deadline: the server's `TIMEOUT_EXCEEDED`
+/// arriving in the stream, or - with no server code in the text - the driver's own client-side
+/// bound. A text that carries another server code is not a deadline, whatever else it says.
 fn stream_timed_out(error: &ArrowError) -> bool {
     let text = error.to_string();
-    text.contains(STREAM_TIMED_OUT) || ServerCode::parse(&text) == Some(ServerCode::TIMEOUT_EXCEEDED)
+    ServerCode::parse(&text).map_or_else(
+        || text.ends_with(STREAM_TIMED_OUT),
+        |code| code == ServerCode::TIMEOUT_EXCEEDED,
+    )
 }
 
 /// Runs the statement for its effect. The fixture loader's only call of the method the workspace

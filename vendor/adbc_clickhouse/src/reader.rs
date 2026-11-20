@@ -111,7 +111,7 @@ mod tests {
     fn a_stall_after_the_first_batch_ends_the_stream_with_an_error() {
         let mut pieces = ipc_pieces(2).into_iter();
         let server = FakeServer::streaming(vec![Step::Send(pieces.next().unwrap())]);
-        let (_tokio, reader) = open(&server, Some(Duration::from_millis(750)));
+        let (_tokio, reader) = open(&server, Some(Duration::from_millis(1_500)));
         let mut reader = reader.unwrap();
 
         reader.next().unwrap().unwrap();
@@ -133,11 +133,11 @@ mod tests {
         let mut script = Vec::new();
         for piece in ipc_pieces(5) {
             script.push(Step::Send(piece));
-            script.push(Step::Wait(Duration::from_millis(400)));
+            script.push(Step::Wait(Duration::from_millis(600)));
         }
         script.push(Step::Finish);
         let server = FakeServer::streaming(script);
-        let (_tokio, reader) = open(&server, Some(Duration::from_millis(1_300)));
+        let (_tokio, reader) = open(&server, Some(Duration::from_millis(2_000)));
 
         let outcome: Result<Vec<_>, _> = reader.unwrap().collect();
 

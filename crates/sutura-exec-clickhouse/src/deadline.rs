@@ -36,13 +36,13 @@
 //! **The server's job is bounded by the setting, and the client's wait by the driver's
 //! `clickhouse.client.timeout_seconds.query`**, which each statement sets to the exact remainder
 //! of the [`Deadline`] ([`client_timeout_seconds`]). The vendored driver computes one deadline when
-//! the statement executes and bounds the wait for the first response and every later batch read
-//! with it, so a stream that stalls or trickles past the request's deadline ends with an error and
-//! never a partial answer. Limits: closing the client stream is not proof the server stopped the
-//! query, which is what `max_execution_time` is for; the driver does not bound opening the
-//! connection, and a server that accepts it and then stalls before the statement is read is bounded
-//! only by the request's own outer deadline. *Stop now* above is a statement about what is sent,
-//! not about how long a connect can block.
+//! the statement executes and bounds the wait for the first response, which includes opening the
+//! connection, and every later batch read with it. A stream that stalls or trickles past the
+//! request's deadline ends with an error and never a partial answer. Limits: closing the client
+//! stream is not proof the server stopped the query, which is what `max_execution_time` is for.
+//! The driver's connection-level metadata calls have no bound, and this adapter makes none. Across
+//! the driver's C interface the stream timeout is only error text, so [`crate::adbc`] reads it by
+//! that text; a typed signal needs upstream support in `adbc_ffi`.
 
 use std::time::Instant;
 

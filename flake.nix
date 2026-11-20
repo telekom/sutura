@@ -1026,6 +1026,13 @@
             noArtifacts = inheritedArtifacts null;
           };
 
+          # The vendored ClickHouse driver's own unit tests, on this host. `nix/vendored-clickhouse-adbc.nix`
+          # says why `nix/clickhouse-adbc.nix` does not run them, and it goes away with the vendored copy.
+          vendored-clickhouse-adbc = import ./nix/vendored-clickhouse-adbc.nix {
+            inherit pkgs crane;
+            noArtifacts = inheritedArtifacts null;
+          };
+
           # A few tools are pinned twice because nix does not run everywhere. `check-pins` fails
           # if pixi.lock disagrees; nix is the authority.
 
