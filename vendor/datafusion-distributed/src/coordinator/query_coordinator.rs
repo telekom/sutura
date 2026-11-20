@@ -207,6 +207,15 @@ impl<'a> StageCoordinator<'a> {
                 )
                 .await?;
             metrics.plan_send_latency.record(&start);
+            if let Some(plan_send_ms) = crate::common::noted_ms(start.elapsed()) {
+                tracing::info!(
+                    query = %task_key.query_id,
+                    stage = task_key.stage_id,
+                    task = task_key.task_number,
+                    plan_send_ms,
+                    "a plan took long to send"
+                );
+            }
             receive_worker_messages(worker_to_coordinator_stream, worker_to_coordinator_tx,
                 task_key, completion, completion_request).await
         });

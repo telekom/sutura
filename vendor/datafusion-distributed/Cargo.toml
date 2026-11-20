@@ -184,6 +184,9 @@ version = "0.14.2"
 version = "0.5.2"
 optional = true
 
+[dependencies.tracing]
+version = "0.1"
+
 [dependencies.url]
 version = "2.5.7"
 
