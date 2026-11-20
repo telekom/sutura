@@ -105,7 +105,6 @@ moves the schema digest of every schema that now carries one, once, at upgrade: 
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
 
-
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
 does not establish a speedup. Native measurements must report actual row count, setup time,
