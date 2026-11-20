@@ -85,8 +85,12 @@ impl Warehouse for Planned {
     }
 }
 
-/// What the combiner says of the one leg it plans: whether it reads a policy column.
-struct Combiner(PolicyRead);
+/// What the combiner says of the one leg it plans: whether it reads a policy column. With `late`, the
+/// leg answers and the local part then runs past the deadline.
+struct Combiner {
+    read: PolicyRead,
+    late: bool,
+}
 
 impl FederationCombiner for Combiner {
     type Error = core::fmt::Error;
@@ -117,12 +121,19 @@ impl FederationCombiner for Combiner {
     {
         let ran = legs
             .open(&BTreeSet::from([source()]))
-            .and_then(|()| legs.run_planned(&source(), question.statement(), &BTreeSet::new(), self.0));
+            .and_then(|()| legs.run_planned(&source(), question.statement(), &BTreeSet::new(), self.read));
+        if self.late {
+            return Some(Err(StatementStopped::PolicySearchDeadlineExceeded));
+        }
         Some(ran.map_err(StatementStopped::Leg))
     }
 }
 
 fn refused(read: PolicyRead, ends: Ends) -> RawRefusalReason {
+    refused_by(&Combiner { read, late: false }, ends)
+}
+
+fn refused_by(combiner: &Combiner, ends: Ends) -> RawRefusalReason {
     let warehouses = Warehouses::of(Planned {
         inner: RawCapableWarehouse::answering_rows(source(), shared(), 0),
         ends,
@@ -136,7 +147,7 @@ fn refused(read: PolicyRead, ends: Ends) -> RawRefusalReason {
         &statement,
         &CountingBroker::default(),
         &warehouses,
-        &Combiner(read),
+        combiner,
         &scope,
         1 << 20,
         test_deadline(),
@@ -158,24 +169,34 @@ fn deadline_exceeded() -> RawRefusalReason {
     }
 }
 
-/// Named where the source applies the policy itself, so a filter on another column narrows the scan.
-/// A Cube leg is sent only bare scans, so its timeout keeps the generic refusal until filters reach it.
+/// Named wherever a policy column is read, so a filter on another column narrows the scan: at the
+/// source that applies the policy, and at Cube, where a filter on a column without a policy reaches it.
 #[test]
-fn a_leg_past_its_deadline_is_named_only_where_the_source_applies_the_policy() {
-    assert_eq!(
-        refused(PolicyRead::AtSource, Ends::TimedOut),
-        RawRefusalReason::PolicySearchNeedsNarrowing
-    );
-    for read in [PolicyRead::Locally, PolicyRead::Unread] {
-        assert_eq!(refused(read, Ends::TimedOut), deadline_exceeded(), "{read:?}");
+fn a_leg_past_its_deadline_is_named_wherever_it_read_a_policy_column() {
+    for read in [PolicyRead::AtSource, PolicyRead::Locally] {
+        assert_eq!(
+            refused(read, Ends::TimedOut),
+            RawRefusalReason::PolicySearchNeedsNarrowing,
+            "{read:?}"
+        );
     }
+    assert_eq!(refused(PolicyRead::Unread, Ends::TimedOut), deadline_exceeded());
 }
 
-/// A policy read renames a source-side deadline and nothing else: a source's own size refusals, and the
-/// row cap, are what they were.
+/// A size refusal is renamed only at Cube, where the leg's row cap counts rows before the policy and
+/// a filter that reaches Cube narrows them. A source that applies the policy answers rows already
+/// masked and filtered, so its size refusals are what they were.
 #[test]
-fn a_policy_read_does_not_rename_a_size_refusal() {
-    for read in [PolicyRead::Unread, PolicyRead::AtSource, PolicyRead::Locally] {
+fn a_size_refusal_is_named_only_where_the_policy_runs_after_the_leg() {
+    assert_eq!(
+        refused(PolicyRead::Locally, Ends::TooMuchData),
+        RawRefusalReason::PolicySearchNeedsNarrowing
+    );
+    assert_eq!(
+        refused(PolicyRead::Locally, Ends::Rows(past_the_cap())),
+        RawRefusalReason::PolicySearchNeedsNarrowing
+    );
+    for read in [PolicyRead::Unread, PolicyRead::AtSource] {
         assert_eq!(refused(read, Ends::TooMuchData), RawRefusalReason::ResultTooLarge, "{read:?}");
         assert_eq!(
             refused(read, Ends::Rows(past_the_cap())),
@@ -183,4 +204,14 @@ fn a_policy_read_does_not_rename_a_size_refusal() {
             "{read:?}"
         );
     }
+}
+
+/// A local part over rows a Cube leg answered, past the deadline, is the same refusal as a Cube leg past it.
+#[test]
+fn a_local_part_past_the_deadline_over_a_policy_that_ran_here_is_named() {
+    let late = Combiner {
+        read: PolicyRead::Locally,
+        late: true,
+    };
+    assert_eq!(refused_by(&late, Ends::Rows(1)), RawRefusalReason::PolicySearchNeedsNarrowing);
 }

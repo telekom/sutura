@@ -176,6 +176,7 @@ where
             .zip(&statements)
             .map(|(part, (statement, _tables))| (statement, part.dialect)),
     )?;
+    let policy_runs_locally = parts.iter().any(|part| part.policy == PolicyRead::Locally);
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
@@ -203,7 +204,11 @@ where
             .map_err(|cause| CombineError::Execute { cause })?;
         collected(frame, question.working_set_bytes(), working_set).await
     })
-    .ok_or(StatementStopped::DeadlineExceeded)?;
+    .ok_or(if policy_runs_locally {
+        StatementStopped::PolicySearchDeadlineExceeded
+    } else {
+        StatementStopped::DeadlineExceeded
+    })?;
     let answered = match local {
         Ok(answered) => answered,
         Err(CombineError::Exhausted { .. }) => return Err(StatementStopped::AnswerTooLarge),

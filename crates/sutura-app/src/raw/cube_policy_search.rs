@@ -126,14 +126,13 @@ fn refused(sql: &str, columns: usize) -> RawRefusalReason {
     }
 }
 
-/// A Cube source holding a protected table is sent only bare scans, so a filter on a column without a
-/// policy cannot narrow the answer, and the search keeps its size refusal rather than a remedy that
-/// does not apply.
+/// The remedy is true: a filter on a column without a policy reaches Cube
+/// (`cube_pushdown::a_search_narrowed_by_a_policy_free_conjunct_answers_past_the_cube_row_cap`).
 #[test]
-fn a_search_over_a_protected_cube_table_past_the_row_cap_keeps_its_size_refusal() {
+fn a_search_over_a_protected_cube_table_past_the_row_cap_says_it_needs_a_filter() {
     assert_eq!(
         refused("select id from docs where body like '%needle%'", 2),
-        RawRefusalReason::ResultTooLarge
+        RawRefusalReason::PolicySearchNeedsNarrowing
     );
 }
 

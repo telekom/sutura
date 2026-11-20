@@ -245,6 +245,7 @@ where
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
         })),
+        Some(Err(StatementStopped::PolicySearchDeadlineExceeded)) => Ok(refusal(RawRefusalReason::PolicySearchNeedsNarrowing)),
         None => only(listed, warehouses).map_or_else(
             || Err(RunSqlError::Unplanned),
             |source| pass_through(&mut legs, statement, source),
@@ -450,9 +451,13 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         };
         let rows = executed.map_err(|cause| {
             LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
-                RawRefusalReason::ResultTooLarge
+                if policy == PolicyRead::Locally {
+                    RawRefusalReason::PolicySearchNeedsNarrowing
+                } else {
+                    RawRefusalReason::ResultTooLarge
+                }
             } else if warehouse.deadline_exceeded(&cause) {
-                if policy == PolicyRead::AtSource {
+                if policy.is_read() {
                     RawRefusalReason::PolicySearchNeedsNarrowing
                 } else {
                     RawRefusalReason::DeadlineExceeded { budget_seconds }
@@ -464,7 +469,11 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             })
         })?;
         if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
-            return Err(LegStop::Refused(RawRefusalReason::TooManyRows { limit: MAX_ROWS }));
+            return Err(LegStop::Refused(if policy == PolicyRead::Locally {
+                RawRefusalReason::PolicySearchNeedsNarrowing
+            } else {
+                RawRefusalReason::TooManyRows { limit: MAX_ROWS }
+            }));
         }
         self.ran.insert(source.clone());
         Ok(rows)

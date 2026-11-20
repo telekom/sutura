@@ -29,14 +29,27 @@ use crate::{Warehouses, verify_and_validate};
 const PAST_THE_CAP: usize = MAX_ROWS as usize + 1;
 
 #[derive(Debug, thiserror::Error)]
-#[error("this transport answers only the SQL surface")]
-struct SqlOnly;
+enum Down {
+    #[error("this transport answers only the SQL surface")]
+    SqlOnly,
+    #[error("the statement ran past its deadline")]
+    TimedOut,
+}
+
+/// What a statement that carries no `region = 'rare'` gets: the whole table, past the cap, or no
+/// answer before the deadline.
+#[derive(Clone, Copy)]
+enum Unfiltered {
+    PastTheCap,
+    TimesOut,
+}
 
 /// A Cube holding `MAX_ROWS` and one more rows, of which three are in region `rare`. It applies a
-/// `region = 'rare'` it is sent, and answers every other statement with the whole table. Its
-/// columns are the planner's order for the scan: `body`, `id`, `region`.
+/// `region = 'rare'` it is sent, and fails every other statement as `unfiltered` says. Its columns
+/// are the planner's order for the scan: `body`, `id`, `region`.
 struct Holding {
     received: Rc<RefCell<Vec<String>>>,
+    unfiltered: Unfiltered,
 }
 
 fn body(rows: &[[&str; 3]]) -> Vec<u8> {
@@ -50,14 +63,14 @@ fn body(rows: &[[&str; 3]]) -> Vec<u8> {
 }
 
 impl CubeTransport for Holding {
-    type Error = SqlOnly;
+    type Error = Down;
 
     fn meta(&self, _token: &Secret, _deadline: Deadline) -> Answer<Self::Error> {
-        Err(SqlOnly)
+        Err(Down::SqlOnly)
     }
 
     fn load(&self, _query: &serde_json::Value, _token: &Secret, _deadline: Deadline) -> Result<Loaded, Self::Error> {
-        Err(SqlOnly)
+        Err(Down::SqlOnly)
     }
 
     fn sql(&self, query: &str, _token: &Secret, _deadline: Deadline) -> Answer<Self::Error> {
@@ -69,7 +82,10 @@ impl CubeTransport for Holding {
                 ["needle two", "3", "rare"],
             ]))
         } else {
-            Ok(body(&vec![["x", "1", "common"]; PAST_THE_CAP]))
+            match self.unfiltered {
+                Unfiltered::PastTheCap => Ok(body(&vec![["x", "1", "common"]; PAST_THE_CAP])),
+                Unfiltered::TimesOut => Err(Down::TimedOut),
+            }
         }
     }
 
@@ -77,8 +93,8 @@ impl CubeTransport for Holding {
         false
     }
 
-    fn deadline_exceeded(&self, _error: &Self::Error) -> bool {
-        false
+    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
+        matches!(error, Down::TimedOut)
     }
 
     fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
@@ -118,7 +134,7 @@ fn bundle() -> PinnedDefinitions {
 }
 
 /// The outcome of `sql`, and every statement Cube was sent for it.
-fn asked(sql: &str) -> (RawOutcome, Vec<String>) {
+fn asked(sql: &str, unfiltered: Unfiltered) -> (RawOutcome, Vec<String>) {
     let received = Rc::new(RefCell::new(Vec::new()));
     let warehouses = Warehouses::of(CubeWarehouse::of(
         source(),
@@ -126,6 +142,7 @@ fn asked(sql: &str) -> (RawOutcome, Vec<String>) {
         Secret::new(String::from("fixture-deployment-token")),
         Holding {
             received: Rc::clone(&received),
+            unfiltered,
         },
     ));
     let pinned = verify_and_validate(bundle(), &warehouses).expect("the declared schemas validate");
@@ -148,7 +165,10 @@ fn asked(sql: &str) -> (RawOutcome, Vec<String>) {
 
 #[test]
 fn a_search_narrowed_by_a_policy_free_conjunct_answers_past_the_cube_row_cap() {
-    let (outcome, sent) = asked("select id, body from docs where region = 'rare' and body like '%needle%' order by id");
+    let (outcome, sent) = asked(
+        "select id, body from docs where region = 'rare' and body like '%needle%' order by id",
+        Unfiltered::PastTheCap,
+    );
     let RawOutcome::Rows { rows, .. } = outcome else {
         panic!("a narrowed search answers: {outcome:?}");
     };
@@ -165,9 +185,30 @@ fn a_search_narrowed_by_a_policy_free_conjunct_answers_past_the_cube_row_cap() {
     assert!(!statement.contains("LIKE"), "the policy conjunct stayed local: {statement}");
 }
 
+/// The refusal's remedy is true at Cube: the statement that ran out of room answers once a filter on a
+/// column without a policy is added, over the same table.
 #[test]
-fn a_search_over_the_policy_column_alone_does_not_narrow_cube_and_keeps_the_cap() {
-    let (outcome, sent) = asked("select id from docs where body like '%needle%'");
+fn a_search_over_the_policy_column_alone_is_told_to_narrow_and_the_narrowed_one_answers() {
+    for unfiltered in [Unfiltered::PastTheCap, Unfiltered::TimesOut] {
+        let (outcome, sent) = asked("select id from docs where body like '%needle%'", unfiltered);
+        assert_eq!(
+            outcome.refusal(),
+            Some(&RawRefusalReason::PolicySearchNeedsNarrowing),
+            "{outcome:?}"
+        );
+        assert!(sent.iter().all(|statement| !statement.contains("LIKE")), "{sent:?}");
+        let (narrowed, _) = asked(
+            "select id from docs where region = 'rare' and body like '%needle%'",
+            unfiltered,
+        );
+        assert!(matches!(narrowed, RawOutcome::Rows { .. }), "{narrowed:?}");
+    }
+}
+
+/// A scan that leaves the policy column out reads no masked text, so its size refusal is not renamed.
+#[test]
+fn a_scan_of_a_protected_cube_table_that_leaves_the_policy_column_out_keeps_its_refusal() {
+    let (outcome, _) = asked("select id from docs", Unfiltered::PastTheCap);
     assert!(
         matches!(
             outcome.refusal(),
@@ -175,5 +216,9 @@ fn a_search_over_the_policy_column_alone_does_not_narrow_cube_and_keeps_the_cap(
         ),
         "{outcome:?}"
     );
-    assert!(sent.iter().all(|statement| !statement.contains("LIKE")), "{sent:?}");
+    let (outcome, _) = asked("select id from docs", Unfiltered::TimesOut);
+    assert!(
+        matches!(outcome.refusal(), Some(RawRefusalReason::DeadlineExceeded { .. })),
+        "{outcome:?}"
+    );
 }
