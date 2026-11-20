@@ -352,9 +352,12 @@ where
     );
 }
 
-/// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
-const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle)
+
+/// The combiner's own capability, so a dialect it enables is expected here without a second list.
+fn prefilter_capable(dialect: TypeDialect) -> bool {
+    // PostgreSQL is a literal here: an expectation read from `of` alone would vanish with the arm.
+    PrefilterCapability::of(dialect).is_some() || dialect == TypeDialect::Postgres
+
 }
 
 /// How many times the statements the source received search for `term`.

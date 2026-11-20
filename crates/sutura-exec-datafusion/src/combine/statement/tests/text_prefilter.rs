@@ -233,7 +233,12 @@ fn oracle_raw_lob_prefilter_resolves_full_and_basename_qualifiers_without_an_ali
 fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some());
-    for dialect in [TypeDialect::DuckDb, TypeDialect::ClickHouse, TypeDialect::BigQuery] {
+    for dialect in [
+        TypeDialect::Postgres,
+        TypeDialect::DuckDb,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+    ] {
         assert!(
             raw_predicates(sql, table(dialect, &["[masked]"], true, false, true))
                 .iter()
@@ -243,16 +248,16 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     }
 }
 
-/// `source` with `BODY` pinned as a read leaves it: `collation` is the pinned text, absent for unknown.
-fn collated(source: &StatementTable, collation: Option<&str>) -> StatementTable {
+/// `source` with the named columns pinned as a read leaves them: each is the pinned collation text.
+fn collated(source: &StatementTable, pins: &[(&str, &str)]) -> StatementTable {
     let fields = source
         .schema()
         .fields()
         .iter()
         .map(|field| {
             let mut metadata = field.metadata().clone();
-            if let Some(collation) = collation.filter(|_| field.name() == "BODY") {
-                metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation));
+            if let Some((_, collation)) = pins.iter().find(|(name, _)| field.name() == name) {
+                metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(*collation));
             }
             field.as_ref().clone().with_metadata(metadata)
         })
@@ -266,10 +271,10 @@ fn collated(source: &StatementTable, collation: Option<&str>) -> StatementTable 
 }
 
 #[test]
-fn a_postgres_column_takes_the_raw_condition_only_where_the_dictionary_recorded_it_binary() {
+fn a_postgres_column_takes_the_raw_condition_only_where_it_is_pinned_binary() {
     let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     let source = || table(TypeDialect::Postgres, &["[masked]"], true, false, true);
-    let conditions = raw_predicates(sql, collated(&source(), Some("binary")));
+    let conditions = raw_predicates(sql, collated(&source(), &[("BODY", "binary")]));
     let [Some(condition)] = conditions.as_slice() else {
         panic!("one raw necessary condition: {conditions:?}");
     };
@@ -280,10 +285,9 @@ fn a_postgres_column_takes_the_raw_condition_only_where_the_dictionary_recorded_
         Some("named:pg_catalog.und-x-icu"),
         Some("other"),
     ] {
+        let pins: Vec<_> = collation.map(|text| ("BODY", text)).into_iter().collect();
         assert!(
-            raw_predicates(sql, collated(&source(), collation))
-                .iter()
-                .all(Option::is_none),
+            raw_predicates(sql, collated(&source(), &pins)).iter().all(Option::is_none),
             "{collation:?}"
         );
     }
@@ -294,12 +298,14 @@ fn a_postgres_column_takes_the_raw_condition_only_where_the_dictionary_recorded_
 #[test]
 fn a_binary_postgres_column_keeps_every_barrier_and_has_no_upper_arm() {
     let eligible = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let binary = |source: &StatementTable| collated(source, &[("BODY", "binary")]);
+    // The arm exists, so every refusal below is the barrier's and not an absent arm's.
+    let source = table(TypeDialect::Postgres, &["[masked]"], true, false, true);
+    assert!(raw_predicates(eligible, binary(&source))[0].is_some());
     for replacements in [vec!["[TERM]"], vec!["T"], vec!["M"], vec!["[masked]", ""]] {
         let source = table(TypeDialect::Postgres, &replacements, true, false, true);
         assert!(
-            raw_predicates(eligible, collated(&source, Some("binary")))
-                .iter()
-                .all(Option::is_none),
+            raw_predicates(eligible, binary(&source)).iter().all(Option::is_none),
             "{replacements:?}"
         );
     }
@@ -309,13 +315,39 @@ fn a_binary_postgres_column_keeps_every_barrier_and_has_no_upper_arm() {
         "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" ILIKE '%TERM%'",
     ] {
         let source = table(TypeDialect::Postgres, &["[masked]"], true, false, true);
-        assert!(
-            raw_predicates(sql, collated(&source, Some("binary")))
-                .iter()
-                .all(Option::is_none),
-            "{sql}"
-        );
+        assert!(raw_predicates(sql, binary(&source)).iter().all(Option::is_none), "{sql}");
     }
+}
+
+#[test]
+fn a_postgres_sibling_on_another_policy_column_must_be_pinned_binary_too() {
+    // `name` carries a text policy, so the view reads it through the regex a nondeterministic
+    // collation refuses: beside the raw search it can raise on one row unless it is binary as well.
+    let sql = |sibling: &str| format!("SELECT \"BODY\" FROM \"notes\" WHERE {sibling} AND \"BODY\" LIKE '%TERM%'");
+    let source = || table(TypeDialect::Postgres, &["[masked]"], true, false, true);
+    for sibling in [
+        "\"name\" = 'x'",
+        "\"name\" IS NULL",
+        "\"name\" IN ('x', 'y')",
+        "\"name\" BETWEEN 'a' AND 'b'",
+    ] {
+        for (pins, applies) in [
+            (vec![("BODY", "binary"), ("name", "binary")], true),
+            (vec![("BODY", "binary")], false),
+            (vec![("BODY", "binary"), ("name", "named:public.folded")], false),
+        ] {
+            let applied = raw_predicates(&sql(sibling), collated(&source(), &pins))
+                .iter()
+                .any(Option::is_some);
+            assert_eq!(applied, applies, "{sibling} {pins:?}");
+        }
+    }
+    // A sibling on a column with no policy is read through no regex.
+    assert!(
+        raw_predicates(&sql("\"id\" = 5"), collated(&source(), &[("BODY", "binary")]))
+            .iter()
+            .any(Option::is_some)
+    );
 }
 
 #[test]
