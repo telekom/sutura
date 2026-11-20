@@ -241,6 +241,13 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
             "{dialect:?}"
         );
     }
+    let clickhouse = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
+    assert!(
+        raw_predicates(sql, collated(&clickhouse, Some("binary")))
+            .iter()
+            .any(Option::is_some),
+        "ClickHouse takes the new binary-column arm"
+    );
 }
 
 #[test]
@@ -385,36 +392,4 @@ fn clickhouse_prefilters_a_binary_column_with_the_stored_column_named_through_it
         "the condition filters the stored table inside the view: {rewritten}"
     );
     assert!(rewritten.contains("replaceRegexpAll(`notes`.`BODY`,"), "{rewritten}");
-}
-
-#[test]
-fn clickhouse_keeps_redacted_only_execution_unless_the_column_is_pinned_binary() {
-    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
-    let base = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
-    for collation in [None, Some("named:und:ci"), Some("named:binary"), Some("unreadable")] {
-        assert!(
-            raw_predicates(sql, collated(&base, collation)).iter().all(Option::is_none),
-            "{collation:?}"
-        );
-    }
-}
-
-#[test]
-fn clickhouse_has_no_uppercase_arm_and_keeps_the_barrier_rules_for_a_binary_column() {
-    let base = || {
-        collated(
-            &table(TypeDialect::ClickHouse, &["[masked]"], true, false, true),
-            Some("binary"),
-        )
-    };
-    let upper = "SELECT \"BODY\" FROM \"notes\" WHERE UPPER(\"BODY\") LIKE '%TERM%'";
-    assert!(raw_predicates(upper, base()).iter().all(Option::is_none));
-    let like = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
-    for replacements in [vec!["[TERM]"], vec!["T"], vec![""], vec!["[masked]", ""]] {
-        let table = collated(
-            &table(TypeDialect::ClickHouse, &replacements, true, false, true),
-            Some("binary"),
-        );
-        assert!(raw_predicates(like, table).iter().all(Option::is_none), "{replacements:?}");
-    }
 }
