@@ -818,6 +818,7 @@ pub(super) fn reads_partition_or_nothing(
                 }
                 Err(cause) => {
                     drop(carried);
+                    tracing::warn!(%cause, source = %leaf.source, "a reading worker refused a source read");
                     refusal = Some(DataFusionError::External(Box::new(cause)));
                     return Ok(TreeNodeRecursion::Stop);
                 }

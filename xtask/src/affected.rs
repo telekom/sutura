@@ -64,6 +64,9 @@ mod moved_jobs_aggregate;
 #[path = "affected/multi_node_aggregate.rs"]
 mod multi_node_aggregate;
 #[cfg(test)]
+#[path = "affected/multi_node_clickhouse_aggregate.rs"]
+mod multi_node_clickhouse_aggregate;
+#[cfg(test)]
 #[path = "affected/multi_node_postgres_aggregate.rs"]
 mod multi_node_postgres_aggregate;
 #[cfg(test)]
