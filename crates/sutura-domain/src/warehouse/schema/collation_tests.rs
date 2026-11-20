@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use super::{PinnedSchemas, TypeDialect};
 use crate::catalog::{Collation, Column, Definitions, Description, Model};
-use crate::model::{ColumnName, ModelName, SourceName, TableName};
+use crate::model::{ColumnName, ModelName, QualifiedTable, SourceName, TableName};
 use crate::pinned::NotValidated;
 
 /// The digest the base tree computes for [`baseline`], before any collation fact existed.
@@ -148,4 +148,41 @@ fn two_models_over_one_physical_column_may_not_pin_different_known_collations() 
     pin(TypeDialect::Postgres, alias(Collation::Unknown)).expect("an alias that says nothing contradicts nothing");
     pin(TypeDialect::DataFusion, alias(Collation::named("und:ci")))
         .expect("the engine fixes one collation, so the authored names do not disagree");
+}
+
+#[test]
+fn differently_spelled_aliases_of_one_physical_column_may_not_pin_different_known_collations() {
+    let spelled = |name: &str, table: &str, column: &str, collation| {
+        Model::new(
+            ModelName::parse(name).expect("a test model is a model"),
+            lake(),
+            QualifiedTable::parse(table).expect("a test table is a table"),
+            vec![collated(column, "text", collation)],
+            Description::default(),
+        )
+    };
+    for (table, column) in [("public.notes", "body"), ("NOTES", "BODY"), ("Public.Notes", "Body")] {
+        let refused = pin(
+            TypeDialect::Postgres,
+            vec![
+                spelled("notes_a", "notes", "body", Collation::Binary),
+                spelled("notes_b", table, column, Collation::named("und:ci")),
+            ],
+        )
+        .expect_err(table);
+        assert!(
+            matches!(refused, NotValidated::CollationDisagreement { .. }),
+            "{table}.{column}"
+        );
+    }
+    // Two qualified spellings of different datasets are two tables; a different column is no alias.
+    pin(
+        TypeDialect::Postgres,
+        vec![
+            spelled("notes_a", "one.notes", "body", Collation::Binary),
+            spelled("notes_b", "two.notes", "body", Collation::named("und:ci")),
+            spelled("notes_c", "one.notes", "title", Collation::named("und:ci")),
+        ],
+    )
+    .expect("different datasets and different columns do not contradict");
 }

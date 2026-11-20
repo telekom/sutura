@@ -141,10 +141,10 @@ impl Collation {
     /// Records this collation on a field being pinned; [`Self::of_field`] reads it back.
     /// [`Self::Unknown`] writes nothing, so a field with no collation fact hashes as it always did.
     ///
-    /// **Public on purpose, and the engine golden cells call it**: another crate builds a pinned
-    /// field that carries a collation with it. Keep its signature stable. The pin itself writes the
-    /// fact only for a column the dialect reads as text, from the catalog's column or the dialect.
-    pub fn pin_onto(&self, field: &mut arrow_schema::Field) {
+    /// The pin writes the fact only for a column the dialect reads as text, from the catalog's
+    /// column or the dialect. Crate-private until an engine fixture outside the domain needs to
+    /// build a pinned field, and widened with that caller.
+    pub(crate) fn pin_onto(&self, field: &mut arrow_schema::Field) {
         if let Some(text) = self.encoded() {
             field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), text);
         }

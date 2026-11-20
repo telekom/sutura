@@ -168,6 +168,11 @@ mod cells {
                 Some(&None),
                 "citext compares case-insensitively and is not one of the base text types"
             );
+        } else {
+            eprintln!(
+                "SKIPPED - the tier cannot install citext, so a citext column was not read.\n  \
+                 The domain-over-text assertion above still ran; install the contrib extension to run this half."
+            );
         }
     }
 }

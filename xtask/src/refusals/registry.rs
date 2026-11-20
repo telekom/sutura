@@ -141,7 +141,7 @@ const STARTUP: Subject = Subject {
 /// pinning different known collations.
 const VALIDATION: Subject = Subject {
     name: "NotValidated",
-    declared_in: "crates/sutura-domain/src/pinned.rs",
+    declared_in: "crates/sutura-domain/src/pinned/not_validated.rs",
     allow_file: "devco/validation-refusals-unprovoked-allow",
     variants: variants(11),
 };
