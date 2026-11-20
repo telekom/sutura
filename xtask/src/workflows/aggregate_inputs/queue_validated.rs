@@ -11,6 +11,8 @@
 //! either. Any other non-comment line naming the job is refused, so a leg that keeps its push run
 //! (`e2e-datahub-adbc`, `cross`, `demo-container`, `kind-smoke`) cannot read it. No job may report
 //! a leg's id as its `name:`, because the query matches a job by the name it reported.
+//! Oracle reuse requires both `oracle-tier (acceptance)` and `oracle-tier (native)` successes;
+//! the matrix's aggregate result remains the `oracle-tier` input to `ci-aggregate`.
 //!
 //! **What it does NOT hold.** GitHub's run record is trusted: that a run listed for
 //! `event=merge_group` and this `head_sha` ran this commit's tree, and that its job reporting a
@@ -77,7 +79,12 @@ const BODY: &str = r#"    runs-on: ubuntu-latest
             passed="$passed"$'\n'"$jobs"
           done
           for leg in keycloak-served-test bigquery-driver-check multi-node multi-node-postgres multi-node-oracle k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
-            if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
+            if [ "$leg" = oracle-tier ]; then
+              if printf '%s\n' "$passed" | grep -qxF -- 'oracle-tier (acceptance)' &&
+                printf '%s\n' "$passed" | grep -qxF -- 'oracle-tier (native)'; then hit=true; else hit=false; fi
+            else
+              if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
+            fi
             echo "$leg: $hit"
             echo "${leg//-/_}=$hit" >> "$GITHUB_OUTPUT"
           done"#;
@@ -187,7 +194,7 @@ fn allowed(owner: Option<&str>, line: &str) -> bool {
     }
 }
 
-/// Every job-level `name:` that reports a leg's id: the query would take its result for the leg's.
+/// Every literal job-level `name:` that impersonates a reusable leg or either Oracle matrix lane.
 fn impostors(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -195,7 +202,7 @@ fn impostors(text: &str) -> Vec<String> {
             continue;
         };
         let name = name.trim().trim_matches(['"', '\'']);
-        if LEGS.iter().any(|(leg, ..)| *leg == name) {
+        if LEGS.iter().any(|(leg, ..)| *leg == name) || matches!(name, "oracle-tier (acceptance)" | "oracle-tier (native)") {
             out.push(format!(
                 "ci.yml:{}  {JOB} rule: a job reports the name `{name}`, and `{JOB}` would read its \
                  result as that leg's",

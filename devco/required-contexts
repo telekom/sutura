@@ -242,7 +242,8 @@ ci.yml:bigquery-conformance
 
 # The Oracle docker tier, advisory for `bigquery-driver-check`'s reason: category-gated on
 # `data_source_oracle` or `catalog_rdbms`, so it reports nothing on most pull requests, and a required context that
-# does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
+# does not report is a permanently pending merge. Both matrix lanes remain gated through
+# `ci-aggregate`'s `needs.oracle-tier.result`; neither expanded context is required directly.
 ci.yml:oracle-tier
 
 # Two NixOS VMs federating a leg, advisory for `oracle-tier`'s reason: category-gated on

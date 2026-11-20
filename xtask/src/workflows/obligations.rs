@@ -812,6 +812,16 @@ mod tests {
                 "  kind-smoke:\n    name: oracle-tier\n    needs: [ci]\n",
             ),
             (
+                "a job reports the Oracle acceptance lane's name",
+                "  kind-smoke:\n    needs: [ci]\n",
+                "  kind-smoke:\n    name: oracle-tier (acceptance)\n    needs: [ci]\n",
+            ),
+            (
+                "a job reports the Oracle native lane's name",
+                "  kind-smoke:\n    needs: [ci]\n",
+                "  kind-smoke:\n    name: oracle-tier (native)\n    needs: [ci]\n",
+            ),
+            (
                 "a job-level `if:`",
                 "  queue-validated:\n    runs-on: ubuntu-latest\n",
                 "  queue-validated:\n    if: github.event_name == 'push'\n    runs-on: ubuntu-latest\n",
