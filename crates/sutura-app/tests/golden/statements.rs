@@ -11,7 +11,7 @@ use polyglot_sql::ExpressionWalk as _;
 use polyglot_sql::builder::{self, Expr};
 use polyglot_sql::expressions::Expression;
 use sutura_domain::model::{ModelName, QualifiedTable, SourceName};
-use sutura_domain::plan::{FederationCombiner as _, StatementLegs, StatementQuestion, StatementTable};
+use sutura_domain::plan::{FederationCombiner as _, PolicyRead, StatementLegs, StatementQuestion, StatementTable};
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::schema::TypeDialect;
@@ -232,6 +232,7 @@ impl<W: DataSystemUnderTest> StatementLegs for Executing<'_, W> {
         source: &SourceName,
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
+        _policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
         if source != self.warehouse.source() || !self.expected_scans.contains(tables) {
             return Err(String::from("the native leg received an unexpected source or scan set"));
