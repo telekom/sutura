@@ -352,9 +352,23 @@ where
 }
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
-// PostgreSQL is listed beside the others: the expectation must not be read from the capability it checks.
+///
+/// One arm per dialect and no wildcard, so a new dialect must be decided here, and the expectation is
+/// never read from the capability it checks.
+#[expect(
+    clippy::match_same_arms,
+    reason = "one arm per dialect, so a new dialect must be decided here"
+)]
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::Postgres)
+    match dialect {
+        TypeDialect::DuckDb => false,
+        TypeDialect::DataFusion => true,
+        TypeDialect::Cube => false,
+        TypeDialect::Postgres => true,
+        TypeDialect::ClickHouse => false,
+        TypeDialect::BigQuery => false,
+        TypeDialect::Oracle => true,
+    }
 }
 
 /// How many times the statements the source received search for `term`.
