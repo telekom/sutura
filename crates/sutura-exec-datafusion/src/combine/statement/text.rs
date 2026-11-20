@@ -23,7 +23,7 @@ use sutura_domain::warehouse::schema::TypeDialect;
 use super::literal::{literal, quotable_table, spelled};
 use super::text_prefilter::Prefilter;
 
-const KEY: &str = "sutura:text_policy";
+pub(super) const KEY: &str = "sutura:text_policy";
 const LOB_KEY: &str = "sutura:oracle_lob";
 /// On a field that derives from no LOB; written by `oracle_lob_outputs` alone, and read back only
 /// where `derived` has already dropped every `sutura:` key a function computed.

@@ -47,7 +47,7 @@ use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
 use datafusion::execution::{SessionStateBuilder, SessionStateDefaults};
-use datafusion::logical_expr::{Expr, Extension, LogicalPlan, Projection, ScalarUDF, TableSource};
+use datafusion::logical_expr::{Expr, Extension, Filter, LogicalPlan, Projection, ScalarUDF, TableSource};
 use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
@@ -83,6 +83,7 @@ use crate::pool::{self, WorkingSet};
 mod literal;
 mod oracle;
 mod projection;
+mod pushdown;
 mod resolve;
 mod text;
 mod text_prefilter;
@@ -376,7 +377,9 @@ impl OptimizerRule for Cutter {
             }))
         };
         plan.transform_down_with_subqueries(|node| {
-            if self.2 && !matches!(node, LogicalPlan::TableScan(_)) {
+            let filtered_scan =
+                matches!(&node, LogicalPlan::Filter(filter) if matches!(filter.input.as_ref(), LogicalPlan::TableScan(_)));
+            if self.2 && !filtered_scan && !matches!(node, LogicalPlan::TableScan(_)) {
                 return Ok(Transformed::no(node));
             }
             let mut safe = true;
@@ -396,6 +399,20 @@ impl OptimizerRule for Cutter {
             })?;
             if !safe || !scans {
                 return Ok(Transformed::no(node));
+            }
+            if self.2
+                && let LogicalPlan::Filter(filter) = &node
+            {
+                // The policy runs above the leaf, over what Cube answers, so a conjunct that reads no
+                // policy column narrows the rows it sees. The whole filter stays above, as a check.
+                let Some(pushed) = pushdown::answered_by_cube(&filter.predicate, filter.input.schema()) else {
+                    return Ok(Transformed::no(node));
+                };
+                let scan = LogicalPlan::Filter(Filter::try_new(pushed, Arc::clone(&filter.input))?);
+                let columns = scan.schema().columns().into_iter().map(Expr::Column).collect();
+                let cut = leaf(LogicalPlan::Projection(Projection::try_new(columns, Arc::new(scan))?));
+                let kept = LogicalPlan::Filter(Filter::try_new(filter.predicate.clone(), Arc::new(cut.data))?);
+                return Ok(Transformed::new(kept, true, TreeNodeRecursion::Jump));
             }
             let node = if matches!(&node, LogicalPlan::TableScan(_)) {
                 let columns = node.schema().columns().into_iter().map(Expr::Column).collect();

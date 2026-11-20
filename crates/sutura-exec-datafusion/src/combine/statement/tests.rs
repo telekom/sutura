@@ -26,6 +26,7 @@ use crate::combine::DataFusionCombiner;
 pub(super) mod literals;
 #[cfg(test)]
 mod names;
+mod cube_pushdown;
 mod oracle;
 mod policy_search;
 mod raw_condition;
