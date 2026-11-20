@@ -40,12 +40,16 @@ pub(super) const DIGEST_CRATE: &str = "crates/sutura-domain/";
 /// that file for the reason every other exemption in this repository does: an exemption beside the
 /// rule is one a reviewer reading the rule sees, and changing it is a visible diff. Each cited test
 /// is checked to exist by [`Population::verdict`], so a rename cannot leave a dead pointer.
-const ASKED_ELSEWHERE: [(&str, &str); 10] = [
+const ASKED_ELSEWHERE: [(&str, &str); 11] = [
     ("Term", "a_term_survives_the_on_disk_shape_it_serializes_into"),
     // Text policies serialize as mappings and their byte bound as a number.
     ("MaxTextBytes", "text_policies_round_trip_through_their_pinned_shape"),
     ("Redaction", "text_policies_round_trip_through_their_pinned_shape"),
     ("TextPolicy", "text_policies_round_trip_through_their_pinned_shape"),
+    (
+        "RawPrefilter",
+        "a_raw_prefilter_acknowledgement_is_required_bounded_and_persisted",
+    ),
     ("TimeRange", "a_range_round_trips_through_the_mapping_a_catalog_author_writes"),
     ("AuthoredSql", "authored_sql_round_trips_through_its_on_disk_shape"),
     ("Computation", "authored_sql_round_trips_through_its_on_disk_shape"),

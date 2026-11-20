@@ -10,7 +10,7 @@
 //! | `WideInteger` | `NUMBER(38,0)` | a 64-bit unsigned integer |
 //! | `Decimal`, `Real` | `BINARY_DOUBLE` | a double |
 //! | `Date` | `DATE` | the text, through `TO_DATE(.., 'YYYY-MM-DD')` |
-//! | `Text` | `VARCHAR2(4000)` | the text |
+//! | `Text` | `VARCHAR2(4000)`, or `CLOB` if any cell exceeds 4000 bytes | the text |
 //!
 //! **Every bind is independent of the session's NLS settings**: a number travels in the driver's
 //! binary form and a date is parsed under an explicit format, so a tier whose `NLS_NUMERIC_CHARACTERS`
@@ -27,8 +27,8 @@
 //!   beyond `i64` is `WideInteger` and `NUMBER(38,0)`, which the shared classification decides before
 //!   this module sees a cell. A cell the importer cannot bind as its column's type is refused, by line
 //!   and column, before any statement runs.
-//! - **A text cell wider than 4000 bytes** is refused by the server, not here.
-//! - **One batch per table, one transaction.** The table is dropped and recreated, so a load
+//! - **Text wider than 4000 bytes** chooses a real `CLOB`; the driver binds strings to that column.
+//! - **Batches of at most 1000 rows, one transaction.** The table is dropped and recreated, so a load
 //!   replaces what was there; a failure part-way leaves the dropped or empty table, and the
 //!   connection's uncommitted rows are discarded when it closes.
 
@@ -52,6 +52,7 @@ enum OracleType {
     Double,
     Date,
     Text,
+    Clob,
 }
 
 impl OracleType {
@@ -74,6 +75,7 @@ impl OracleType {
             Self::Double => "BINARY_DOUBLE",
             Self::Date => "DATE",
             Self::Text => "VARCHAR2(4000)",
+            Self::Clob => "CLOB",
         }
     }
 
@@ -81,7 +83,7 @@ impl OracleType {
     fn value(self, position: usize) -> String {
         match self {
             Self::Date => format!("TO_DATE(:{position}, 'YYYY-MM-DD')"),
-            Self::Boolean | Self::Integer | Self::WideInteger | Self::Double | Self::Text => format!(":{position}"),
+            Self::Boolean | Self::Integer | Self::WideInteger | Self::Double | Self::Text | Self::Clob => format!(":{position}"),
         }
     }
 }
@@ -107,7 +109,7 @@ impl Cell {
             OracleType::Integer => Self::of(text, |text| text.parse().ok(), Self::Integer),
             OracleType::WideInteger => Self::of(text, |text| text.parse().ok(), Self::Wide),
             OracleType::Double => Self::of(text, |text| text.parse().ok(), Self::Double),
-            OracleType::Date | OracleType::Text => Self::of(text, |text| Some(String::from(text)), Self::Text),
+            OracleType::Date | OracleType::Text | OracleType::Clob => Self::of(text, |text| Some(String::from(text)), Self::Text),
         }
     }
 
@@ -167,10 +169,17 @@ pub(super) struct Table {
 
 impl Table {
     pub(super) fn parse(name: &TableName, text: &str) -> Result<Self, Unloadable> {
-        let columns: Vec<(ColumnName, OracleType)> = csv::infer(text)?
+        let mut columns: Vec<(ColumnName, OracleType)> = csv::infer(text)?
             .into_iter()
             .map(|column| (column.name().clone(), OracleType::of(column.kind())))
             .collect();
+        for line in text.lines().skip(1) {
+            for (cell, (_, kind)) in line.split(',').zip(&mut columns) {
+                if *kind == OracleType::Text && cell.len() > 4000 {
+                    *kind = OracleType::Clob;
+                }
+            }
+        }
         let rows = rows(text, &columns)?;
         Ok(Self {
             name: name.clone(),
@@ -264,12 +273,14 @@ pub(crate) fn load(warehouse: &OracleWarehouse, table: &TableName, path: &Path) 
         .execute(&loaded.create_statement(), &[])
         .map_err(refused("creating"))?;
     if let Some(insert) = loaded.insert_statement() {
-        let bound: Vec<Vec<&dyn oracledb::ToDbValue>> =
-            loaded.rows.iter().map(|row| row.iter().map(Cell::as_dyn).collect()).collect();
-        let sets: Vec<&[&dyn oracledb::ToDbValue]> = bound.iter().map(Vec::as_slice).collect();
-        connection
-            .execute_batch(&insert, sets.as_slice())
-            .map_err(refused("loading"))?;
+        for chunk in loaded.rows.chunks(1000) {
+            let bound: Vec<Vec<&dyn oracledb::ToDbValue>> =
+                chunk.iter().map(|row| row.iter().map(Cell::as_dyn).collect()).collect();
+            let sets: Vec<&[&dyn oracledb::ToDbValue]> = bound.iter().map(Vec::as_slice).collect();
+            connection
+                .execute_batch(&insert, sets.as_slice())
+                .map_err(refused("loading"))?;
+        }
     }
     connection.commit().map_err(refused("committing"))
 }
