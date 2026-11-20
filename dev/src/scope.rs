@@ -239,6 +239,11 @@ pub const SERVICES: &[Service] = &[
         profile: Some("cube"),
     },
     Service {
+        name: "cube-text-search",
+        container_port: 4000,
+        profile: Some("cube"),
+    },
+    Service {
         // `examples/metrics-layer`'s Cube: it verifies each token against `cube-keycloak`'s keys.
         name: "cube-metrics",
         container_port: 4000,
@@ -569,6 +574,7 @@ mod tests {
                 "openmetadata",
                 "oracle",
                 "cube",
+                "cube-text-search",
                 "cube-metrics",
                 "cube-keycloak",
                 "demo"

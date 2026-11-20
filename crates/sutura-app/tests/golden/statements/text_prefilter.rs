@@ -12,6 +12,9 @@ use sutura_exec_datafusion::CombineError;
 
 use super::*;
 
+#[path = "text_prefilter/cube.rs"]
+mod cube_native;
+
 // The causality base run restores the domain before this test file is compiled. Keep the fixture
 // helper buildable there; branch-provided inherent methods take precedence on the real run.
 #[expect(dead_code, reason = "only the causality base compilation uses this fallback")]
@@ -549,8 +552,17 @@ where
 }
 
 macro_rules! system {
-    // Cube reads every raw row before any operator and never takes the prefilter: nothing to compare.
-    (cube, $warehouse:ty) => {};
+    (cube, $warehouse:ty) => {
+        mod cube {
+            #[test]
+            fn a_native_million_row_cube_search_is_narrowed_before_local_redaction() {
+                if !super::runs_here::<$warehouse>() {
+                    return;
+                }
+                super::cube_native::native();
+            }
+        }
+    };
     ($name:ident, $warehouse:ty) => {
         mod $name {
             #[test]

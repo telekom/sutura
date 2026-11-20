@@ -122,18 +122,17 @@ runs past the request's deadline at a source that applies the policy itself, the
 without a policy so that fewer rows reach the masking.
 
 It is named only when a part of the statement reads a column under a text policy and the source
-applies the policy. The reason is given where the source applies the policy; at Cube it is given once
-filters reach Cube, which a separate change adds.
+applies the policy. Cube applies its policy locally and keeps its existing source-size and deadline
+refusals even when a policy-free filter reaches Cube.
 
 What this does not do:
 
 - It is a backstop, not a fix. The statement still does not finish, and the policy still masks
   every row it reads. The refusal only names the cause and the remedy.
-- It is not given at Cube. A Cube source holding a protected table is sent only bare scans, and the
-  policy and every predicate run in this deployment over the rows Cube answers. A filter on a column
-  without a policy is not sent to Cube, so the remedy cannot help there. A timeout stays
-  `deadline_exceeded`, and a protected Cube table with more than 10,000 rows cannot be searched: that
-  size refusal stays `result_too_large` or `too_many_rows`.
+- It is not given at Cube. The policy and its predicates run in this deployment over the rows Cube
+  answers; supported filters on columns without a policy are sent to Cube first. A timeout stays
+  `deadline_exceeded`. A filter must narrow the source answer below its bounds; a size refusal stays
+  `result_too_large` or `too_many_rows`.
 - A timeout in the local part of the plan stays `deadline_exceeded`, whether or not a policy column
   was read. So does a timeout of a statement that reads no policy column, a budget already spent
   before a part runs, and a timeout while planning.
@@ -168,8 +167,10 @@ answer fewer rows than the engine would keep. A conjunct that raises at Cube on 
 would not reach changes which statements fail, so none that can raise is sent.
 
 Each sent conjunct also stays in the local filter, above the policy, so a Cube that answers more
-rows than the conjunct selects is corrected. A Cube that answers fewer is not, and nothing here
-proves that none does: the listed forms are chosen so that equal text is equal under any collation,
-and the proof of that is by reading, not by a Cube run. The 10,000-row cap, the memory budget and
+rows than the conjunct selects is corrected. A Cube that answers fewer is not: the listed forms
+are chosen so that equal text is equal under any collation. The native Cube cell checks equality
+over a million-row ClickHouse-backed fixture, including duplicate text, NULL and hidden terms;
+it does not establish comparison behaviour for every warehouse Cube can serve. The planner keeps
+policy-column predicates local, including when their pins name collations. The 10,000-row cap, the memory budget and
 the deadline still apply to what comes back, so a filter that leaves more than 10,000 rows, or a
 search whose only condition reads the policy column, still cannot answer.
