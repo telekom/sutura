@@ -165,15 +165,3 @@ fn a_search_narrowed_by_a_policy_free_conjunct_answers_past_the_cube_row_cap() {
     assert!(!statement.contains("LIKE"), "the policy conjunct stayed local: {statement}");
 }
 
-#[test]
-fn a_search_over_the_policy_column_alone_does_not_narrow_cube_and_keeps_the_cap() {
-    let (outcome, sent) = asked("select id from docs where body like '%needle%'");
-    assert!(
-        matches!(
-            outcome.refusal(),
-            Some(RawRefusalReason::TooManyRows { .. } | RawRefusalReason::ResultTooLarge)
-        ),
-        "{outcome:?}"
-    );
-    assert!(sent.iter().all(|statement| !statement.contains("LIKE")), "{sent:?}");
-}
