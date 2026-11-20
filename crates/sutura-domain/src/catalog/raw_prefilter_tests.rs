@@ -2,8 +2,9 @@
 
 use std::collections::BTreeMap;
 
-
-use super::{Column, Collation, Definitions, Description, InvalidTextPolicy, Model, PrefilterCapability, RawPrefilter, TextPolicy};
+use super::{
+    Collation, Column, Definitions, Description, InvalidTextPolicy, Model, PrefilterCapability, RawPrefilter, TextPolicy,
+};
 
 use crate::model::{ColumnName, ModelName, SourceName, TableName};
 use crate::warehouse::schema::{PinnedSchemas, TypeDialect};

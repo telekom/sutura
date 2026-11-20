@@ -322,7 +322,6 @@ fn searches_in(planned: &[String], term: &str) -> usize {
         .sum()
 }
 
-
 /// How many times the statements the source received search the stored column, named through its table.
 ///
 /// `ClickHouse` resolves a bare name to the projection alias beside it unless `prefer_column_name_to_alias`
@@ -339,7 +338,6 @@ fn stored_searches_in(planned: &[String], dialect: TypeDialect, path: &Qualified
     let needle = format!("WHERE (`{table}`.`body` LIKE '%{term}%')) AS `{table}`");
     planned.iter().map(|statement| statement.matches(&needle).count()).sum()
 }
-
 
 /// Only an eligible arm may add one raw search, and exactly where the shape qualifies. The `UPPER`
 /// barrier query narrows with a string literal on `cohort`, a column no text policy proves is text,
