@@ -2734,8 +2734,8 @@ alias scopes retain redacted-only execution. Each ordered replacement must be no
 contain no full term, and start and end with characters absent from that term. These barriers
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.</p>
-<p>The current eligible comparison arms are DataFusion's binary <code>LIKE</code> and Oracle native CLOB/NCLOB
-<code>LIKE</code>, with an optional <code>UPPER</code> around that column on Oracle. Cube's local policy execution is not
+<p>The current eligible comparison arms are DataFusion's binary <code>LIKE</code>, ClickHouse's <code>LIKE</code> for the
+admitted needle shape and Oracle native CLOB/NCLOB <code>LIKE</code>, with an optional <code>UPPER</code> around that column on Oracle. Cube's local policy execution is not
 an eligible arm and keeps redacted-only execution. Oracle
 uses its binary character-set uppercase mapping, not <code>NLS_UPPER</code>. At execution time only a binary
 <code>NLS_SORT</code> permits raw row rejection; every other value, including NULL, retains all rows. No
@@ -2760,11 +2760,36 @@ the fact yet; recording it enables no engine.</p>
 <p>What <code>binary</code> does not cover. It holds for <code>LIKE</code> and equality, not for ordering under a locale, and
 a type can still change equality: Postgres <code>bpchar</code> ignores trailing spaces in <code>=</code>. A
 <code>postgres_fdw</code> foreign table's <code>default</code> is the remote server's default. ClickHouse tables on the
-MySQL engine compare <code>=</code>, <code>&lt;</code> and <code>&gt;</code> on the MySQL server, while <code>LIKE</code> stays in ClickHouse.
+MySQL engine compare <code>=</code>, <code>&lt;</code> and <code>&gt;</code> on the MySQL server, and the raw <code>LIKE</code> is forwarded there
+too: ClickHouse's external-database query transform allows <code>like</code> and <code>notLike</code>, and the MySQL
+storage engine passes no blocklist, so on a MySQL or PostgreSQL engine table the raw test runs
+under the remote's collation. That is safe for the admitted needle (ASCII alphanumeric, no
+wildcard, no escape): a case- or accent-insensitive remote returns more rows, never fewer, and
+the exact redacted predicate still decides. Before PostgreSQL 18 a nondeterministic collation
+makes the remote refuse <code>LIKE</code>, which costs availability, not secrecy. This is read from
+ClickHouse's behaviour, not measured here.
 DuckDB's global <code>default_collation</code> setting can contradict an authored <code>binary</code>. Adding the fact
 moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.</p>
+<p>ClickHouse has no column collation and its <code>LIKE</code> is case-sensitive. ClickHouse documents <code>LIKE</code>
+matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted
+needle shape only: ASCII alphanumeric, no <code>_</code>, no escape, which makes the pattern a plain substring
+search. A column of its</p>
+<p>pinned schema carries the collation fact <code>binary</code> and a column pinned anything else (unknown or a
+named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
+test reads the stored column qualified by its table, in the form <code>`table`.`column`</code>: ClickHouse
+resolves a bare name to the projection alias of the same name unless <code>prefer_column_name_to_alias</code>
+is set, and a raw test that read the alias would read the redacted value, discard nothing and
+still return the same rows. The statement text is what the golden cell asserts; no answer can tell
+the two reads apart, so only the recorded timings show the effect. The redaction patterns of
+<code>replaceRegexpAll</code> are RE2 expressions, and a replacement is a literal (<code>$</code> and <code>\</code> are refused), so
+no backreference can rebuild a term from a matched value. ClickHouse has no <code>UPPER</code> arm. The
+ClickHouse tier measures equality and timings; the RE2 and alias statements above are documented
+behaviour, not measured here. ClickHouse column types are authored in the catalog: nothing reads
+<code>system.columns</code>. The adapter pins neither the analyzer setting nor <code>prefer_column_name_to_alias</code>;
+a raw test that read the alias would be safe, since it only repeats the redacted predicate, and
+would lose the speedup.</p>
 <p>The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
 does not establish a speedup. Native measurements must report actual row count, setup time,
