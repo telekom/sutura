@@ -139,4 +139,3 @@ fn bigquery_admits_a_column_only_when_the_catalog_pins_it_binary() {
         );
     }
 }
-
