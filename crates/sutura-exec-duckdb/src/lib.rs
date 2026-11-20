@@ -774,7 +774,15 @@ impl Warehouse for DuckDbWarehouse {
     /// The MATERIALISATION BUDGET alone: a result refused for crossing it is a governance outcome a
     /// caller cannot retry past. Every other failure shape stays `false`.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(*error, DuckDbError::OverBudget { .. })
+        self.result_limit(error).is_some()
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        if let DuckDbError::OverBudget { most_bytes } = *error {
+            Some(sutura_domain::warehouse::ResultLimit::MaterializationBytes { limit_bytes: most_bytes })
+        } else {
+            None
+        }
     }
 }
 
