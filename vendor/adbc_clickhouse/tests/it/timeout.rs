@@ -10,7 +10,10 @@ fn query_times_out() {
 
     let mut statement = conn.new_statement().unwrap();
     statement
-        .set_option(adbc_clickhouse::options::QUERY_TIMEOUT.into(), "1".into())
+        .set_option(
+            adbc_clickhouse::options::QUERY_TIMEOUT_SECONDS.into(),
+            "1".into(),
+        )
         .unwrap();
     statement.set_sql_query("SELECT sleep(3)").unwrap();
 
@@ -21,22 +24,25 @@ fn query_times_out() {
     assert_eq!(err.status, Status::Timeout);
 }
 
-/// The configured timeout is read back verbatim.
+/// The configured timeout, fractions included, is read back verbatim.
 #[test]
 fn query_timeout_read_back() {
     let db = test_database();
     let mut conn = db.new_connection().unwrap();
 
-    conn.set_option(adbc_clickhouse::options::QUERY_TIMEOUT.into(), "5".into())
-        .unwrap();
+    conn.set_option(
+        adbc_clickhouse::options::QUERY_TIMEOUT_SECONDS.into(),
+        "0.5".into(),
+    )
+    .unwrap();
 
     // A statement inherits the connection-level timeout.
     let statement = conn.new_statement().unwrap();
     assert_eq!(
         statement
-            .get_option_string(adbc_clickhouse::options::QUERY_TIMEOUT.into())
+            .get_option_string(adbc_clickhouse::options::QUERY_TIMEOUT_SECONDS.into())
             .unwrap(),
-        "5"
+        "0.5"
     );
 }
 
@@ -48,7 +54,10 @@ fn query_within_timeout_succeeds() {
 
     let mut statement = conn.new_statement().unwrap();
     statement
-        .set_option(adbc_clickhouse::options::QUERY_TIMEOUT.into(), "30".into())
+        .set_option(
+            adbc_clickhouse::options::QUERY_TIMEOUT_SECONDS.into(),
+            "30".into(),
+        )
         .unwrap();
     statement.set_sql_query("SELECT 1").unwrap();
 

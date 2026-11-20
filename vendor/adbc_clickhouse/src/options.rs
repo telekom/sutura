@@ -5,7 +5,6 @@ use adbc_core::options::OptionValue;
 use std::fmt::{Display, Formatter};
 use std::ops::Range;
 use std::str::FromStr;
-use std::time::Duration;
 
 #[cfg(doc)]
 use {
@@ -165,28 +164,36 @@ pub const QUERY_ID: &str = "clickhouse.client.query_id";
 /// as Arrow binary strings instead.
 pub const OUTPUT_STRING_AS_STRING: &str = "clickhouse.client.output_string_as_string";
 
-/// Maximum time, in seconds, that a query may wait to complete before it is abandoned.
+/// Time limit, in seconds, for one query: from `Statement::execute()` until its result stream
+/// has ended.
 ///
-/// Any query executed on a [`ClickhouseConnection`] or [`ClickhouseStatement`] with this
-/// option set is bound end-to-end: if the server has not finished responding within the
-/// configured window, the client stops waiting and drops the in-flight HTTP request, and
-/// execution returns an error with [`Status::Timeout`]. Whether the server also stops the
-/// query depends on server settings such as `cancel_http_readonly_queries_on_client_close`;
-/// pairing this option with the server-side `max_execution_time` setting bounds server work.
+/// The limit is a single deadline, computed when `execute()` is called. It bounds the wait for
+/// the first response and then every later read of the [`RecordBatchReader`]. Also, a read after
+/// the deadline has passed fails even if its data has already arrived.
 ///
-/// This is a client-side safeguard for deployments where an unresponsive or very slow query
-/// would otherwise occupy a worker, connection, or runtime thread indefinitely. It complements,
-/// but does not replace, true cancellation (see [#20]).
+/// When the deadline passes, the call or read that was waiting returns an error and the client
+/// drops the in-flight HTTP request. Start of the query: the error has [`Status::Timeout`].
+/// Later in the stream: the `ArrowError` text is `query result stream timed out`, and the reader
+/// then yields no more batches. A timeout never yields a successful partial result.
+///
+/// **Limits.** Dropping the HTTP request is not proof that the server stopped the query: that
+/// depends on server settings such as `cancel_http_readonly_queries_on_client_close`. Pair this
+/// option with the server-side `max_execution_time` setting to bound the server's work. The limit
+/// does not cover opening the connection, and it does not interrupt a read that is already
+/// running in this process: a caller that stops calling `next()` is not interrupted. It
+/// complements, but does not replace, true cancellation (see [#20]).
 ///
 /// May be set on [`ClickhouseConnection`] or [`ClickhouseStatement`].
-/// A timeout set on a `Connection` propagates to every `Statement` created from it,
-/// and a `Statement` may override it.
+/// A value set on a `Connection` propagates to every `Statement` created from it,
+/// and a `Statement` may override it. If the option is not set, the query is not bound by the
+/// client.
 ///
-/// The value is a string containing a positive integer number of seconds
-/// (e.g. `"30"`). Zero, negative values, and non-numeric values are rejected with
-/// [`Status::InvalidArguments`]. The current value may be read back with
+/// The value is a string containing a positive number of seconds, which may have a fraction
+/// (e.g. `"30"` or `"0.25"`), at most 366 days. Zero, negative, non-finite and non-numeric values
+/// are rejected with [`Status::InvalidArguments`]. The current value may be read back with
 /// [`Optionable::get_option_string()`].
 ///
+/// [`RecordBatchReader`]: arrow_array::RecordBatchReader
 /// [#20]: https://github.com/ClickHouse/adbc_clickhouse/issues/20
 ///
 /// # Example
@@ -200,18 +207,34 @@ pub const OUTPUT_STRING_AS_STRING: &str = "clickhouse.client.output_string_as_st
 /// let db = driver.new_database().unwrap();
 /// let mut conn = db.new_connection().unwrap();
 ///
-/// // Abandon any query that has not completed within 60 seconds.
+/// // End any query, including its result stream, 1.5 seconds after it starts.
 /// conn.set_option(
-///     adbc_clickhouse::options::QUERY_TIMEOUT.into(),
-///     "60".into(),
+///     adbc_clickhouse::options::QUERY_TIMEOUT_SECONDS.into(),
+///     "1.5".into(),
 /// ).unwrap();
 ///
 /// assert_eq!(
-///     conn.get_option_string(adbc_clickhouse::options::QUERY_TIMEOUT.into()).unwrap(),
-///     "60"
+///     conn.get_option_string(adbc_clickhouse::options::QUERY_TIMEOUT_SECONDS.into()).unwrap(),
+///     "1.5"
 /// );
 /// ```
-pub const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
+pub const QUERY_TIMEOUT_SECONDS: &str = "clickhouse.client.timeout_seconds.query";
+
+/// Time limit, in seconds, for one `Statement::execute_update()`: a statement that returns no
+/// result set, or a streaming ingest.
+///
+/// The limit is a single deadline, computed when `execute_update()` is called. For a streaming
+/// ingest it bounds the wait for the server to finish the insert; the batches are first written to
+/// a buffer, and that step is not interrupted but does use up the limit.
+///
+/// When the deadline passes, `execute_update()` returns an error with [`Status::Timeout`] and
+/// drops the in-flight HTTP request. The limits of [`QUERY_TIMEOUT_SECONDS`] apply: this is not
+/// proof that the server stopped the statement, and for an insert it does not say whether the
+/// server committed the rows.
+///
+/// May be set on [`ClickhouseConnection`] or [`ClickhouseStatement`], and the value has the same
+/// format, inheritance and default as [`QUERY_TIMEOUT_SECONDS`].
+pub const UPDATE_TIMEOUT_SECONDS: &str = "clickhouse.client.timeout_seconds.update";
 
 /// PEM root certificates used to verify the ClickHouse server's certificate.
 ///
@@ -334,30 +357,6 @@ pub(crate) fn setting_name(key: &str) -> Option<&str> {
 
 pub(crate) fn setting_not_set(name: &str) -> Error {
     Error::with_message_and_status(format!("setting {name:?} is not set"), Status::NotFound)
-}
-
-/// Parse a client-side query timeout option value as a count of seconds.
-///
-/// Returns an [`Error`] with [`Status::InvalidArguments`] for zero, negative,
-/// and non-numeric values.
-pub(crate) fn parse_timeout(key: &str, value: &str) -> Result<Duration, Error> {
-    let seconds = value.parse::<u64>().map_err(|_| {
-        Error::with_message_and_status(
-            format!(
-                "error setting option {key:?} = {value:?}: expected a positive integer number of seconds"
-            ),
-            Status::InvalidArguments,
-        )
-    })?;
-
-    if seconds == 0 {
-        return Err(Error::with_message_and_status(
-            format!("error setting option {key:?} = {value:?}: must be greater than zero"),
-            Status::InvalidArguments,
-        ));
-    }
-
-    Ok(Duration::from_secs(seconds))
 }
 
 /// Server-side settings for the public options in the parent module.
@@ -569,24 +568,4 @@ fn test_product_info_from_option_value() {
         b"\t my_service/0.1.0 \t my_product/1.0.0 \t".into(),
     ))
     .unwrap_err();
-}
-
-#[test]
-fn test_parse_timeout_valid() {
-    assert_eq!(parse_timeout("key", "1").unwrap(), Duration::from_secs(1));
-    assert_eq!(parse_timeout("key", "30").unwrap(), Duration::from_secs(30));
-    assert_eq!(
-        parse_timeout("key", "3600").unwrap(),
-        Duration::from_secs(3600)
-    );
-}
-
-#[test]
-fn test_parse_timeout_refuses_invalid() {
-    use adbc_core::error::Status;
-
-    for bad in ["0", "-5", "5.5", "abc", "", " "] {
-        let err = parse_timeout("key", bad).unwrap_err();
-        assert_eq!(err.status, Status::InvalidArguments, "value {bad:?}");
-    }
 }

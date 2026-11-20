@@ -5,6 +5,9 @@
 use core::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
+use adbc_core::error::{Error as CoreError, Status};
+use adbc_core::options::{OptionStatement, OptionValue};
+use arrow_schema::ArrowError;
 use sutura_adbc::DriverLocation;
 use sutura_conformance::corpus::{self, Case};
 use sutura_domain::calendar::Date;
@@ -15,7 +18,7 @@ use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::Warehouse as _;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 
-use super::{AdbcClickHouseWarehouse, AdbcError, ResultBudget, rewrite_placeholders};
+use super::{AdbcClickHouseWarehouse, AdbcError, ResultBudget, bound_by, rewrite_placeholders};
 
 fn warehouse(posture: SourcePosture) -> AdbcClickHouseWarehouse {
     AdbcClickHouseWarehouse::new(
@@ -146,4 +149,83 @@ fn planned_clickhouse_preserves_principal_validation_and_deadline_without_enabli
         rewrite_placeholders("SELECT '?' FROM orders", &[]).expect("no parameters"),
         "SELECT '?' FROM orders"
     );
+}
+
+/// Every option the adapter sets on a statement, in order, as text.
+#[derive(Default)]
+struct Recorded(Vec<(String, String)>);
+
+impl adbc_core::Optionable for Recorded {
+    type Option = OptionStatement;
+
+    fn set_option(&mut self, key: OptionStatement, value: OptionValue) -> Result<(), CoreError> {
+        let OptionValue::String(value) = value else {
+            return Err(CoreError::with_message_and_status("not text", Status::InvalidArguments));
+        };
+        self.0.push((key.as_ref().to_owned(), value));
+        Ok(())
+    }
+
+    fn get_option_string(&self, _key: OptionStatement) -> Result<String, CoreError> {
+        Err(CoreError::with_message_and_status("not read", Status::NotImplemented))
+    }
+
+    fn get_option_bytes(&self, _key: OptionStatement) -> Result<Vec<u8>, CoreError> {
+        Err(CoreError::with_message_and_status("not read", Status::NotImplemented))
+    }
+
+    fn get_option_int(&self, _key: OptionStatement) -> Result<i64, CoreError> {
+        Err(CoreError::with_message_and_status("not read", Status::NotImplemented))
+    }
+
+    fn get_option_double(&self, _key: OptionStatement) -> Result<f64, CoreError> {
+        Err(CoreError::with_message_and_status("not read", Status::NotImplemented))
+    }
+}
+
+#[test]
+fn the_request_deadline_reaches_the_driver_as_the_bound_of_the_whole_stream() {
+    let budget = Budget::parse(Duration::from_millis(1_250)).expect("a non-zero budget");
+    let opened = Instant::now();
+    let deadline = Deadline::opened_at(opened, budget);
+    let mut statement = Recorded::default();
+
+    let seconds = bound_by(&mut statement, deadline, opened + Duration::from_millis(250)).expect("time is left");
+
+    assert_eq!(seconds, 1);
+    assert_eq!(
+        statement.0,
+        [
+            (
+                String::from("clickhouse.client.timeout_seconds.query"),
+                String::from("1.000000000")
+            ),
+            (String::from("clickhouse.setting.max_execution_time"), String::from("1")),
+        ]
+    );
+}
+
+#[test]
+fn a_spent_deadline_sets_no_bound_at_all() {
+    let budget = Budget::parse(Duration::from_millis(1)).expect("a non-zero budget");
+    let opened = Instant::now();
+    let deadline = Deadline::opened_at(opened, budget);
+    let mut statement = Recorded::default();
+
+    let error = bound_by(&mut statement, deadline, opened + Duration::from_secs(1)).expect_err("nothing is left");
+
+    assert!(matches!(error, AdbcError::DeadlineSpent), "{error}");
+    assert!(statement.0.is_empty(), "no option was sent: {:?}", statement.0);
+}
+
+#[test]
+fn a_read_of_the_stream_that_outran_the_deadline_is_a_deadline_not_a_source_fault() {
+    let warehouse = warehouse(corpus::posture());
+    let driver_bound = ArrowError::ExternalError("External error: query result stream timed out".into());
+    let server_bound = ArrowError::ExternalError("Code: 159. DB::Exception: Timeout exceeded: elapsed 1003 ms".into());
+    let other = ArrowError::ExternalError("Code: 497. DB::Exception: Not enough privileges".into());
+
+    assert!(warehouse.deadline_exceeded(&AdbcError::Batch(driver_bound)));
+    assert!(warehouse.deadline_exceeded(&AdbcError::Batch(server_bound)));
+    assert!(!warehouse.deadline_exceeded(&AdbcError::Batch(other)));
 }

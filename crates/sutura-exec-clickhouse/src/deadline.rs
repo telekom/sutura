@@ -34,11 +34,15 @@
 //! every path that goes through the transport.
 //!
 //! **The server's job is bounded by the setting, and the client's wait by the driver's
-//! `query_timeout`**, which each statement sets to the same seconds and which the vendored driver
-//! wraps around the fetch it makes. What is NOT measured is a server that accepts the connection and
-//! then stalls before the statement is read: nothing here reads the deadline on the client side of
-//! that step. *Stop now* above is a statement about what is sent, not about how long a connect can
-//! block.
+//! `clickhouse.client.timeout_seconds.query`**, which each statement sets to the exact remainder
+//! of the [`Deadline`] ([`client_timeout_seconds`]). The vendored driver computes one deadline when
+//! the statement executes and bounds the wait for the first response and every later batch read
+//! with it, so a stream that stalls or trickles past the request's deadline ends with an error and
+//! never a partial answer. Limits: closing the client stream is not proof the server stopped the
+//! query, which is what `max_execution_time` is for; the driver does not bound opening the
+//! connection, and a server that accepts it and then stalls before the statement is read is bounded
+//! only by the request's own outer deadline. *Stop now* above is a statement about what is sent,
+//! not about how long a connect can block.
 
 use std::time::Instant;
 
@@ -75,6 +79,13 @@ pub(crate) fn max_execution_time_seconds(deadline: Deadline, now: Instant) -> Op
     Some(ceiling.max(1))
 }
 
+/// The driver's client-side bound for one statement under `deadline`: what is left of it, to the
+/// nanosecond, as the decimal seconds the driver parses - or `None` when nothing is left.
+pub(crate) fn client_timeout_seconds(deadline: Deadline, now: Instant) -> Option<String> {
+    let remaining = deadline.remaining_at(now)?;
+    Some(format!("{}.{:09}", remaining.as_secs(), remaining.subsec_nanos()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -105,6 +116,26 @@ mod tests {
         let opened = Instant::now();
         let deadline = Deadline::opened_at(opened, budget);
         assert_eq!(max_execution_time_seconds(deadline, opened), Some(5));
+    }
+
+    #[test]
+    fn the_client_bound_keeps_the_sub_second_remainder() {
+        let budget = Budget::parse(Duration::from_millis(1_250)).expect("a non-zero budget");
+        let opened = Instant::now();
+        let deadline = Deadline::opened_at(opened, budget);
+        assert_eq!(client_timeout_seconds(deadline, opened).as_deref(), Some("1.250000000"));
+        assert_eq!(
+            client_timeout_seconds(deadline, opened + Duration::from_millis(1_000)).as_deref(),
+            Some("0.250000000")
+        );
+    }
+
+    #[test]
+    fn a_spent_deadline_has_no_client_bound() {
+        let budget = Budget::parse(Duration::from_millis(1)).expect("a non-zero budget");
+        let opened = Instant::now();
+        let deadline = Deadline::opened_at(opened, budget);
+        assert_eq!(client_timeout_seconds(deadline, opened + Duration::from_secs(1)), None);
     }
 
     #[test]

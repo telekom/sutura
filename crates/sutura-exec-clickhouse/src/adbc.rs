@@ -37,7 +37,10 @@ use crate::execute_as::{ClickHouseUser, NotAClickHouseUser};
 use crate::settings;
 use crate::sum::{self, SlotScale, SumType};
 
-const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
+const QUERY_TIMEOUT_SECONDS: &str = "clickhouse.client.timeout_seconds.query";
+/// What the vendored driver's error text carries when a read of the result stream outran
+/// `QUERY_TIMEOUT_SECONDS` (`vendor/adbc_clickhouse/src/reader.rs`).
+const STREAM_TIMED_OUT: &str = "query result stream timed out";
 const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
 const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
 const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
@@ -445,16 +448,7 @@ impl AdbcClickHouseWarehouse {
         let mut statement = connection
             .new_statement()
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let seconds = deadline::max_execution_time_seconds(deadline, Instant::now()).ok_or(AdbcError::DeadlineSpent)?;
-        statement
-            .set_option(OptionStatement::Other(QUERY_TIMEOUT.to_owned()), seconds.to_string().into())
-            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        statement
-            .set_option(
-                OptionStatement::Other(MAX_EXECUTION_TIME.to_owned()),
-                seconds.to_string().into(),
-            )
-            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        let seconds = bound_by(&mut statement, deadline, Instant::now())?;
         let sql = settings::with_clause(&rewrite_placeholders(query.sql(), query.params())?, seconds)
             .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;
         let sql = match *runs_as {
@@ -572,6 +566,31 @@ fn rewrite_placeholders(statement: &str, params: &[sutura_domain::warehouse::Par
     }
     out.push_str(tail);
     Ok(out)
+}
+
+/// Bounds `statement` by `deadline` twice: the server stops its work at `max_execution_time`, and
+/// the driver ends its own wait - for the first response and for every later batch of the result
+/// stream - at the exact remainder. Answers the whole seconds the server was given.
+fn bound_by<S>(statement: &mut S, deadline: Deadline, now: Instant) -> Result<u64, AdbcError>
+where
+    S: adbc_core::Optionable<Option = OptionStatement>,
+{
+    let seconds = deadline::max_execution_time_seconds(deadline, now).ok_or(AdbcError::DeadlineSpent)?;
+    let client = deadline::client_timeout_seconds(deadline, now).ok_or(AdbcError::DeadlineSpent)?;
+    for (key, value) in [(QUERY_TIMEOUT_SECONDS, client), (MAX_EXECUTION_TIME, seconds.to_string())] {
+        statement
+            .set_option(OptionStatement::Other(key.to_owned()), value.into())
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+    }
+    Ok(seconds)
+}
+
+/// Whether a read of the result stream ended in the deadline: the driver's own client-side bound,
+/// or the server's `TIMEOUT_EXCEEDED` arriving in the stream. Read from text, the one thing that
+/// crosses the driver's C interface.
+fn stream_timed_out(error: &ArrowError) -> bool {
+    let text = error.to_string();
+    text.contains(STREAM_TIMED_OUT) || ServerCode::parse(&text) == Some(ServerCode::TIMEOUT_EXCEEDED)
 }
 
 /// Runs the statement for its effect. The fixture loader's only call of the method the workspace
@@ -760,7 +779,9 @@ impl Warehouse for AdbcClickHouseWarehouse {
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
-        matches!(error, AdbcError::DeadlineSpent) || matches!(error, AdbcError::Driver(message) if message.timed_out())
+        matches!(error, AdbcError::DeadlineSpent)
+            || matches!(error, AdbcError::Driver(message) if message.timed_out())
+            || matches!(error, AdbcError::Batch(error) if stream_timed_out(error))
     }
 
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
