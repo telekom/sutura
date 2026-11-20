@@ -422,30 +422,6 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
     }
 }
 
-/// `table` with its text column pinned under `collation`, as pinning would have written it.
-fn collated(table: &StatementTable, collation: Option<&str>) -> StatementTable {
-    let fields = table
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| {
-            let mut metadata = field.metadata().clone();
-            if field.name() == "BODY"
-                && let Some(collation) = collation
-            {
-                drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
-            }
-            field.as_ref().clone().with_metadata(metadata)
-        })
-        .collect::<Vec<_>>();
-    StatementTable::new(
-        table.source().clone(),
-        table.table().clone(),
-        table.dialect(),
-        Arc::new(Schema::new(fields)),
-    )
-}
-
 #[test]
 fn clickhouse_prefilters_a_binary_column_with_the_stored_column_named_through_its_table() {
     let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
