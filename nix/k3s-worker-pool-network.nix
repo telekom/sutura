@@ -151,7 +151,7 @@ in
         evidence["denied"] = denied_observations
 
 
-    def reading_groups(pause):
+    def reading_groups(image):
         # Stand-in pods carry the labels the chart renders for each role of a release `rw` - no
         # reading worker process starts - and the policies are the chart's own render for two
         # groups, each declaring a different source host on the same port. Nothing here probes
@@ -170,7 +170,7 @@ in
             for name, (node, labels) in roles.items():
                 apply({"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "labels": labels},
                        "spec": {"nodeName": node, "automountServiceAccountToken": False,
-                                "containers": [{"name": "probe", "image": pause[0], "imagePullPolicy": "Never"}]}})
+                                "containers": [{"name": "probe", "image": image, "imagePullPolicy": "Never"}]}})
             machine.succeed("kubectl wait --for=condition=Ready pod -l fixture-stand-in=true --timeout=120s")
             stand = {name: get("pod/" + name) for name in roles}
             address_of = {name: pod["status"]["podIP"] for name, pod in stand.items()}
