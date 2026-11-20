@@ -114,9 +114,14 @@ unknown data-bound collations on other source columns remain ineligible. `DuckDB
 column's `NOCASE` or `NOACCENT` collation in `LIKE`, and `REGEXP_REPLACE` over it keeps that
 collation, so a looser redacted test would break the proof; its catalog views report such a column
 as plain `VARCHAR`. Only the author's `binary` pin therefore opens it, and a named or missing
-collation keeps the redacted-only path. Cube's local policy work is not an eligible venue and keeps
-the redacted-only path. The exact transformed predicate still decides the answer. A hidden raw term
-may incur extra redaction work and reveal information through timing; the acknowledgement records
+collation keeps the redacted-only path. The pin is a claim and nothing reads the engine, so the
+replacement barrier for this arm folds ASCII case: the term and the replacements are ASCII, and a
+case-insensitive collation then cannot make a replacement match. A wrong pin on a `NOCASE` column
+keeps every row; without the fold it dropped one, and the row that survived disclosed whether the
+hidden text held the term. What remains is an incomplete answer at most, from collation effects on
+non-ASCII stored text. Cube's local policy work is not an eligible venue and keeps the
+redacted-only path. The exact transformed predicate still decides the answer. A hidden raw term may
+incur extra redaction work and reveal information through timing; the acknowledgement records
 acceptance rather than preventing that disclosure.
 
 [The operator guide](../raw-text-search.md) states the configuration and limits. A native timed
