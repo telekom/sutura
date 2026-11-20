@@ -52,7 +52,15 @@ where
     let [row] = rows.rows() else {
         panic!("exactly one stored column answers, saw {}", rows.rows().len());
     };
-    row.first().cloned().expect("one collation cell")
+    let value = row.first().cloned().expect("one collation cell");
+    // BigQuery's INFORMATION_SCHEMA represents an unset collation as the literal text `NULL`
+    // through its ADBC result. Interpret that documented spelling as the same absent value other
+    // engines return, while leaving every other unexpected value visible to the assertion below.
+    if W::NAME == "bigquery" && value == Value::Text(String::from("NULL")) {
+        Value::Null
+    } else {
+        value
+    }
 }
 
 fn matching<W>(warehouse: &W, table: &QualifiedTable, dialect: TypeDialect) -> i64
