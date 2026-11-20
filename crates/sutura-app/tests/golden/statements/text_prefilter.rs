@@ -365,7 +365,7 @@ where
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::DuckDb)
+    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle)
 }
 
 /// How many times the statements the source received search for `term`.
@@ -553,10 +553,9 @@ where
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
 }
 
-/// A column the engine compares case-insensitively, whatever the pinned fact says it is. The raw
-/// condition is a necessary one only under a binary comparison, so no declared-or-missing collation
-/// may let it into a statement: the redacted `term` below matches `TERM` here, and a raw condition
-/// would drop the row whose stored text lacks it.
+/// A column the engine compares case-insensitively, whatever the pinned fact says it is. The redacted
+/// `term` below matches `TERM` here, and a raw condition would drop the row whose stored text lacks
+/// it, so a missing or named collation, and a wrong `binary` pin, must all keep the redacted-only statement.
 pub(super) fn collated<W>()
 where
     W: TextFixture + Sync,
@@ -598,16 +597,16 @@ where
         );
         assert_eq!(opted, baseline, "the same answer for {collation:?} at {}", W::NAME);
     }
-    // A binary pin on this column is the author's error and the one case that proves the trap: the raw
-    // condition is added and the row only the redacted value matches is lost.
+    // A wrong `binary` pin is the author's error. The proof folds ASCII case for this arm, so `term`
+    // against `TERM` still falls back and no row is dropped.
     let (wrong, wrong_searches) = answer(&policy, Some("binary"));
     assert_eq!(
         wrong_searches,
-        searches + 1,
-        "a binary pin is what carries the raw condition at {}",
+        searches,
+        "a binary pin on a NOCASE column adds no raw condition at {}",
         W::NAME
     );
-    assert_eq!(wrong.1.len(), 3, "the raw condition would drop `secret_other` at {}", W::NAME);
+    assert_eq!(wrong, baseline, "no row is dropped at {}", W::NAME);
     warehouse.close_text_fixture(&path);
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
 }
