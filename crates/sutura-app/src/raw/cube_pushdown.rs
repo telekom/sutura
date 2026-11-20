@@ -15,7 +15,7 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::{ColumnName, ModelName, TableName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use sutura_domain::plan::MAX_ROWS;
-use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement};
+use sutura_domain::raw::{RawOutcome, RawStatement};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_exec_cube::{Answer, CubeTransport, CubeWarehouse, Loaded};
 use sutura_exec_datafusion::DataFusionCombiner;
