@@ -263,7 +263,13 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
         TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
     ] {
-        let predicates = raw_predicates(sql, table(dialect, &["[masked]"], true, false, true));
+        let source = table(dialect, &["[masked]"], true, false, true);
+        let source = if dialect == TypeDialect::DuckDb {
+            collated(&source, Some("binary"))
+        } else {
+            source
+        };
+        let predicates = raw_predicates(sql, source);
         if dialect == TypeDialect::DuckDb {
             assert!(predicates.iter().any(Option::is_some), "{dialect:?}");
             continue;
