@@ -1,5 +1,6 @@
 //! A per-column acknowledgement of secret-dependent raw-search work.
 
+use super::Collation;
 use crate::source::{AcknowledgementReason, InvalidOperatorText};
 use crate::warehouse::schema::TypeDialect;
 
@@ -19,16 +20,33 @@ pub enum PrefilterCapability {
     /// nondeterministic one is refused by `LIKE` before PostgreSQL 18 and is looser than the
     /// replacement proof from 18 on.
     Postgres,
+    /// No column has a collation, and `LIKE` is a plain substring search for the admitted ASCII-alphanumeric
+    /// needle; admitted for a column pinned binary.
+    ClickHouse,
 }
 
 impl PrefilterCapability {
+    /// Whether this arm may test a column pinned with `collation` on its stored text.
+    ///
+    /// `ClickHouse` has no column collation, yet only a column pinned [`Collation::Binary`] is
+    /// admitted: an unknown or named collation never is. `DataFusion` fixes byte-wise comparison in
+    /// the engine, and `Oracle` checks its session sort at run time instead of a pinned fact.
+    #[must_use]
+    pub const fn admits(self, collation: &Collation) -> bool {
+        match self {
+            Self::DataFusion | Self::Oracle => true,
+            Self::ClickHouse => collation.is_binary(),
+        }
+    }
+
     #[must_use]
     pub const fn of(dialect: TypeDialect) -> Option<Self> {
         match dialect {
             TypeDialect::DataFusion => Some(Self::DataFusion),
             TypeDialect::Oracle => Some(Self::Oracle),
             TypeDialect::Postgres => Some(Self::Postgres),
-            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::ClickHouse | TypeDialect::BigQuery => None,
+            TypeDialect::ClickHouse => Some(Self::ClickHouse),
+            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::BigQuery => None,
         }
     }
 
