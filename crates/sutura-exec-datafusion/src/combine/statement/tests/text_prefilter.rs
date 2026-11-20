@@ -7,7 +7,7 @@ use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFact
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 
-use sutura_domain::catalog::Collation;
+use sutura_domain::catalog::{COLLATION_METADATA_KEY, Collation};
 
 use super::*;
 
@@ -351,6 +351,24 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
     }
 }
 
+/// A field carrying `collation` as the pin writes it; the read-back fails if that encoding moves.
+fn pinned_with(mut field: Field, collation: &Collation) -> Field {
+    let encoded = match collation {
+        Collation::Binary => Some(String::from("binary")),
+        Collation::Named(name) => Some(format!("named:{name}")),
+        Collation::Unknown => None,
+    };
+    if let Some(encoded) = encoded {
+        field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), encoded);
+    }
+    assert_eq!(
+        &Collation::of_field(&field),
+        collation,
+        "the pinned collation encoding changed"
+    );
+    field
+}
+
 fn bigquery_conditions(collation: Option<&Collation>) -> Vec<Option<Expr>> {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     let source = table(TypeDialect::BigQuery, &["[masked]"], true, false, true);
@@ -359,11 +377,11 @@ fn bigquery_conditions(collation: Option<&Collation>) -> Vec<Option<Expr>> {
         .fields()
         .iter()
         .map(|field| {
-            let mut field = field.as_ref().clone();
-            if let Some(collation) = collation.filter(|_| field.name() == "BODY") {
-                collation.pin_onto(&mut field);
+            let field = field.as_ref().clone();
+            match collation.filter(|_| field.name() == "BODY") {
+                Some(collation) => pinned_with(field, collation),
+                None => field,
             }
-            field
         })
         .collect::<Vec<_>>();
     let pinned = StatementTable::new(
