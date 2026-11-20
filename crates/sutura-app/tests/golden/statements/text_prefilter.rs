@@ -412,11 +412,13 @@ where
             );
             let mut answers = Vec::new();
             let mut searches = Vec::new();
+            let mut stored = Vec::new();
             for (mode, policy) in [("baseline", &disabled), ("opted-in", &enabled)] {
                 let start = Instant::now();
                 let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
                 searches.push(searches_in(&planned, term));
+                stored.push(stored_searches_in(&planned, dialect, &path, term));
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
                     W::NAME,
