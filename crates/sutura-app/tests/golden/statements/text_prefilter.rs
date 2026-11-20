@@ -515,8 +515,8 @@ where
                 let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
                 searches.push(searches_in(&planned, term));
-                statements.push(planned);
                 stored.push(stored_searches_in(&planned, dialect, &path, term));
+                statements.push(planned);
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
                     W::NAME,
