@@ -168,6 +168,9 @@ readingWorkers:
   #   catalogs:           The catalog list the group certifies a leg against, as `catalogs` in
   #                       `config.base`. At least one.
   #   resources:          CPU and memory limits and requests for each pod.
+  #   egress:             Where the group's pods may connect, as `{cidr, port}` entries - each source's
+  #                       own address and port. Required when `networkPolicy.enabled` is set: the group's
+  #                       policy admits those entries and DNS and nothing else. A `/0` prefix is refused.
   #   extraVolumes,
   #   extraVolumeMounts:  What the group's sources read, such as a credential Secret. The release's
   #                       own `extraVolumes`, `extraVolumeMounts` and `extraEnv` never reach a group.
@@ -176,6 +179,8 @@ readingWorkers:
   #   orders:
   #     replicas: 2
   #     sources: [orders]
+  #     egress:
+  #       - {cidr: 192.0.2.10/32, port: 5432}
   #     catalogs:
   #       - {name: model, kind: markdown, dir: /srv/sutura/catalog, data_dir: /srv/sutura/data, version: "1"}
   groups: {}
@@ -244,8 +249,9 @@ extraVolumeMounts: []
 # `security.inbound.keySetSecretName`. A name sutura reads as a variable the chart sets is refused.
 extraEnv: []
 
-# NetworkPolicies for the serving, worker and operator pods (github.com/telekom/sutura#1680
-# finding 6). Off by default: this chart cannot tell whether the cluster's CNI enforces
+# NetworkPolicies for the serving, worker, reading worker and operator pods
+# (github.com/telekom/sutura#1680 finding 6). One policy per reading worker group, so a group holds
+# no route to a source another group reads. Off by default: this chart cannot tell whether the cluster's CNI enforces
 # NetworkPolicy, or whether something it cannot see - a service mesh, an ingress controller in
 # another namespace, a scrape target - already depends on reachability these rules would remove,
 # so enabling it is a decision for the operator who knows the cluster, not this chart's default.

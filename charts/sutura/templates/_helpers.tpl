@@ -264,6 +264,24 @@ and catalog are the chart's to refuse.
 {{- if not (and (kindIs "slice" $catalogs) (gt (len $catalogs) 0)) -}}
 {{ fail (printf "readingWorkers.groups.%s declares no catalogs: a reading worker certifies a leg against its own catalog before it reads, and sutura refuses to start one that declares none (NotFitToServe::ReadingWorkerWithoutCatalog) - list the catalogs in readingWorkers.groups.%s.catalogs" $group $group) }}
 {{- end -}}
+{{- if $.Values.networkPolicy.enabled -}}
+{{- $egress := dig "egress" (list) $spec -}}
+{{- if not (and (kindIs "slice" $egress) (gt (len $egress) 0)) -}}
+{{ fail (printf "readingWorkers.groups.%s declares no egress while networkPolicy.enabled is set: the group's policy admits DNS and the addresses it lists, so a group listing none could read no source - list each source's address and port in readingWorkers.groups.%s.egress as {cidr, port}" $group $group) }}
+{{- end -}}
+{{- range $egress -}}
+{{- if not (and (kindIs "map" .) (kindIs "string" (dig "cidr" nil .)) (regexMatch "^[0-9a-fA-F:.]+/[0-9]{1,3}$" (dig "cidr" "" .))) -}}
+{{ fail (printf "readingWorkers.groups.%s.egress holds an entry without a `cidr` written as an address and prefix length, such as 192.0.2.10/32: %s" $group (toJson .)) }}
+{{- end -}}
+{{- if hasSuffix "/0" .cidr -}}
+{{ fail (printf "readingWorkers.groups.%s.egress names %s, which is every address: the group's policy exists to bound where its pods connect - name the source's own address, or leave networkPolicy.enabled unset" $group .cidr) }}
+{{- end -}}
+{{- $port := dig "port" nil . -}}
+{{- if not (and (or (kindIs "float64" $port) (kindIs "int64" $port) (kindIs "int" $port)) (ge ($port | int) 1) (le ($port | int) 65535)) -}}
+{{ fail (printf "readingWorkers.groups.%s.egress entry %s has no `port` between 1 and 65535 written as a number" $group (toJson .)) }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

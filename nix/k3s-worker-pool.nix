@@ -3,13 +3,15 @@
 # The differential compares exact ordered answers with the same image/catalog/data on one roomy
 # node. IPv4 only, one KVM host, shared fixture identity; neither RSS nor human identity is proved.
 # Deletion cost is a preference with a read-to-delete race, even when this controlled run observes
-# the idle UID removed. Venue-only source policies know addresses the generic chart cannot know.
+# the idle UID removed. The chart's own policies bound the combining workers and, in a cell with
+# stand-in pods, each reading worker group; only the serving pod's source egress is a venue-only
+# policy, because the chart does not restrict a serving pod's egress. The source stands in for the
+# internet: a second port on it, not a route out, is what a denied connection is measured against.
 { pkgs
 , chartHelm
 , ociImage
 , operatorImage
 , chart
-, ...
 }:
 let
   # File names ending in `.tar`, which is what k3s imports from its images directory.
@@ -140,7 +142,9 @@ let
             rows.writerow(["day", "link", "amount"])
             rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(count))
         document(fact, dict(kind="model", name=fact, source="local", table=fact,
-                            columns=["day", "link", "amount"]))
+                            columns=[dict(name="day", type="date"),
+                                     dict(name="link", type="text"),
+                                     dict(name="amount", type="bigint")]))
         document(lookup, dict(kind="model", name=lookup, source="geo", table=lookup,
                               columns=[dict(name="link", type="text"),
                                        dict(name="region", type="text")]))
@@ -156,6 +160,7 @@ let
     PY
     cp ${sourceTls dbHost}/ca.pem "$out/postgres-ca.pem"
   '';
+  network = import ./k3s-worker-pool-network.nix { inherit pkgs chart; };
   files = {
     kind = "files";
     data_dir = "/srv/sutura/data";
@@ -474,21 +479,6 @@ pkgs.testers.runNixOSTest {
                 "images": [s["imageID"] for s in pod["status"]["containerStatuses"]]}
 
 
-    def namespace(pod):
-        host = HOSTS[pod["spec"]["nodeName"]]
-        sandboxes = json.loads(host.succeed("k3s crictl pods -o json"))["items"]
-        found = [s for s in sandboxes if s["metadata"]["uid"] == pod["metadata"]["uid"]
-                 and s["state"] == "SANDBOX_READY"]
-        assert len(found) == 1, found
-        pid = json.loads(host.succeed("k3s crictl inspectp " + q(found[0]["id"])))["info"]["pid"]
-        return host, f"nsenter -t {int(pid)} -n "
-
-
-    def tcp(pod, address, port):
-        host, prefix = namespace(pod)
-        return host.execute(prefix + f"nc -z -w 2 {q(address)} {port}")[0] == 0
-
-
     def metrics(pod, origin=None):
         name = "sutura-workers" if pod["metadata"]["labels"].get("app.kubernetes.io/name") == "sutura-worker" else "sutura"
         if origin is None and name == "sutura-workers":
@@ -594,23 +584,6 @@ pkgs.testers.runNixOSTest {
         assert set(raw.split()) == {p["status"]["podIP"] for p in expected}, raw
 
 
-    def denied_with_control(pod, address, port, policy):
-        saved = get("networkpolicy/" + policy)
-        saved["metadata"] = {key: value for key, value in saved["metadata"].items()
-                             if key in {"name", "namespace", "labels", "annotations"}}
-        machine.succeed("kubectl delete networkpolicy " + q(policy))
-        try:
-            eventually(lambda: tcp(pod, address, port), 30)
-        finally:
-            apply(saved)
-        assert get("networkpolicy/" + policy)["spec"] == saved["spec"]
-        eventually(lambda: not tcp(pod, address, port), 30)
-        for _ in range(3):
-            assert not tcp(pod, address, port), (identity(pod), address, port)
-        denied_observations.append([identity(pod), address, port, policy])
-        evidence["denied"] = denied_observations
-
-
     def failed_process(label, deployment, removed, added, config, sentence):
         spec = copy.deepcopy(get("deployment/" + deployment)["spec"]["template"]["spec"])
         spec["restartPolicy"] = "Never"
@@ -647,6 +620,9 @@ pkgs.testers.runNixOSTest {
             records.append(record)
             raw = raw.lstrip()[end:]
         return records
+
+
+    ${network.script nodes.db.networking.primaryIPAddress}
 
 
     start_all()
@@ -733,17 +709,15 @@ pkgs.testers.runNixOSTest {
                                                       "app.kubernetes.io/instance": "sutura"}}}
                      for name in ["sutura", "sutura-worker"]]
             links = {"to": peers, "ports": [{"port": 8080, "protocol": "TCP"}]}
-            for name, selector, rules in [
-                ("fixture-readers", {"fixture-reader": "true"}, [dns_rules, links,
-                    {"to": [{"ipBlock": {"cidr": SOURCE + "/32"}}], "ports": [{"port": 5432, "protocol": "TCP"}]}]),
-                ("fixture-workers", {"app.kubernetes.io/name": "sutura-worker", "app.kubernetes.io/instance": "sutura"}, [dns_rules, links]),
-            ]:
-                apply({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": name},
-                       "spec": {"podSelector": {"matchLabels": selector}, "policyTypes": ["Egress"], "egress": rules}})
+            apply({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "fixture-readers"},
+                   "spec": {"podSelector": {"matchLabels": {"fixture-reader": "true"}}, "policyTypes": ["Egress"],
+                            "egress": [dns_rules, links,
+                                       {"to": [{"ipBlock": {"cidr": SOURCE + "/32"}}],
+                                        "ports": [{"port": 5432, "protocol": "TCP"}]}]}})
             assert tcp(serving, SOURCE, 5432)
             denied_with_control(serving, SOURCE, 5433, "fixture-readers")
             for port in [5432, 5433]:
-                denied_with_control(workers[0], SOURCE, port, "fixture-workers")
+                denied_with_control(workers[0], SOURCE, port, "sutura-workers-egress")
                 denied_with_control(operator_pod, SOURCE, port, "sutura-operator")
             host, prefix = namespace(operator_pod)
             api = get("service/kubernetes")["spec"]["clusterIP"]
@@ -756,6 +730,9 @@ pkgs.testers.runNixOSTest {
                                    "policies": get("networkpolicies")["items"]}
             pool(min=0, warm=0, idleAfterSeconds=0)
             settled(0)
+
+        with subtest("reading worker groups reach only their own source"):
+            reading_groups(pause[0])
 
         with subtest("roomy reference and genuine bounded refusal"):
             config = copy.deepcopy(get("configmap/sutura-config"))
@@ -772,8 +749,8 @@ pkgs.testers.runNixOSTest {
             runtime_images = identity(roomy)["images"]
             evidence["roomy"] = {"answer": expected, "pod": identity(roomy), "ceiling": 512 * 1024 * 1024}
             trials = []
-            # Hosted calibration records the first refusing nontrivial ceiling. Freeze its value
-            # in the acceptance source after reviewing the actual refusal and elastic witness.
+            # Descend until the first ceiling the question is refused at for resources; the evidence
+            # records every trial, and the pods that follow run at that ceiling.
             ceiling = None
             for mib in [64, 32, 16, 8, 4]:
                 bounded = reference(mib * 1024 * 1024)

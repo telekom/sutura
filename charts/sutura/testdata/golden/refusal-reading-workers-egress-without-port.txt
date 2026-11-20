@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/reading-workers.yaml:10:4): readingWorkers.groups.orders.egress entry {"cidr":"192.0.2.10/32"} has no `port` between 1 and 65535 written as a number
+
+Use --debug flag to render out invalid YAML

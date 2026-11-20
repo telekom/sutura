@@ -177,32 +177,127 @@ fn a_reading_workers_pod_mounts_only_its_own_credentials() {
     }
 }
 
-/// The policy for the reading workers selects the labels a group's pods carry, and admits the
-/// serving pods, the combining workers and the reading workers only.
-#[test]
-fn the_reading_workers_network_policy_selects_the_group_pods_and_admits_the_releases_own() {
-    let docs = reading_docs("reading-workers-network-policy");
-    let policy = named(&docs, "NetworkPolicy", "test-release-reading-workers");
-    let pod = &named(&docs, "Deployment", "test-release-reading-orders")["spec"]["template"]["metadata"]["labels"];
-    let selector = policy["spec"]["podSelector"]["matchLabels"]
-        .as_mapping()
-        .expect("the policy selects by labels");
-    for (key, value) in selector {
-        let key = key.as_str().expect("a label name");
-        assert_eq!(
-            &pod[key], value,
-            "the group's pod carries label {key} as the policy selects it"
-        );
-    }
-    let admitted: Vec<&str> = policy["spec"]["ingress"][0]["from"]
+/// The `name` labels a rule's `from` or `to` peers select, in order.
+fn peer_names<'a>(rule: &'a Value, direction: &str) -> Vec<&'a str> {
+    rule[direction]
         .as_sequence()
-        .expect("an ingress rule with sources")
+        .unwrap_or_else(|| panic!("a rule with `{direction}` peers"))
         .iter()
         .map(|entry| {
             entry["podSelector"]["matchLabels"]["app.kubernetes.io/name"]
                 .as_str()
                 .expect("a name label")
         })
-        .collect();
-    assert_eq!(admitted, ["sutura", "sutura-worker", "sutura-reading-worker"]);
+        .collect()
+}
+
+/// The destinations of every egress rule after the DNS rule, as the address block and port each names.
+fn declared_destinations(policy: &Value) -> Vec<(String, u64)> {
+    policy["spec"]["egress"]
+        .as_sequence()
+        .expect("an egress list")
+        .iter()
+        .skip(1)
+        .map(|rule| {
+            assert_eq!(
+                rule["to"].as_sequence().map(Vec::len),
+                Some(1),
+                "one block per rule: {rule:?}"
+            );
+            assert_eq!(
+                rule["ports"].as_sequence().map(Vec::len),
+                Some(1),
+                "one port per rule: {rule:?}"
+            );
+            (
+                rule["to"][0]["ipBlock"]["cidr"]
+                    .as_str()
+                    .expect("an address block")
+                    .to_owned(),
+                rule["ports"][0]["port"].as_u64().expect("a port number"),
+            )
+        })
+        .collect()
+}
+
+/// Each group has a policy of its own. It selects the labels that group's pods carry and no other
+/// group's, admits the serving pods and the combining workers and never a reading worker, and lets
+/// the pods connect to DNS and the addresses the group declares - nothing a sibling group declares.
+#[test]
+fn each_reading_group_has_its_own_policy_admitting_serving_and_combining_pods_and_its_own_source() {
+    let docs = reading_docs("reading-workers-network-policy");
+    for (group, others, destinations) in [
+        ("orders", "finance", vec![(String::from("192.0.2.10/32"), 5432)]),
+        (
+            "finance",
+            "orders",
+            vec![
+                (String::from("192.0.2.20/32"), 5433),
+                (String::from("2001:db8::20/128"), 5433),
+            ],
+        ),
+    ] {
+        let policy = named(&docs, "NetworkPolicy", &format!("test-release-reading-{group}"));
+        let pods = |of: &str| {
+            named(&docs, "Deployment", &format!("test-release-reading-{of}"))["spec"]["template"]["metadata"]["labels"].clone()
+        };
+        let selector = policy["spec"]["podSelector"]["matchLabels"]
+            .as_mapping()
+            .expect("the policy selects by labels");
+        let (own, other) = (pods(group), pods(others));
+        for (key, value) in selector {
+            let key = key.as_str().expect("a label name");
+            assert_eq!(&own[key], value, "{group}'s pod carries label {key} as its policy selects it");
+        }
+        assert!(
+            selector
+                .iter()
+                .any(|(key, value)| other[key.as_str().expect("a label name")] != *value),
+            "{group}'s policy selects a label that {others}'s pods do not carry"
+        );
+        assert_eq!(
+            policy["spec"]["policyTypes"],
+            serde_norway::to_value(["Ingress", "Egress"]).expect("a list"),
+            "{group}"
+        );
+        let ingress = policy["spec"]["ingress"].as_sequence().expect("an ingress list");
+        assert_eq!(ingress.len(), 1, "{group}");
+        assert_eq!(peer_names(&ingress[0], "from"), ["sutura", "sutura-worker"], "{group}");
+        let egress = policy["spec"]["egress"].as_sequence().expect("an egress list");
+        assert!(
+            egress[0].get("to").is_none(),
+            "{group}: the first rule is DNS for any destination"
+        );
+        let dns: Vec<u64> = egress[0]["ports"]
+            .as_sequence()
+            .expect("DNS ports")
+            .iter()
+            .map(|port| port["port"].as_u64().expect("a port number"))
+            .collect();
+        assert_eq!(dns, [53, 53], "{group}");
+        assert_eq!(declared_destinations(policy), destinations, "{group}");
+    }
+}
+
+/// A combining worker holds no source, so its egress is the serving pods, its siblings, the reading
+/// workers and DNS - and no address block.
+#[test]
+fn the_combining_workers_egress_names_this_releases_pods_and_dns_only() {
+    let docs = reading_docs("reading-workers-network-policy");
+    let policy = named(&docs, "NetworkPolicy", "test-release-workers-egress");
+    assert_eq!(
+        policy["spec"]["policyTypes"],
+        serde_norway::to_value(["Egress"]).expect("a list")
+    );
+    let egress = policy["spec"]["egress"].as_sequence().expect("an egress list");
+    assert_eq!(egress.len(), 2);
+    assert_eq!(
+        peer_names(&egress[0], "to"),
+        ["sutura", "sutura-worker", "sutura-reading-worker"]
+    );
+    assert!(egress[1].get("to").is_none(), "the second rule is DNS for any destination");
+    assert!(
+        !serde_norway::to_string(policy).expect("a policy").contains("ipBlock"),
+        "no address block in a combining worker's egress"
+    );
 }
