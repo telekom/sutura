@@ -307,7 +307,10 @@ where
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle)
+    matches!(
+        dialect,
+        TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::ClickHouse
+    )
 }
 
 /// How many times the statements the source received search for `term`.
