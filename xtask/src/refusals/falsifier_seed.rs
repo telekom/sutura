@@ -36,8 +36,10 @@ fn the_falsifier_seed_leaves_w10_as_the_one_uncovered_variant() {
     std::env::set_current_dir(original).expect("restore the working directory");
     drop(std::fs::remove_dir_all(&tree));
 
-    let uncovered = "W10: no test names it and no snapshot records it";
-    let floor = "10 variant(s) with evidence plus 0 excused does not account for the 11 RawRefusalReason declares";
+    let raw_uncovered = "W10: no test names it and no snapshot records it";
+    let raw_floor = "10 variant(s) with evidence plus 0 excused does not account for the 11 RawRefusalReason declares";
+    let tls_uncovered = "T6: no test names it and no snapshot records it";
+    let tls_floor = "7 variant(s) with evidence plus 0 excused does not account for the 8 TlsNotUsable declares";
     assert!(
         found.iter().any(|(name, _)| *name == "RawRefusalReason"),
         "the refusal registry must expose the current RawRefusalReason subject"
@@ -46,13 +48,17 @@ fn the_falsifier_seed_leaves_w10_as_the_one_uncovered_variant() {
         let problems = outcome
             .as_ref()
             .unwrap_or_else(|why| panic!("{name}: the seed is refused before the coverage rule runs: {why}"));
-        if *name == "RawRefusalReason" {
-            assert!(
-                matches!(problems.as_slice(), [first, second] if first.starts_with(uncovered) && second.starts_with(floor)),
-                "{name}: expected T6 uncovered and the floor that follows from it, got {problems:?}"
-            );
-        } else {
-            assert!(problems.is_empty(), "{name}: the seed leaves problems: {problems:?}");
-        }
+        let (uncovered, floor) = match *name {
+            "RawRefusalReason" => (raw_uncovered, raw_floor),
+            "TlsNotUsable" => (tls_uncovered, tls_floor),
+            _ => {
+                assert!(problems.is_empty(), "{name}: the seed leaves problems: {problems:?}");
+                continue;
+            }
+        };
+        assert!(
+            matches!(problems.as_slice(), [first, second] if first.starts_with(uncovered) && second.starts_with(floor)),
+            "{name}: expected {uncovered} and the matching floor, got {problems:?}"
+        );
     }
 }
