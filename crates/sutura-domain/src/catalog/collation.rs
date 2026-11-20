@@ -75,6 +75,14 @@ impl core::fmt::Display for CollationName {
 /// the comparison is byte-for-byte. It is evidence a reader or a catalog author supplied, never a
 /// measurement of the data system at run time, and an author's `binary` is trusted as far as the
 /// author is.
+///
+/// **What [`Self::Binary`] covers is `LIKE` and equality, and no more.** It says nothing of ordering
+/// under a locale, and a type may still change equality: Postgres `bpchar` ignores trailing spaces
+/// in `=`. It is the collation of the column as the dictionary was read: a `postgres_fdw` foreign
+/// table's `default` is the remote server's default, `ClickHouse` tables on the `MySQL` engine compare
+/// `=`, `<` and `>` on the `MySQL` server (`LIKE` stays in `ClickHouse`), and `DuckDB`'s global
+/// `default_collation` setting can contradict an authored `binary`. `DataFusion` and `ClickHouse`
+/// dialects pin `Binary` over any collation a catalog authors for a text column there.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Collation {
@@ -133,9 +141,10 @@ impl Collation {
     /// Records this collation on a field being pinned; [`Self::of_field`] reads it back.
     /// [`Self::Unknown`] writes nothing, so a field with no collation fact hashes as it always did.
     ///
-    /// Public so a cell in another crate can build a pinned field that carries a collation. The
-    /// pin itself writes it only for a `Utf8` column, from the catalog's column or the dialect.
-    pub fn pin_onto(&self, field: &mut arrow_schema::Field) {
+    /// The pin writes the fact only for a column the dialect reads as text, from the catalog's
+    /// column or the dialect. Crate-private until an engine fixture outside the domain needs to
+    /// build a pinned field, and widened with that caller.
+    pub(crate) fn pin_onto(&self, field: &mut arrow_schema::Field) {
         if let Some(text) = self.encoded() {
             field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), text);
         }
@@ -200,6 +209,7 @@ mod tests {
 
     #[test]
     fn the_pinned_encoding_round_trips_and_unreadable_text_is_unknown() {
+        assert_eq!(Collation::Unknown.encoded(), None, "unknown is the absence of a fact");
         for collation in [Collation::Binary, Collation::named("und:ci"), Collation::Unknown] {
             assert_eq!(
                 collation
