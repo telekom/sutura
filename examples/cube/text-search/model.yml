@@ -1,0 +1,19 @@
+# Isolated from the model whose complete metadata the catalog conformance cell compares.
+cubes:
+  - name: text_search_notes
+    sql_table: text_search.notes
+    dimensions:
+      - name: id
+        sql: id
+        type: string
+        primary_key: true
+        public: true
+      - name: body
+        sql: body
+        type: string
+      - name: cohort
+        sql: cohort
+        type: string
+    measures:
+      - name: count
+        type: count

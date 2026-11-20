@@ -189,9 +189,9 @@ fn conjuncts<'a>(expression: &'a Expr, terms: &mut Vec<&'a Expr>) {
 /// Only a plain column compared with literals of its own type: no function, cast, arithmetic,
 /// subquery or column on both sides, so no row can make the source raise.
 ///
-/// Where the engine binds a collation to each column, a policy column is also read through the
-/// view's regex, which a nondeterministic collation refuses. Such a sibling can raise on one row, so
-/// it counts only where its column is pinned binary too.
+/// On PostgreSQL a policy column is read through the view's regex, which a nondeterministic
+/// collation refuses. Such a sibling can raise on one row, so it counts only where its column is
+/// pinned binary too.
 fn cannot_raise(
     term: &Expr,
     table: &StatementTable,
@@ -201,7 +201,7 @@ fn cannot_raise(
 ) -> bool {
     let column = |expression: &Expr| {
         plain(expression, table, alias, aliases).filter(|field| {
-            !capability.requires_binary_column()
+            capability != PrefilterCapability::Postgres
                 || !field.metadata().contains_key("sutura:text_policy")
                 || Collation::of_field(field).is_binary()
         })
@@ -384,15 +384,13 @@ fn condition(
     if capability == PrefilterCapability::Oracle && !lob {
         return Ok(None);
     }
-    // Unknown is never binary: a column with no pinned collation fact falls back.
-    if capability.requires_binary_column() && !Collation::of_field(field).is_binary() {
-        return Ok(None);
-    }
+    // A wrong authored binary pin must not let case folding create a replacement match.
+    let folded = capability == PrefilterCapability::DuckDb;
     if !policy
         .redactions()
         .iter()
-        .all(|rule| preserves(needle, rule.replacement(), upper))
-        || (!lob && policy.max_text_bytes().is_some() && !preserves(needle, "...[truncated]", upper))
+        .all(|rule| preserves(needle, rule.replacement(), upper, folded))
+        || (!lob && policy.max_text_bytes().is_some() && !preserves(needle, "...[truncated]", upper, folded))
     {
         return Ok(None);
     }
@@ -432,9 +430,11 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
         escape_char: None,
     };
     match capability {
-        PrefilterCapability::DataFusion | PrefilterCapability::Postgres | PrefilterCapability::ClickHouse => {
-            Expr::Nested(Box::new(raw))
-        }
+        PrefilterCapability::DataFusion
+        | PrefilterCapability::Postgres
+        | PrefilterCapability::DuckDb
+        | PrefilterCapability::BigQuery
+        | PrefilterCapability::ClickHouse => Expr::Nested(Box::new(raw)),
         PrefilterCapability::Oracle => {
             let sort = Expr::Function(Function {
                 name: ObjectName::from(vec![Ident::new("SYS_CONTEXT")]),
@@ -479,7 +479,9 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
 }
 
 /// No occurrence may live inside a replacement or cross either of its nonempty boundaries.
-fn preserves(needle: &str, replacement: &str, upper: bool) -> bool {
+///
+/// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
+fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
     if replacement.is_empty() || !replacement.is_ascii() {
         return false;
     }
@@ -488,10 +490,15 @@ fn preserves(needle: &str, replacement: &str, upper: bool) -> bool {
     } else {
         String::from(replacement)
     };
+    let (needle, normalized) = if folded {
+        (needle.to_ascii_lowercase(), normalized.to_ascii_lowercase())
+    } else {
+        (String::from(needle), normalized)
+    };
     let mut bytes = normalized.bytes();
     let Some(first) = bytes.next() else {
         return false;
     };
     let last = bytes.next_back().unwrap_or(first);
-    !needle.as_bytes().contains(&first) && !needle.as_bytes().contains(&last) && !normalized.contains(needle)
+    !needle.as_bytes().contains(&first) && !needle.as_bytes().contains(&last) && !normalized.contains(&needle)
 }

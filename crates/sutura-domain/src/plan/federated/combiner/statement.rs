@@ -128,8 +128,8 @@ impl<'a> StatementQuestion<'a> {
 /// Whether a source part reads a column under a text policy, and where that policy runs.
 ///
 /// Decides what a leg that ran past the deadline means: one that never read masked text is a slow
-/// statement, and one whose source applies the policy itself ([`Self::AtSource`]) is a search a filter
-/// on another column narrows. **The limit:** the engine reads it off the planned scans' projected
+/// statement, and a filter on another column can narrow masking at its source ([`Self::AtSource`])
+/// or the rows entering a local policy at Cube ([`Self::Locally`]). **The limit:** the engine reads it off the planned scans' projected
 /// columns, so a column the planner pruned is not read, and a part that reads a policy column only to
 /// project it is read all the same.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,8 +140,8 @@ pub enum PolicyRead {
     /// answers are already masked and filtered.
     AtSource,
     /// A column under a text policy is read and the engine applies the policy to the rows after the
-    /// leg answers, as at a Cube source. Cube is sent only bare scans for a protected table, so a
-    /// filter on another column does not narrow its answer, and no remedy is named for it.
+    /// leg answers, as at a Cube source. Supported conjuncts on columns without a policy reach Cube;
+    /// the row cap counts the rows entering local masking and filtering.
     Locally,
 }
 

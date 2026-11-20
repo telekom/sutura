@@ -20,6 +20,13 @@ pub enum PrefilterCapability {
     /// nondeterministic one is refused by `LIKE` before PostgreSQL 18 and is looser than the
     /// replacement proof from 18 on.
     Postgres,
+    /// A column pinned [`Collation::Binary`](super::Collation::Binary). `DuckDB`'s `LIKE` consults a
+    /// column's `NOCASE` or `NOACCENT` collation, and the `REGEXP_REPLACE` over it keeps that
+    /// collation, so a collated column is no binary comparison on either side of the condition.
+    DuckDb,
+    /// A `STRING` column the catalog pins as [`Collation::Binary`]: a collated `LIKE` is no
+    /// byte-wise test, and the dictionary's `COLLATION_NAME` is evidence only an author or reader brings.
+    BigQuery,
     /// No column has a collation, and `LIKE` is a plain substring search for the admitted ASCII-alphanumeric
     /// needle; admitted for a column pinned binary.
     ClickHouse,
@@ -28,14 +35,14 @@ pub enum PrefilterCapability {
 impl PrefilterCapability {
     /// Whether this arm may test a column pinned with `collation` on its stored text.
     ///
-    /// `ClickHouse` has no column collation, yet only a column pinned [`Collation::Binary`] is
-    /// admitted: an unknown or named collation never is. `DataFusion` fixes byte-wise comparison in
+    /// PostgreSQL, `DuckDB` and `BigQuery` require a binary column pin; `ClickHouse` requires that fact too.
+    /// An unknown or named collation never suffices. `DataFusion` fixes byte-wise comparison in
     /// the engine, and `Oracle` checks its session sort at run time instead of a pinned fact.
     #[must_use]
     pub const fn admits(self, collation: &Collation) -> bool {
         match self {
-            Self::DataFusion | Self::Oracle | Self::Postgres => true,
-            Self::ClickHouse => collation.is_binary(),
+            Self::DataFusion | Self::Oracle => true,
+            Self::Postgres | Self::DuckDb | Self::BigQuery | Self::ClickHouse => collation.is_binary(),
         }
     }
 
@@ -46,15 +53,10 @@ impl PrefilterCapability {
             TypeDialect::Oracle => Some(Self::Oracle),
             TypeDialect::Postgres => Some(Self::Postgres),
             TypeDialect::ClickHouse => Some(Self::ClickHouse),
-            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::BigQuery => None,
+            TypeDialect::DuckDb => Some(Self::DuckDb),
+            TypeDialect::BigQuery => Some(Self::BigQuery),
+            TypeDialect::Cube => None,
         }
-    }
-
-    /// Whether the pinned column itself must be pinned binary, because the engine binds a
-    /// collation to each column and nothing else establishes it.
-    #[must_use]
-    pub const fn requires_binary_column(self) -> bool {
-        matches!(self, Self::Postgres)
     }
 }
 
