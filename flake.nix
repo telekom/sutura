@@ -1037,11 +1037,9 @@
               import ./nix/k3s-worker-pool.nix {
                 inherit pkgs;
                 chartHelm = chart.helm;
-                ociImage = shipped.localImages.oci;
+                ociImage = shipped.ociImages.oci-x86_64-unknown-linux-musl;
                 operatorImage = shipped.localImages.oci-operator;
                 chart = ./charts/sutura;
-                example = ./examples/single-player;
-                golden = builtins.path { path = ./crates/sutura-app/tests/snapshots + "/recurring-revenue-by-region__rows@datafusion.snap"; name = "recurring-revenue-by-region.snap"; };
               }
             else
               pkgs.runCommand "k3s-worker-pool-not-on-${system}" { } "echo 'only x86_64-linux runs the k3s worker pool VM test' > $out";

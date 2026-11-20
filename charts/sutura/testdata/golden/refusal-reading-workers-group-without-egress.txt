@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/reading-workers.yaml:10:4): readingWorkers.groups.orders declares no egress while networkPolicy.enabled is set: the group's policy admits DNS and the addresses it lists, so a group listing none could read no source - list each source's address and port in readingWorkers.groups.orders.egress as {cidr, port}
+
+Use --debug flag to render out invalid YAML

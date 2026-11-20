@@ -241,6 +241,29 @@ setting beside the pool's would be dropped without a word, as the pool's node ce
 {{- end -}}
 
 {{/*
+The nodes of this release that dial one another on the service port: the serving pods, the combining
+workers and, once groups are declared, every group's reading workers. A stage's join input is read
+from another node, so a policy that limited one group's readers to their own group would break a
+question; the isolation between groups is on egress to a source, not on the node links.
+*/}}
+{{- define "sutura.nodePeers" -}}
+{{- $name := include "sutura.name" . -}}
+- podSelector:
+    matchLabels:
+      {{- include "sutura.selectorLabels" . | nindent 6 }}
+- podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Values.readingWorkers.groups }}
+- podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-reading-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end -}}
+
+{{/*
 The reading worker groups' own guards, outside the posture guard: they read nothing the binary
 reads from the serving pod's settings, so the worker pool's node certificate and the group's name
 and catalog are the chart's to refuse.
@@ -263,6 +286,24 @@ and catalog are the chart's to refuse.
 {{- $catalogs := dig "catalogs" (list) $spec -}}
 {{- if not (and (kindIs "slice" $catalogs) (gt (len $catalogs) 0)) -}}
 {{ fail (printf "readingWorkers.groups.%s declares no catalogs: a reading worker certifies a leg against its own catalog before it reads, and sutura refuses to start one that declares none (NotFitToServe::ReadingWorkerWithoutCatalog) - list the catalogs in readingWorkers.groups.%s.catalogs" $group $group) }}
+{{- end -}}
+{{- if $.Values.networkPolicy.enabled -}}
+{{- $egress := dig "egress" (list) $spec -}}
+{{- if not (and (kindIs "slice" $egress) (gt (len $egress) 0)) -}}
+{{ fail (printf "readingWorkers.groups.%s declares no egress while networkPolicy.enabled is set: the group's policy admits DNS and the addresses it lists, so a group listing none could read no source - list each source's address and port in readingWorkers.groups.%s.egress as {cidr, port}" $group $group) }}
+{{- end -}}
+{{- range $egress -}}
+{{- if not (and (kindIs "map" .) (kindIs "string" (dig "cidr" nil .)) (regexMatch "^[0-9a-fA-F:.]+/[0-9]{1,3}$" (dig "cidr" "" .))) -}}
+{{ fail (printf "readingWorkers.groups.%s.egress holds an entry without a `cidr` written as an address and prefix length, such as 192.0.2.10/32: %s" $group (toJson .)) }}
+{{- end -}}
+{{- if hasSuffix "/0" .cidr -}}
+{{ fail (printf "readingWorkers.groups.%s.egress names %s, which is every address: the group's policy exists to bound where its pods connect - name the source's own address, or leave networkPolicy.enabled unset" $group .cidr) }}
+{{- end -}}
+{{- $port := dig "port" nil . -}}
+{{- if not (and (or (kindIs "float64" $port) (kindIs "int64" $port) (kindIs "int" $port)) (ge ($port | int) 1) (le ($port | int) 65535)) -}}
+{{ fail (printf "readingWorkers.groups.%s.egress entry %s has no `port` between 1 and 65535 written as a number" $group (toJson .)) }}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
