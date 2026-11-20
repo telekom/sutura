@@ -14,6 +14,12 @@ pub enum PrefilterCapability {
     DataFusion,
     /// A CLOB column read under a binary session sort.
     Oracle,
+    /// A column pinned [`Collation::Binary`](super::Collation::Binary), read from the dictionary (the
+    /// deterministic database default, `pg_catalog.C` or `pg_catalog.POSIX`) or authored in a local
+    /// catalog document. `LIKE` compares a deterministic collation character for character; a
+    /// nondeterministic one is refused by `LIKE` before PostgreSQL 18 and is looser than the
+    /// replacement proof from 18 on.
+    Postgres,
     /// No column has a collation, and `LIKE` is a plain substring search for the admitted ASCII-alphanumeric
     /// needle; admitted for a column pinned binary.
     ClickHouse,
@@ -28,7 +34,7 @@ impl PrefilterCapability {
     #[must_use]
     pub const fn admits(self, collation: &Collation) -> bool {
         match self {
-            Self::DataFusion | Self::Oracle => true,
+            Self::DataFusion | Self::Oracle | Self::Postgres => true,
             Self::ClickHouse => collation.is_binary(),
         }
     }
@@ -38,9 +44,17 @@ impl PrefilterCapability {
         match dialect {
             TypeDialect::DataFusion => Some(Self::DataFusion),
             TypeDialect::Oracle => Some(Self::Oracle),
+            TypeDialect::Postgres => Some(Self::Postgres),
             TypeDialect::ClickHouse => Some(Self::ClickHouse),
-            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::Postgres | TypeDialect::BigQuery => None,
+            TypeDialect::DuckDb | TypeDialect::Cube | TypeDialect::BigQuery => None,
         }
+    }
+
+    /// Whether the pinned column itself must be pinned binary, because the engine binds a
+    /// collation to each column and nothing else establishes it.
+    #[must_use]
+    pub const fn requires_binary_column(self) -> bool {
+        matches!(self, Self::Postgres)
     }
 }
 

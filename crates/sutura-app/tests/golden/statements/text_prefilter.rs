@@ -5,12 +5,28 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use sutura_domain::catalog::COLLATION_METADATA_KEY;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::{PolicyRead, StatementStopped};
 use sutura_domain::raw::InvalidRawStatement;
 use sutura_exec_datafusion::CombineError;
 
 use super::*;
+
+// The causality base run restores the adapter before this test file is compiled. Keep the
+// declaration buildable there; on the branch the inherent loader below takes precedence.
+trait PostgresFixtureStatements {
+    fn load_statements(&self, table: &TableName, statements: &str) -> Result<(), &'static str>;
+}
+
+impl PostgresFixtureStatements for sutura_exec_postgres::adbc::AdbcPostgres {
+    fn load_statements(&self, _table: &TableName, _statements: &str) -> Result<(), &'static str> {
+        Err("inline fixture loading is introduced with the Postgres collation change")
+    }
+}
+
+#[path = "text_prefilter/collation.rs"]
+mod collation;
 
 // The causality base run restores the domain before this test file is compiled. Keep the fixture
 // helper buildable there; branch-provided inherent methods take precedence on the real run.
@@ -33,7 +49,6 @@ trait PinCollationFixture {
 impl PinCollationFixture for sutura_domain::catalog::Collation {
     fn pin_onto(&self, _field: &mut Field) {}
 }
-
 /// Fixture setup belongs only to the golden target that exercises it.
 pub(super) trait TextFixture: DataSystemUnderTest {
     /// A private large-text fixture; cloud and fixed-model venues override the CSV loader.
@@ -47,6 +62,12 @@ pub(super) trait TextFixture: DataSystemUnderTest {
 
     /// Cloud fixtures expire independently, and are dropped here on a completed cell.
     fn close_text_fixture(&self, _table: &QualifiedTable) {}
+
+    /// A table whose columns differ only in how the engine compares their text, for an engine that
+    /// binds a collation to a column. Elsewhere there is nothing to compare.
+    fn open_collated_table(&self) -> Option<QualifiedTable> {
+        None
+    }
 }
 
 macro_rules! text_fixture {
@@ -84,6 +105,20 @@ macro_rules! text_fixture {
                     crate::adapters::clickhouse_on(source(), vec![(table.clone(), csv)], <$adapter>::load_federated_csv),
                     QualifiedTable::new(None, table),
                 )
+            }
+        }
+    };
+    (postgres, $adapter:ty) => {
+        impl TextFixture for $adapter {
+            fn open_collated_table(&self) -> Option<QualifiedTable> {
+                // Keep the fallback trait method part of the base compile while the adapter's
+                // inherent loader is selected for the actual branch run.
+                let _: fn(&Self, &TableName, &str) -> Result<(), &'static str> =
+                    <Self as PostgresFixtureStatements>::load_statements;
+                let table = TableName::parse(collation::TABLE).expect("a fixture name");
+                self.load_statements(&table, collation::FIXTURE)
+                    .expect("the collated fixture loads");
+                Some(QualifiedTable::new(None, table))
             }
         }
     };
@@ -134,6 +169,16 @@ fn fixture_csv() -> std::path::PathBuf {
     path
 }
 
+/// The field as a pin leaves it: `collation` is the pinned text, absent for unknown.
+fn pinned(field: Field, collation: Option<&str>) -> Field {
+    let Some(collation) = collation else {
+        return field;
+    };
+    let mut metadata = field.metadata().clone();
+    metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation));
+    field.with_metadata(metadata)
+}
+
 fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_json::Value>) -> StatementTable {
     let mut metadata = HashMap::new();
     if let Some(policy) = policy {
@@ -142,8 +187,12 @@ fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_j
     if dialect == TypeDialect::Oracle {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
+    // The tier's database default, which a native dictionary read records as binary.
+    let mut body = pinned(
+        Field::new("body", DataType::Utf8, true).with_metadata(metadata),
+        (dialect == TypeDialect::Postgres).then_some("binary"),
+    );
     // What pinning records for an engine that fixes the collation itself; ClickHouse is admitted by it alone.
-    let mut body = Field::new("body", DataType::Utf8, true).with_metadata(metadata);
     if let Some(collation) = dialect.engine_collation() {
         collation.pin_onto(&mut body);
     }
@@ -217,13 +266,31 @@ where
 
 type Answered = (RawRows, Vec<String>);
 
+/// What the source received, and how it answered, whether or not it answered.
+type Outcome = (Result<RawRows, FixtureQueryError>, Vec<String>);
+
 fn execute_recorded<W>(warehouse: &W, table: StatementTable, sql: &str) -> Result<Answered, FixtureQueryError>
 where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    let combiner = DataFusionCombiner::new().map_err(|cause| FixtureQueryError::Combiner { cause })?;
-    let question = RawStatement::parse(sql).map_err(|cause| FixtureQueryError::Query { cause })?;
+    let (answer, planned) = execute_outcome(warehouse, table, sql);
+    answer.map(|rows| (rows, planned))
+}
+
+fn execute_outcome<W>(warehouse: &W, table: StatementTable, sql: &str) -> Outcome
+where
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
+{
+    let combiner = match DataFusionCombiner::new() {
+        Ok(combiner) => combiner,
+        Err(cause) => return (Err(FixtureQueryError::Combiner { cause }), Vec::new()),
+    };
+    let question = match RawStatement::parse(sql) {
+        Ok(question) => question,
+        Err(cause) => return (Err(FixtureQueryError::Query { cause }), Vec::new()),
+    };
     let mut executing = Recorded {
         inner: Executing {
             warehouse,
@@ -232,21 +299,20 @@ where
         },
         statements: Vec::new(),
     };
-    let answer = combiner
-        .answer_statement(
-            StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
-            &mut executing,
-        )
-        .ok_or(FixtureQueryError::Unsupported)?;
-    if executing.inner.observed_scans != executing.inner.expected_scans {
-        return Err(FixtureQueryError::Scans {
+    let answer = combiner.answer_statement(
+        StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
+        &mut executing,
+    );
+    let answer = match answer {
+        None => Err(FixtureQueryError::Unsupported),
+        Some(Err(cause)) => Err(FixtureQueryError::Stopped { cause }),
+        Some(Ok(_)) if executing.inner.observed_scans != executing.inner.expected_scans => Err(FixtureQueryError::Scans {
             observed: executing.inner.observed_scans,
             expected: executing.inner.expected_scans,
-        });
-    }
-    answer
-        .map(|rows| (rows, executing.statements))
-        .map_err(|cause| FixtureQueryError::Stopped { cause })
+        }),
+        Some(Ok(rows)) => Ok(rows),
+    };
+    (answer, executing.statements)
 }
 
 type OrderedRows = (Vec<String>, Vec<Vec<Value>>);
@@ -328,11 +394,23 @@ where
 }
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
+///
+/// One arm per dialect and no wildcard, so a new dialect must be decided here, and the expectation is
+/// never read from the capability it checks.
+#[expect(
+    clippy::match_same_arms,
+    reason = "one arm per line, so each engine PR flips only its own line and merges cleanly"
+)]
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(
-        dialect,
-        TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::ClickHouse
-    )
+    match dialect {
+        TypeDialect::DuckDb => false,
+        TypeDialect::DataFusion => true,
+        TypeDialect::Cube => false,
+        TypeDialect::Postgres => true,
+        TypeDialect::ClickHouse => true,
+        TypeDialect::BigQuery => false,
+        TypeDialect::Oracle => true,
+    }
 }
 
 /// How many times the statements the source received search for `term`.
@@ -543,6 +621,9 @@ where
             "{} hidden probe {term}",
             W::NAME
         );
+    }
+    if let Some(table) = warehouse.open_collated_table() {
+        collation::cells(&warehouse, &table, dialect);
     }
     warehouse.close_text_fixture(&path);
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
