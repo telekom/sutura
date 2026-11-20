@@ -164,4 +164,3 @@ fn a_search_narrowed_by_a_policy_free_conjunct_answers_past_the_cube_row_cap() {
     };
     assert!(!statement.contains("LIKE"), "the policy conjunct stayed local: {statement}");
 }
-
