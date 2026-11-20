@@ -104,8 +104,6 @@ fn a_raw_prefilter_without_a_redaction_rule_is_refused() {
         Err(InvalidTextPolicy::PrefilterWithoutRedaction)
     );
 }
-<<<<<<< HEAD
-=======
 
 #[test]
 fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
@@ -137,8 +135,4 @@ fn clickhouse_is_admitted_for_a_binary_column_only_and_the_other_arms_ignore_the
         assert!(capability.admits(&Collation::Unknown), "{capability:?}");
     }
 }
->>>>>>> 345980941 (feat: enable the raw text prefilter for a binary-pinned ClickHouse text)
 
-use super::{
-    Collation, Column, Definitions, Description, InvalidTextPolicy, Model, PrefilterCapability, RawPrefilter, TextPolicy,
-};
