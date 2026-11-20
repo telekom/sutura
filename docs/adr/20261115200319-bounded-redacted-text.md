@@ -107,8 +107,15 @@ the original redacted-only path. Each nonempty replacement must contain no whole
 both boundary overlaps; the proof composes over ordered replacements and the truncation marker
 where it is searched. No inference about arbitrary regex languages is required.
 
-DataFusion binary comparison and guarded Oracle CLOB/NCLOB comparison are the initial eligible
-venues. Oracle `UPPER` uses its binary character-set mapping; its runtime binary sort check
+DataFusion binary comparison, guarded Oracle CLOB/NCLOB comparison and PostgreSQL columns pinned
+binary (read from the dictionary, or authored in a local catalog document) are the eligible venues.
+A wrong authored `binary` is the operator's
+error, trusted like a wrong issuer: on a nondeterministic column PostgreSQL before 18 fails the raw
+`LIKE` on every row and reveals nothing, while from 18 the raw `LIKE` runs and the view's regex then
+refuses the column, so error against an empty answer reveals whether an unredacted value contains
+the term, beyond the timing the acknowledgement accepts. Beside it, a
+PostgreSQL policy column in any other conjunct must be pinned binary too, because the view reads it
+through a regex that a nondeterministic collation refuses. Oracle `UPPER` uses its binary character-set mapping; its runtime binary sort check
 retains every row on any other or NULL value. No session setting is changed, and unknown
 data-bound collations on other source columns remain ineligible. Cube's local policy work is not
 an eligible venue and keeps the redacted-only path. The exact transformed predicate still decides

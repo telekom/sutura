@@ -10,7 +10,7 @@ use datafusion::sql::sqlparser::ast::{
     BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
     ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
 };
-use sutura_domain::catalog::{PrefilterCapability, TextPolicy};
+use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
@@ -161,7 +161,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     if terms
         .iter()
         .enumerate()
-        .any(|(index, term)| index != chosen && !cannot_raise(term, table, alias, &aliases))
+        .any(|(index, term)| index != chosen && !cannot_raise(term, table, alias, &aliases, capability))
     {
         return Ok(None);
     }
@@ -188,9 +188,25 @@ fn conjuncts<'a>(expression: &'a Expr, terms: &mut Vec<&'a Expr>) {
 
 /// Only a plain column compared with literals of its own type: no function, cast, arithmetic,
 /// subquery or column on both sides, so no row can make the source raise.
-fn cannot_raise(term: &Expr, table: &StatementTable, alias: Option<&Ident>, aliases: &[&str]) -> bool {
-    let against =
-        |column: &Expr, literal: &Expr| plain(column, table, alias, aliases).is_some_and(|field| literal_of(literal, field));
+///
+/// Where the engine binds a collation to each column, a policy column is also read through the
+/// view's regex, which a nondeterministic collation refuses. Such a sibling can raise on one row, so
+/// it counts only where its column is pinned binary too.
+fn cannot_raise(
+    term: &Expr,
+    table: &StatementTable,
+    alias: Option<&Ident>,
+    aliases: &[&str],
+    capability: PrefilterCapability,
+) -> bool {
+    let column = |expression: &Expr| {
+        plain(expression, table, alias, aliases).filter(|field| {
+            !capability.requires_binary_column()
+                || !field.metadata().contains_key("sutura:text_policy")
+                || Collation::of_field(field).is_binary()
+        })
+    };
+    let against = |expression: &Expr, literal: &Expr| column(expression).is_some_and(|field| literal_of(literal, field));
     match term {
         Expr::BinaryOp {
             left,
@@ -203,7 +219,7 @@ fn cannot_raise(term: &Expr, table: &StatementTable, alias: Option<&Ident>, alia
                 | BinaryOperator::GtEq,
             right,
         } => against(left, right) || against(right, left),
-        Expr::IsNull(column) | Expr::IsNotNull(column) => plain(column, table, alias, aliases).is_some(),
+        Expr::IsNull(expression) | Expr::IsNotNull(expression) => column(expression).is_some(),
         Expr::InList { expr, list, .. } => list.iter().all(|literal| against(expr, literal)),
         Expr::Between { expr, low, high, .. } => against(expr, low) && against(expr, high),
         _ => false,
@@ -365,6 +381,10 @@ fn condition(
     if capability == PrefilterCapability::Oracle && !lob {
         return Ok(None);
     }
+    // Unknown is never binary: a column with no pinned collation fact falls back.
+    if capability.requires_binary_column() && !Collation::of_field(field).is_binary() {
+        return Ok(None);
+    }
     if !policy
         .redactions()
         .iter()
@@ -409,7 +429,7 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
         escape_char: None,
     };
     match capability {
-        PrefilterCapability::DataFusion => Expr::Nested(Box::new(raw)),
+        PrefilterCapability::DataFusion | PrefilterCapability::Postgres => Expr::Nested(Box::new(raw)),
         PrefilterCapability::Oracle => {
             let sort = Expr::Function(Function {
                 name: ObjectName::from(vec![Ident::new("SYS_CONTEXT")]),

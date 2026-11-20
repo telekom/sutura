@@ -251,6 +251,17 @@ impl AdbcPostgres {
         self.loaded(table.as_str(), &path.display().to_string(), &schema.load_statement(table))
     }
 
+    /// Runs fixture statements in this adapter's private schema: what a CSV cannot declare, such as a
+    /// column collation.
+    ///
+    /// # Errors
+    ///
+    /// [`PostgresError::Fixture`] where the server refused them, and the driver's load or connect.
+    #[cfg(feature = "fixtures")]
+    pub fn load_statements(&self, table: &sutura_domain::model::TableName, statements: &str) -> Result<(), PostgresError> {
+        self.loaded(table.as_str(), "<inline statements>", statements)
+    }
+
     #[cfg(feature = "fixtures")]
     fn loaded(&self, table: &str, path: &str, statement: &str) -> Result<(), PostgresError> {
         let fixture = |cause| PostgresError::Fixture {
