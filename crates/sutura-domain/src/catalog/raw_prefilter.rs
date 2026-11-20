@@ -36,7 +36,7 @@ impl PrefilterCapability {
 
     /// Whether this arm may test a column pinned with `collation`. `LIKE` follows a column's
     /// collation, so an arm whose engine binds one per column needs the pin to say byte-wise;
-    /// [`Collation::Unknown`] never does. ClickHouse also requires the explicit binary fact.
+    /// [`Collation::Unknown`] never does. `ClickHouse` also requires the explicit binary fact.
     #[must_use]
     pub const fn admits(self, collation: &Collation) -> bool {
         match self {
