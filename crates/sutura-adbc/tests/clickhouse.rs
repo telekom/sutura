@@ -30,8 +30,8 @@ mod tests {
 
     /// The driver's own spelling of the options the two vendored changes add.
     const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
-    const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
-    const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
+    const TLS_CLIENT_CERT: &str = "clickhouse.client.tls_client_cert";
+    const TLS_CLIENT_KEY: &str = "clickhouse.client.tls_client_key";
     const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
 
     fn mounted() -> ManagedDriver {
@@ -88,9 +88,9 @@ mod tests {
             .expect_err("malformed PEM is refused");
         assert_eq!(malformed.status, Status::InvalidArguments, "{malformed:?}");
 
-        let private_key = || OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned());
+        let private_key = || OptionDatabase::Other(TLS_CLIENT_KEY.to_owned());
         database
-            .set_option(OptionDatabase::Other(MTLS_CERT_CHAIN.to_owned()), bundle.into())
+            .set_option(OptionDatabase::Other(TLS_CLIENT_CERT.to_owned()), bundle.into())
             .expect("a PEM certificate chain is accepted");
         database
             .set_option(private_key(), key.into())
@@ -134,8 +134,8 @@ mod tests {
         let mut options: Vec<(OptionDatabase, OptionValue)> =
             uri.map(|uri| (OptionDatabase::Uri, uri.into())).into_iter().collect();
         if identity {
-            options.push((OptionDatabase::Other(MTLS_CERT_CHAIN.to_owned()), certificate.into()));
-            options.push((OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned()), key.into()));
+            options.push((OptionDatabase::Other(TLS_CLIENT_CERT.to_owned()), certificate.into()));
+            options.push((OptionDatabase::Other(TLS_CLIENT_KEY.to_owned()), key.into()));
         } else {
             options.push((OptionDatabase::Other(TLS_ROOT_CERTS.to_owned()), certificate.into()));
         }
@@ -146,7 +146,7 @@ mod tests {
     /// error that names the setting - and on no URI at all, where the default is `http`.
     #[test]
     fn a_declared_tls_setting_is_refused_on_an_http_uri() {
-        for (identity, setting) in [(false, TLS_ROOT_CERTS), (true, MTLS_CERT_CHAIN)] {
+        for (identity, setting) in [(false, TLS_ROOT_CERTS), (true, TLS_CLIENT_CERT)] {
             let database = database_declaring_tls(Some("http://127.0.0.1:1"), identity);
             let Err(refused) = database.new_connection() else {
                 panic!("{setting} declared over http must be refused when the connection is created");

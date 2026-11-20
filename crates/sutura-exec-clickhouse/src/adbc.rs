@@ -39,8 +39,8 @@ use crate::sum::{self, SlotScale, SumType};
 
 const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
 const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
-const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
-const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
+const TLS_CLIENT_CERT: &str = "clickhouse.client.tls_client_cert";
+const TLS_CLIENT_KEY: &str = "clickhouse.client.tls_client_key";
 const MAX_EXECUTION_TIME: &str = "clickhouse.setting.max_execution_time";
 pub const MOST_RESULT_ROWS: usize = 1_000_000;
 
@@ -301,10 +301,10 @@ impl AdbcClickHouseWarehouse {
                 options.push((OptionDatabase::Other(TLS_ROOT_CERTS.to_owned()), value.clone().into()));
             }
             if let Some(value) = &tls.mtls_cert_chain {
-                options.push((OptionDatabase::Other(MTLS_CERT_CHAIN.to_owned()), value.clone().into()));
+                options.push((OptionDatabase::Other(TLS_CLIENT_CERT.to_owned()), value.clone().into()));
             }
             if let Some(value) = &tls.mtls_private_key {
-                options.push((OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned()), value.clone().into()));
+                options.push((OptionDatabase::Other(TLS_CLIENT_KEY.to_owned()), value.clone().into()));
             }
         }
         driver
