@@ -46,6 +46,7 @@ pub(super) enum PartitionReads {
 
 /// `Ok` for a read as the service user, [`TokenUnread::NotSwitched`] for one as a switched principal: what a kind
 /// that cannot switch answers before it reads.
+#[cfg(any(feature = "postgres", feature = "oracle", test))]
 #[cfg_attr(
     not(feature = "clickhouse"),
     expect(unused_variables, reason = "the source is named only by the switched principal's refusal")
