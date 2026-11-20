@@ -455,4 +455,7 @@ enum ContractViolation {
 }
 
 #[cfg(test)]
+mod collation_tests;
+
+#[cfg(test)]
 mod tests;

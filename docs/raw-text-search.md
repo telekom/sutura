@@ -84,16 +84,30 @@ true. A `char(n)` column is eligible: the view reads it as `text` without the pa
 condition is always `'%needle%'` over an ASCII alphanumeric needle, which padding spaces can
 neither create nor hide.
 
-Pinned text columns now carry a collation fact, `sutura:collation` in the schema's field metadata and
+Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
-collation is never binary; absent means unknown, and unknown is never binary. DataFusion and
-ClickHouse have no per-column collation and pin `binary`. A native Postgres dictionary records the
-column's collation: the database default is `binary` for `LIKE`, because it is always deterministic,
-and so are the built-in `pg_catalog.C` and `pg_catalog.POSIX`. Any other collation is recorded by
-its schema-qualified name and is never binary, including a user schema's own `C`. A Markdown column may declare
-`collation: binary` or a name. That declaration is an authored claim and is trusted as far as its
-author is. Oracle records nothing here, because its check is the run-time `NLS_SORT` above. Only
-PostgreSQL, above, reads the fact to decide eligibility; recording it enables no other engine.
+collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
+only on a column whose declared type the dialect reads as text, never on one that fell back to
+text. DataFusion and ClickHouse have no per-column collation and pin `binary`, over any collation a
+catalog authors for them. A native Postgres dictionary records the column's collation for the
+base types `text`, `varchar`, `bpchar` and `name` only: the database default is `binary` for
+`LIKE`, because it is always deterministic, and so are the built-in `pg_catalog.C` and
+`pg_catalog.POSIX`. Any other collation is recorded by its schema-qualified name and is never
+binary, including a user schema's own `C`. A `citext` column or a domain over text is unknown. A
+Markdown column may declare `collation: binary` or a name. That declaration is an authored claim,
+trusted as far as its author is. Two models over one physical column that pin different known
+collations are refused at pinning, naming the column; an unknown one contradicts nothing. Oracle
+records nothing here, because its check is the run-time `NLS_SORT` above. Only PostgreSQL, above,
+reads the fact to decide eligibility; recording it enables no other engine.
+
+What `binary` does not cover. It holds for `LIKE` and equality, not for ordering under a locale, and
+a type can still change equality: Postgres `bpchar` ignores trailing spaces in `=`. A
+`postgres_fdw` foreign table's `default` is the remote server's default. ClickHouse tables on the
+MySQL engine compare `=`, `<` and `>` on the MySQL server, while `LIKE` stays in ClickHouse.
+DuckDB's global `default_collation` setting can contradict an authored `binary`. Adding the fact
+moves the schema digest of every schema that now carries one, once, at upgrade: any with a
+DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
+before.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
