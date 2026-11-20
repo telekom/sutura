@@ -75,3 +75,24 @@ fn a_replacement_that_differs_only_in_case_never_passes_the_proof_where_a_collat
         "a binary-only arm keeps the exact comparison"
     );
 }
+
+/// `K` is also the Kelvin sign's lowercase, which a case fold of non-ASCII text would match: a
+/// non-ASCII replacement never passes the proof, whatever the collation.
+#[test]
+fn a_non_ascii_replacement_never_passes_the_proof() {
+    let kelvin = "[\u{212A}]";
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%K%'";
+    let statement = Parser::parse_sql(&GenericDialect, sql)
+        .expect("generated SQL parses")
+        .pop()
+        .expect("one statement");
+    for (dialect, collation) in [(TypeDialect::DuckDb, Some("binary")), (TypeDialect::DataFusion, None)] {
+        let table = notes(dialect, collation, kelvin);
+        assert!(
+            discover(&statement, &[table], dialect)
+                .expect("discovery reads the pinned policy")
+                .is_none(),
+            "{dialect:?}"
+        );
+    }
+}
