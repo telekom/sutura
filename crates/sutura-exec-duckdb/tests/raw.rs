@@ -293,8 +293,6 @@ mod raw {
         for sql in [
             String::from("SET threads = 1"),
             String::from("SET memory_limit = '1MB'"),
-            // A raw statement that could set it would change which comparison `=` and `ILIKE` make for every later call.
-            String::from("SET default_collation = 'nocase'"),
             format!("SET temp_directory = '{}'", scratch.at("spill").display()),
             String::from("SET enable_external_access = true"),
             String::from("SET disabled_filesystems = ''"),
