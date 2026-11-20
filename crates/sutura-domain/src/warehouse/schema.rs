@@ -64,6 +64,10 @@ impl PinnedSchemas {
     /// joins to a model on another source - that declares no column type at all. That is a missing
     /// declaration, and not a type to fall back from. A model no relationship federates is pinned
     /// with every column fallen back, and is no table of the SQL tool.
+    ///
+    /// [`NotValidated::CollationDisagreement`] for two models over one physical column that pin
+    /// different known collations. A collation is pinned only on a column whose declared type the
+    /// dialect reads as text, never on one that fell back to `Utf8`.
     pub fn pin(definitions: &Definitions, dialects: &BTreeMap<SourceName, TypeDialect>) -> Result<Self, NotValidated> {
         Self::pin_with_unbounded_numbers(definitions, dialects, &BTreeSet::new())
     }
@@ -102,6 +106,7 @@ impl PinnedSchemas {
             .collect();
         let mut models = BTreeMap::new();
         let mut fell_back = BTreeMap::new();
+        let mut collations = BTreeMap::new();
         for model in definitions.models().values() {
             let Some(dialect) = dialects.get(model.source()) else {
                 continue;
@@ -163,11 +168,20 @@ impl PinnedSchemas {
                         );
                     }
                 }
-                if field.data_type() == &DataType::Utf8 {
-                    dialect
-                        .engine_collation()
-                        .unwrap_or_else(|| column.collation())
-                        .pin_onto(&mut field);
+                if mapped_text && !field.metadata().contains_key("sutura:unbounded_number") {
+                    let collation = dialect.engine_collation().unwrap_or_else(|| column.collation());
+                    if !collation.is_unknown()
+                        && *collations
+                            .entry((model.source(), model.table(), column.name()))
+                            .or_insert(collation)
+                            != collation
+                    {
+                        return Err(NotValidated::CollationDisagreement {
+                            model: model.name().clone(),
+                            column: column.name().clone(),
+                        });
+                    }
+                    collation.pin_onto(&mut field);
                 }
                 fields.push(field);
             }
@@ -383,6 +397,9 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
             .collect(),
     )
 }
+
+#[cfg(test)]
+mod collation_tests;
 
 #[cfg(test)]
 mod tests;
