@@ -10,7 +10,7 @@ use datafusion::sql::sqlparser::ast::{
     BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
     ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
 };
-use sutura_domain::catalog::{PrefilterCapability, TextPolicy};
+use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
@@ -365,11 +365,17 @@ fn condition(
     if capability == PrefilterCapability::Oracle && !lob {
         return Ok(None);
     }
+    if capability.needs_binary_column() && !Collation::of_field(field).is_binary() {
+        return Ok(None);
+    }
+    // A pin is an author's claim. Where the engine can consult a collation, a wrong one must at worst
+    // keep a row, never drop one: needle and replacement are ASCII, so folding case settles every case-insensitive collation.
+    let folded = capability.needs_binary_column();
     if !policy
         .redactions()
         .iter()
-        .all(|rule| preserves(needle, rule.replacement(), upper))
-        || (!lob && policy.max_text_bytes().is_some() && !preserves(needle, "...[truncated]", upper))
+        .all(|rule| preserves(needle, rule.replacement(), upper, folded))
+        || (!lob && policy.max_text_bytes().is_some() && !preserves(needle, "...[truncated]", upper, folded))
     {
         return Ok(None);
     }
@@ -409,7 +415,7 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
         escape_char: None,
     };
     match capability {
-        PrefilterCapability::DataFusion => Expr::Nested(Box::new(raw)),
+        PrefilterCapability::DataFusion | PrefilterCapability::DuckDb => Expr::Nested(Box::new(raw)),
         PrefilterCapability::Oracle => {
             let sort = Expr::Function(Function {
                 name: ObjectName::from(vec![Ident::new("SYS_CONTEXT")]),
@@ -454,7 +460,9 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
 }
 
 /// No occurrence may live inside a replacement or cross either of its nonempty boundaries.
-fn preserves(needle: &str, replacement: &str, upper: bool) -> bool {
+///
+/// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
+fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
     if replacement.is_empty() || !replacement.is_ascii() {
         return false;
     }
@@ -463,10 +471,15 @@ fn preserves(needle: &str, replacement: &str, upper: bool) -> bool {
     } else {
         String::from(replacement)
     };
+    let (needle, normalized) = if folded {
+        (needle.to_ascii_lowercase(), normalized.to_ascii_lowercase())
+    } else {
+        (String::from(needle), normalized)
+    };
     let mut bytes = normalized.bytes();
     let Some(first) = bytes.next() else {
         return false;
     };
     let last = bytes.next_back().unwrap_or(first);
-    !needle.as_bytes().contains(&first) && !needle.as_bytes().contains(&last) && !normalized.contains(needle)
+    !needle.as_bytes().contains(&first) && !needle.as_bytes().contains(&last) && !normalized.contains(&needle)
 }

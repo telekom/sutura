@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod audience;
 mod authored;
 mod calendar;
+mod collation;
 mod consistency;
 mod metric;
 mod pattern;
@@ -38,6 +39,7 @@ pub use authored::{
     MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
 pub use calendar::{InvalidSharedCalendars, SharedCalendars};
+pub use collation::{COLLATION_METADATA_KEY, Collation, CollationName, InvalidCollationName, MAX_COLLATION_NAME_CHARS};
 pub use consistency::{Definitions, InconsistentDefinitions};
 pub use pattern::{
     DictionaryInclude, DictionaryPattern, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection,
@@ -141,6 +143,8 @@ pub struct Column {
     nullable: Option<bool>,
     #[serde(skip_serializing_if = "TextPolicy::is_empty")]
     text: TextPolicy,
+    #[serde(skip_serializing_if = "Collation::is_unknown")]
+    collation: Collation,
 }
 
 /// A column [`Column::from_metadata`] refused: the name it was handed, returned beside the
@@ -171,7 +175,21 @@ impl Column {
             description,
             nullable,
             text: TextPolicy::empty(),
+            collation: Collation::Unknown,
         }
+    }
+
+    /// Records how the source compares this column's text. [`Collation::Unknown`] unless a reader or
+    /// an author said otherwise, and Unknown is never binary.
+    #[must_use]
+    pub fn with_collation(mut self, collation: Collation) -> Self {
+        self.collation = collation;
+        self
+    }
+
+    #[inline]
+    pub const fn collation(&self) -> &Collation {
+        &self.collation
     }
 
     #[must_use]
@@ -858,6 +876,8 @@ pub struct Metric {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod duckdb_capability_tests;
 #[cfg(test)]
 mod prefilter_capability_tests;
 #[cfg(test)]

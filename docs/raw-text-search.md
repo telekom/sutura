@@ -45,14 +45,49 @@ contain no full term, and start and end with characters absent from that term. T
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.
 
-The current eligible comparison arms are DataFusion's binary `LIKE` and Oracle native CLOB/NCLOB
-`LIKE`, with an optional `UPPER` around that column on Oracle. Cube's local policy execution is not
-an eligible arm and keeps redacted-only execution. Oracle
-uses its binary character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary
-`NLS_SORT` permits raw row rejection; every other value, including NULL, retains all rows. No
-session setting is changed. Non-LOB Oracle columns and other source dialects retain redacted-only
-execution because their pinned schemas do not establish binary comparison semantics. This is a
-generic policy with conservative engine eligibility, not universal acceleration.
+The current eligible comparison arms are DataFusion's binary `LIKE`, Oracle native CLOB/NCLOB `LIKE`
+with an optional `UPPER` around that column, and `DuckDB` text pinned `binary`. Cube's local policy
+execution is not an eligible arm and keeps redacted-only execution. Oracle uses its binary
+character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary `NLS_SORT` permits
+raw row rejection; every other value, including NULL, retains all rows. No session setting is
+changed. `DuckDB`'s `LIKE` consults a column's `NOCASE` or `NOACCENT` collation, and `REGEXP_REPLACE`
+over the column keeps it (measured on 2.0.0; an ICU locale or `NFC` collation did not change `LIKE`,
+and neither did `default_collation`). Its catalog views report a collated column as plain `VARCHAR`,
+so the pin is the author's `collation: binary` on that column. A named, unreadable or missing
+collation keeps redacted-only execution. A column declared `binary` that is not is the author's
+error, and no run-time check reads the engine. For this arm the replacement barrier folds ASCII
+case, because the term and every replacement are ASCII and so no case-insensitive collation can make
+a replacement match: a wrong pin on a `NOCASE` column keeps every row. Without that fold a wrong pin
+could drop a row, and which row survived disclosed whether the hidden text held the term. What
+remains is an incomplete answer at most, under collations or DuckDB versions this cell has not
+measured. Non-LOB Oracle columns and other source dialects retain redacted-only execution because
+their pinned schemas do not establish binary comparison semantics. This is a generic policy with
+conservative engine eligibility, not universal acceleration.
+
+Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
+under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
+collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
+only on a column whose declared type the dialect reads as text, never on one that fell back to text.
+DataFusion and ClickHouse have no per-column collation and pin `binary`, over any collation a
+catalog authors for them. A native Postgres dictionary records the column's collation for the base
+types `text`, `varchar`, `bpchar` and `name` only: the database default is `binary` for `LIKE`,
+because it is always deterministic, and so are the built-in `pg_catalog.C` and `pg_catalog.POSIX`.
+Any other collation is recorded by its schema-qualified name and is never binary, including a user
+schema's own `C`. A `citext` column or a domain over text is unknown. A Markdown column may declare
+`collation: binary` or a name. That declaration is an authored claim, trusted as far as its author
+is. Two models over one physical column that pin different known collations are refused at pinning,
+naming the column; an unknown one contradicts nothing. Oracle records nothing here, because its
+check is the run-time `NLS_SORT` above. Only DuckDB uses the fact to enable the raw prefilter, for a
+column an author declares `binary`; recording it enables no other engine.
+
+What `binary` does not cover. It holds for `LIKE` and equality, not for ordering under a locale, and
+a type can still change equality: Postgres `bpchar` ignores trailing spaces in `=`. A `postgres_fdw`
+foreign table's `default` is the remote server's default. ClickHouse tables on the MySQL engine
+compare `=`, `<` and `>` on the MySQL server, while `LIKE` stays in ClickHouse. DuckDB's global
+`default_collation` setting changes `=` and `ILIKE` but not `LIKE` (measured on 2.0.0), and a raw
+statement cannot set it. Adding the fact moves the schema digest of every schema that now carries
+one, once, at upgrade: any with a DataFusion or ClickHouse text column, and any native Postgres
+read. A schema with none hashes as before.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
