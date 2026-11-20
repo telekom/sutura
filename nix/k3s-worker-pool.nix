@@ -6,7 +6,8 @@
 # the idle UID removed. The chart's own policies bound the combining workers and, in a cell with
 # stand-in pods, each reading worker group; only the serving pod's source egress is a venue-only
 # policy, because the chart does not restrict a serving pod's egress. The source stands in for the
-# internet: a second port on it, not a route out, is what a denied connection is measured against.
+# internet: a second port or host on the same network, not a route out, is what a denied connection
+# is measured against.
 { pkgs
 , chartHelm
 , ociImage
@@ -160,7 +161,7 @@ let
     PY
     cp ${sourceTls dbHost}/ca.pem "$out/postgres-ca.pem"
   '';
-  network = import ./k3s-worker-pool-network.nix { inherit pkgs chart; };
+  network = import ./k3s-worker-pool-network.nix { inherit pkgs chart chartHelm; };
   files = {
     kind = "files";
     data_dir = "/srv/sutura/data";
@@ -359,6 +360,18 @@ pkgs.testers.runNixOSTest {
       serviceConfig.ExecStart = "${pkgs.python3}/bin/python -m http.server 5433 --bind 0.0.0.0";
     };
   };
+  # A second source host, on the first's port, so a group's declared address is what separates it.
+  nodes.db2 = {
+    virtualisation.memorySize = 512;
+    networking = {
+      firewall.allowedTCPPorts = [ 5432 ];
+      enableIPv6 = false;
+    };
+    systemd.services.source-two = {
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig.ExecStart = "${pkgs.python3}/bin/python -m http.server 5432 --bind 0.0.0.0";
+    };
+  };
   nodes.machine = {
     imports = [ k3sNodeAddresses ];
     virtualisation = {
@@ -412,6 +425,7 @@ pkgs.testers.runNixOSTest {
 
     HOSTS = {"machine": machine, "agent1": agent1, "agent2": agent2}
     SOURCE = "${nodes.db.networking.primaryIPAddress}"
+    SOURCE_TWO = "${nodes.db2.networking.primaryIPAddress}"
     CEILING_KEY = "SUTURA__RUNTIME__WORKING_SET_MAX_BYTES"
     WORKERS = "app.kubernetes.io/name=sutura-worker,app.kubernetes.io/instance=sutura"
     SERVING = "app.kubernetes.io/name=sutura,app.kubernetes.io/instance=sutura"
@@ -622,12 +636,16 @@ pkgs.testers.runNixOSTest {
         return records
 
 
-    ${network.script nodes.db.networking.primaryIPAddress}
+    ${network.script {
+      dbHost = nodes.db.networking.primaryIPAddress;
+      dbTwoHost = nodes.db2.networking.primaryIPAddress;
+    }}
 
 
     start_all()
     db.wait_for_unit("postgresql")
     db.wait_for_unit("source-control")
+    db2.wait_for_unit("source-two")
     machine.wait_for_unit("k3s")
     machine.wait_until_succeeds("kubectl get serviceaccount default", timeout=300)
     for host in HOSTS.values():

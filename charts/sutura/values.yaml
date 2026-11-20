@@ -170,7 +170,8 @@ readingWorkers:
   #   resources:          CPU and memory limits and requests for each pod.
   #   egress:             Where the group's pods may connect, as `{cidr, port}` entries - each source's
   #                       own address and port. Required when `networkPolicy.enabled` is set: the group's
-  #                       policy admits those entries and DNS and nothing else. A `/0` prefix is refused.
+  #                       policy admits those entries, DNS and this release's nodes. The literal `/0`
+  #                       prefix is refused; any wider range is the operator's decision.
   #   extraVolumes,
   #   extraVolumeMounts:  What the group's sources read, such as a credential Secret. The release's
   #                       own `extraVolumes`, `extraVolumeMounts` and `extraEnv` never reach a group.
@@ -251,10 +252,11 @@ extraEnv: []
 
 # NetworkPolicies for the serving, worker, reading worker and operator pods
 # (github.com/telekom/sutura#1680 finding 6). One policy per reading worker group, so a group holds
-# no route to a source another group reads. Off by default: this chart cannot tell whether the cluster's CNI enforces
-# NetworkPolicy, or whether something it cannot see - a service mesh, an ingress controller in
-# another namespace, a scrape target - already depends on reachability these rules would remove,
-# so enabling it is a decision for the operator who knows the cluster, not this chart's default.
+# no route to a source another group reads; the release's nodes reach one another on the service
+# port. Off by default: this chart cannot tell whether the cluster's CNI enforces NetworkPolicy, or
+# whether something it cannot see - a service mesh, an ingress controller in another namespace, a
+# scrape target - already depends on reachability these rules would remove, so enabling it is a
+# decision for the operator who knows the cluster, not this chart's default.
 networkPolicy:
   enabled: false
 

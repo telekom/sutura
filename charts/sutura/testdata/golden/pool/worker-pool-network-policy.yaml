@@ -27,7 +27,7 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# Workers answer this release's serving pods, each other and the operator's metric scrapes.
+# Workers answer this release's nodes and the operator's metric scrapes.
 # Metrics share the node port; their bearer check and the worker transport's client certificate
 # check still decide which operations an allowed peer may call.
 apiVersion: networking.k8s.io/v1
@@ -67,9 +67,9 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# A combining worker holds no source, so it needs no address outside this release: it dials the
-# serving pods that sent it a stage, its siblings and, when groups are declared, the reading
-# workers. DNS stays open because this chart does not know the cluster resolver's address.
+# A combining worker holds no source, so it needs no address outside this release: it dials this
+# release's nodes on the service port and nothing else. DNS stays open because this chart does not
+# know the cluster resolver's address.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

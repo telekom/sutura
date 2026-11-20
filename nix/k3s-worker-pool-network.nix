@@ -1,12 +1,13 @@
 # The network probes of `k3s-worker-pool.nix` that read a chart policy: a connection test from inside
 # a pod's network namespace, the delete-observe-restore control that attributes a denial to one
 # policy, and the cell that checks the chart's per-group reading worker policies over stand-in pods.
-{ pkgs, chart }:
+{ pkgs, chart, chartHelm }:
 let
-  # Two reading worker groups over the one source host, each declaring its own port: what the
-  # chart's per-group policy is rendered from, as release `rw`, so no real reader starts.
+  # Two reading worker groups, each declaring the address of its own source host on the same port:
+  # what the chart's policies and pod labels are rendered from, as release `rw`, so no real reader
+  # starts.
   values =
-    dbHost:
+    { dbHost, dbTwoHost }:
     let
       source = name: {
         kind = "files";
@@ -14,12 +15,12 @@ let
         posture = "shared-service-user";
         acknowledged_because = "a directory this deployment owns";
       };
-      group = name: port: {
+      group = name: host: {
         sources = [ name ];
         egress = [
           {
-            cidr = "${dbHost}/32";
-            inherit port;
+            cidr = "${host}/32";
+            port = 5432;
           }
         ];
         catalogs = [
@@ -46,8 +47,8 @@ let
         };
         networkPolicy.enabled = true;
         readingWorkers.groups = {
-          a = group "a" 5432;
-          b = group "b" 5433;
+          a = group "a" dbHost;
+          b = group "b" dbTwoHost;
         };
         config.base = {
           security = {
@@ -66,11 +67,50 @@ let
         };
       }
     );
+  # The pod labels of the serving, combining and reading Deployments as the chart renders them, so
+  # a label the chart changes reaches the stand-in pods and the policies stop matching them.
+  labels =
+    hosts:
+    pkgs.runCommand "k3s-worker-pool-reading-labels"
+      {
+        nativeBuildInputs = [
+          chartHelm
+          (pkgs.python3.withPackages (ps: [ ps.pyyaml ]))
+        ];
+      }
+      ''
+        export HOME="$TMPDIR"
+        helm template rw ${chart} -f ${values hosts} \
+          --show-only templates/deployment.yaml \
+          --show-only templates/worker-pool.yaml \
+          --show-only templates/reading-workers.yaml > rendered.yaml
+        python - rendered.yaml > "$out" <<'PY'
+        import json
+        import sys
+
+        import yaml
+
+        found = {"readers": {}}
+        for doc in yaml.safe_load_all(open(sys.argv[1])):
+            if not doc or doc["kind"] != "Deployment":
+                continue
+            name = doc["metadata"]["name"]
+            pod = doc["spec"]["template"]["metadata"]["labels"]
+            if name == "rw":
+                found["serving"] = pod
+            elif name == "rw-workers":
+                found["worker"] = pod
+            elif name.startswith("rw-reading-"):
+                found["readers"][name.removeprefix("rw-reading-")] = pod
+        assert set(found) == {"serving", "worker", "readers"} and set(found["readers"]) == {"a", "b"}, found
+        json.dump(found, sys.stdout)
+        PY
+      '';
 in
 {
   # The Python the test script splices in; it reads the script's own `machine`, `HOSTS`, `SOURCE`,
   # `get`, `apply`, `eventually`, `identity` and `evidence`.
-  script = dbHost: ''
+  script = hosts: ''
     def namespace(pod):
         host = HOSTS[pod["spec"]["nodeName"]]
         sandboxes = json.loads(host.succeed("k3s crictl pods -o json"))["items"]
@@ -112,17 +152,17 @@ in
 
 
     def reading_groups(pause):
-        # Stand-in pods carry the labels of each role of a release `rw` - no reading worker
-        # process starts - and the policies are the chart's own render for two groups, each
-        # declaring one port of the source host. The source's other port stands in for another
-        # group's source; nothing here probes the internet.
-        release = {"app.kubernetes.io/instance": "rw", "fixture-stand-in": "true"}
-        reading = {"app.kubernetes.io/name": "sutura-reading-worker", **release}
+        # Stand-in pods carry the labels the chart renders for each role of a release `rw` - no
+        # reading worker process starts - and the policies are the chart's own render for two
+        # groups, each declaring a different source host on the same port. Nothing here probes
+        # the internet, and no question runs through a reader.
+        rendered = json.load(open("${labels hosts}"))
+        marked = lambda labels: {**labels, "fixture-stand-in": "true"}
         roles = {
-            "rw-serving": ("machine", {"app.kubernetes.io/name": "sutura", **release}),
-            "rw-worker": ("machine", {"app.kubernetes.io/name": "sutura-worker", **release}),
-            "rw-reader-a": ("agent1", {**reading, "app.kubernetes.io/component": "a"}),
-            "rw-reader-b": ("agent2", {**reading, "app.kubernetes.io/component": "b"}),
+            "rw-serving": ("machine", marked(rendered["serving"])),
+            "rw-worker": ("machine", marked(rendered["worker"])),
+            "rw-reader-a": ("agent1", marked(rendered["readers"]["a"])),
+            "rw-reader-b": ("agent2", marked(rendered["readers"]["b"])),
             "rw-outsider": ("agent1", {"fixture-stand-in": "true"}),
         }
         listeners = []
@@ -140,51 +180,43 @@ in
                 listeners.append(host)
             dns = get("service/kube-dns", "kube-system")["spec"]["clusterIP"]
             a, b = stand["rw-reader-a"], stand["rw-reader-b"]
+            serving, worker, outsider = stand["rw-serving"], stand["rw-worker"], stand["rw-outsider"]
             # Control before any policy: every path below is open, so a later denial is a policy's.
             for origin, address, port in [
-                (a, SOURCE, 5432), (a, SOURCE, 5433), (b, SOURCE, 5432), (b, SOURCE, 5433),
-                (stand["rw-outsider"], address_of["rw-reader-a"], 8080),
-                (b, address_of["rw-reader-a"], 8080), (a, address_of["rw-reader-b"], 8080),
-                (stand["rw-worker"], SOURCE, 5432),
+                (a, SOURCE, 5432), (a, SOURCE_TWO, 5432), (b, SOURCE, 5432), (b, SOURCE_TWO, 5432),
+                (outsider, address_of["rw-reader-a"], 8080),
+                (worker, SOURCE, 5432), (worker, SOURCE_TWO, 5432),
             ]:
                 assert tcp(origin, address, port), (origin["metadata"]["name"], address, port)
-            machine.succeed("helm template rw ${chart} -f ${values dbHost} "
+            machine.succeed("helm template rw ${chart} -f ${values hosts} "
                             "--show-only templates/networkpolicy.yaml | kubectl apply -f -")
             assert {"rw-reading-a", "rw-reading-b", "rw-workers-egress"} <= {
                 p["metadata"]["name"] for p in get("networkpolicies")["items"]}
-            eventually(lambda: not tcp(a, SOURCE, 5433), 30)
-            # What each group may still do.
+            eventually(lambda: not tcp(a, SOURCE_TWO, 5432), 30)
+            # What stays open: the release's nodes reach one another on the service port, another
+            # group's readers included, each group reaches its own source, and DNS answers.
             for origin, address, port in [
-                (stand["rw-serving"], address_of["rw-reader-a"], 8080),
-                (stand["rw-worker"], address_of["rw-reader-a"], 8080),
-                (stand["rw-serving"], address_of["rw-reader-b"], 8080),
-                (stand["rw-worker"], address_of["rw-reader-b"], 8080),
-                (a, SOURCE, 5432), (b, SOURCE, 5433), (a, dns, 53), (b, dns, 53),
-                (stand["rw-worker"], address_of["rw-serving"], 8080),
+                (serving, address_of["rw-reader-a"], 8080), (serving, address_of["rw-reader-b"], 8080),
+                (worker, address_of["rw-reader-a"], 8080), (worker, address_of["rw-reader-b"], 8080),
+                (a, address_of["rw-reader-b"], 8080), (b, address_of["rw-reader-a"], 8080),
+                (a, address_of["rw-serving"], 8080), (b, address_of["rw-worker"], 8080),
+                (worker, address_of["rw-serving"], 8080),
+                (a, SOURCE, 5432), (b, SOURCE_TWO, 5432), (a, dns, 53), (b, dns, 53),
             ]:
                 assert tcp(origin, address, port), (origin["metadata"]["name"], address, port)
-            # Each group's egress is its own: neither reaches the other's source.
-            denied_with_control(a, SOURCE, 5433, "rw-reading-a")
+            # Each group's source egress is its own: the other group's source is a different
+            # address on the same port, and neither group reaches it.
+            denied_with_control(a, SOURCE_TWO, 5432, "rw-reading-a")
             denied_with_control(b, SOURCE, 5432, "rw-reading-b")
             # A pod outside the release is not admitted by a group's ingress.
-            denied_with_control(stand["rw-outsider"], address_of["rw-reader-a"], 8080, "rw-reading-a")
-            # Another group's reader is not admitted either. With the other group's policy gone,
-            # its pod is unbounded, so the denial is group a's ingress alone.
-            other = saved_policy("rw-reading-b")
-            machine.succeed("kubectl delete networkpolicy rw-reading-b")
-            try:
-                eventually(lambda: tcp(b, SOURCE, 5432), 30)
-                denied_with_control(b, address_of["rw-reader-a"], 8080, "rw-reading-a")
-            finally:
-                apply(other)
-            eventually(lambda: not tcp(b, SOURCE, 5432), 30)
-            # A combining worker holds no source, so the chart's egress denies it both ports.
-            for port in [5432, 5433]:
-                denied_with_control(stand["rw-worker"], SOURCE, port, "rw-workers-egress")
+            denied_with_control(outsider, address_of["rw-reader-a"], 8080, "rw-reading-a")
+            # A combining worker holds no source, so the chart's egress denies it both.
+            for address in [SOURCE, SOURCE_TWO]:
+                denied_with_control(worker, address, 5432, "rw-workers-egress")
             evidence["reading-groups"] = {
                 "policies": [get("networkpolicy/" + name)["spec"] for name in
                              ["rw-reading-a", "rw-reading-b", "rw-workers-egress"]],
-                "limit": "stand-in pods and the chart's rendered policies; no reading worker process, no internet destination"}
+                "limit": "stand-in pods with the chart's rendered labels and policies; no reading worker process runs a question, and no internet destination is probed"}
         finally:
             for host in listeners:
                 host.execute("pkill -f 'nc -lk 8080'")

@@ -241,6 +241,29 @@ setting beside the pool's would be dropped without a word, as the pool's node ce
 {{- end -}}
 
 {{/*
+The nodes of this release that dial one another on the service port: the serving pods, the combining
+workers and, once groups are declared, every group's reading workers. A stage's join input is read
+from another node, so a policy that limited one group's readers to their own group would break a
+question; the isolation between groups is on egress to a source, not on the node links.
+*/}}
+{{- define "sutura.nodePeers" -}}
+{{- $name := include "sutura.name" . -}}
+- podSelector:
+    matchLabels:
+      {{- include "sutura.selectorLabels" . | nindent 6 }}
+- podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Values.readingWorkers.groups }}
+- podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-reading-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end -}}
+
+{{/*
 The reading worker groups' own guards, outside the posture guard: they read nothing the binary
 reads from the serving pod's settings, so the worker pool's node certificate and the group's name
 and catalog are the chart's to refuse.

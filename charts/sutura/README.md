@@ -123,7 +123,7 @@ The chart refuses a render that the binary would refuse to start:
 - no `security.inbound.mode`: a lookup leg a reading worker reads is granted for a verified caller;
 - a group that names no source, or a source `sources` does not declare;
 - a group with no `catalogs`, a group name that is not a DNS label, and `readingWorkers.groups` without `workerPool.enabled`;
-- with `networkPolicy.enabled`, a group with no `egress`, an `egress` entry that is not a `{cidr, port}` pair, and a `cidr` with a `/0` prefix.
+- with `networkPolicy.enabled`, a group with no `egress`, an `egress` entry that is not a `{cidr, port}` pair, and a `cidr` with a `/0` prefix (only that literal prefix).
 
 Limits.
 The chart deploys the nodes and names them; what a served question reads on them is the binary's, and [Serving over HTTP](https://telekom.github.io/sutura/latest/serving/) states it for each release.
@@ -132,19 +132,23 @@ The chart cannot check that a source's connection settings are right or that a g
 A group's `catalogs` is written out for the group and is not checked against the serving pod's own catalog.
 The group keeps the release's `serviceAccount`, `nodeSelector`, `affinity` and `tolerations`.
 The group's mounted Secret is readable by every process in the group's pod, which is why the credentials of a source belong in the group that reads it and in no other.
-With `networkPolicy.enabled: true`, each group gets its own policy: its pods accept their port from the serving pods and the combining workers only, never from another group's readers, and connect only to DNS and the `egress` addresses the group declares, one `{cidr, port}` per source.
+With `networkPolicy.enabled: true`, each group gets its own policy.
+Its pods reach this release's nodes - the serving pods, the combining workers and every group's reading workers - on the service port, because a stage reads join inputs from other nodes, another group's readers included.
+They reach a data source only at the `egress` addresses the group declares, one `{cidr, port}` per source, plus DNS.
+The isolation between groups is therefore on egress to a source, not on the node links.
 The policy bounds the address and port. It does not check that a source's `host` resolves to a declared address, and it does not stop a pod reaching a declared address for another purpose.
+The chart refuses a `cidr` that is literally `/0` and nothing wider than that check: two `/1` entries pass, so a wide range is the operator's decision.
 
 ## Network policy
 
 `networkPolicy.enabled: true` adds `NetworkPolicy` objects for the serving, worker, reading worker and
-operator pods (github.com/telekom/sutura#1680 finding 6): workers accept their port only from this
-release's serving pods, each other and the operator's scrapes, and connect only to the serving pods,
-each other, the reading workers and DNS; each reading worker group accepts its port from the serving
-pods and the combining workers and connects only to DNS and its declared `egress`; the operator's
-egress is limited to this release's pods, DNS and the Kubernetes API's common ports; and serving pods
-get an additive policy that keeps their port reachable even if the namespace later adds a
-default-deny policy.
+operator pods (github.com/telekom/sutura#1680 finding 6). Workers accept their port from this
+release's nodes and the operator's scrapes. A combining worker connects only to this release's nodes
+on the service port and to DNS, so it reaches no data source (breaking: a combining worker had no
+egress limit before). Each reading worker group connects to the release's nodes, DNS and its declared
+`egress` addresses only. The operator's egress is limited to this release's pods, DNS and the
+Kubernetes API's common ports, and serving pods get an additive policy that keeps their port
+reachable even if the namespace later adds a default-deny policy.
 **Off by default** - the chart cannot tell whether the cluster's CNI enforces `NetworkPolicy`, or
 whether something outside the chart's view (a service mesh, a cross-namespace ingress controller, a
 scrape target) already depends on reachability these rules would remove. Judge against the

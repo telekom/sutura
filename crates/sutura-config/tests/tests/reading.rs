@@ -191,13 +191,13 @@ fn peer_names<'a>(rule: &'a Value, direction: &str) -> Vec<&'a str> {
         .collect()
 }
 
-/// The destinations of every egress rule after the DNS rule, as the address block and port each names.
+/// The destinations of every egress rule after the node-link and DNS rules, as the address block and port each names.
 fn declared_destinations(policy: &Value) -> Vec<(String, u64)> {
     policy["spec"]["egress"]
         .as_sequence()
         .expect("an egress list")
         .iter()
-        .skip(1)
+        .skip(2)
         .map(|rule| {
             assert_eq!(
                 rule["to"].as_sequence().map(Vec::len),
@@ -221,11 +221,14 @@ fn declared_destinations(policy: &Value) -> Vec<(String, u64)> {
 }
 
 /// Each group has a policy of its own. It selects the labels that group's pods carry and no other
-/// group's, admits the serving pods and the combining workers and never a reading worker, and lets
-/// the pods connect to DNS and the addresses the group declares - nothing a sibling group declares.
+/// group's. The release's nodes - serving pods, combining workers and every group's readers - reach
+/// it, and it reaches them, on the service port, because a stage reads join inputs from other nodes.
+/// What it isolates is a data source: it connects to DNS and the addresses the group declares, and
+/// nothing a sibling group declares.
 #[test]
-fn each_reading_group_has_its_own_policy_admitting_serving_and_combining_pods_and_its_own_source() {
+fn each_reading_group_has_its_own_policy_with_node_links_and_only_its_own_source() {
     let docs = reading_docs("reading-workers-network-policy");
+    let nodes = ["sutura", "sutura-worker", "sutura-reading-worker"];
     for (group, others, destinations) in [
         ("orders", "finance", vec![(String::from("192.0.2.10/32"), 5432)]),
         (
@@ -262,13 +265,14 @@ fn each_reading_group_has_its_own_policy_admitting_serving_and_combining_pods_an
         );
         let ingress = policy["spec"]["ingress"].as_sequence().expect("an ingress list");
         assert_eq!(ingress.len(), 1, "{group}");
-        assert_eq!(peer_names(&ingress[0], "from"), ["sutura", "sutura-worker"], "{group}");
+        assert_eq!(peer_names(&ingress[0], "from"), nodes, "{group}");
         let egress = policy["spec"]["egress"].as_sequence().expect("an egress list");
+        assert_eq!(peer_names(&egress[0], "to"), nodes, "{group}");
         assert!(
-            egress[0].get("to").is_none(),
-            "{group}: the first rule is DNS for any destination"
+            egress[1].get("to").is_none(),
+            "{group}: the second rule is DNS for any destination"
         );
-        let dns: Vec<u64> = egress[0]["ports"]
+        let dns: Vec<u64> = egress[1]["ports"]
             .as_sequence()
             .expect("DNS ports")
             .iter()
@@ -279,11 +283,16 @@ fn each_reading_group_has_its_own_policy_admitting_serving_and_combining_pods_an
     }
 }
 
-/// A combining worker holds no source, so its egress is the serving pods, its siblings, the reading
-/// workers and DNS - and no address block.
+/// A combining worker holds no source, so its egress is this release's nodes and DNS - and no address
+/// block - and its ingress admits the reading workers that read a join input from it.
 #[test]
-fn the_combining_workers_egress_names_this_releases_pods_and_dns_only() {
+fn the_combining_workers_admit_the_nodes_and_reach_only_the_nodes_and_dns() {
     let docs = reading_docs("reading-workers-network-policy");
+    let ingress = named(&docs, "NetworkPolicy", "test-release-workers")["spec"]["ingress"][0].clone();
+    assert_eq!(
+        peer_names(&ingress, "from"),
+        ["sutura", "sutura-worker", "sutura-reading-worker", "sutura-operator"]
+    );
     let policy = named(&docs, "NetworkPolicy", "test-release-workers-egress");
     assert_eq!(
         policy["spec"]["policyTypes"],

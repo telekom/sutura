@@ -27,7 +27,7 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# Workers answer this release's serving pods, each other and the operator's metric scrapes.
+# Workers answer this release's nodes and the operator's metric scrapes.
 # Metrics share the node port; their bearer check and the worker transport's client certificate
 # check still decide which operations an allowed peer may call.
 apiVersion: networking.k8s.io/v1
@@ -59,6 +59,10 @@ spec:
               app.kubernetes.io/instance: test-release
         - podSelector:
             matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
               app.kubernetes.io/name: sutura-operator
               app.kubernetes.io/instance: test-release
       ports:
@@ -67,9 +71,9 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# A combining worker holds no source, so it needs no address outside this release: it dials the
-# serving pods that sent it a stage, its siblings and, when groups are declared, the reading
-# workers. DNS stays open because this chart does not know the cluster resolver's address.
+# A combining worker holds no source, so it needs no address outside this release: it dials this
+# release's nodes on the service port and nothing else. DNS stays open because this chart does not
+# know the cluster resolver's address.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -112,11 +116,12 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# Reading workers of group finance answer this release's serving pods and combining workers,
-# never another group's readers, and dial only the addresses the group declares under `egress`
-# plus DNS. One policy per group: the pods are selected by the group's own label, so a group holds
-# no route to a source another group reads. STATED LIMIT: the destination is the declared address
-# and port, and nothing here checks that a source's `host` names that address.
+# Reading workers of group finance reach this release's nodes on the service port, as every node
+# does - another group's readers and the combining workers serve join inputs a stage reads - and
+# reach a data source only at the addresses the group declares under `egress`, plus DNS. One policy
+# per group: the pods are selected by the group's own label, so a group holds no route to a source
+# another group reads. STATED LIMIT: the destination is the declared address and port, and nothing
+# here checks that a source's `host` names that address.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -146,10 +151,30 @@ spec:
             matchLabels:
               app.kubernetes.io/name: sutura-worker
               app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
       ports:
         - port: 8080
           protocol: TCP
   egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
     - ports:
         - port: 53
           protocol: UDP
@@ -170,11 +195,12 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# Reading workers of group orders answer this release's serving pods and combining workers,
-# never another group's readers, and dial only the addresses the group declares under `egress`
-# plus DNS. One policy per group: the pods are selected by the group's own label, so a group holds
-# no route to a source another group reads. STATED LIMIT: the destination is the declared address
-# and port, and nothing here checks that a source's `host` names that address.
+# Reading workers of group orders reach this release's nodes on the service port, as every node
+# does - another group's readers and the combining workers serve join inputs a stage reads - and
+# reach a data source only at the addresses the group declares under `egress`, plus DNS. One policy
+# per group: the pods are selected by the group's own label, so a group holds no route to a source
+# another group reads. STATED LIMIT: the destination is the declared address and port, and nothing
+# here checks that a source's `host` names that address.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -204,10 +230,30 @@ spec:
             matchLabels:
               app.kubernetes.io/name: sutura-worker
               app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
       ports:
         - port: 8080
           protocol: TCP
   egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
     - ports:
         - port: 53
           protocol: UDP
