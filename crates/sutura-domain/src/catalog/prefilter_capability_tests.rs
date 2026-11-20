@@ -4,21 +4,37 @@ use super::PrefilterCapability;
 use crate::warehouse::schema::TypeDialect;
 
 #[test]
+
+#[expect(
+    clippy::match_same_arms,
+    reason = "one arm per dialect, so a new dialect must be decided here"
+)]
 fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
-    let capable = [
-        (TypeDialect::DataFusion, PrefilterCapability::DataFusion),
-        (TypeDialect::Oracle, PrefilterCapability::Oracle),
-    ];
-    for (dialect, capability) in capable {
-        assert_eq!(PrefilterCapability::of(dialect), Some(capability), "{dialect:?}");
-    }
+    // One arm per dialect and no wildcard: a new dialect is a compile error here until it is decided.
     for dialect in [
         TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+
         TypeDialect::Cube,
         TypeDialect::Postgres,
         TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
+<<<<<<< HEAD
     ] {
         assert_eq!(PrefilterCapability::of(dialect), None, "{dialect:?}");
+=======
+        TypeDialect::Oracle,
+    ] {
+        let carries = match dialect {
+            TypeDialect::DuckDb => false,
+            TypeDialect::DataFusion => true,
+            TypeDialect::Cube => false,
+            TypeDialect::Postgres => true,
+            TypeDialect::ClickHouse => false,
+            TypeDialect::BigQuery => false,
+            TypeDialect::Oracle => true,
+        };
+        assert_eq!(PrefilterCapability::of(dialect).is_some(), carries, "{dialect:?}");
+>>>>>>> b691bf5e4 (test(sql): decide every dialect's prefilter arm in one exhaustive match)
     }
 }

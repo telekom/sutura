@@ -353,10 +353,24 @@ where
 }
 
 
-/// The combiner's own capability, so a dialect it enables is expected here without a second list.
-fn prefilter_capable(dialect: TypeDialect) -> bool {
-    // PostgreSQL is a literal here: an expectation read from `of` alone would vanish with the arm.
-    PrefilterCapability::of(dialect).is_some() || dialect == TypeDialect::Postgres
+/// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
+///
+/// One arm per dialect and no wildcard, so a new dialect must be decided here, and the expectation is
+/// never read from the capability it checks.
+#[expect(
+    clippy::match_same_arms,
+    reason = "one arm per dialect, so a new dialect must be decided here"
+)]
+const fn prefilter_capable(dialect: TypeDialect) -> bool {
+    match dialect {
+        TypeDialect::DuckDb => false,
+        TypeDialect::DataFusion => true,
+        TypeDialect::Cube => false,
+        TypeDialect::Postgres => true,
+        TypeDialect::ClickHouse => false,
+        TypeDialect::BigQuery => false,
+        TypeDialect::Oracle => true,
+    }
 
 }
 
