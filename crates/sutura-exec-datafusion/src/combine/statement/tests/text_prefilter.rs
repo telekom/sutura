@@ -401,7 +401,6 @@ fn bigquery_takes_the_raw_condition_only_over_a_column_pinned_binary() {
     }
 }
 
-
 /// `table` with its text column pinned under `collation`, as pinning would have written it.
 fn collated(table: &StatementTable, collation: Option<&str>) -> StatementTable {
     let fields = table

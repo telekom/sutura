@@ -17,7 +17,6 @@ use super::*;
 #[path = "text_prefilter/collation.rs"]
 mod collation;
 
-
 // The causality base run restores the domain before this test file is compiled. Keep the fixture
 // helper buildable there; branch-provided inherent methods take precedence on the real run.
 #[expect(dead_code, reason = "only the causality base compilation uses this fallback")]
@@ -39,7 +38,6 @@ trait PinCollationFixture {
 impl PinCollationFixture for sutura_domain::catalog::Collation {
     fn pin_onto(&self, _field: &mut Field) {}
 }
-
 
 /// Fixture setup belongs only to the golden target that exercises it.
 pub(super) trait TextFixture: DataSystemUnderTest {
@@ -381,8 +379,10 @@ where
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::BigQuery | TypeDialect::ClickHouse)
-
+    matches!(
+        dialect,
+        TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::BigQuery | TypeDialect::ClickHouse
+    )
 }
 
 /// How many times the statements the source received search for `term`.
