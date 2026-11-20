@@ -60,3 +60,31 @@ does not establish a speedup. Native measurements must report actual row count, 
 baseline query time and opted-in query time separately, along with exact result equality and
 hidden-secret probes. They describe their engine version and fixture, not a production latency
 guarantee.
+
+## Narrowing a Cube search
+
+Cube cannot apply a text policy, so the engine applies it over the raw rows Cube answers, and a
+Cube answer holds at most 10,000 rows. A search over a protected Cube table that reads more than
+that could not answer even with a narrowing filter. Cube is therefore sent the part of the `WHERE`
+that reads no policy column. This needs no declaration, and it adds no raw condition on a policy
+column.
+
+A conjunct is sent only when it is one of these, over a column that carries no text policy:
+
+- a text column equal to a text literal, or in a list of text literals;
+- `IS NULL` or `IS NOT NULL` of any such column;
+- an `AND` or `OR` of those, because the engine spells a short `IN` list as an `OR`.
+
+Every other conjunct stays local, over the masked text: any conjunct that reads a policy column, a
+text order or inequality, `LIKE`, a number, a time or a boolean, and anything with a function, cast,
+arithmetic, `NOT` or subquery, and an `OR` with one such side. The limit is deliberate. Cube
+compares text by its warehouse's collation and holds numbers at their own precision, so only the listed forms cannot make Cube
+answer fewer rows than the engine would keep. A conjunct that raises at Cube on a row the local plan
+would not reach changes which statements fail, so none that can raise is sent.
+
+Each sent conjunct also stays in the local filter, above the policy, so a Cube that answers more
+rows than the conjunct selects is corrected. A Cube that answers fewer is not, and nothing here
+proves that none does: the listed forms are chosen so that equal text is equal under any collation,
+and the proof of that is by reading, not by a Cube run. The 10,000-row cap, the memory budget and
+the deadline still apply to what comes back, so a filter that leaves more than 10,000 rows, or a
+search whose only condition reads the policy column, still cannot answer.
