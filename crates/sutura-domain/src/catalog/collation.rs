@@ -144,7 +144,6 @@ impl Collation {
     /// The pin writes the fact only for a column the dialect reads as text, from the catalog's
     /// column or the dialect. Public for the cells that build a pinned field outside the domain: the
     /// `BigQuery` golden `text_prefilter` cell and the combiner's prefilter unit test.
-
     pub fn pin_onto(&self, field: &mut arrow_schema::Field) {
         if let Some(text) = self.encoded() {
             field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), text);
