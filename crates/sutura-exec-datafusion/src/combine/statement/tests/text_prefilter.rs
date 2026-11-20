@@ -243,7 +243,7 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     }
     let clickhouse = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
     assert!(
-        raw_predicates(sql, collated(&clickhouse, Some("binary")))
+        raw_predicates(sql, collated(&clickhouse, &[("BODY", "binary")]))
             .iter()
             .any(Option::is_some),
         "ClickHouse takes the new binary-column arm"
@@ -454,41 +454,21 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
     }
 }
 
-/// `table` with its text column pinned under `collation`, as pinning would have written it.
-fn collated(table: &StatementTable, collation: Option<&str>) -> StatementTable {
-    let fields = table
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| {
-            let mut metadata = field.metadata().clone();
-            if field.name() == "BODY"
-                && let Some(collation) = collation
-            {
-                drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
-            }
-            field.as_ref().clone().with_metadata(metadata)
-        })
-        .collect::<Vec<_>>();
-    StatementTable::new(
-        table.source().clone(),
-        table.table().clone(),
-        table.dialect(),
-        Arc::new(Schema::new(fields)),
-    )
-}
-
 #[test]
 fn clickhouse_prefilters_a_binary_column_with_the_stored_column_named_through_its_table() {
     let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     let base = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
-    let conditions = raw_predicates(sql, collated(&base, Some("binary")));
+    let conditions = raw_predicates(sql, collated(&base, &[("BODY", "binary")]));
     let [Some(condition)] = conditions.as_slice() else {
         panic!("one raw necessary condition: {conditions:?}");
     };
     assert_eq!(condition.to_string(), "(`notes`.`BODY` LIKE '%TERM%')");
-    let rewritten = super::super::text::apply(String::from(sql), &[collated(&base, Some("binary"))], TypeDialect::ClickHouse)
-        .expect("a protected table rewrites");
+    let rewritten = super::super::text::apply(
+        String::from(sql),
+        &[collated(&base, &[("BODY", "binary")])],
+        TypeDialect::ClickHouse,
+    )
+    .expect("a protected table rewrites");
     assert!(
         rewritten.contains("FROM \"notes\" WHERE (`notes`.`BODY` LIKE '%TERM%')) AS `notes`"),
         "the condition filters the stored table inside the view: {rewritten}"
