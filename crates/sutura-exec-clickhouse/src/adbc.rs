@@ -11,9 +11,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+#[cfg(feature = "fixtures")]
+use adbc_core::Optionable as _;
 use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement};
-use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
+use adbc_core::{Connection as _, Database as _, Driver as _, Statement as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
 use arrow_array::{Array, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
 use arrow_schema::{ArrowError, Field, Schema, SchemaRef};
