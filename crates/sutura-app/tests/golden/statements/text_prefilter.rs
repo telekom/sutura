@@ -5,12 +5,16 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use sutura_domain::catalog::Collation;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::StatementStopped;
 use sutura_domain::raw::InvalidRawStatement;
 use sutura_exec_datafusion::CombineError;
 
 use super::*;
+
+#[path = "text_prefilter/collation.rs"]
+mod collation;
 
 /// Fixture setup belongs only to the golden target that exercises it.
 pub(super) trait TextFixture: DataSystemUnderTest {
@@ -25,6 +29,12 @@ pub(super) trait TextFixture: DataSystemUnderTest {
 
     /// Cloud fixtures expire independently, and are dropped here on a completed cell.
     fn close_text_fixture(&self, _table: &QualifiedTable) {}
+
+    /// The same rows beside `binary`, with `body` stored case-insensitively, where the engine can
+    /// declare a column collation. Closed through [`Self::close_text_fixture`].
+    fn open_collated_fixture(&self, _csv: &std::path::Path, _binary: &QualifiedTable) -> Option<QualifiedTable> {
+        None
+    }
 }
 
 macro_rules! text_fixture {
@@ -51,6 +61,18 @@ macro_rules! text_fixture {
 
             fn close_text_fixture(&self, table: &QualifiedTable) {
                 self.drop_table(table).expect("the private fixture is removed");
+            }
+
+            fn open_collated_fixture(&self, csv: &std::path::Path, binary: &QualifiedTable) -> Option<QualifiedTable> {
+                let name = TableName::parse(format!("{}_ci", binary.name())).expect("a collated fixture table name");
+                let table = QualifiedTable::new(binary.qualifier().cloned(), name);
+                let column = sutura_domain::model::ColumnName::parse("body").expect("a column name");
+                assert_eq!(
+                    self.load_collated_fixture(&table, csv, &column)
+                        .expect("the atomic collated fixture job succeeds"),
+                    1_000_000
+                );
+                Some(table)
             }
         }
     };
@@ -112,7 +134,17 @@ fn fixture_csv() -> std::path::PathBuf {
     path
 }
 
+/// The fixture table as every engine here stores it: byte-wise, which a `BigQuery` catalog must say.
 fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_json::Value>) -> StatementTable {
+    admitted_as(path, dialect, policy, &Collation::Binary)
+}
+
+fn admitted_as(
+    path: &QualifiedTable,
+    dialect: TypeDialect,
+    policy: Option<&serde_json::Value>,
+    collation: &Collation,
+) -> StatementTable {
     let mut metadata = HashMap::new();
     if let Some(policy) = policy {
         metadata.insert(String::from("sutura:text_policy"), policy.to_string());
@@ -120,14 +152,13 @@ fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_j
     if dialect == TypeDialect::Oracle {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
+    let mut body = Field::new("body", DataType::Utf8, true).with_metadata(metadata);
+    collation.pin_onto(&mut body);
     StatementTable::new(
         source(),
         path.clone(),
         dialect,
-        Arc::new(Schema::new(vec![
-            Field::new("body", DataType::Utf8, true).with_metadata(metadata),
-            Field::new("cohort", DataType::Utf8, true),
-        ])),
+        Arc::new(Schema::new(vec![body, Field::new("cohort", DataType::Utf8, true)])),
     )
 }
 
@@ -197,8 +228,26 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    let combiner = DataFusionCombiner::new().map_err(|cause| FixtureQueryError::Combiner { cause })?;
-    let question = RawStatement::parse(sql).map_err(|cause| FixtureQueryError::Query { cause })?;
+    let (outcome, planned) = execute_observed(warehouse, table, sql);
+    outcome.map(|rows| (rows, planned))
+}
+
+/// An answer or refusal, beside the statements the source received either way.
+type Observed = (Result<RawRows, FixtureQueryError>, Vec<String>);
+
+fn execute_observed<W>(warehouse: &W, table: StatementTable, sql: &str) -> Observed
+where
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
+{
+    let combiner = match DataFusionCombiner::new() {
+        Ok(combiner) => combiner,
+        Err(cause) => return (Err(FixtureQueryError::Combiner { cause }), Vec::new()),
+    };
+    let question = match RawStatement::parse(sql) {
+        Ok(question) => question,
+        Err(cause) => return (Err(FixtureQueryError::Query { cause }), Vec::new()),
+    };
     let mut executing = Recorded {
         inner: Executing {
             warehouse,
@@ -207,21 +256,19 @@ where
         },
         statements: Vec::new(),
     };
-    let answer = combiner
-        .answer_statement(
-            StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
-            &mut executing,
-        )
-        .ok_or(FixtureQueryError::Unsupported)?;
-    if executing.inner.observed_scans != executing.inner.expected_scans {
-        return Err(FixtureQueryError::Scans {
+    let answer = combiner.answer_statement(
+        StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
+        &mut executing,
+    );
+    let outcome = match answer {
+        None => Err(FixtureQueryError::Unsupported),
+        Some(_) if executing.inner.observed_scans != executing.inner.expected_scans => Err(FixtureQueryError::Scans {
             observed: executing.inner.observed_scans,
             expected: executing.inner.expected_scans,
-        });
-    }
-    answer
-        .map(|rows| (rows, executing.statements))
-        .map_err(|cause| FixtureQueryError::Stopped { cause })
+        }),
+        Some(answer) => answer.map_err(|cause| FixtureQueryError::Stopped { cause }),
+    };
+    (outcome, executing.statements)
 }
 
 type OrderedRows = (Vec<String>, Vec<Vec<Value>>);
@@ -304,7 +351,7 @@ where
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle)
+    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle | TypeDialect::BigQuery)
 }
 
 /// How many times the statements the source received search for `term`.
@@ -336,6 +383,30 @@ fn assert_raw_condition(dialect: TypeDialect, profile: &str, upper: bool, (basel
         ),
         _ => {}
     }
+}
+
+/// `BigQuery` reads a double-quoted token as a string literal, so a statement it received carries none.
+/// Its raw condition names the stored column through backticks, qualified by the table, and appears
+/// exactly once more than in the redacted-only statement, exactly where the shape qualifies.
+fn assert_backticked(planned: [&[String]; 2], path: &QualifiedTable, term: &str, raw_expected: bool) {
+    let condition = format!("(`{}`.`body` LIKE '%{term}%')", path.name());
+    let [baseline, opted] = planned.map(|statements| {
+        for statement in statements {
+            assert!(
+                !statement.contains("\"body\""),
+                "a double-quoted identifier is a string literal in BigQuery: {statement}"
+            );
+        }
+        statements
+            .iter()
+            .map(|statement| statement.matches(&condition).count())
+            .sum::<usize>()
+    });
+    assert_eq!(
+        opted - baseline,
+        usize::from(raw_expected),
+        "the raw condition is backtick-quoted and qualified exactly where it applies: {condition}"
+    );
 }
 
 pub(super) fn native<W>()
@@ -389,11 +460,13 @@ where
             );
             let mut answers = Vec::new();
             let mut searches = Vec::new();
+            let mut statements = Vec::new();
             for (mode, policy) in [("baseline", &disabled), ("opted-in", &enabled)] {
                 let start = Instant::now();
                 let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
                 searches.push(searches_in(&planned, term));
+                statements.push(planned);
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
                     W::NAME,
@@ -410,6 +483,9 @@ where
                 W::NAME
             );
             assert_raw_condition(dialect, profile, upper, (searches[0], searches[1]));
+            if dialect == TypeDialect::BigQuery {
+                assert_backticked([&statements[0], &statements[1]], &path, term, profile == "barrier" && !upper);
+            }
             if profile == "barrier" && !upper {
                 assert_eq!(
                     answers[0]
@@ -487,6 +563,10 @@ where
             "{} hidden probe {term}",
             W::NAME
         );
+    }
+    if let Some(collated) = warehouse.open_collated_fixture(&csv, &path) {
+        collation::trap(&warehouse, &path, &collated, dialect);
+        warehouse.close_text_fixture(&collated);
     }
     warehouse.close_text_fixture(&path);
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");

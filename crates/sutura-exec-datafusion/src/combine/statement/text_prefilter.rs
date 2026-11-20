@@ -10,7 +10,7 @@ use datafusion::sql::sqlparser::ast::{
     BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
     ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
 };
-use sutura_domain::catalog::{PrefilterCapability, TextPolicy};
+use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
@@ -353,6 +353,9 @@ fn condition(
     let Some(encoded) = field.metadata().get("sutura:text_policy") else {
         return Ok(None);
     };
+    if !capability.admits(&Collation::of_field(field)) {
+        return Ok(None);
+    }
     let policy: TextPolicy =
         serde_json::from_str(encoded).map_err(|cause| plan_datafusion_err!("invalid pinned text policy: {cause}"))?;
     if policy.raw_prefilter().is_none() || policy.redactions().is_empty() {
@@ -409,7 +412,7 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
         escape_char: None,
     };
     match capability {
-        PrefilterCapability::DataFusion => Expr::Nested(Box::new(raw)),
+        PrefilterCapability::DataFusion | PrefilterCapability::BigQuery => Expr::Nested(Box::new(raw)),
         PrefilterCapability::Oracle => {
             let sort = Expr::Function(Function {
                 name: ObjectName::from(vec![Ident::new("SYS_CONTEXT")]),

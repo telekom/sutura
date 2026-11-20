@@ -483,6 +483,21 @@ where
         Ok(fixture.rows())
     }
 
+    /// [`Self::load_fixture`], with the text column `collated` stored as `STRING COLLATE 'und:ci'`.
+    ///
+    /// The table a binary text search must refuse; no other collation can be declared.
+    #[cfg(feature = "fixtures")]
+    pub fn load_collated_fixture(
+        &self,
+        table: &QualifiedTable,
+        csv: &std::path::Path,
+        collated: &sutura_domain::model::ColumnName,
+    ) -> Loaded<T::Error> {
+        let fixture = crate::importer::read_collated_fixture(csv, collated)?;
+        self.fixture_job(&fixture.create_statement(table), table)?;
+        Ok(fixture.rows())
+    }
+
     /// Removes one table from the connection's dataset.
     ///
     /// **The tidy half of per-run fixture cleanup.** A run names its tables with a per-run suffix
