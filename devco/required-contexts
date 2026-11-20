@@ -250,13 +250,18 @@ ci.yml:oracle-tier
 ci.yml:multi-node
 
 # Four NixOS VMs granting a split PostgreSQL lookup leg to reading workers, advisory for `oracle-tier`'s
-# reason: gated on `run_all`, `nix`, `data_source_postgres` or `identity`. `ci-aggregate` holds run-or-fail for it.
+# reason: gated on `run_all`, `nix`, `data_source_postgres`, `data_source_datafusion` or `identity`. `ci-aggregate` holds run-or-fail for it.
 ci.yml:multi-node-postgres
 
 # Five NixOS VMs reading ClickHouse buckets with per-source network allowlists, advisory for `oracle-tier`'s
 # reason: gated on `run_all`, `nix`, `data_source_clickhouse`, `data_source_datafusion` or `identity`.
 # `ci-aggregate` holds run-or-fail for it.
 ci.yml:multi-node-clickhouse
+
+# Five NixOS VMs granting a split Oracle lookup leg to reading workers, advisory for `oracle-tier`'s
+# reason: gated on `run_all`, `nix`, `data_source_oracle`, `data_source_datafusion` or `identity`.
+# `ci-aggregate` holds run-or-fail for the selected venue.
+ci.yml:multi-node-oracle
 
 # The chart scaled by its autoscaler in a k3s VM, advisory for `oracle-tier`'s reason: gated on the
 # `chart` area. `ci-aggregate` holds run-or-fail for it.
