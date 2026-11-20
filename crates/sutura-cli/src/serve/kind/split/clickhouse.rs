@@ -33,7 +33,6 @@ impl SplitKind for ClickHouseSource {
         let stream_rows = NonZeroUsize::new(MOST_RESULT_ROWS).unwrap_or(NonZeroUsize::MIN);
         let split = match self.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
             Ok(Planned::Whole) => return Ok(Partitioned::Whole),
-            Ok(Planned::Refused(refusal)) => return Ok(Partitioned::Refused(refusal)),
             Ok(Planned::Split(split)) => split,
             Err(cause) => return Err(AnyWarehouseError::ClickHouse(cause)),
         };
@@ -113,10 +112,6 @@ impl HeldSplit for Held<'_> {
     )]
     fn read(&self, index: usize, deadline: Deadline) -> Read<Self::Error> {
         let (bucket, _) = self.split.queries().get(index)?;
-        let identity = match self.split.reads() {
-            PartitionIdentity::ServiceUser => PartitionIdentity::ServiceUser,
-            PartitionIdentity::Switched(name) => PartitionIdentity::Switched(name.clone()),
-        };
         Some(
             self.split
                 .adapter()
@@ -124,7 +119,7 @@ impl HeldSplit for Held<'_> {
                     &self.leg,
                     &BucketDescriptor::from(*bucket).to_bytes(),
                     self.split.described(),
-                    identity,
+                    self.split.reads().clone(),
                     deadline,
                 )
                 .map_err(AnyWarehouseError::ClickHouse),

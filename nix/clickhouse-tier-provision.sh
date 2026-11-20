@@ -124,7 +124,7 @@ $(for switched in sutura_switched sutura_switched_ungranted; do
     printf '    grants:\n      query:\n        - GRANT SELECT ON adbc_switched.*\n'
     printf '        - GRANT SELECT ON adbc_switched_legs.*\n        - GRANT SELECT ON adbc_switched_legs_log.*\n'
     if [ "$switched" = sutura_switched ]; then
-      printf '        - GRANT SELECT(rows, bytes_on_disk, active, database, table) ON system.parts\n'
+      printf '        - GRANT SELECT(rows, data_uncompressed_bytes, active, database, table) ON system.parts\n'
     fi
   done)
   sutura_switched_readonly:

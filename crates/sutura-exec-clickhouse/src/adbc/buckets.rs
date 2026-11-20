@@ -1,22 +1,25 @@
 //! Opted-in hash buckets of a lookup leg, read under its whole-read identity.
 //!
-//! Each bucket is consistent per integer key. There is no snapshot across buckets, and the
-//! estimate reads the root table's active parts alone; joined tables and row policies can make
-//! that estimate conservative. Every partition retains the adapter's row and byte bounds.
+//! Each bucket is consistent per integer key. There is no snapshot across buckets. The estimate
+//! reads the root table's active parts alone, never the leg's filtered rows, so it can only say
+//! that a table is large: a table the workers cannot split is read whole, as it was before buckets,
+//! under the adapter's own row and byte bounds, rather than refused for a size the caller's filter
+//! and row policy may have cut to a few rows. Every partition retains those bounds.
 //! The estimate uses the leg's identity, which needs
-//! `SELECT(rows, bytes_on_disk, active, database, table) ON system.parts`. This column grant does
-//! not restrict metadata access to the root table. A source denial is returned without retrying
-//! as the deployment user.
+//! `SELECT(rows, data_uncompressed_bytes, active, database, table) ON system.parts` for every
+//! caller of an opted-in source. This column grant does not restrict metadata access to the root
+//! table. A source denial is returned without retrying as the deployment user, so a caller without
+//! the grant has the opted-in lookup refused, naming the source's denial, and not read whole.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 
 use arrow_schema::SchemaRef;
 use sutura_domain::identity::{Presented, PrincipalName};
-use sutura_domain::plan::{EstimatedRows, LegPlan, SplitDecision, SplitRefusal, decide};
+use sutura_domain::plan::{EstimatedRows, LegPlan, SplitDecision, decide};
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
-use sutura_domain::warehouse::{ResultBatches, Value};
+use sutura_domain::warehouse::{ParamValue, ResultBatches, Value};
 use sutura_sql::Dialect;
 use sutura_sql::GeneratedQuery;
 use sutura_sql::generate::{Bucket, BucketsRefused, generate_leg, generate_leg_buckets};
@@ -29,6 +32,7 @@ pub use descriptor::{BucketDescriptor, InvalidBucketDescriptor};
 
 /// Whom a granted partition of a `ClickHouse` leg is read as, decided at the planner and held by
 /// the partition: the same identity a whole read of the leg runs as - see the module doc.
+#[derive(Clone)]
 pub enum PartitionIdentity {
     /// A `shared-service-user` source: read as the deployment's declared user.
     ServiceUser,
@@ -47,14 +51,13 @@ impl core::fmt::Debug for PartitionIdentity {
 }
 
 /// [`AdbcClickHouseWarehouse::split_by_estimate`]'s outcome: [`Planned::Whole`] for a leg read
-/// whole, [`Planned::Split`] for one cut into hash buckets, or its refusal.
+/// whole, or [`Planned::Split`] for one cut into hash buckets.
 pub enum Planned<'adapter> {
-    /// At or under the threshold, or no usable estimate: the leg's own statement, read whole.
+    /// Under the threshold, no usable key, or more rows than the workers can split: the leg's own
+    /// statement, read whole.
     Whole,
     /// Over the threshold: the leg cut into hash buckets.
     Split(BucketSplit<'adapter>),
-    /// Over the threshold, but even the most partitions allowed still leave one over the bound.
-    Refused(SplitRefusal),
 }
 
 /// A leg cut into hash buckets, each read as [`BucketSplit::reads`].
@@ -135,18 +138,18 @@ pub(super) fn split_by_estimate<'adapter>(
         return Ok(Planned::Whole);
     }
     // The generator rejects a project-qualified table before the metadata query can read a
-    // different database. Names below are parsed ASCII identifiers, never SQL fragments.
+    // different database.
     let query = generate_leg(leg, Dialect::ClickHouse).map_err(AdbcError::Render)?;
-    let database = leg.table().qualifier().map_or_else(
-        || String::from("currentDatabase()"),
-        |qualifier| format!("'{}'", qualifier.dataset().as_str()),
+    let (database, mut names) = leg.table().qualifier().map_or_else(
+        || ("currentDatabase()", Vec::with_capacity(1)),
+        |qualifier| ("?", vec![ParamValue::Text(qualifier.dataset().as_str().to_owned())]),
     );
+    names.push(ParamValue::Text(leg.table().name().as_str().to_owned()));
     let estimate = format!(
-        "SELECT sum(rows) AS rows, sum(bytes_on_disk) AS bytes FROM system.parts \
-         WHERE active AND database = {database} AND table = '{}'",
-        leg.table().name().as_str(),
+        "SELECT sum(rows) AS rows, sum(data_uncompressed_bytes) AS bytes FROM system.parts \
+         WHERE active AND database = {database} AND table = ?"
     );
-    let estimated = adapter.run_sql(&estimate, &[], deadline, 1, &runs_as)?;
+    let estimated = adapter.run_sql(&estimate, &names, deadline, 1, &runs_as)?;
     let rows = estimated.to_rows().map_err(AdbcError::Decode)?;
     let [counts] = rows.rows() else {
         return Err(AdbcError::EstimateNotCounts);
@@ -166,11 +169,8 @@ pub(super) fn split_by_estimate<'adapter>(
         Err(BucketsRefused::NoIntegerKey) => return Ok(Planned::Whole),
         Err(cause) => return Err(AdbcError::BucketRender(cause)),
     }
-    let partitions = match decide(bytes, rows, above_bytes, per_stream_bound, ready_workers) {
-        SplitDecision::Whole => return Ok(Planned::Whole),
-        SplitDecision::Refused(refusal) => return Ok(Planned::Refused(refusal)),
-        SplitDecision::Split(partitions) if partitions.get() < 2 => return Ok(Planned::Whole),
-        SplitDecision::Split(partitions) => u32::try_from(partitions.get()).unwrap_or(u32::MAX),
+    let Some(partitions) = partitions_for(bytes, rows, above_bytes, per_stream_bound, ready_workers) else {
+        return Ok(Planned::Whole);
     };
     let mut queries = Vec::with_capacity(usize::try_from(partitions).unwrap_or(usize::MAX));
     for index in 0..partitions {
@@ -190,6 +190,26 @@ pub(super) fn split_by_estimate<'adapter>(
     Ok(Planned::Split(BucketSplit::new(adapter, described, queries, bytes, reads)))
 }
 
+/// How many buckets to cut a leg into, `None` to read it whole.
+///
+/// The estimate is of the root table, not of the rows the leg's filter and the caller's row policy
+/// keep, so a shortfall in the workers is no evidence the answer is too large: it reads whole, where
+/// the adapter's own bounds still apply, and neither refuses the caller nor discloses the table's
+/// size past the row policy.
+fn partitions_for(
+    bytes: EstimatedBytes,
+    rows: EstimatedRows,
+    above_bytes: NonZeroU64,
+    per_stream_bound: NonZeroUsize,
+    ready_workers: NonZeroUsize,
+) -> Option<u32> {
+    match decide(bytes, rows, above_bytes, per_stream_bound, ready_workers) {
+        SplitDecision::Whole | SplitDecision::Refused(_) => None,
+        SplitDecision::Split(partitions) if partitions.get() < 2 => None,
+        SplitDecision::Split(partitions) => Some(u32::try_from(partitions.get()).unwrap_or(u32::MAX)),
+    }
+}
+
 /// Describes the leg's projection without fetching its rows. A lookup's key types are fixed by
 /// the source; no sum tuple needs the value-dependent normalization used by a fact leg.
 fn describe(
@@ -204,8 +224,8 @@ fn describe(
         .map(|rows| std::sync::Arc::clone(rows.schema()))
 }
 
-/// [`AdbcClickHouseWarehouse::read_partition`]. The source's own schema must still agree with the
-/// grant before it supplies the types used to hash keys. The result is held until its complete
+/// [`AdbcClickHouseWarehouse::read_partition`]. Keys are hashed by the types the grant described,
+/// and the rows read must answer exactly the granted schema. The result is held until its complete
 /// row/byte and schema checks pass; these checks do not bound a driver's prefetched allocation.
 pub(super) fn read_partition(
     adapter: &AdbcClickHouseWarehouse,
@@ -226,13 +246,7 @@ pub(super) fn read_partition(
         _ => return Err(AdbcError::PartitionIdentityDisagrees),
     };
     let descriptor = BucketDescriptor::try_from(descriptor).map_err(AdbcError::BucketDescriptor)?;
-    let query = generate_leg(leg, Dialect::ClickHouse).map_err(AdbcError::Render)?;
-    let described = describe(adapter, &query, deadline, &runs_as)?;
-    if described != *granted {
-        return Err(AdbcError::PartitionSchemaChanged);
-    }
-    let query =
-        generate_leg_buckets(leg, &described, descriptor.bucket(), Dialect::ClickHouse).map_err(AdbcError::BucketRender)?;
+    let query = generate_leg_buckets(leg, granted, descriptor.bucket(), Dialect::ClickHouse).map_err(AdbcError::BucketRender)?;
     let rows = adapter.run(&query, deadline, MOST_RESULT_ROWS, &runs_as)?;
     if rows.schema() != granted {
         return Err(AdbcError::PartitionSchemaChanged);
@@ -282,5 +296,45 @@ mod tests {
             )
             .expect_err("a worker must refuse its own service user before any connection");
         assert!(matches!(error, AdbcError::PartitionIdentityDisagrees), "{error}");
+    }
+    fn count(n: usize) -> NonZeroUsize {
+        NonZeroUsize::new(n).expect("a nonzero count")
+    }
+
+    fn plan(rows: u64, bound: usize, workers: usize) -> Option<u32> {
+        partitions_for(
+            EstimatedBytes::parse(10),
+            EstimatedRows::parse(rows),
+            NonZeroU64::MIN,
+            count(bound),
+            count(workers),
+        )
+    }
+
+    #[test]
+    fn a_table_too_large_for_the_ready_workers_is_read_whole_and_never_refused() {
+        assert_eq!(
+            plan(5_000_000, 1_000, 2),
+            None,
+            "the root table's size is not the leg's answer"
+        );
+        assert_eq!(plan(u64::MAX, 1, 1), None);
+    }
+
+    #[test]
+    fn a_table_the_ready_workers_can_split_is_cut_into_the_fewest_buckets() {
+        assert_eq!(plan(5_000, 1_000, 8), Some(5));
+        assert_eq!(plan(1_000, 1_000, 8), None, "one bucket is the whole read");
+        assert_eq!(
+            partitions_for(
+                EstimatedBytes::parse(1),
+                EstimatedRows::parse(5_000),
+                NonZeroU64::MIN,
+                count(1),
+                count(1)
+            ),
+            None,
+            "a table at or under the byte threshold is read whole"
+        );
     }
 }

@@ -32,6 +32,10 @@ use super::super::OpenedSources;
 use super::{AnyWarehouse, AnyWarehouseError};
 
 /// Whom a reading worker reads a granted partition as.
+///
+/// **Limit:** only `ClickHouse` reads as [`Self::SwitchedPrincipal`]. A kind that cannot switch
+/// refuses it as [`TokenUnread::NotSwitched`] through [`refuse_switched`] rather than reading as its own declared
+/// service user, which a kind that ignored this would have done silently.
 pub(super) enum PartitionReads {
     /// This node's own declared service user for the source.
     ServiceUser,
@@ -40,11 +44,29 @@ pub(super) enum PartitionReads {
     SwitchedPrincipal(PrincipalName),
 }
 
+/// `Ok` for a read as the service user, [`TokenUnread::NotSwitched`] for one as a switched principal: what a kind
+/// that cannot switch answers before it reads.
+#[cfg(any(feature = "postgres", feature = "oracle", test))]
+#[cfg_attr(
+    not(feature = "clickhouse"),
+    expect(unused_variables, reason = "the source is named only by the switched principal's refusal")
+)]
+pub(super) fn refuse_switched(leg: &LegPlan, reads: &PartitionReads) -> Result<(), Unread> {
+    match reads {
+        PartitionReads::ServiceUser => Ok(()),
+        #[cfg(feature = "clickhouse")]
+        PartitionReads::SwitchedPrincipal(_) => Err(Unread::failed(TokenUnread::NotSwitched {
+            at: leg.source().clone(),
+        })),
+    }
+}
+
 /// A source kind whose lookup leg splits across the nodes that read its source.
 ///
 /// Visible to [`kind`](super) alone, and [`read_granted`](SplitKind::read_granted) is banned by
-/// `clippy.toml` beyond the one call in [`worker_read`], as [`read_forwarded`](SplitKind::read_forwarded)
-/// is, so that its one call site is a visible `#[expect]`.
+/// `clippy.toml` beyond its two reading-worker call sites, [`read_here`] and [`worker_read_switched`],
+/// as [`read_forwarded`](SplitKind::read_forwarded) is beyond its one, so that each call site is a
+/// visible `#[expect]`.
 pub(super) trait SplitKind {
     /// `leg` split by this kind's own estimate: granted to `grantee`, read here, read whole, or
     /// refused - the port's [`Warehouse::split_lookup`] for this kind.
@@ -177,19 +199,7 @@ pub(crate) fn worker_read_switched(
     deadline: Deadline,
 ) -> Result<ResultBatches, Unread> {
     #[cfg(feature = "clickhouse")]
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the admitted grant names the principal and partition; read_in re-certifies the leg before dispatch"
-    )]
-    let read = |kind: &dyn SplitKind, leg: &LegPlan| {
-        kind.read_granted(
-            leg,
-            partition,
-            granted,
-            &PartitionReads::SwitchedPrincipal(principal),
-            deadline,
-        )
-    };
+    let read = |kind: &dyn SplitKind, leg: &LegPlan| read_switched(kind, leg, partition, granted, principal, deadline);
     #[cfg(not(feature = "clickhouse"))]
     let _unused = (pinned, source, wire, partition, granted, principal, deadline);
     match sources {
@@ -286,8 +296,32 @@ impl Asked<'_> {
     }
 }
 
-/// `kind`'s read of the granted `partition` of `leg` as this node's service user, the one call site
-/// of [`read_granted`](SplitKind::read_granted).
+/// `kind`'s read of the granted `partition` of `leg` as `principal`, one of the two call sites of
+/// [`read_granted`](SplitKind::read_granted); the other is [`read_here`].
+#[cfg(feature = "clickhouse")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "only worker_read_switched calls this, from inside read_recertified: the admit rule verified the task's reading grant, and the leg was re-certified against this node's catalog first"
+)]
+fn read_switched(
+    kind: &dyn SplitKind,
+    leg: &LegPlan,
+    partition: &[u8],
+    granted: &SchemaRef,
+    principal: PrincipalName,
+    deadline: Deadline,
+) -> Result<ResultBatches, Unread> {
+    kind.read_granted(
+        leg,
+        partition,
+        granted,
+        &PartitionReads::SwitchedPrincipal(principal),
+        deadline,
+    )
+}
+
+/// `kind`'s read of the granted `partition` of `leg` as this node's service user, one of the two
+/// call sites of [`read_granted`](SplitKind::read_granted); the other is [`worker_read_switched`].
 #[expect(
     clippy::disallowed_methods,
     reason = "only worker_read calls this, and only from inside read_recertified: the admit rule verified the task's reading grant, and the leg was re-certified against this node's catalog first"
@@ -327,3 +361,6 @@ pub(super) mod postgres;
 
 #[cfg(feature = "clickhouse")]
 mod clickhouse;
+#[cfg(test)]
+#[cfg(feature = "clickhouse")]
+mod switched_tests;
