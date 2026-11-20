@@ -904,3 +904,7 @@ mod split_link;
 /// `mod`, as this file is test code already: the causality gate's base run reverts this line, and
 /// the cells, which name `Granted` and `Looked`, are not compiled there.
 mod served_split;
+
+/// A feed cut on a served link, under an operator above the fed leaf, reaches the planning node as a
+/// lost node.
+mod fed_cut;

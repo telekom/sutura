@@ -8,28 +8,41 @@
 //! it ends.
 //!
 //! **Who may read a feed.** A feed is delivered only on the `CoordinatorChannel` call that installed
-//! the plan naming it, to the task that call installs: the worker keys its receivers by feed and
-//! partition inside that one task's session, and the engine admits that call only for a node holding
-//! the question's key (`grant`). A feed id travels in the plan, but nothing addresses a feed by it
-//! from outside its call, so another question, another task, or another node cannot read it.
+//! the plan naming it. The engine gives each call its own receiver map, keyed by feed id and
+//! partition (the vendored `impl_coordinator_channel.rs`), puts the units that call carries in that
+//! map alone, and refuses a second install for the same task (`AlreadyWritten`). A feed id travels in
+//! the plan, but nothing addresses a feed by it from outside its call: another question, another
+//! task or another node that installs a stage names a feed of its own and reads only that.
+//!
+//! The task grant does not narrow this. It admits a call that carries a question's key, and a node
+//! that installs a stage supplies that key itself (`grant`), so what keeps one task's rows from
+//! another task is the per-call map and nothing in the grant.
 //!
 //! # Limits
 //!
-//! - The rows are still all held by the planning node until the question ends, as the caller's own
-//!   batches, and a remote task's share is encoded to IPC as it is sent. The worker's receive queue
-//!   is unbounded and outside its pool, as the plan that carried the rows was, so a slow consumer
-//!   leaves a share queued there. This moves where the rows wait; it does not bound them.
+//! - The planning node keeps every leg's rows until the question ends, as the caller's own batches,
+//!   and the engine fills an unbounded outbound channel for each task from its feed
+//!   (`query_coordinator.rs`): the IPC copy of every share not yet sent waits there, outside any
+//!   pool, beside the batches themselves. `yield_now` between units bounds a message's size and never
+//!   waits on the network, so it bounds no memory. This is no worse than the plan that carried the
+//!   same rows, and bounding it takes a change to the vendored engine, which is not made here.
+//! - The receiving worker's queue is unbounded and outside its pool too, so a slow consumer leaves a
+//!   share queued there.
 //! - A feed whose stream ends without the end marker, or whose count disagrees with it, fails the
-//!   task as `Unfed::Cut` or `Unfed::Miscounted`, relayed as a lost node. A feed read by a node
-//!   that holds the question's key can still lie about its rows: it is as trusted as the plan that
+//!   task as `Unfed::Cut` or `Unfed::Miscounted`, relayed as a lost node. The engine ends a feed's
+//!   stream when the planning node fails as well, so a failure there that is not marked in the feed
+//!   (a share the node could not write is: `Unfed::SenderFailed`) reads at the worker as a cut feed,
+//!   and the planning node's own error is the one its caller is told. A feed read by a node that
+//!   holds the question's key can still lie about its rows: it is as trusted as the plan that
 //!   carried them was.
 //! - A feed is read once per partition: a stage that executes a fed partition twice fails with the
 //!   engine's "already consumed", where a plan that carried its rows scanned them twice.
 //! - A message holds the units ready at one poll, which `Dealt` keeps to about one for each
 //!   partition by yielding between units. A unit is one source batch, so a message is only as small
 //!   as the batches a source streams.
-//! - Plan bytes are measured on the leaf's encoding and by the engine's own `plan_bytes` log in the
-//!   multi-node check; no cell measures the bytes on a link.
+//! - The size of a stage's plan is measured on the wire by
+//!   `combine::tests::across::a_stage_sent_to_another_node_is_no_larger_for_a_leg_of_a_hundred_thousand_rows`,
+//!   which reads the length of the first gRPC message of each install.
 
 use core::fmt;
 use core::num::NonZeroUsize;
@@ -63,7 +76,7 @@ use prost::Message as _;
 /// One message of a feed: a batch of the leg, or the end of the task's share of it.
 #[derive(Clone, PartialEq, prost::Message)]
 pub(super) struct Unit {
-    #[prost(oneof = "Body", tags = "1, 2")]
+    #[prost(oneof = "Body", tags = "1, 2, 3")]
     body: Option<Body>,
 }
 
@@ -75,6 +88,9 @@ enum Body {
     /// How many batches this partition was sent, after the last of them.
     #[prost(uint64, tag = "2")]
     End(u64),
+    /// The planning node could not write a batch of this share, and sends no more of it.
+    #[prost(bool, tag = "3")]
+    Failed(bool),
 }
 
 /// Why a task's share of a leg did not arrive whole.
@@ -101,12 +117,10 @@ pub(super) enum Unfed {
     /// The rows were dealt across a number of tasks other than the stage runs.
     #[error("the leg's rows were dealt across {dealt} tasks and the stage runs {running}")]
     Mistasked { dealt: usize, running: usize },
-    /// A batch could not be written as Arrow IPC.
-    #[error("a batch of the leg could not be written as Arrow IPC")]
-    Unwritable {
-        #[source]
-        cause: ArrowError,
-    },
+    /// The planning node could not write a batch of this share as Arrow IPC. Its own failure is
+    /// what its caller is told, so this is no lost node.
+    #[error("the node that planned the question could not write a batch of this share")]
+    SenderFailed,
 }
 
 impl Unfed {
@@ -174,35 +188,34 @@ impl Share {
     /// The next message of this share, after yielding to the runtime so the engine's chunking of
     /// ready messages ends here rather than gathering the whole share into one gRPC message.
     async fn unit(mut self) -> Option<(Result<Unit>, Self)> {
+        if self.ended {
+            return None;
+        }
         let batch = self.rows.get(self.partition).and_then(|batches| batches.get(self.next));
-        if let Some(batch) = batch {
+        let body = if let Some(batch) = batch {
             let written = write(batch);
             self.next = self.next.saturating_add(self.step);
             self.sent = self.sent.saturating_add(1);
             tokio::task::yield_now().await;
-            let unit = written.map(|bytes| Unit {
-                body: Some(Body::Batch(bytes)),
-            });
-            return Some((unit, self));
-        }
-        if self.ended {
-            return None;
-        }
-        self.ended = true;
-        let end = Unit {
-            body: Some(Body::End(self.sent)),
+            if let Ok(bytes) = written {
+                Body::Batch(bytes)
+            } else {
+                self.ended = true;
+                Body::Failed(true)
+            }
+        } else {
+            self.ended = true;
+            Body::End(self.sent)
         };
-        Some((Ok(end), self))
+        Some((Ok(Unit { body: Some(body) }), self))
     }
 }
 
-fn write(batch: &RecordBatch) -> Result<Vec<u8>> {
-    let unwritable = |cause| Unfed::Unwritable { cause }.into_error();
-    let mut writer =
-        StreamWriter::try_new(Vec::with_capacity(batch.get_array_memory_size()), &batch.schema()).map_err(unwritable)?;
-    writer.write(batch).map_err(unwritable)?;
-    writer.finish().map_err(unwritable)?;
-    writer.into_inner().map_err(unwritable)
+fn write(batch: &RecordBatch) -> Result<Vec<u8>, ArrowError> {
+    let mut writer = StreamWriter::try_new(Vec::with_capacity(batch.get_array_memory_size()), &batch.schema())?;
+    writer.write(batch)?;
+    writer.finish()?;
+    writer.into_inner()
 }
 
 /// A batch of the leg `schema` names, as one IPC message holds it.
@@ -238,6 +251,7 @@ fn received(schema: SchemaRef, units: BoxStream<'static, Result<Unit>>) -> impl 
             }
             Some(Body::End(announced)) if announced == seen => Ok(None),
             Some(Body::End(announced)) => Err(Unfed::Miscounted { announced, seen }.into_error()),
+            Some(Body::Failed(_)) => Err(Unfed::SenderFailed.into_error()),
             None => Err(Unfed::Empty.into_error()),
         }
     })

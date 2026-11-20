@@ -222,11 +222,12 @@ fn a_task_is_fed_only_over_its_own_channel_and_never_reads_another_tasks_rows() 
         sent(&other_feed, CoordinatorToWorkerMsg::WorkUnitEos);
         (own.try_collect::<Vec<_>>().await, other.try_collect::<Vec<_>>().await)
     });
-    assert_eq!(own.expect("a task's own feed is scanned"), theirs);
+    let read_by_the_other = other.expect("an empty share ends whole");
     assert!(
-        other.expect("an empty share ends whole").is_empty(),
-        "a task read rows fed to another"
+        read_by_the_other.is_empty(),
+        "a task read rows fed to another: {read_by_the_other:?}"
     );
+    assert_eq!(own.expect("a task's own feed is scanned"), theirs);
 }
 
 #[test]
@@ -248,6 +249,30 @@ fn a_worker_refuses_half_a_batch_as_a_failure_and_no_lost_node() {
     });
     let refused = relayed(CombineError::Execute {
         cause: answered.expect_err("half a batch is no batch"),
+    });
+    assert!(matches!(refused, CombineError::Execute { .. }), "{refused:?}");
+}
+
+#[test]
+fn a_worker_whose_feed_ends_after_the_planning_node_marked_it_failed_fails_the_task_and_no_lost_node() {
+    let rows = leg(1, 3, 4).remove(0);
+    let runtime = runtime();
+    let answered = runtime.block_on(async {
+        let worker = worker();
+        let (feed, scan, _kept) = installed(&worker, task(0)).await;
+        sent(&feed, batch_unit(&rows[0]));
+        sent(
+            &feed,
+            message(Unit {
+                body: Some(Body::Failed(true)),
+            }),
+        );
+        // The engine ends a feed's stream when the planning node fails, as it ends one that was cut.
+        sent(&feed, CoordinatorToWorkerMsg::WorkUnitEos);
+        scan.try_collect::<Vec<_>>().await
+    });
+    let refused = relayed(CombineError::Execute {
+        cause: answered.expect_err("a feed marked failed is no share"),
     });
     assert!(matches!(refused, CombineError::Execute { .. }), "{refused:?}");
 }

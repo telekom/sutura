@@ -24,34 +24,41 @@ count did not prevent it.
    rows stay at the node that planned the question. Each task is sent its share after its plan, on
    the stream the plan was set over, as `datafusion-distributed`'s own work units: one unit is one
    source batch as Arrow IPC. The engine and its wire protocol are unchanged.
-2. **A feed is read only by the task its call installed.** The worker keys a feed's receivers by feed
-   id and partition inside that task's own session, and the units arrive on the `CoordinatorChannel`
-   call that installed it, which the task grant (Decision 5 of the shuffle record) admits only for a
-   node holding the question's key. No call addresses a feed from outside its own stream. The leaf is
-   admitted by the receiving node's refusal of source-reading leaves as a fifth carried kind: it
-   reads no source and no credential.
+2. **A feed is read only by the task its call installed.** The engine gives each
+   `CoordinatorChannel` call its own receiver map, keyed by feed id and partition, puts the units
+   that call carries in that map alone, and refuses a second install for the same task. The task
+   grant does not narrow this: a node that installs a stage supplies the question's key itself
+   (Decision 5 of the shuffle record), so what keeps one task's rows from another is the per-call
+   map. The leaf is admitted by the receiving node's refusal of source-reading leaves as a fifth
+   carried kind: it reads no source and no credential.
 3. **A share is whole or the task fails.** Each partition's feed ends with a marker that carries the
    number of batches sent. A stream that closes before it, or a count that is not what arrived, fails
    the task under the code `sutura.refusal.feed-lost`, which the planning node reads back as
    `CombineError::NodeLost`: the question may be asked again, and no partial answer is made. A unit
    that is not one IPC message, or whose columns are not the leg's, fails the task as the engine's
-   failure.
+   failure. A share the planning node could not write is marked in the feed and fails the task the
+   same way, as the planning node's own failure and no lost node.
 4. **The stage's task count is checked at the feed.** The rows are dealt across the count the
    planner chose; a stage that runs another count refuses to feed.
 
 ## Limits
 
-- The planning node still holds every leg's rows until the question ends, and encodes a remote
-  task's share as it sends it. The receiving worker queues what it was sent in an unbounded channel
-  outside its pool, as the plan that carried the rows was held. This decision moves where rows wait.
-  It does not bound them.
+- The planning node keeps every leg's rows until the question ends, and the engine fills an
+  unbounded outbound channel for each task from its feed: the IPC copy of every share not yet sent
+  waits there, outside any pool, beside the batches themselves. Yielding between units bounds a
+  message's size, not memory, and never waits on the network. This is no worse than the plan that
+  carried the same rows. Bounding it takes a change to the vendored engine, not made here. The
+  receiving worker's queue is unbounded and outside its pool as well.
+- The engine ends a feed's stream when the planning node fails, so a failure there that is not
+  marked in the feed reads at the worker as a cut feed. The planning node's own error is the one its
+  caller is told.
 - A feed is read once per partition. A stage that executes a fed partition twice fails.
 - A node holding the question's key can still feed rows that are not the leg's, as it could carry
   them in a plan. The check at the leaf is the leg's own schema.
-- No cell measures the bytes on a link. The leaf's declaration is measured to be the same size for
-  ten rows as for a hundred thousand, and the engine's own `plan_bytes` log in the multi-node check
-  is the measure at the worker. The effect on that check's failure rate is measured only by running
-  it.
+- The size of a stage's plan is measured on the wire by
+  `a_stage_sent_to_another_node_is_no_larger_for_a_leg_of_a_hundred_thousand_rows`, which reads the
+  length of the first gRPC message of each install. The effect on the multi-node check's failure rate
+  is measured only by running it.
 - A message holds the units ready at one poll, which the provider keeps near one per partition by
   yielding between units. A unit is a source batch, so a message is as large as the batches a source
   streams.

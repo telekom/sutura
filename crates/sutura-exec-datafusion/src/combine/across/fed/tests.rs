@@ -214,14 +214,24 @@ fn a_feed_ended_at_a_count_that_is_not_what_arrived_is_a_lost_node() {
 }
 
 #[test]
-fn a_feed_that_failed_under_the_planning_node_fails_the_task() {
+fn a_feed_that_failed_on_its_way_fails_the_task_as_the_engines_failure_and_no_lost_node() {
     let rows = leg(1, 2, 2).remove(0);
     let mut broken = units(&rows, 2);
-    broken.insert(
-        1,
-        Err(DataFusionError::Execution(String::from("the planning node's read failed"))),
-    );
-    arrived(broken).expect_err("a failed feed is not a share");
+    broken.insert(1, Err(DataFusionError::Execution(String::from("the unit did not arrive"))));
+    let refused = failed(arrived(broken).expect_err("a failed feed is not a share"));
+    assert!(matches!(refused, CombineError::Execute { .. }), "{refused:?}");
+}
+
+#[test]
+fn a_share_the_planning_node_could_not_write_fails_the_task_as_its_own_failure_and_no_lost_node() {
+    let rows = leg(1, 3, 2).remove(0);
+    let mut marked = units(&rows[..1], 1);
+    marked.pop();
+    marked.push(Ok(Unit {
+        body: Some(Body::Failed(true)),
+    }));
+    let refused = failed(arrived(marked).expect_err("a share marked failed is not a share"));
+    assert!(matches!(refused, CombineError::Execute { .. }), "{refused:?}");
 }
 
 #[test]
