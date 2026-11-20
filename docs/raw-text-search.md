@@ -55,7 +55,6 @@ session setting is changed. Non-LOB Oracle columns and every dialect not named a
 redacted-only execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.
 
-
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
 collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
@@ -73,7 +72,6 @@ collations are refused at pinning, naming the column; an unknown one contradicts
 records nothing here, because its check is the run-time `NLS_SORT` above. BigQuery reads the fact
 to decide its prefilter (below); no other dialect reads it yet.
 
-
 What `binary` does not cover. It holds for `LIKE` and equality, not for ordering under a locale, and
 a type can still change equality: Postgres `bpchar` ignores trailing spaces in `=`. A
 `postgres_fdw` foreign table's `default` is the remote server's default. ClickHouse tables on the
@@ -82,7 +80,6 @@ DuckDB's global `default_collation` setting can contradict an authored `binary`.
 moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
-
 
 BigQuery is eligible only for a `STRING` column the catalog pins as binary. `LIKE` follows a column's
 
@@ -102,7 +99,6 @@ follow-up. The raw condition is a backtick-quoted, qualified column (a double-qu
 string literal in BigQuery), and the benefit is slot time, not billed bytes: filtering a column does
 not reduce what an on-demand query reads from it. The cell reports wall-clock time only, because the
 port returns no job statistics.
-
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
