@@ -704,7 +704,9 @@ mod tests {
         let plain = read_fixture("k,v\n1,Term\n2,term\n").expect("a fixture");
         let sql = plain.collate(&column).expect("a text column").create_statement(&table);
         assert!(
-            sql.contains("AS SELECT fixture.* REPLACE (COLLATE(fixture.`v`, 'und:ci') AS `v`) FROM UNNEST([STRUCT<`k` INT64, `v` STRING>"),
+            sql.contains(
+                "AS SELECT fixture.* REPLACE (COLLATE(fixture.`v`, 'und:ci') AS `v`) FROM UNNEST([STRUCT<`k` INT64, `v` STRING>"
+            ),
             "{sql}"
         );
         let repeated = read_fixture("k,v\n1,Term\n1,Term\n").expect("a fixture");
