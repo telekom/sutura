@@ -79,7 +79,6 @@ true. A `char(n)` column is eligible: the view reads it as `text` without the pa
 condition is always `'%needle%'` over an ASCII alphanumeric needle, which padding spaces can
 neither create nor hide.
 
-
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
 
