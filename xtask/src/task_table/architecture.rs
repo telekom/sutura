@@ -280,7 +280,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
                 (
                     "crates/sutura-domain/src/raw.rs",
-                    "pub enum RawRefusalReason {\n    W0,\n    W1,\n    W2,\n    W3,\n    W4,\n    W5,\n    W6,\n    W7,\n    W8,\n    W9,\n}\n",
+                    "pub enum RawRefusalReason {\n    W0,\n    W1,\n    W2,\n    W3,\n    W4,\n    W5,\n    W6,\n    W7,\n    W8,\n    W9,\n    W10,\n}\n",
                 ),
                 (
                     "crates/sutura-http/src/tls.rs",
