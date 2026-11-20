@@ -9,4 +9,4 @@ diff --git a/crates/sutura-exec-datafusion/src/combine/across/relay.rs b/crates/
 +        CombineError::Execute { cause } if carries(&cause, LEG_NOT_CERTIFIED) && carries(&cause, ROWS_OVER_CEILING) => CombineError::LegNotCertified,
          CombineError::Execute { cause } if carries(&cause, PARTITION_DID_NOT_FIT) => CombineError::PartitionDidNotFit,
          CombineError::Execute { cause } if carries(&cause, AMBIGUOUS_LINK) => CombineError::AmbiguousLink,
-         CombineError::Execute { cause } => {
+         CombineError::Execute { cause } if carries(&cause, FEED_LOST) => CombineError::NodeLost { cause },

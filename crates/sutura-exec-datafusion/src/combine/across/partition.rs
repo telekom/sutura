@@ -595,14 +595,15 @@ impl ExecutionPlan for PartitionScanExec {
     }
 }
 
-/// The composite user codec for a reading worker: [`super::ceiling::Codec`]'s stage marker, or this
-/// module's [`PartitionScanExec`], told apart by a leading tag byte on decode and dispatched by type
-/// on encode. Anything else is refused rather than guessed at.
+/// The composite user codec for a reading worker: [`super::ceiling::Codec`]'s stage marker, this
+/// module's [`PartitionScanExec`], or `super::fed::FedRowsExec`, told apart by a leading tag byte
+/// on decode and dispatched by type on encode. Anything else is refused rather than guessed at.
 #[derive(Debug)]
 pub(super) struct Codec;
 
 const CEILING: u8 = 0;
 const PARTITION: u8 = 1;
+pub(super) const FED: u8 = 2;
 
 impl PhysicalExtensionCodec for Codec {
     fn try_decode(
@@ -613,11 +614,12 @@ impl PhysicalExtensionCodec for Codec {
         proto_converter: &dyn PhysicalProtoConverterExtension,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
         let (&tag, rest) = buf.split_first().ok_or_else(|| {
-            DataFusionError::Internal(String::from("an empty node carries neither a ceiling nor a partition scan"))
+            DataFusionError::Internal(String::from("an empty node carries no ceiling, partition scan or fed scan"))
         })?;
         match tag {
             CEILING => super::ceiling::Codec.try_decode(rest, inputs, ctx, proto_converter),
             PARTITION => decode_partition(rest),
+            FED => super::fed::decode(rest, inputs),
             other => Err(DataFusionError::NotImplemented(format!(
                 "a reading worker's codec does not know node tag {other}"
             ))),
@@ -633,6 +635,9 @@ impl PhysicalExtensionCodec for Codec {
         if node.is::<PartitionScanExec>() {
             buf.push(PARTITION);
             encode_partition(&node, buf)
+        } else if node.is::<super::fed::FedRowsExec>() {
+            buf.push(FED);
+            super::fed::encode(&node, buf)
         } else {
             buf.push(CEILING);
             super::ceiling::Codec.try_encode(node, buf, proto_converter)
