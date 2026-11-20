@@ -3841,6 +3841,11 @@ because the sources and relationships are cross-references only the assembled
 <code>Definitions</code> can see.</p>
 <h4 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h3 id="use-prefiltercapability"><code>use PrefilterCapability</code><a class="headerlink" href="#use-prefiltercapability" title="Permanent link">&para;</a></h3>
+<p>The source engine families that can carry the raw necessary condition.</p>
+<p>The one place that decides it: another source may bind a linguistic collation to a column, so an
+engine is added here only with comparison evidence, and the exhaustive match in <code>Self::of</code> makes
+a new dialect a compile error until someone decides.</p>
 <h3 id="use-rawprefilter"><code>use RawPrefilter</code><a class="headerlink" href="#use-rawprefilter" title="Permanent link">&para;</a></h3>
 <h3 id="use-invalidtextpolicy"><code>use InvalidTextPolicy</code><a class="headerlink" href="#use-invalidtextpolicy" title="Permanent link">&para;</a></h3>
 <h3 id="use-maxtextbytes"><code>use MaxTextBytes</code><a class="headerlink" href="#use-maxtextbytes" title="Permanent link">&para;</a></h3>
