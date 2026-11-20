@@ -75,6 +75,7 @@ use adbc_core::{Connection, Statement as _};
 use arrow_array::cast::AsArray as _;
 use arrow_array::{Array as _, RecordBatch, StringArray};
 use sutura_adbc_postgres::{AdbcError, Conninfo, PostgresDriver};
+use sutura_domain::catalog::Collation;
 use sutura_domain::warehouse::ParamValue;
 
 use crate::documentation::{Assembly, ReadQuery, Row as DocumentationRow, checked_bounds, default_bounds};
@@ -428,6 +429,15 @@ fn admit(assembly: &mut Assembly<'_>, batch: &RecordBatch) -> Result<(), RdbmsEr
         .column_by_name("is_primary_key")
         .and_then(|array| array.as_boolean_opt())
         .ok_or_else(|| unexpected("is_primary_key", "boolean"))?;
+    // Only the native read selects it; a documentation view carries no collation evidence.
+    let column_collation = batch
+        .column_by_name("column_collation")
+        .map(|array| {
+            array
+                .as_string_opt::<i32>()
+                .ok_or_else(|| unexpected("column_collation", "text"))
+        })
+        .transpose()?;
     for row in 0..batch.num_rows() {
         assembly.count_row()?;
         let cell = |array: &StringArray| array.is_valid(row).then(|| array.value(row).to_owned());
@@ -442,9 +452,31 @@ fn admit(assembly: &mut Assembly<'_>, batch: &RecordBatch) -> Result<(), RdbmsEr
             column_type: cell(column_type),
             column_description: cell(column_description),
             is_primary_key: is_primary_key.is_valid(row).then(|| is_primary_key.value(row)),
+            column_collation: collation(
+                column_collation
+                    .filter(|array| array.is_valid(row))
+                    .map(|array| array.value(row)),
+            ),
         })?;
     }
     Ok(())
+}
+
+/// The collation of one native `column_collation` cell: `NULL` for a type that has none,
+/// `default` for the database default, else the schema-qualified collation name.
+///
+/// The database default is always deterministic, so `LIKE` on it compares the stored text
+/// character for character, and the built-in `pg_catalog.C` and `pg_catalog.POSIX` order by byte:
+/// all three are [`Collation::Binary`]. Any other collation is named and never treated as binary,
+/// including a deterministic one and a user schema's own `C`, and a name this crate cannot hold
+/// is [`Collation::Unknown`].
+/// Limit: this is the column's collation as of the read; a statement's own `COLLATE` is outside it.
+fn collation(raw: Option<&str>) -> Collation {
+    match raw {
+        None => Collation::Unknown,
+        Some("default" | "pg_catalog.C" | "pg_catalog.POSIX") => Collation::Binary,
+        Some(name) => Collation::named(name),
+    }
 }
 
 fn adbc(cause: adbc_core::error::Error) -> RdbmsError {
@@ -462,13 +494,23 @@ mod tests {
 
     use arrow_array::{ArrayRef, BooleanArray, RecordBatch, StringArray};
 
+    use sutura_domain::catalog::Collation;
+
     use crate::DictionaryBounds;
     use crate::documentation::Assembly;
 
     /// Two documentation rows of one table as the driver delivers them, one with NULL prose.
     fn batch() -> RecordBatch {
-        let text = |values: [Option<&str>; 2]| -> ArrayRef { Arc::new(StringArray::from(values.to_vec())) };
-        RecordBatch::try_from_iter([
+        batch_with(None)
+    }
+
+    fn text(values: [Option<&str>; 2]) -> ArrayRef {
+        Arc::new(StringArray::from(values.to_vec()))
+    }
+
+    /// [`batch`], with the native read's `column_collation` column when given.
+    fn batch_with(collation: Option<ArrayRef>) -> RecordBatch {
+        let mut columns = vec![
             ("environment", text([Some("test"), Some("test")])),
             ("catalog_name", text([None, None])),
             ("schema_name", text([Some("public"), Some("public")])),
@@ -482,14 +524,62 @@ mod tests {
             ("column_type", text([Some("bigint"), None])),
             ("column_description", text([None, None])),
             ("is_primary_key", Arc::new(BooleanArray::from(vec![true, false])) as ArrayRef),
-        ])
-        .expect("a documentation batch builds")
+        ];
+        columns.extend(collation.map(|array| ("column_collation", array)));
+        RecordBatch::try_from_iter(columns).expect("a documentation batch builds")
     }
 
     fn admitted(bytes: NonZeroU64) -> Result<crate::Dictionary, crate::RdbmsError> {
         let mut assembly = Assembly::new("test", DictionaryBounds::new(NonZeroU64::MAX, bytes));
         super::admit(&mut assembly, &batch())?;
         Ok(assembly.finish())
+    }
+
+    fn read_collations(batch: &RecordBatch) -> [Option<Collation>; 2] {
+        let mut assembly = Assembly::new("test", DictionaryBounds::new(NonZeroU64::MAX, NonZeroU64::MAX));
+        super::admit(&mut assembly, batch).expect("the batch is admitted");
+        let dictionary = assembly.finish();
+        let [orders] = dictionary.tables() else {
+            panic!("one table: {dictionary:?}")
+        };
+        ["order_id", "amount"].map(|column| orders.column_metadata(column).map(|metadata| metadata.collation().clone()))
+    }
+
+    #[test]
+    fn the_native_collation_cell_maps_default_to_binary_a_name_to_a_name_and_the_rest_to_unknown() {
+        assert_eq!(
+            read_collations(&batch_with(Some(text([Some("default"), Some("pg_catalog.C")])))),
+            [Some(Collation::Binary), Some(Collation::Binary)]
+        );
+        assert_eq!(
+            read_collations(&batch_with(Some(text([Some("pg_catalog.POSIX"), Some("public.C")])))),
+            [Some(Collation::Binary), Some(Collation::named("public.C"))],
+            "only the built-in C and POSIX are binary; a user schema's collation named C is not"
+        );
+        assert_eq!(
+            read_collations(&batch_with(Some(text([
+                Some("pg_catalog.und-x-icu"),
+                Some("pg_catalog.\"x\"")
+            ])))),
+            [Some(Collation::named("pg_catalog.und-x-icu")), None]
+        );
+        assert_eq!(
+            read_collations(&batch_with(Some(text([Some("public.\"x y\""), None])))),
+            [Some(Collation::Unknown), None],
+            "a name this crate cannot hold, and a NULL, are Unknown"
+        );
+        assert_eq!(
+            read_collations(&batch()),
+            [Some(Collation::Unknown), None],
+            "a documentation view has no collation column"
+        );
+    }
+
+    #[test]
+    fn a_collation_column_that_is_not_text_is_refused_rather_than_read_as_unknown() {
+        let wrong = batch_with(Some(Arc::new(BooleanArray::from(vec![true, false]))));
+        let mut assembly = Assembly::new("test", DictionaryBounds::new(NonZeroU64::MAX, NonZeroU64::MAX));
+        assert!(super::admit(&mut assembly, &wrong).is_err());
     }
 
     #[test]

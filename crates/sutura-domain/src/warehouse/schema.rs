@@ -14,15 +14,18 @@ use std::sync::Arc;
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use sha2::{Digest as _, Sha256};
 
-use crate::catalog::{Definitions, Metric, Model, Relationship};
+use crate::catalog::{COLLATION_METADATA_KEY, Collation, Definitions, Metric, Model, Relationship};
 use crate::definitions::nibble;
 use crate::model::{ColumnName, ModelName, SourceName};
 use crate::pinned::NotValidated;
 
 pub use types::{TypeDialect, UnboundedNumber};
 
-/// The digest of a [`PinnedSchemas`]: lower-case hex SHA-256 over each pinned model's name and,
-/// in order, each column's name, Arrow type, nullability and local-operator marker.
+/// The digest of a [`PinnedSchemas`].
+///
+/// Lower-case hex SHA-256 over each pinned model's name and, in order, each column's name, Arrow
+/// type, nullability, local-operator marker and, for a text column with one on record, its
+/// collation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct SchemaDigest(String);
 
@@ -61,6 +64,11 @@ impl PinnedSchemas {
     /// joins to a model on another source - that declares no column type at all. That is a missing
     /// declaration, and not a type to fall back from. A model no relationship federates is pinned
     /// with every column fallen back, and is no table of the SQL tool.
+    ///
+    /// [`NotValidated::CollationDisagreement`] for two models over one physical column - aliases as
+    /// the text-policy check reads them, so `public.notes` and `NOTES` are one table and column
+    /// names fold case - that pin different known collations. A collation is pinned only on a column whose declared type the
+    /// dialect reads as text, never on one that fell back to `Utf8`.
     pub fn pin(definitions: &Definitions, dialects: &BTreeMap<SourceName, TypeDialect>) -> Result<Self, NotValidated> {
         Self::pin_with_unbounded_numbers(definitions, dialects, &BTreeSet::new())
     }
@@ -99,6 +107,7 @@ impl PinnedSchemas {
             .collect();
         let mut models = BTreeMap::new();
         let mut fell_back = BTreeMap::new();
+        let mut collations = PinnedCollations::new();
         for model in definitions.models().values() {
             let Some(dialect) = dialects.get(model.source()) else {
                 continue;
@@ -159,6 +168,28 @@ impl PinnedSchemas {
                                 .map_or_else(String::new, |declared| declared.as_str().to_ascii_lowercase()),
                         );
                     }
+                }
+                if mapped_text && !field.metadata().contains_key("sutura:unbounded_number") {
+                    let collation = dialect.engine_collation().unwrap_or_else(|| column.collation());
+                    if !collation.is_unknown() {
+                        let key = (
+                            model.source(),
+                            model.table_name().as_str().to_ascii_lowercase(),
+                            column.name().as_str().to_ascii_lowercase(),
+                        );
+                        let seen = collations.entry(key).or_default();
+                        if seen
+                            .iter()
+                            .any(|(other, known)| **known != *collation && physical_alias(model, other))
+                        {
+                            return Err(NotValidated::CollationDisagreement {
+                                model: model.name().clone(),
+                                column: column.name().clone(),
+                            });
+                        }
+                        seen.push((model, collation));
+                    }
+                    collation.pin_onto(&mut field);
                 }
                 fields.push(field);
             }
@@ -308,6 +339,10 @@ fn refuse_protected_read(
     Ok(())
 }
 
+/// The known collations pinned so far, by source, folded table name and folded column name: the
+/// candidates a later model over the same physical column is compared with.
+type PinnedCollations<'a> = BTreeMap<(&'a SourceName, String, String), Vec<(&'a Model, &'a Collation)>>;
+
 /// An unqualified name may resolve to the qualified table on the same connection. Fold case
 /// conservatively: some engines fold even quoted identifiers, so exact spelling is not a barrier.
 fn physical_alias(left: &Model, right: &Model) -> bool {
@@ -347,6 +382,10 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
                 part(&mut hash, "sutura:text_policy");
                 part(&mut hash, policy);
             }
+            if let Some(collation) = Collation::of_field(field).encoded() {
+                part(&mut hash, COLLATION_METADATA_KEY);
+                part(&mut hash, &collation);
+            }
             hash.update([
                 u8::from(field.is_nullable()),
                 u8::from(
@@ -370,6 +409,9 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
             .collect(),
     )
 }
+
+#[cfg(test)]
+mod collation_tests;
 
 #[cfg(test)]
 mod tests;
