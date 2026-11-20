@@ -257,13 +257,18 @@ fn oracle_raw_lob_prefilter_resolves_full_and_basename_qualifiers_without_an_ali
 fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some());
-    for dialect in [TypeDialect::Postgres, TypeDialect::ClickHouse, TypeDialect::BigQuery] {
-        assert!(
-            raw_predicates(sql, table(dialect, &["[masked]"], true, false, true))
-                .iter()
-                .all(Option::is_none),
-            "{dialect:?}"
-        );
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+    ] {
+        let predicates = raw_predicates(sql, table(dialect, &["[masked]"], true, false, true));
+        if dialect == TypeDialect::DuckDb {
+            assert!(predicates.iter().any(Option::is_some), "{dialect:?}");
+            continue;
+        }
+        assert!(predicates.iter().all(Option::is_none), "{dialect:?}");
     }
 }
 
