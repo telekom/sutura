@@ -877,4 +877,6 @@ pub struct Metric {
 mod tests;
 
 #[cfg(test)]
+mod postgres_prefilter_tests;
+#[cfg(test)]
 mod raw_prefilter_tests;

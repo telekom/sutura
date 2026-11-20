@@ -159,6 +159,26 @@ where
         "QQQQ",
         ("a nondeterministic sibling keeps the redacted-only statement", false),
     );
+    // A nondeterministic column that is only projected is read after the conjuncts, so the raw
+    // search may empty the scan first. That relies on the source merging the view's subquery, which
+    // nothing here holds: both runs must still end alike, error or rows.
+    let projected = format!("SELECT \"plain\", \"folded\" FROM {from} WHERE \"plain\" LIKE '%QQQQ%'");
+    let outcomes = both(
+        warehouse,
+        (path, dialect),
+        &[("plain", Some("binary")), folded],
+        ("[masked]", &projected),
+    );
+    let (before, after) = searches((&outcomes[0], &outcomes[1]), "QQQQ");
+    assert_eq!(after - before, 1, "a binary search column still takes the raw search");
+    let [(baseline, _), (opted, _)] = outcomes;
+    let ending =
+        |answer: Result<RawRows, FixtureQueryError>| answer.map(|rows| rows.rows().len()).map_err(|cause| cause.to_string());
+    assert_eq!(
+        ending(baseline),
+        ending(opted),
+        "a projected-only nondeterministic column must end both runs alike"
+    );
     // A binary sibling is no obstacle, so the refusal above is the column's and not any policy column's.
     let binary = format!("SELECT \"plain\" FROM {from} WHERE \"byte_order\" = 'x' AND \"plain\" LIKE '%TERM%'");
     let columns = [("plain", Some("binary")), ("byte_order", Some("binary"))];

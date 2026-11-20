@@ -58,17 +58,22 @@ universal acceleration.
 PostgreSQL binds a collation to each column, so the pinned column decides, and an unknown or named
 collation falls back. Binary means the database default (always deterministic), `pg_catalog."C"` or
 `pg_catalog."POSIX"`, or a `binary` an author wrote in a local catalog document. A wrong authored
-`binary` is the operator's error: where the real collation is looser than byte order (case- or
-accent-insensitive), a raw test can drop a row the redacted test would match, so the answer is
-incomplete. Before PostgreSQL 18 the raw `LIKE` itself raises on such a column, and the error then
-stands for an unredacted value. The extra timing the acknowledgement accepts still applies. A deterministic
+`binary` is the operator's error, trusted like a wrong issuer. Where the real collation is
+nondeterministic, PostgreSQL before 18 fails the raw `LIKE` on every row, so the error reveals
+nothing. From 18 the raw `LIKE` runs and `regexp_replace` then refuses the column, so the error
+against an empty answer shows whether an unredacted value contains the term, ignoring case or
+accents. That is a disclosure beyond the timing the acknowledgement accepts. A deterministic
 collation makes `LIKE` compare character for character, so the raw test and the redacted test
 agree. From PostgreSQL 18 `LIKE` also accepts a nondeterministic collation, which matches text that
 differs byte for byte and is looser than the replacement proof; earlier versions refuse it.
 `regexp_replace`, which the policy view uses, refuses a nondeterministic collation outright, and a
 raw test that emptied the scan first would turn that refusal into an empty answer about unredacted
 text. For the same reason a conjunct beside the search on another policy column counts as unable to
-raise only where that column is pinned binary as well. Any other named collation, even a
+raise only where that column is pinned binary as well. A nondeterministic policy column that is only projected, not named in a conjunct, is
+not checked: the raw search can empty the scan before the view reads it, so the same error is
+raised only for rows the redacted test would also have passed. That holds because PostgreSQL merges
+the view's subquery (simple, immutable functions) and computes the projection after the
+conjuncts. Nothing here holds that merge, and a cell checks it on the tier. Any other named collation, even a
 deterministic one, keeps redacted-only execution, and PostgreSQL has no `UPPER` arm.
 
 Limits. The record is the column's collation as of the read, so a later `ALTER ... COLLATE` takes

@@ -108,15 +108,9 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
     let capable = [
         (TypeDialect::DataFusion, PrefilterCapability::DataFusion),
         (TypeDialect::Oracle, PrefilterCapability::Oracle),
-        (TypeDialect::Postgres, PrefilterCapability::Postgres),
     ];
     for (dialect, capability) in capable {
         assert_eq!(PrefilterCapability::of(dialect), Some(capability), "{dialect:?}");
-        assert_eq!(
-            capability.requires_binary_column(),
-            capability == PrefilterCapability::Postgres,
-            "only an engine that binds a collation to each column asks the column: {dialect:?}"
-        );
     }
     for dialect in [
         TypeDialect::DuckDb,
