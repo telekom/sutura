@@ -361,8 +361,9 @@ where
 }
 
 /// The combiner's own capability, so a dialect it enables is expected here without a second list.
-const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    PrefilterCapability::of(dialect).is_some()
+fn prefilter_capable(dialect: TypeDialect) -> bool {
+    // PostgreSQL is a literal here: an expectation read from `of` alone would vanish with the arm.
+    PrefilterCapability::of(dialect).is_some() || dialect == TypeDialect::Postgres
 }
 
 /// How many times the statements the source received search for `term`.
