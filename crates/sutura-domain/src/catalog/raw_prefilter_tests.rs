@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::{Column, Definitions, Description, InvalidTextPolicy, Model, RawPrefilter, TextPolicy};
+
 use crate::model::{ColumnName, ModelName, SourceName, TableName};
 use crate::warehouse::schema::{PinnedSchemas, TypeDialect};
 

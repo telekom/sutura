@@ -6,6 +6,7 @@ use std::ops::ControlFlow;
 use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
+use sutura_domain::catalog::COLLATION_METADATA_KEY;
 
 use super::*;
 
@@ -293,6 +294,7 @@ fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
         Some("unreadable"),
         None,
     ] {
+
         assert!(
             raw_predicates(sql, collated(&enabled, pinned)).iter().all(Option::is_none),
             "{pinned:?}"
@@ -310,6 +312,13 @@ fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
             "{dialect:?} reads no collation fact"
         );
     }
+    let clickhouse = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
+    assert!(
+        raw_predicates(sql, collated(&clickhouse, Some("binary")))
+            .iter()
+            .any(Option::is_some),
+        "ClickHouse takes the new binary-column arm"
+    );
 }
 
 #[test]
@@ -412,4 +421,46 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
             "{dialect:?}: {rewritten}"
         );
     }
+}
+
+/// `table` with its text column pinned under `collation`, as pinning would have written it.
+fn collated(table: &StatementTable, collation: Option<&str>) -> StatementTable {
+    let fields = table
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut metadata = field.metadata().clone();
+            if field.name() == "BODY"
+                && let Some(collation) = collation
+            {
+                drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
+            }
+            field.as_ref().clone().with_metadata(metadata)
+        })
+        .collect::<Vec<_>>();
+    StatementTable::new(
+        table.source().clone(),
+        table.table().clone(),
+        table.dialect(),
+        Arc::new(Schema::new(fields)),
+    )
+}
+
+#[test]
+fn clickhouse_prefilters_a_binary_column_with_the_stored_column_named_through_its_table() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let base = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
+    let conditions = raw_predicates(sql, collated(&base, Some("binary")));
+    let [Some(condition)] = conditions.as_slice() else {
+        panic!("one raw necessary condition: {conditions:?}");
+    };
+    assert_eq!(condition.to_string(), "(`notes`.`BODY` LIKE '%TERM%')");
+    let rewritten = super::super::text::apply(String::from(sql), &[collated(&base, Some("binary"))], TypeDialect::ClickHouse)
+        .expect("a protected table rewrites");
+    assert!(
+        rewritten.contains("FROM \"notes\" WHERE (`notes`.`BODY` LIKE '%TERM%')) AS `notes`"),
+        "the condition filters the stored table inside the view: {rewritten}"
+    );
+    assert!(rewritten.contains("replaceRegexpAll(`notes`.`BODY`,"), "{rewritten}");
 }

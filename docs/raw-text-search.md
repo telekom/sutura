@@ -45,7 +45,7 @@ contain no full term, and start and end with characters absent from that term. T
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.
 
-The current eligible comparison arms are DataFusion's binary `LIKE`, Oracle native CLOB/NCLOB `LIKE`
+The current eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's `LIKE` for admitted ASCII-alphanumeric needles, Oracle native CLOB/NCLOB `LIKE`
 with an optional `UPPER` around that column, and `DuckDB` text pinned `binary`. Cube's local policy
 execution is not an eligible arm and keeps redacted-only execution. Oracle uses its binary
 character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary `NLS_SORT` permits
@@ -63,6 +63,7 @@ remains is an incomplete answer at most, under collations or DuckDB versions thi
 measured. Non-LOB Oracle columns and other source dialects retain redacted-only execution because
 their pinned schemas do not establish binary comparison semantics. This is a generic policy with
 conservative engine eligibility, not universal acceleration.
+
 
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
@@ -83,11 +84,34 @@ column an author declares `binary`; recording it enables no other engine.
 What `binary` does not cover. It holds for `LIKE` and equality, not for ordering under a locale, and
 a type can still change equality: Postgres `bpchar` ignores trailing spaces in `=`. A `postgres_fdw`
 foreign table's `default` is the remote server's default. ClickHouse tables on the MySQL engine
-compare `=`, `<` and `>` on the MySQL server, while `LIKE` stays in ClickHouse. DuckDB's global
-`default_collation` setting changes `=` and `ILIKE` but not `LIKE` (measured on 2.0.0), and a raw
-statement cannot set it. Adding the fact moves the schema digest of every schema that now carries
-one, once, at upgrade: any with a DataFusion or ClickHouse text column, and any native Postgres
-read. A schema with none hashes as before.
+compare `=`, `<` and `>` on the MySQL server, while `LIKE` stays in ClickHouse for ordinary
+ClickHouse tables. On a MySQL or PostgreSQL engine table the raw test is forwarded under the
+remote collation; the admitted ASCII-alphanumeric needle can only broaden matches, and the exact
+redacted predicate still decides. DuckDB's global `default_collation` setting changes `=` and
+`ILIKE` but not `LIKE` (measured on 2.0.0), and a raw statement cannot set it. Adding the fact moves
+the schema digest of every schema that now carries one, once, at upgrade: any with a DataFusion,
+ClickHouse or DuckDB text column, and any native Postgres read. A schema with none hashes as before.
+
+
+ClickHouse has no column collation and its `LIKE` is case-sensitive. ClickHouse documents `LIKE`
+matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted
+needle shape only: ASCII alphanumeric, no `_`, no escape, which makes the pattern a plain substring
+search. A column of its
+
+pinned schema carries the collation fact `binary` and a column pinned anything else (unknown or a
+named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
+test reads the stored column qualified by its table, in the form `` `table`.`column` ``: ClickHouse
+resolves a bare name to the projection alias of the same name unless `prefer_column_name_to_alias`
+is set, and a raw test that read the alias would read the redacted value, discard nothing and
+still return the same rows. The statement text is what the golden cell asserts; no answer can tell
+the two reads apart, so only the recorded timings show the effect. The redaction patterns of
+`replaceRegexpAll` are RE2 expressions, and a replacement is a literal (`$` and `\` are refused), so
+no backreference can rebuild a term from a matched value. ClickHouse has no `UPPER` arm. The
+ClickHouse tier measures equality and timings; the RE2 and alias statements above are documented
+behaviour, not measured here. ClickHouse column types are authored in the catalog: nothing reads
+`system.columns`. The adapter pins neither the analyzer setting nor `prefer_column_name_to_alias`;
+a raw test that read the alias would be safe, since it only repeats the redacted predicate, and
+would lose the speedup.
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone
@@ -128,3 +152,31 @@ What this does not do:
 
 The reason shows that a column the caller can already read carries a text policy. It names no
 column, pattern or replacement, and nothing about the policy beyond its existence.
+
+## Narrowing a Cube search
+
+Cube cannot apply a text policy, so the engine applies it over the raw rows Cube answers, and a
+Cube answer holds at most 10,000 rows. A search over a protected Cube table that reads more than
+that could not answer even with a narrowing filter. Cube is therefore sent the part of the `WHERE`
+that reads no policy column. This needs no declaration, and it adds no raw condition on a policy
+column.
+
+A conjunct is sent only when it is one of these, over a column that carries no text policy:
+
+- a text column equal to a text literal, or in a list of text literals;
+- `IS NULL` or `IS NOT NULL` of any such column;
+- an `AND` or `OR` of those, because the engine spells a short `IN` list as an `OR`.
+
+Every other conjunct stays local, over the masked text: any conjunct that reads a policy column, a
+text order or inequality, `LIKE`, a number, a time or a boolean, and anything with a function, cast,
+arithmetic, `NOT` or subquery, and an `OR` with one such side. The limit is deliberate. Cube
+compares text by its warehouse's collation and holds numbers at their own precision, so only the listed forms cannot make Cube
+answer fewer rows than the engine would keep. A conjunct that raises at Cube on a row the local plan
+would not reach changes which statements fail, so none that can raise is sent.
+
+Each sent conjunct also stays in the local filter, above the policy, so a Cube that answers more
+rows than the conjunct selects is corrected. A Cube that answers fewer is not, and nothing here
+proves that none does: the listed forms are chosen so that equal text is equal under any collation,
+and the proof of that is by reading, not by a Cube run. The 10,000-row cap, the memory budget and
+the deadline still apply to what comes back, so a filter that leaves more than 10,000 rows, or a
+search whose only condition reads the policy column, still cannot answer.

@@ -12,11 +12,11 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
     for (dialect, capability) in capable {
         assert_eq!(PrefilterCapability::of(dialect), Some(capability), "{dialect:?}");
     }
+    assert!(PrefilterCapability::of(TypeDialect::ClickHouse).is_some());
     for dialect in [
         TypeDialect::DuckDb,
         TypeDialect::Cube,
         TypeDialect::Postgres,
-        TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
     ] {
         if dialect == TypeDialect::DuckDb {
