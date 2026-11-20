@@ -555,6 +555,73 @@ where
 macro_rules! system {
     // Cube reads every raw row before any operator and never takes the prefilter: nothing to compare.
     (cube, $warehouse:ty) => {};
+    (duckdb, $warehouse:ty) => {
+        mod duckdb {
+            #[test]
+            fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
+                super::native::<$warehouse>();
+            }
+
+            #[test]
+            fn a_case_insensitive_column_never_takes_the_raw_condition() {
+                use super::*;
+                let file = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+                    "duckdb-collation-{}-{:?}.duckdb", std::process::id(), std::thread::current().id()
+                ));
+                let writer = <$warehouse>::in_memory(source(), crate::adapters::posture(), crate::adapters::result_budget())
+                    .expect("a writable fixture database");
+                let literal = file.display().to_string().replace('\'', "''");
+                for sql in [
+                    format!("ATTACH '{literal}' AS fixture"),
+                    String::from("CREATE TABLE fixture.binary_notes AS SELECT * FROM (VALUES ('secret_other', 'hidden'), ('secret_TERM', 'hidden'), ('visible TERM', 'rare'), ('term', 'rare')) AS rows(body, cohort)"),
+                    String::from("CREATE TABLE fixture.folded_notes AS SELECT body COLLATE NOCASE AS body, cohort FROM fixture.binary_notes"),
+                    String::from("DETACH fixture"),
+                ] {
+                    writer.execute_unscreened(&RawStatement::parse(sql).expect("one fixture statement"), deadline())
+                        .expect("the collation fixture is written");
+                }
+                drop(writer);
+                let warehouse = <$warehouse>::open(source(), crate::adapters::posture(), &file, crate::adapters::result_budget())
+                    .expect("the fixture opens through the read-only production path");
+                std::fs::remove_file(&file).expect("the opened fixture is unlinked");
+                let query = |name| format!("SELECT \"body\" FROM \"{name}\" WHERE \"body\" LIKE '%TERM%'");
+                let path = |name| QualifiedTable::parse(name).expect("a fixture table");
+                let raw = warehouse.execute_unscreened(&RawStatement::parse(query("folded_notes")).expect("one read"), deadline())
+                    .expect("a native collated LIKE");
+                assert_eq!(raw.rows().len(), 3, "NOCASE also matches the differently cased raw term");
+                for (name, collation, replacement, expected, extra) in [
+                    ("binary_notes", Some("binary"), "[masked]", 1, 1),
+                    ("folded_notes", Some("named:NOCASE"), "term", 4, 0),
+                    ("folded_notes", None, "term", 4, 0),
+                    ("folded_notes", Some("binary"), "term", 4, 0),
+                ] {
+                    let mut answers = Vec::new();
+                    let mut searches = Vec::new();
+                    for enabled in [false, true] {
+                        let mut policy = serde_json::json!({"max_text_bytes":128,"redact":[{"pattern":"secret_[^ ]+","replace":replacement}]});
+                        if enabled {
+                            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"accepted fixture timing"});
+                        }
+                        let mut metadata = HashMap::from([(String::from("sutura:text_policy"), policy.to_string())]);
+                        if let Some(collation) = collation {
+                            metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation));
+                        }
+                        let table = StatementTable::new(source(), path(name), TypeDialect::DuckDb, Arc::new(Schema::new(vec![
+                            Field::new("body", DataType::Utf8, true).with_metadata(metadata),
+                            Field::new("cohort", DataType::Utf8, true),
+                        ])));
+                        let (rows, planned) = execute_recorded(&warehouse, table, &query(name)).expect("the protected search answers");
+                        answers.push(sorted(rows));
+                        searches.push(searches_in(&planned, "TERM"));
+                    }
+                    assert_eq!(answers[0], answers[1], "{name} {collation:?} {replacement}");
+                    assert_eq!(answers[0].1.len(), expected, "the independent redacted row count");
+                    assert!(searches[0] > 0, "the statement reached DuckDB");
+                    assert_eq!(searches[1] - searches[0], extra, "{name} {collation:?} {replacement}");
+                }
+            }
+        }
+    };
     ($name:ident, $warehouse:ty) => {
         mod $name {
             #[test]

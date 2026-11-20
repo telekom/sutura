@@ -324,6 +324,33 @@ fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
 }
 
 #[test]
+fn a_replacement_that_differs_only_in_case_never_passes_the_proof_where_a_collation_may_apply() {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let predicates = |replacement| {
+        raw_predicates(
+            sql,
+            duckdb_collated(&table(TypeDialect::DuckDb, &[replacement], true, false, true), Some("binary")),
+        )
+    };
+    assert!(predicates("[masked]")[0].is_some());
+    for replacement in ["term", "[tErM]"] {
+        assert!(predicates(replacement).iter().all(Option::is_none), "{replacement}");
+    }
+    assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["term"], true, false, true))[0].is_some());
+}
+
+#[test]
+fn a_non_ascii_replacement_never_passes_the_proof() {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%K%'";
+    let duckdb = |replacement| duckdb_collated(&table(TypeDialect::DuckDb, &[replacement], true, false, true), Some("binary"));
+    assert!(raw_predicates(sql, duckdb("[masked]"))[0].is_some());
+    let kelvin = "[\u{212A}]";
+    for source in [duckdb(kelvin), table(TypeDialect::DataFusion, &[kelvin], true, false, true)] {
+        assert!(raw_predicates(sql, source).iter().all(Option::is_none));
+    }
+}
+
+#[test]
 fn a_sibling_conjunct_that_can_raise_keeps_the_redacted_only_path() {
     let sql = |sibling: &str| format!("SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%' AND {sibling}");
     let enabled = || table(TypeDialect::DataFusion, &["[masked]"], true, false, true);
