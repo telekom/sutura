@@ -78,6 +78,14 @@ async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decod
         Err(Unread::LegNotCertified)
     ));
 
+    let switched = sutura_exec_datafusion::SwitchedPrincipal::new(
+        sutura_domain::identity::PrincipalName::parse("user@example.com").expect("a principal"),
+    );
+    assert!(matches!(
+        reader.read_switched(&partner, b"malformed", &local, b"", &schema, switched, None),
+        Err(Unread::LegNotCertified)
+    ));
+
     let mut admitted = reader
         .read(&staff, b"malformed", &local, b"", &schema, None)
         .expect("the verifier is admitted");

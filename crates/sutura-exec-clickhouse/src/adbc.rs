@@ -200,10 +200,18 @@ pub enum AdbcError {
     PresentedDisagreesWithPosture(#[source] PresentedDisagreesWithPosture),
     #[error("the key probe did not return two counts")]
     KeyCounts(#[source] CountsNotRead),
-    /// The `ClickHouse` bucket-split path is not built yet: a partition read is refused until the
-    /// behaviour PR fills in [`buckets::split_by_estimate`] and [`buckets::read_partition`].
-    #[error("ClickHouse bucket reads are not built yet")]
-    BucketsUnbuilt,
+    #[error("ClickHouse hash buckets were not declared for this source")]
+    HashBucketsNotDeclared,
+    #[error("the ClickHouse root estimate did not return two non-negative integer counts")]
+    EstimateNotCounts,
+    #[error("the ClickHouse bucket descriptor is malformed: {0}")]
+    BucketDescriptor(#[source] InvalidBucketDescriptor),
+    #[error("the ClickHouse bucket could not be rendered: {0}")]
+    BucketRender(#[source] sutura_sql::generate::BucketsRefused),
+    #[error("the ClickHouse partition's schema differs from the granted schema")]
+    PartitionSchemaChanged,
+    #[error("the ClickHouse partition identity disagrees with this source's posture")]
+    PartitionIdentityDisagrees,
 }
 
 /// A `ClickHouse` warehouse over its ADBC driver.
@@ -216,6 +224,7 @@ pub struct AdbcClickHouseWarehouse {
     password: Secret,
     tls: Option<TlsOptions>,
     result_budget: ResultBudget,
+    hash_buckets: bool,
 }
 
 impl core::fmt::Debug for AdbcClickHouseWarehouse {
@@ -250,7 +259,15 @@ impl AdbcClickHouseWarehouse {
             password,
             tls,
             result_budget,
+            hash_buckets: false,
         }
+    }
+
+    /// Enables the per-key-consistent split this source explicitly acknowledged.
+    #[must_use]
+    pub const fn with_hash_buckets(mut self, _declared: &sutura_domain::source::HashBucketsDeclared) -> Self {
+        self.hash_buckets = true;
+        self
     }
 
     fn deliverable<'p>(&self, presented: &'p Presented) -> Result<RunsAs<'p>, AdbcError> {
@@ -434,6 +451,17 @@ impl AdbcClickHouseWarehouse {
         most_rows: usize,
         runs_as: &RunsAs<'_>,
     ) -> Result<ResultBatches, AdbcError> {
+        self.run_sql(query.sql(), query.params(), deadline, most_rows, runs_as)
+    }
+
+    fn run_sql(
+        &self,
+        sql: &str,
+        params: &[sutura_domain::warehouse::ParamValue],
+        deadline: Deadline,
+        most_rows: usize,
+        runs_as: &RunsAs<'_>,
+    ) -> Result<ResultBatches, AdbcError> {
         if deadline::refuse_if_spent(deadline).is_err() {
             return Err(AdbcError::DeadlineSpent);
         }
@@ -455,7 +483,7 @@ impl AdbcClickHouseWarehouse {
                 seconds.to_string().into(),
             )
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let sql = settings::with_clause(&rewrite_placeholders(query.sql(), query.params())?, seconds)
+        let sql = settings::with_clause(&rewrite_placeholders(sql, params)?, seconds)
             .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;
         let sql = match *runs_as {
             RunsAs::Switched(ref user) => user.execute_as(&sql),
@@ -465,26 +493,24 @@ impl AdbcClickHouseWarehouse {
             self.source.clone(),
             TypeDialect::ClickHouse,
             sql.clone(),
-            query.params(),
+            params,
         );
         statement
             .set_sql_query(sql)
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        if let Some(batch) = sutura_adbc::parameter_batch(query.params()).map_err(AdbcError::Parameters)? {
+        if let Some(batch) = sutura_adbc::parameter_batch(params).map_err(AdbcError::Parameters)? {
             statement
                 .bind(batch)
                 .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
         }
         execute_to_completion(&mut statement, most_rows, self.result_budget).map(|rows| rows.with_execution(execution))
     }
-    /// [`AdbcClickHouseWarehouse::split_by_estimate`]: the `ClickHouse` bucket split's API parent,
-    /// stubbed to the whole read. The behaviour PR estimates and cuts the leg, and answers
-    /// [`Planned::Split`] for one a reader can hold.
+    /// Estimates and cuts an opted-in lookup leg under its whole-read identity.
     ///
     /// # Errors
     ///
-    /// Nothing in the parent: this answers [`Planned::Whole`] for every leg.
-    pub const fn split_by_estimate(
+    /// The source's failure to estimate or describe the leg, or to render its buckets.
+    pub fn split_by_estimate(
         &self,
         leg: &LegPlan,
         presented: &Presented,
@@ -496,13 +522,11 @@ impl AdbcClickHouseWarehouse {
         buckets::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
     }
 
-    /// [`AdbcClickHouseWarehouse::read_partition`]: the `ClickHouse` bucket split's API parent,
-    /// stubbed to a refusal. The behaviour PR reads `descriptor`'s bucket of `leg` as `identity`,
-    /// after the worker admitted the task's grant and re-certified the leg.
+    /// Reads the granted bucket under the declared identity after caller-side grant admission.
     ///
     /// # Errors
     ///
-    /// [`AdbcError::BucketsUnbuilt`] always, in the parent.
+    /// An undeclared split, malformed descriptor, mismatched identity or schema, and source failures.
     pub fn read_partition(
         &self,
         leg: &LegPlan,
@@ -517,7 +541,7 @@ impl AdbcClickHouseWarehouse {
 
 mod buckets;
 
-pub use buckets::{BucketDescriptor, InvalidBucketDescriptor, PartitionIdentity, Planned};
+pub use buckets::{BucketDescriptor, BucketSplit, InvalidBucketDescriptor, PartitionIdentity, Planned};
 #[cfg(test)]
 mod sum_slot;
 #[cfg(test)]
