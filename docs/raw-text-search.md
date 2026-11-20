@@ -45,13 +45,14 @@ contain no full term, and start and end with characters absent from that term. T
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.
 
-The current eligible comparison arms are DataFusion's binary `LIKE` and Oracle native CLOB/NCLOB
-`LIKE`, with an optional `UPPER` around that column on Oracle. Cube's local policy execution is not
+The current eligible comparison arms are DataFusion's binary `LIKE`, Oracle native CLOB/NCLOB
+`LIKE` with an optional `UPPER` around that column, and BigQuery `STRING` columns the catalog pins
+binary (below). Cube's local policy execution is not
 an eligible arm and keeps redacted-only execution. Oracle
 uses its binary character-set uppercase mapping, not `NLS_UPPER`. At execution time only a binary
 `NLS_SORT` permits raw row rejection; every other value, including NULL, retains all rows. No
-session setting is changed. Non-LOB Oracle columns and other source dialects retain redacted-only
-execution because their pinned schemas do not establish binary comparison semantics. This is a
+session setting is changed. Non-LOB Oracle columns and every dialect not named above retain
+redacted-only execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.
 
 
@@ -68,8 +69,10 @@ binary, including a user schema's own `C`. A `citext` column or a domain over te
 Markdown column may declare `collation: binary` or a name. That declaration is an authored claim,
 trusted as far as its author is. Two models over one physical column that pin different known
 collations are refused at pinning, naming the column; an unknown one contradicts nothing. Oracle
-records nothing here, because its check is the run-time `NLS_SORT` above. No other dialect reads
-the fact yet; recording it enables no engine.
+
+records nothing here, because its check is the run-time `NLS_SORT` above. BigQuery reads the fact
+to decide its prefilter (below); no other dialect reads it yet.
+
 
 What `binary` does not cover. It holds for `LIKE` and equality, not for ordering under a locale, and
 a type can still change equality: Postgres `bpchar` ignores trailing spaces in `=`. A
@@ -82,17 +85,24 @@ before.
 
 
 BigQuery is eligible only for a `STRING` column the catalog pins as binary. `LIKE` follows a column's
-collation: over `COLLATE 'und:ci'` it ignores case, so a raw test would no longer be the byte-wise
-test the redacted predicate is proven against (a replacement `[masked]` matches `%MASKED%` there).
-A column with no collation is compared by code point. The dictionary reports a collation per
-column through `INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME`, but a table or dataset default
-collation can also apply, and the pinned value is only what a catalog reader or author recorded. Nothing
-records it for BigQuery yet, neither a reader nor an authoring field, so a deployment does not take
-this arm until one does; an unrecorded or named collation keeps redacted-only execution. A wrong
-record voids the proof, and nothing checks it at run time. The raw condition is a backtick-quoted, qualified
-column (a double-quoted token is a string literal in BigQuery), and the benefit is slot time, not
-billed bytes: filtering a column does not reduce what an on-demand query reads from it. The cell
-reports wall-clock time only, because the port returns no job statistics.
+
+collation: over `COLLATE 'und:ci'` it ignores case (documented), so a raw test would no longer be the
+byte-wise test the redacted predicate is proven against. A column with no collation is compared by
+code point. Whether the redaction view keeps a column's collation is unmeasured: BigQuery documents
+neither `REGEXP_REPLACE` nor `CHAR_LENGTH` as supporting collation, and says an unsupported function
+returns an error on a collated value. The golden cell measures and prints what the view answers over
+a collated column; until that is read, a statement such as a replacement `[masked]` matching
+`%MASKED%` is a hypothesis, not a finding. No BigQuery dictionary reader exists here, so a column is
+binary only where the operator declares `collation: binary` on its Markdown column; otherwise it is
+unknown and keeps redacted-only execution, as does a named collation. That binary fact is the
+operator's declaration, not read from BigQuery. A dataset or table default collation such as `und:ci`
+makes a column declared binary the operator's error, and nothing checks it at run time: the proof
+does not hold for that column. Reading `INFORMATION_SCHEMA.COLUMNS.COLLATION_NAME` is a possible
+follow-up. The raw condition is a backtick-quoted, qualified column (a double-quoted token is a
+string literal in BigQuery), and the benefit is slot time, not billed bytes: filtering a column does
+not reduce what an on-demand query reads from it. The cell reports wall-clock time only, because the
+port returns no job statistics.
+
 
 The exact redacted predicate remains above the transformed table view. The raw predicate only
 adds a necessary condition inside that view. A database may reorder work, so eligibility alone

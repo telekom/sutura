@@ -135,24 +135,6 @@ fn fixture_csv() -> std::path::PathBuf {
     path
 }
 
-/// A field carrying `collation` as the pin writes it; the read-back fails if that encoding moves.
-fn pinned_with(mut field: Field, collation: &Collation) -> Field {
-    let encoded = match collation {
-        Collation::Binary => Some(String::from("binary")),
-        Collation::Named(name) => Some(format!("named:{name}")),
-        Collation::Unknown => None,
-    };
-    if let Some(encoded) = encoded {
-        field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), encoded);
-    }
-    assert_eq!(
-        &Collation::of_field(&field),
-        collation,
-        "the pinned collation encoding changed"
-    );
-    field
-}
-
 /// The fixture table as every engine here stores it: byte-wise, which a `BigQuery` catalog must say.
 fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_json::Value>) -> StatementTable {
     admitted_as(path, dialect, policy, &Collation::Binary)
@@ -171,7 +153,8 @@ fn admitted_as(
     if dialect == TypeDialect::Oracle {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
-    let body = pinned_with(Field::new("body", DataType::Utf8, true).with_metadata(metadata), collation);
+    let mut body = Field::new("body", DataType::Utf8, true).with_metadata(metadata);
+    collation.pin_onto(&mut body);
     StatementTable::new(
         source(),
         path.clone(),
@@ -247,8 +230,26 @@ where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    let combiner = DataFusionCombiner::new().map_err(|cause| FixtureQueryError::Combiner { cause })?;
-    let question = RawStatement::parse(sql).map_err(|cause| FixtureQueryError::Query { cause })?;
+    let (outcome, planned) = execute_observed(warehouse, table, sql);
+    outcome.map(|rows| (rows, planned))
+}
+
+/// An answer or refusal, beside the statements the source received either way.
+type Observed = (Result<RawRows, FixtureQueryError>, Vec<String>);
+
+fn execute_observed<W>(warehouse: &W, table: StatementTable, sql: &str) -> Observed
+where
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
+{
+    let combiner = match DataFusionCombiner::new() {
+        Ok(combiner) => combiner,
+        Err(cause) => return (Err(FixtureQueryError::Combiner { cause }), Vec::new()),
+    };
+    let question = match RawStatement::parse(sql) {
+        Ok(question) => question,
+        Err(cause) => return (Err(FixtureQueryError::Query { cause }), Vec::new()),
+    };
     let mut executing = Recorded {
         inner: Executing {
             warehouse,
@@ -257,21 +258,19 @@ where
         },
         statements: Vec::new(),
     };
-    let answer = combiner
-        .answer_statement(
-            StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
-            &mut executing,
-        )
-        .ok_or(FixtureQueryError::Unsupported)?;
-    if executing.inner.observed_scans != executing.inner.expected_scans {
-        return Err(FixtureQueryError::Scans {
+    let answer = combiner.answer_statement(
+        StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
+        &mut executing,
+    );
+    let outcome = match answer {
+        None => Err(FixtureQueryError::Unsupported),
+        Some(_) if executing.inner.observed_scans != executing.inner.expected_scans => Err(FixtureQueryError::Scans {
             observed: executing.inner.observed_scans,
             expected: executing.inner.expected_scans,
-        });
-    }
-    answer
-        .map(|rows| (rows, executing.statements))
-        .map_err(|cause| FixtureQueryError::Stopped { cause })
+        }),
+        Some(answer) => answer.map_err(|cause| FixtureQueryError::Stopped { cause }),
+    };
+    (outcome, executing.statements)
 }
 
 type OrderedRows = (Vec<String>, Vec<Vec<Value>>);
