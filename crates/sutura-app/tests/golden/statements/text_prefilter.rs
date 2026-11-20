@@ -20,8 +20,7 @@ trait PostgresFixtureStatements {
 }
 
 impl PostgresFixtureStatements for sutura_exec_postgres::adbc::AdbcPostgres {
-    fn load_statements(&self, table: &TableName, statements: &str) -> Result<(), &'static str> {
-        let _ = (self, table, statements);
+    fn load_statements(&self, _table: &TableName, _statements: &str) -> Result<(), &'static str> {
         Err("inline fixture loading is introduced with the Postgres collation change")
     }
 }
