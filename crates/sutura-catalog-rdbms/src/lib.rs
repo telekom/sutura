@@ -756,6 +756,8 @@ impl DictionaryBounds {
     }
 }
 
+#[cfg(all(test, feature = "live"))]
+mod collation_live_tests;
 #[cfg(test)]
 mod collation_tests;
 #[cfg(test)]
