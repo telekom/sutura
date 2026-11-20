@@ -1,4 +1,4 @@
-//! ClickHouse raw prefilter admission is tied to a binary column fact.
+//! `ClickHouse` raw prefilter admission is tied to a binary column fact.
 
 use super::{Collation, PrefilterCapability};
 use crate::warehouse::schema::TypeDialect;
