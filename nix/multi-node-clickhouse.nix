@@ -27,7 +27,6 @@ let
     }
     for node in query reader1 reader2; do issue ca $node; done
     for node in db idp; do issue server-ca $node; done
-    cat ca.pem server-ca.pem > anchors.pem
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout other.key -out other.pem -days 3650 -config ca.cnf -subj /CN=other-ca
     openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout stranger.key -out stranger.csr -subj /CN=stranger
     printf 'basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n' > stranger.ext
@@ -118,7 +117,7 @@ let
     };
     security = offHost // {
       identity = "multi-user";
-      outbound.transport_anchors = "${material}/anchors.pem";
+      outbound.transport_anchors = "${material}/server-ca.pem";
       inbound = {
         mode = "direct";
         resource = "https://query";
