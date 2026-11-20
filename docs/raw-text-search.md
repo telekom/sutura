@@ -54,7 +54,6 @@ session setting is changed. Non-LOB Oracle columns and other source dialects ret
 execution because their pinned schemas do not establish binary comparison semantics. This is a
 generic policy with conservative engine eligibility, not universal acceleration.
 
-
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
 collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
@@ -86,7 +85,6 @@ DuckDB's global `default_collation` setting can contradict an authored `binary`.
 moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
-
 
 ClickHouse has no column collation and its `LIKE` is case-sensitive. ClickHouse documents `LIKE`
 matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted
