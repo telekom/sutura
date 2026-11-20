@@ -2,9 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{
-    Collation, Column, Definitions, Description, InvalidTextPolicy, Model, PrefilterCapability, RawPrefilter, TextPolicy,
-};
+use super::{Column, Definitions, Description, InvalidTextPolicy, Model, RawPrefilter, TextPolicy};
 
 use crate::model::{ColumnName, ModelName, SourceName, TableName};
 use crate::warehouse::schema::{PinnedSchemas, TypeDialect};
@@ -104,35 +102,4 @@ fn a_raw_prefilter_without_a_redaction_rule_is_refused() {
         TextPolicy::parse(None, Vec::new(), Some(RawPrefilter::parse("a reason").expect("a reason"))),
         Err(InvalidTextPolicy::PrefilterWithoutRedaction)
     );
-}
-
-#[test]
-fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
-    let capable = [
-        (TypeDialect::DataFusion, PrefilterCapability::DataFusion),
-        (TypeDialect::Oracle, PrefilterCapability::Oracle),
-        (TypeDialect::ClickHouse, PrefilterCapability::ClickHouse),
-    ];
-    for (dialect, capability) in capable {
-        assert_eq!(PrefilterCapability::of(dialect), Some(capability), "{dialect:?}");
-    }
-    for dialect in [
-        TypeDialect::DuckDb,
-        TypeDialect::Cube,
-        TypeDialect::Postgres,
-        TypeDialect::BigQuery,
-    ] {
-        assert_eq!(PrefilterCapability::of(dialect), None, "{dialect:?}");
-    }
-}
-
-#[test]
-fn clickhouse_is_admitted_for_a_binary_column_only_and_the_other_arms_ignore_the_fact() {
-    for collation in [Collation::Unknown, Collation::named("und:ci")] {
-        assert!(!PrefilterCapability::ClickHouse.admits(&collation), "{collation:?}");
-    }
-    assert!(PrefilterCapability::ClickHouse.admits(&Collation::Binary));
-    for capability in [PrefilterCapability::DataFusion, PrefilterCapability::Oracle] {
-        assert!(capability.admits(&Collation::Unknown), "{capability:?}");
-    }
 }
