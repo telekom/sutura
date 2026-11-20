@@ -7,6 +7,8 @@ use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFact
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 
+use sutura_domain::catalog::COLLATION_METADATA_KEY;
+
 use super::*;
 
 fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, enabled: bool) -> StatementTable {
@@ -40,7 +42,7 @@ fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, en
 }
 
 /// `source` with its `BODY` column pinned under `collation`, as the pin writes it; `None` pins nothing.
-fn collated(source: &StatementTable, collation: Option<&str>) -> StatementTable {
+fn duckdb_collated(source: &StatementTable, collation: Option<&str>) -> StatementTable {
     let fields: Vec<Field> = source
         .schema()
         .fields()
@@ -265,7 +267,7 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     ] {
         let source = table(dialect, &["[masked]"], true, false, true);
         let source = if dialect == TypeDialect::DuckDb {
-            collated(&source, Some("binary"))
+            duckdb_collated(&source, Some("binary"))
         } else {
             source
         };
@@ -282,7 +284,7 @@ fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
 fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     let enabled = table(TypeDialect::DuckDb, &["[masked]"], true, false, true);
-    assert!(raw_predicates(sql, collated(&enabled, Some("binary")))[0].is_some());
+    assert!(raw_predicates(sql, duckdb_collated(&enabled, Some("binary")))[0].is_some());
     // `NOCASE` and `NOACCENT` are consulted by `LIKE` and survive `REGEXP_REPLACE`; an unreadable
     // fact and a missing one are no evidence either.
     for pinned in [
@@ -294,7 +296,9 @@ fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
         None,
     ] {
         assert!(
-            raw_predicates(sql, collated(&enabled, pinned)).iter().all(Option::is_none),
+            raw_predicates(sql, duckdb_collated(&enabled, pinned))
+                .iter()
+                .all(Option::is_none),
             "{pinned:?}"
         );
     }
@@ -306,13 +310,13 @@ fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
             sql
         };
         assert!(
-            raw_predicates(sql, collated(&enabled, None))[0].is_some(),
+            raw_predicates(sql, duckdb_collated(&enabled, None))[0].is_some(),
             "{dialect:?} reads no collation fact"
         );
     }
     let clickhouse = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
     assert!(
-        raw_predicates(sql, collated(&clickhouse, Some("binary")))
+        raw_predicates(sql, duckdb_collated(&clickhouse, Some("binary")))
             .iter()
             .any(Option::is_some),
         "ClickHouse takes the new binary-column arm"
@@ -419,6 +423,30 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
             "{dialect:?}: {rewritten}"
         );
     }
+}
+
+/// `table` with its text column pinned under `collation`, as pinning would have written it.
+fn collated(table: &StatementTable, collation: Option<&str>) -> StatementTable {
+    let fields = table
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut metadata = field.metadata().clone();
+            if field.name() == "BODY"
+                && let Some(collation) = collation
+            {
+                drop(metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation)));
+            }
+            field.as_ref().clone().with_metadata(metadata)
+        })
+        .collect::<Vec<_>>();
+    StatementTable::new(
+        table.source().clone(),
+        table.table().clone(),
+        table.dialect(),
+        Arc::new(Schema::new(fields)),
+    )
 }
 
 #[test]
