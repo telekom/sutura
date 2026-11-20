@@ -22,7 +22,7 @@ use sutura_domain::plan::{
     Executable, FederationCombiner, Granted, Grantee, LegPlan, LegRunner, LinkCast, Looked, NotGranted, NotOffered,
     PartitionReader, Partitioned,
 };
-use sutura_domain::query::{RefusalReason, ResultBound};
+use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{PreFlight, ResultBatches, Warehouse};
@@ -166,10 +166,8 @@ where
     if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
         return LegError::Refusal(RefusalReason::ResourcesExhausted { ceiling_bytes });
     }
-    if warehouse.result_did_not_fit(&cause) {
-        return LegError::Refusal(RefusalReason::ResultTooLarge {
-            bound: ResultBound::Volume,
-        });
+    if let Some(limit) = warehouse.result_limit(&cause) {
+        return LegError::Refusal(RefusalReason::ResultTooLarge { bound: limit.into() });
     }
     // The deadline, in the mono path's own order: after the two size bounds, before identity.
     if warehouse.deadline_exceeded(&cause) {
@@ -375,9 +373,9 @@ where
                 }))))
             }
             Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),
-            Ok(Partitioned::Refused(_)) => Err(LegError::Refusal(RefusalReason::ResultTooLarge {
-                bound: ResultBound::Volume,
-            })),
+            Ok(Partitioned::Refused(capacity)) => {
+                Err(LegError::Refusal(RefusalReason::ResultTooLarge { bound: capacity.into() }))
+            }
             Ok(Partitioned::NotGranted(refused)) => Err(self.not_granted(leg, refused)),
             Err(cause) => Err(classified::<W, B, C>(warehouse, cause, deadline)),
         }
