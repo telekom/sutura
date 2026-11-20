@@ -13,6 +13,19 @@ use sutura_exec_datafusion::CombineError;
 
 use super::*;
 
+// The causality base run restores the adapter before this test file is compiled. Keep the
+// declaration buildable there; on the branch the inherent loader below takes precedence.
+trait PostgresFixtureStatements {
+    fn load_statements(&self, table: &TableName, statements: &str) -> Result<(), &'static str>;
+}
+
+impl PostgresFixtureStatements for sutura_exec_postgres::adbc::AdbcPostgres {
+    fn load_statements(&self, table: &TableName, statements: &str) -> Result<(), &'static str> {
+        let _ = (self, table, statements);
+        Err("inline fixture loading is introduced with the Postgres collation change")
+    }
+}
+
 #[path = "text_prefilter/collation.rs"]
 mod collation;
 
