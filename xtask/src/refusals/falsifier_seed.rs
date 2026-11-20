@@ -38,6 +38,10 @@ fn the_falsifier_seed_leaves_w10_as_the_one_uncovered_variant() {
 
     let uncovered = "W10: no test names it and no snapshot records it";
     let floor = "10 variant(s) with evidence plus 0 excused does not account for the 11 RawRefusalReason declares";
+    assert!(
+        found.iter().any(|(name, _)| *name == "RawRefusalReason"),
+        "the refusal registry must expose the current RawRefusalReason subject"
+    );
     for (name, outcome) in &found {
         let problems = outcome
             .as_ref()
