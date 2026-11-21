@@ -214,7 +214,7 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
     )
     sql("CREATE TABLE dim_customer_split AS dim_customer_seed")
     sql(
-        "INSERT INTO dim_customer_split SELECT customer_key, customer_id, segment, region FROM dim_customer_seed CROSS JOIN numbers(30000)"
+        "INSERT INTO dim_customer_split SELECT customer_key, customer_id, segment, region FROM dim_customer_seed CROSS JOIN numbers(30000) AS copies"
     )
     sql(
         "CREATE TABLE dim_region (region String, sales_area String) ENGINE = MergeTree ORDER BY region"

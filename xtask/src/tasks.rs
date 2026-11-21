@@ -915,7 +915,7 @@ nix() {{
             );
             assert_eq!(
                 stdout.lines().filter(|line| line.starts_with("installable:")).count(),
-                25,
+                26,
                 "{stdout}"
             );
             assert!(
