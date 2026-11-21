@@ -217,8 +217,8 @@ jobs:
           set -euo pipefail
           test "$GITHUB_SHA" = "$HELPER_SHA"
           test "$(git -C .. rev-parse HEAD)" = "$HELPER_SHA"
-          test "$SOURCE_SHA" = 6524af8b57f5ec1506125fd4fb553066f3543dec
-          test "$SOURCE_TREE" = 65986579984d20fcd8ca757cca94cfcea46e7022
+          test "$SOURCE_SHA" = 221755ee12e806f2c81e156163167bbe6d5443fd
+          test "$SOURCE_TREE" = 323475eef6135feaa38ec03757c071b98bab4f76
           bash "../devco/clickhouse-adbc-native-proof.sh"
 
       - name: Retain every native mutation log
