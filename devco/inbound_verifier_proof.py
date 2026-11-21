@@ -595,21 +595,58 @@ def plan_readiness():
         assert code == 0, "proof dependency resolution failed; no tests measured"
         pinned = tomllib.loads(Path("Cargo.lock").read_text())["package"]
         resolved = tomllib.loads(lock.read_text())["package"]
-        old = {(p["name"], p.get("source"), p["version"]) for p in pinned}
+
+        def identity(package):
+            return package["name"], package.get("source"), package["version"]
+
+        def compatibility_line(version):
+            match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:[-+].*)?", version)
+            assert match, ("unrecognized package version", version)
+            major, minor, patch = map(int, match.groups())
+            return (
+                (major,)
+                if major
+                else (major, minor)
+                if minor
+                else (major, minor, patch)
+            )
+
+        old = {identity(p): p for p in pinned}
+        added = [p for p in resolved if identity(p) not in old]
         names = {p["name"] for p in pinned}
-        assert all(
-            p["name"] not in names or (p["name"], p.get("source"), p["version"]) in old
-            for p in resolved
-        ), "proof resolution changed an existing root pin"
+        for package in resolved:
+            if identity(package) in old:
+                assert package.get("checksum") == old[identity(package)].get(
+                    "checksum"
+                ), (
+                    "proof resolution changed a root package checksum",
+                    identity(package),
+                )
+                continue
+            related = [p for p in pinned if p["name"] == package["name"]]
+            assert all(
+                p.get("source") == package.get("source")
+                and compatibility_line(p["version"])
+                != compatibility_line(package["version"])
+                for p in related
+            ), ("proof resolution changed a compatible root pin", identity(package))
         lock_hash = digest(lock.read_bytes())
         write(
             "proof-lock.json",
             {
                 "sha256": lock_hash,
                 "root_sha256": digest(Path("Cargo.lock").read_bytes()),
-                "new_dev_packages": [p for p in resolved if p["name"] not in names],
+                "new_dev_packages": added,
+                "additional_root_name_versions": [
+                    p for p in added if p["name"] in names
+                ],
+                "pruned_root_pins": [
+                    identity(p)
+                    for p in pinned
+                    if identity(p) not in {identity(q) for q in resolved}
+                ],
                 "manifest_sha256": digest(manifest_path.read_bytes()),
-                "limit": "standalone vendor dev graph; existing root package versions preserved; not the shipped workspace graph",
+                "limit": "standalone vendor dev/all-feature graph; shared identities and checksums preserved, added same-name versions require a different caret compatibility line at the same source; unused root packages may be pruned; not the shipped workspace graph",
             },
         )
 
