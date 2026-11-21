@@ -149,7 +149,7 @@ let
         document(link, dict(kind="relationship", name=link,
                             origin=dict(model=fact, column="link"),
                             target=dict(model=lookup, column="link"), join_type="many_to_one"))
-        document(lookup_segment, dict(kind="model", name=lookup_segment, source="geo", table=lookup_segment,
+        document(lookup_segment, dict(kind="model", name=lookup_segment, source="geo_aux", table=lookup_segment,
                             columns=[dict(name="link", type="text"),
                                      dict(name="segment", type="text")]))
         document(link_segment, dict(kind="relationship", name=link_segment,
@@ -236,6 +236,17 @@ let
           sources = {
             local = files;
             geo = {
+              kind = "postgres";
+              host = dbHost;
+              port = 5432;
+              database = "sutura";
+              user = "sutura";
+              password_file = "/srv/sutura/password";
+              transport_mode = "verified";
+              transport_anchors = "/srv/sutura/postgres-ca.pem";
+              posture = "shared-service-user";
+            };
+            geo_aux = {
               kind = "postgres";
               host = dbHost;
               port = 5432;
