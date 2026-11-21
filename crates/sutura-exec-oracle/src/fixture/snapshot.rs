@@ -31,7 +31,6 @@ pub(crate) fn lock(warehouse: &OracleWarehouse) -> ExecutionGuard<'_> {
 /// lock. Only `ORA-01466` retries, for up to 60 seconds; every other refusal is returned with its
 /// cause. Connect, handshake and cleanup are not bounded by that retry deadline.
 pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result<(), FixtureError> {
-    let refused = |cause: oracledb::Error| statement_refused(table, DriverError::from(cause));
     let config = guard
         .warehouse
         .raw_config
@@ -39,7 +38,10 @@ pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result
         .ok_or(FixtureError::SnapshotNeedsSharedUser)?;
     let probe = format!(r#"SELECT COUNT(*) FROM "{table}""#);
     let deadline = Instant::now() + DEADLINE;
+    let mut attempt = 0_u16;
     loop {
+        attempt = attempt.saturating_add(1);
+        let refused = |phase, cause: oracledb::Error| statement_refused(table, phase, attempt, DriverError::from(cause));
         crate::oracle_trace::refuse()
             .map_err(OracleError::from)
             .map_err(FixtureError::SnapshotConnect)?;
@@ -50,14 +52,18 @@ pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result
         let connection = oracledb::connect(config.clone())
             .map_err(crate::connect_err)
             .map_err(FixtureError::SnapshotConnect)?;
-        connection.rollback().map_err(refused)?;
-        connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(refused)?;
+        connection
+            .rollback()
+            .map_err(|cause| refused("rollback before probe", cause))?;
+        connection
+            .execute("SET TRANSACTION READ ONLY", &[])
+            .map_err(|cause| refused("begin read-only", cause))?;
         match connection.query_row(&probe, &[]) {
-            Ok(_) => return connection.rollback().map_err(refused),
+            Ok(_) => return connection.rollback().map_err(|cause| refused("rollback after probe", cause)),
             Err(cause) => {
                 let cause = DriverError::from(cause);
                 if !cause.has_ora_code(DEFINITION_CHANGED) || Instant::now() >= deadline {
-                    return Err(statement_refused(table, cause));
+                    return Err(statement_refused(table, "count probe", attempt, cause));
                 }
                 drop(connection);
                 std::thread::sleep(RETRY);
@@ -66,9 +72,9 @@ pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result
     }
 }
 
-fn statement_refused(table: &str, cause: DriverError) -> FixtureError {
+fn statement_refused(table: &str, phase: &'static str, attempt: u16, cause: DriverError) -> FixtureError {
     FixtureError::Statement {
-        subject: format!("reading {table} under a read-only snapshot"),
+        subject: format!("reading {table} under a read-only snapshot: phase={phase}, attempt={attempt}"),
         cause,
     }
 }

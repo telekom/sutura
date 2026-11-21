@@ -290,6 +290,13 @@ impl Transport {
         }
         let mut packet = Packet::new(packet_buf)?;
         if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA {
+            let _metadata = writeln!(
+                std::io::stderr(),
+                "native control diagnostic: packet_type={} packet_flags={} frame_length={}",
+                packet.packet_type,
+                packet.packet_flags,
+                self.last_packet_bytes
+            );
             return Err(Error::native_encryption_refused("unprotected native control packet"));
         }
         if packet.packet_type == constants::PACKET_TYPE_DATA {
