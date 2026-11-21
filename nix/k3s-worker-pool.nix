@@ -744,9 +744,13 @@ pkgs.testers.runNixOSTest {
             pool(min=0, warm=0, idleAfterSeconds=0)
             settled(0)
         exec(${builtins.toJSON (import ./k3s-worker-pool-calibration.nix)}, globals())
-        expected = evidence["roomy"]["answer"]
+        roomy_record = evidence["roomy"]
+        assert isinstance(roomy_record, dict), roomy_record
+        expected = roomy_record["answer"]
         ceiling = evidence["ceiling"]
-        runtime_images = evidence["roomy"]["pod"]["images"]
+        roomy_pod = roomy_record["pod"]
+        assert isinstance(roomy_pod, dict), roomy_pod
+        runtime_images = roomy_pod["images"]
         with subtest("small one-source and genuinely small federated plans stay local"):
             for size, federated in [("large", False), ("small", False), ("small", True)]:
                 before = gauge(serving, "sutura_worker_slots_wanted")
