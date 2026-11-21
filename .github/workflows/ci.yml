@@ -1734,7 +1734,7 @@ jobs:
             if [ "$3" != true ] && [ "$2" = skipped ]; then return; fi
             fail "$1 reported '$2'"
           }
-          require_live() {
+          require_when_selected() {
             if [ "$3" = true ] && [ "$2" != success ]; then
               fail "$1 must run but reported '$2'"
             fi
@@ -1753,11 +1753,11 @@ jobs:
             require "QA plan" "$PLAN_RESULT" true
             require QA "$QA_RESULT" true
           fi
-          require_live bigquery-conformance "$BQ_RESULT" "$BQ_REQUIRED"
-          require_live e2e-datahub-adbc "$DATAHUB_RESULT" "$DATAHUB_REQUIRED"
-          require causality "$CAUS_RESULT" "$CAUS_REQUIRED"
-          require postgres-linked-driver "$PGD_RESULT" "$PGD_REQUIRED"
-          require shipped-features "$SHIP_RESULT" "$SHIP_REQUIRED"
+          require_when_selected bigquery-conformance "$BQ_RESULT" "$BQ_REQUIRED"
+          require_when_selected e2e-datahub-adbc "$DATAHUB_RESULT" "$DATAHUB_REQUIRED"
+          require_when_selected causality "$CAUS_RESULT" "$CAUS_REQUIRED"
+          require_when_selected postgres-linked-driver "$PGD_RESULT" "$PGD_REQUIRED"
+          require_when_selected shipped-features "$SHIP_RESULT" "$SHIP_REQUIRED"
           echo "ci-aggregate: ok - all required checks green"
 
   qa-receipt:

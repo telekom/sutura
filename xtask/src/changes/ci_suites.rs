@@ -193,25 +193,6 @@ pub(crate) fn ids(root: &Path) -> Result<Vec<String>, String> {
     Ok(load_manifest(root)?.into_iter().map(|suite| suite.id).collect())
 }
 
-#[cfg(test)]
-pub(crate) fn matches_category(root: &Path, id: &str, category: &str) -> bool {
-    load_manifest(root)
-        .expect("suite manifest")
-        .iter()
-        .any(|suite| suite.id == id && suite.categories.iter().any(|name| name == category))
-}
-
-#[cfg(test)]
-pub(crate) fn passed_suites(root: &Path, green: &[&str]) -> Vec<String> {
-    let green = green.iter().map(|name| String::from(*name)).collect();
-    load_manifest(root)
-        .expect("suite manifest")
-        .into_iter()
-        .filter(|suite| suite.passed(&green))
-        .map(|suite| suite.id)
-        .collect()
-}
-
 #[derive(Clone, Copy)]
 enum Run<'a> {
     All,
@@ -340,6 +321,37 @@ fn emit(mode: Run<'_>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn passed_suites(root: &Path, green: &[&str]) -> Vec<String> {
+        let green = green.iter().map(|name| String::from(*name)).collect();
+        load_manifest(root)
+            .expect("suite manifest")
+            .into_iter()
+            .filter(|suite| suite.passed(&green))
+            .map(|suite| suite.id)
+            .collect()
+    }
+
+    /// The acceptance verdict does not stand in for either of the native shards.
+    #[test]
+    fn oracle_receipts_distinguish_acceptance_native_and_legacy() {
+        let root = crate::repo::root().expect("repository root");
+        let acceptance = "qa / suite (oracle-tier)";
+        let native = "qa / suite (oracle-native)";
+        let legacy = "qa / suite (oracle-legacy)";
+        for (green, expected) in [
+            (vec![acceptance], vec!["oracle-tier"]),
+            (vec![acceptance, native], vec!["oracle-tier", "oracle-native"]),
+            (vec![native, legacy], vec!["oracle-native", "oracle-legacy"]),
+            (
+                vec![acceptance, native, legacy],
+                vec!["oracle-tier", "oracle-native", "oracle-legacy"],
+            ),
+            (vec!["qa / suite (oracle-native-extra)"], vec![]),
+        ] {
+            assert_eq!(passed_suites(&root, &green), expected);
+        }
+    }
 
     #[test]
     fn a_changed_leaf_selects_its_transitive_consumers_and_unknown_crates_widen() {

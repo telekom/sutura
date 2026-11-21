@@ -17,7 +17,15 @@ const MOVED: [Moved; 3] = [
 
 /// A clean aggregate but for the one pair under test.
 fn with(result_var: &'static str, result: &'static str, required_var: &'static str, required: &'static str) -> (bool, String) {
-    run_aggregator(&[(result_var, result), (required_var, required)])
+    run_aggregator(&[
+        ("CI_RESULT", "success"),
+        ("KC_RESULT", "skipped"),
+        ("KC_SELECTED", ""),
+        ("BQ_RESULT", "skipped"),
+        ("BQ_SELECTED", ""),
+        (result_var, result),
+        (required_var, required),
+    ])
 }
 
 #[test]
@@ -26,7 +34,7 @@ fn a_required_moved_job_that_did_not_succeed_is_red() {
         for result in ["skipped", "failure", "cancelled"] {
             let (ok, text) = with(result_var, result, required_var, "true");
             assert!(!ok, "a selected `{name}` that reported {result} cannot pass: {text}");
-            assert!(text.contains(&format!("{name} reported")), "the leg must be named: {text}");
+            assert!(text.contains(&format!("{name} must run")), "the leg must be named: {text}");
         }
     }
 }

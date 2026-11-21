@@ -131,11 +131,6 @@ impl Live {
     /// exactly as [`worktree::commit_logs`] does - see `super::weakens::Waived::of` for why), refused
     /// on the first trailer whose system or job fails its check, or whose name `Claim-Cell:` also
     /// declares.
-    #[cfg(test)]
-    pub(super) fn parse(log: &str, exemptions: &str, ci: &str) -> Result<Self, LiveError> {
-        Self::parse_with_jobs(log, exemptions, &block_keys(ci, "jobs:"))
-    }
-
     fn parse_with_jobs(log: &str, exemptions: &str, jobs: &[String]) -> Result<Self, LiveError> {
         let entries: Vec<&str> = exemptions.lines().map(str::trim).collect();
         let mut cells = Vec::new();
@@ -187,7 +182,7 @@ impl Live {
         Ok(Self(cells))
     }
 
-    /// [`EXEMPTIONS`] and [`CI`] under `root`, then [`Self::parse`]. A file that cannot be read is
+    /// [`EXEMPTIONS`] and [`CI`] under `root`, then [`Self::parse_with_jobs`]. A file that cannot be read is
     /// empty - an absent exemptions file makes every trailer refuse, the fail-closed direction.
     pub(super) fn read(root: &std::path::Path, log: &str) -> Option<Self> {
         let exemptions = std::fs::read_to_string(root.join(EXEMPTIONS)).unwrap_or_default();
@@ -383,6 +378,12 @@ mod tests {
         "  oracle-tier:\n",
         "    runs-on: x\n",
     );
+
+    impl Live {
+        fn parse(log: &str, exemptions: &str, ci: &str) -> Result<Self, LiveError> {
+            Self::parse_with_jobs(log, exemptions, &super::block_keys(ci, "jobs:"))
+        }
+    }
 
     /// The names a runnable scan scopes.
     fn runnable_names(scan: &Scan) -> Vec<String> {

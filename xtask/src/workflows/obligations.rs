@@ -784,7 +784,16 @@ mod tests {
                 "id: pr-verdict\n        if: github.event_name == 'merge_group'",
                 "id: pr-verdict",
             ),
-            ("ci", "tested_commit }}", "green_jobs }}"),
+            (
+                "ci",
+                "      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}",
+                "      tested-commit: ${{ needs.identity-classify.outputs.green_jobs }}",
+            ),
+            (
+                "ci",
+                "      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}",
+                "      green-jobs: ${{ needs.identity-classify.outputs.tested_commit }}",
+            ),
             (
                 "ci",
                 "name: QA checkout (${{ github.sha }})",
@@ -795,13 +804,28 @@ mod tests {
                 "github.event_name == 'pull_request' && needs.causality.outputs.reusable == 'true'",
                 "github.event_name == 'pull_request'",
             ),
-            ("release", "run-all-checks: true", "run-all-checks: false"),
+            (
+                "release",
+                "      plan-only: true\n      run-all-checks: true",
+                "      plan-only: true\n      run-all-checks: false",
+            ),
+            (
+                "release",
+                "      run-all-checks: true\n      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}",
+                "      run-all-checks: false\n      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}",
+            ),
             (
                 "release",
                 "needs: [build, gates, qa-plan, qa, bigquery-conformance, e2e-datahub-adbc]",
                 "needs: [build, gates, qa-plan, qa]",
             ),
         ] {
+            let source = if file == "ci" { &ci } else { &release };
+            assert_eq!(
+                source.matches(before).count(),
+                1,
+                "{file}: ambiguous or missing mutation {before}"
+            );
             let (ci, release) = if file == "ci" {
                 (ci.replacen(before, after, 1), release.clone())
             } else {

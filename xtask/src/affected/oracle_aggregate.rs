@@ -1,7 +1,7 @@
 //! The Oracle arms of the real QA aggregate shell, run through `aggregate_shell`'s
 //! harness. Its own file because `affected.rs` sits at the 1000-line cap.
 
-use super::aggregate_shell::run_matrix_suite;
+use super::aggregate_shell::{run_matrix_suite, suite_manifest};
 use super::tests::selected;
 
 #[test]
@@ -59,38 +59,50 @@ fn a_postgres_only_change_runs_the_leg_that_runs_its_server_cells() {
         "a postgres driver change selects its adapter: {cats:?}"
     );
 
-    let root = crate::repo::root().expect("repository root");
-    assert!(crate::changes::ci_suites::matches_category(
-        &root,
-        "bigquery-driver",
-        "data_source_postgres"
-    ));
-    assert!(crate::changes::ci_suites::matches_category(
-        &root,
-        "bigquery-driver",
-        "data_source_bigquery"
-    ));
+    let suites = suite_manifest();
+    for category in ["data_source_postgres", "data_source_bigquery"] {
+        assert!(
+            suites.iter().any(|suite| suite["id"] == "bigquery-driver"
+                && suite["categories"]
+                    .as_array()
+                    .is_some_and(|categories| { categories.iter().any(|entry| entry == category) })),
+            "{category} must select the linked driver suite"
+        );
+    }
 }
 
-/// The acceptance verdict does not stand in for either of the native shards.
+/// Every Oracle receipt names a matrix entry that runs its own venue.
 #[test]
 fn oracle_queue_reuse_requires_both_matrix_lanes() {
-    use crate::changes::ci_suites::passed_suites;
-
     let root = crate::repo::root().expect("repository root");
-    let acceptance = "qa / suite (oracle-tier)";
-    let native = "qa / suite (oracle-native)";
-    let legacy = "qa / suite (oracle-legacy)";
-    for (green, expected) in [
-        (vec![acceptance], vec!["oracle-tier"]),
-        (vec![acceptance, native], vec!["oracle-tier", "oracle-native"]),
-        (vec![native, legacy], vec!["oracle-native", "oracle-legacy"]),
-        (
-            vec![acceptance, native, legacy],
-            vec!["oracle-tier", "oracle-native", "oracle-legacy"],
-        ),
-        (vec!["qa / suite (oracle-native-extra)"], vec![]),
+    let suites = suite_manifest();
+    let probe = r#"
+        nix() { printf '%s %s\n' "$SUTURA_ORACLE_ACCEPTANCE_SHARD" "$*"; }
+        source nix/ci-suite.sh "$1"
+    "#;
+    for (suite, invocation) in [
+        ("oracle-tier", "none run .#oracle-acceptance -- --no-capture\n"),
+        ("oracle-native", "native run .#oracle-native-acceptance\n"),
+        ("oracle-legacy", "legacy run .#oracle-native-acceptance\n"),
     ] {
-        assert_eq!(passed_suites(&root, &green), expected);
+        assert!(
+            suites
+                .iter()
+                .any(|entry| entry["id"] == suite && entry["venue"] == "standard"),
+            "{suite} must have its own matrix entry"
+        );
+        let output = std::process::Command::new("bash")
+            .args(["--noprofile", "--norc", "-c", probe, "oracle-qa", suite])
+            .current_dir(&root)
+            .env_remove("BASH_ENV")
+            .env("SUTURA_ORACLE_ACCEPTANCE_SHARD", "none")
+            .output()
+            .expect("probe the Oracle QA suite runner");
+        assert!(
+            output.status.success(),
+            "{suite}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), invocation, "{suite}");
     }
 }
