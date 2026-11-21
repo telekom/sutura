@@ -405,6 +405,7 @@ pkgs.testers.runNixOSTest {
     import secrets
     import shlex
     import time
+    from pathlib import Path
 
     HOSTS = {"machine": machine, "agent1": agent1, "agent2": agent2}
     SOURCE = "${nodes.db.networking.primaryIPAddress}"
@@ -960,7 +961,6 @@ pkgs.testers.runNixOSTest {
             print(machine.execute(command)[1])
         raise
     finally:
-        machine.succeed("printf %s " + q(json.dumps(evidence, indent=2)) + " > /tmp/elastic-evidence.json")
-        machine.copy_from_machine("/tmp/elastic-evidence.json")
+        Path(driver.out_dir, "elastic-evidence.json").write_text(json.dumps(evidence, indent=2))
   '';
 }
