@@ -530,11 +530,12 @@ impl Unparser<'_> {
         columns: Vec<Ident>,
     ) -> Result<()> {
         // A wrapper must export the qualifier its parent expressions render.
-        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
-        if let Some(table_ref) = qualifier
+        // Unqualified outputs already resolve through that alias.
+        let mut qualifiers = plan.schema().iter().filter_map(|(name, _)| name);
+        if let Some(table_ref) = qualifiers.next()
             && (matches!(table_ref, TableReference::Bare { .. })
                 || !self.dialect.full_qualified_col())
-            && plan.schema().iter().all(|(name, _)| name == qualifier)
+            && qualifiers.all(|name| name == table_ref)
         {
             return self.derive(
                 plan,
