@@ -486,6 +486,9 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
         no_data("certificates", since)
     query.succeed("systemctl stop sutura")
     for stimulus in ("missing", "mismatched", "expired"):
+        for machine in (reader1, reader2):
+            machine.succeed("systemctl stop sutura")
+        readers()
         service = f"sutura-{stimulus}"
         serving(service)
         with subtest(f"{stimulus} reading grant fails at its real receiver"):
