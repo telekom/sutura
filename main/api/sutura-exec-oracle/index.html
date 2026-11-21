@@ -2947,6 +2947,8 @@ then types each column off <code>sutura_domain::warehouse::csv::infer</code> and
 <ul>
 <li><code>PasswordNotQuotable</code> - The tier's password is written into <code>CREATE USER</code> as a quoted identifier, which cannot hold the quote that closes it.</li>
 <li><code>Admin</code> - The administrator's dial was refused before a statement ran.</li>
+<li><code>SnapshotNeedsSharedUser</code> - The snapshot probe needs a fresh session under the declared shared user.</li>
+<li><code>SnapshotConnect</code> - A fresh snapshot-probe connection could not be opened.</li>
 <li><code>Statement</code> - The server refused a fixture statement.</li>
 <li><code>Read</code></li>
 <li><code>Unloadable</code></li>
