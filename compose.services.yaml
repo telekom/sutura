@@ -1,5 +1,4 @@
 # The development SERVICE tier: one independent instance per worktree.
-#
 # Separate from `compose.dev.yaml`'s build container: opening a shell must not start databases.
 #
 # Nothing in this file is per-worktree by itself, and that is the design. `xtask` supplies the
@@ -207,8 +206,6 @@ x-cube-runtime: &cube-runtime
     CUBEJS_PG_SQL_PORT: "15432"
     CUBEJS_TELEMETRY: "false"
     CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
-  ports:
-    - 4000
   healthcheck: &cube-healthcheck # The image carries node and no curl or wget.
     test: [
       "CMD",
@@ -756,6 +753,8 @@ services:
     #   Until then the `ci-cube-tier` job (`nix run .#cube-acceptance`) and `just cube-acceptance`
     #   are its venues; no nix check reaches it.
     <<: *cube-runtime
+    ports:
+      - 4000
     hostname: cube
     environment:
       <<: *cube-environment
@@ -772,6 +771,8 @@ services:
     # Because: Cube is not in nixpkgs, and a nix check has no docker socket or network.
     # Converges: with the `cube` block, when Cube has a nix-native tier.
     <<: *cube-runtime
+    ports:
+      - 4000
     environment:
       <<: *cube-environment
       CUBEJS_API_SECRET: sutura-dev-cube-secret-with-256-bits
@@ -827,6 +828,8 @@ services:
     # Because: the `cube` block's - Cube is not in `nixpkgs`, and a nix check has no docker socket.
     # Converges: with the `cube` block, when Cube is packaged as a nix-native tier.
     <<: *cube-runtime
+    ports:
+      - 4000
     hostname: cube-metrics
     depends_on:
       cube-clickhouse:

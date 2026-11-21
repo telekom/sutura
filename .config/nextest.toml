@@ -71,6 +71,11 @@ success-output = "immediate"
 filter = "binary(conformance) + binary(bound)"
 success-output = "immediate"
 
+# Keep the million-row fixture census and query timings visible on successful runs.
+[[profile.default.overrides]]
+filter = "binary_id(=sutura-app::golden) & test(raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows)"
+success-output = "immediate"
+
 [[profile.default.overrides]]
 # The ClickHouse switched-leg cell that reads `system.query_log` prints the rows it asserts on, so
 # a change in what the server logs is visible beside the assertion. A passing cell's `OBSERVED`
