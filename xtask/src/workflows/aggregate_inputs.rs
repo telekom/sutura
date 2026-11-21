@@ -56,6 +56,7 @@ use std::path::Path;
 /// must name; a reference to any other job is refused.
 const REQUIRED: &[(&str, &str)] = &[
     ("CI_RESULT", "ci"),
+    ("FAST_RESULT", "fast-checks"),
     ("RELEASE_RESULT", "release-status"),
     ("KC_RESULT", "keycloak-served-test"),
     ("KC_SELECTED", "ci"),

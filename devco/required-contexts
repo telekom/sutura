@@ -178,6 +178,10 @@ ci.yml:pr-cache
 # narrows what `ci-aggregate` requires. Its `data_source_bigquery` output is the same shape: read
 # by `bigquery-driver-check`, never by `ci-aggregate`.
 ci.yml:identity-classify
+# Advisory as a context of its own, but it gates the merge: `ci-aggregate` needs it and fails on any
+# result other than `success`, and every slow leg starts off `identity-classify`, which needs it
+# (#2024 item 7, fast checks first).
+ci.yml:fast-checks
 
 # On a push to `main`, which legs the merge queue already ran green on the same commit (#1696).
 # It carries no `if:` and reports on every event `ci.yml` runs on; its one step does work only on

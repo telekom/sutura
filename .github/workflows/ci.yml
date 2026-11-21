@@ -1448,7 +1448,37 @@ jobs:
   # ever widens what they run. THE COST IS LATENCY, and it is now on their path: this job has no
   # store-cache restore (above), so its `classify` ran 80 s warm and 361 s with a cold `.#xtask`
   # (runs 37610275316, 37606732243), where `ci`'s own took 17-18 s behind its restore.
+  # FAST CHECKS FIRST (#2024 item 7): formatting and workflow lint fail in about a minute, and
+  # every slow leg starts off `identity-classify`, which waits for this job. A formatting slip no
+  # longer costs a full tier, causality and oracle run first.
+  fast-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Rust format
+        run: nix build .#checks.x86_64-linux.fmt -L
+
+      - name: markdown, yaml, toml and python
+        run: bash nix/format-text.sh check
+
+      - name: Workflow static analysis
+        run: bash nix/lint-workflows.sh
+
   identity-classify:
+    needs: [fast-checks]
     runs-on: rust-mcp-16core
     # 20 minutes: real margin over the measured worst case (488s realise + 62s setup = 550s), not
     # a near-miss - see the header. A timeout here skips keycloak-served-test and turns
@@ -2654,6 +2684,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [
       ci,
+      fast-checks,
       keycloak-served-test,
       bigquery-driver-check,
       e2e-datahub-adbc,
@@ -2679,6 +2710,7 @@ jobs:
       - name: Aggregate the category-gated legs
         env:
           CI_RESULT: ${{ needs.ci.result }}
+          FAST_RESULT: ${{ needs.fast-checks.result }}
           # Non-release events carry a synthetic success so the shell below stays pure Bash;
           # release pushes retain the tag workflow's result.
           RELEASE_RESULT: ${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) && needs.release-status.result || 'success' }}
@@ -2734,6 +2766,9 @@ jobs:
           # other non-`success` `ci` is a real failure. `release-status` above independently
           # requires publication on that skipped release commit. The checks below are untouched: a
           # selected-but-skipped leg still fails, whatever `ci` reported.
+          if [ "$FAST_RESULT" != "success" ]; then
+            fail "fast-checks reported '$FAST_RESULT'"
+          fi
           if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
             fail "ci reported '$CI_RESULT'"
           fi
