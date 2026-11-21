@@ -43,7 +43,7 @@ fn aggregator_shell() -> String {
 }
 
 /// Every category-gated leg's inputs at their unselected value, so a cell names only its own legs.
-const DEFAULTS: [(&str, &str); 28] = [
+const DEFAULTS: [(&str, &str); 30] = [
     ("RELEASE_RESULT", "success"),
     ("E2E_RESULT", "skipped"),
     ("E2E_REQUIRED", "false"),
@@ -53,6 +53,8 @@ const DEFAULTS: [(&str, &str); 28] = [
     ("MN_SELECTED", "false"),
     ("MNPG_RESULT", "skipped"),
     ("MNPG_SELECTED", "false"),
+    ("MNCH_RESULT", "skipped"),
+    ("MNCH_SELECTED", "false"),
     ("MNORA_RESULT", "skipped"),
     ("MNORA_SELECTED", "false"),
     ("K3S_RESULT", "skipped"),

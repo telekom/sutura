@@ -20,8 +20,7 @@
 //! know its name in advance.
 //!
 //! `Cargo.lock` is named by no crate or registry; the `lockfile` submodule attributes its diff to
-//! the adapters the changed packages reach, and fails closed to `core` on anything else, so it only
-//! narrows.
+//! the adapters the changed packages reach, and fails closed to `core` on anything else, so it only narrows.
 //!
 //! **That fail-open is held at the OUTPUT boundary, not only in `Categories::needs`, and the
 //! difference is the whole reason `crate_categories` exists.** A workflow condition reads an
@@ -63,6 +62,9 @@ mod moved_jobs_aggregate;
 #[cfg(test)]
 #[path = "affected/multi_node_aggregate.rs"]
 mod multi_node_aggregate;
+#[cfg(test)]
+#[path = "affected/multi_node_clickhouse_aggregate.rs"]
+mod multi_node_clickhouse_aggregate;
 #[cfg(test)]
 #[path = "affected/multi_node_postgres_aggregate.rs"]
 mod multi_node_postgres_aggregate;
