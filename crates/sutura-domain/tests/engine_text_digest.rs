@@ -3,9 +3,9 @@
 //!
 //! This uses no collation type: an engine with byte-wise text comparison and no per-column collation
 //! records that fact on every text column it pins, so the digest of a `DataFusion`
-//! schema with a text column is the value below, and a dialect that records nothing keeps the value
-//! the schema had before any collation fact existed. Nothing here names an API added with the fact,
-//! so a base tree that lacks it compiles this file and answers a different digest.
+//! schema with a text column includes both that fact and declared scalar-text provenance. A dialect
+//! that records no collation shares scalar-text provenance and still has a different digest. This
+//! file uses only the public pin, so the base compiles it and answers a different digest.
 
 #[cfg(test)]
 mod engine_text_digest {
@@ -43,12 +43,12 @@ mod engine_text_digest {
     fn a_text_column_pinned_for_an_engine_with_byte_wise_text_carries_that_in_the_digest() {
         assert_eq!(
             digest(TypeDialect::DataFusion),
-            "278d18d8d3fff5a15b7c46f23430cd493ed218173a7de8aecf8ac90e944234c3"
+            "b31c93825ff69304b9517d5683730c94c8e383d62a8539c735bce0236adcc754"
         );
         assert_ne!(
             digest(TypeDialect::DataFusion),
             digest(TypeDialect::Postgres),
-            "an engine that records no collation hashes as it did before the fact existed"
+            "the engine collation changes identity even with the same declared scalar-text provenance"
         );
     }
 }
