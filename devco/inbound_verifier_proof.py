@@ -533,6 +533,17 @@ if __name__ == "__main__":
     write("source-manifest.json", BASELINE)
     try:
         environment()
+        warm_target = Path(os.environ["CARGO_TARGET_DIR"])
+        assert warm_target == Path.cwd() / "target" / "causality-target"
+        assert warm_target.resolve(strict=True) == warm_target, "warm target redirected"
+        assert warm_target.is_dir() and warm_target.stat().st_uid == os.geteuid()
+        chmod = shutil.which("chmod")
+        assert chmod, "native chmod unavailable"
+        warm_status, _ = execute(
+            "native-warm-target-writable",
+            [chmod, "-R", "u+w", "--", str(warm_target)],
+        )
+        assert warm_status == 0, "warm target permission normalization failed"
         os.environ["SHIP_CHECK_BASE_REF"] = PLAN["comparison_sha"]
         inherited_home = os.environ["CARGO_HOME"]
         native_home = Path(tempfile.mkdtemp(prefix=mode + "-cargo-home-")).resolve()
