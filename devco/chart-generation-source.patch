@@ -1,37 +1,51 @@
-diff --git a/charts/sutura/templates/worker-pool.yaml b/charts/sutura/templates/worker-pool.yaml
-index 8ac65c56b5a62cb478a62d026870cb32a1e14eff..9eb75f6b22784d7e7dd1f7a1ccd3c726d0ed5a11 100644
---- a/charts/sutura/templates/worker-pool.yaml
-+++ b/charts/sutura/templates/worker-pool.yaml
-@@ -230 +230 @@ spec:
--  # The operator owns the count from here on: an upgrade that leaves `min` alone leaves it.
-+  # The chart renders the floor; the operator reconciles the count against demand.
-@@ -231,0 +232,4 @@ spec:
-+  strategy:
-+    type: RollingUpdate
-+    rollingUpdate:
-+      maxUnavailable: 0
-@@ -258,0 +263 @@ spec:
-+          terminationMessagePolicy: FallbackToLogsOnError
-diff --git a/docs/adr/20261030193029-operator-sizes-the-worker-pool.md b/docs/adr/20261030193029-operator-sizes-the-worker-pool.md
-index f4a29a4604e6ac28dbcc887ad518284f0881469b..e0ea8c18895dbd38963c2f435eb188089fcf530e 100644
---- a/docs/adr/20261030193029-operator-sizes-the-worker-pool.md
-+++ b/docs/adr/20261030193029-operator-sizes-the-worker-pool.md
-@@ -127,2 +127,3 @@ and what they may hold?
--    gauge while it waits. If they are not ready in time, it is refused, as a refusal the caller may
--    retry.
-+    gauge while it waits. When the wait ends, it plans across those that resolved, even if fewer
-+    than wanted. If none resolved, it is refused, as a refusal the caller may retry. A nonempty
-+    pool does not promise enough capacity to answer; the execution's resource bounds still apply.
-@@ -159 +160 @@ and what they may hold?
--| Serving node | A cross-node question whose workers are not ready within its wait                | Decision 11 |
-+| Serving node | A cross-node question for which no worker resolves within its wait               | Decision 11 |
-@@ -172 +173,2 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
--  refuses it, and so does a pool already at `max`.
-+  refuses it if no worker resolves. A pool already at `max` supplies no extra workers; execution
-+  across its ready workers can still be refused for insufficient resources.
-@@ -182,2 +184,3 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
--- **The chart leaves the worker count unset**, so an upgrade keeps the count the operator set. A
--  new worker Deployment starts with one worker, removed after `idleAfter` if nothing asks for it.
-+- **The chart renders `min` as the worker replica count.** The operator reconciles that count to
-+  demand plus the warm reserve within the pool's bounds. An apply that writes the replica count
-+  can temporarily resize the pool before the operator's next pass.
+diff --git a/charts/sutura/README.md b/charts/sutura/README.md
+index cbdd1b6bc..a78d7bddc 100644
+--- a/charts/sutura/README.md
++++ b/charts/sutura/README.md
+@@ -141,2 +141,4 @@ pods (github.com/telekom/sutura#1680 finding 6): workers accept their port only
+-release's serving pods and each other, the operator's egress is limited to DNS and the Kubernetes
+-API's common ports, and serving pods get an additive policy that keeps their port reachable even if
++release's serving pods, each other and the operator. The operator can reach this release's serving
++and worker pods on their service port, plus DNS and the Kubernetes API's common ports. Network policy
++permits a port rather than just `/metrics`; the metrics token authorizes scrapes and TLS verifies the node.
++Serving pods get an additive policy that keeps their port reachable even if
+diff --git a/charts/sutura/templates/networkpolicy.yaml b/charts/sutura/templates/networkpolicy.yaml
+index cc528c647..61aad8bb8 100644
+--- a/charts/sutura/templates/networkpolicy.yaml
++++ b/charts/sutura/templates/networkpolicy.yaml
+@@ -34 +34 @@ spec:
+-# Workers answer only this release's serving pods and each other - a combine across nodes dials a
++# Workers answer this release's serving pods, peers and operator - a combine across nodes dials a
+@@ -58,0 +59,4 @@ spec:
++        - podSelector:
++            matchLabels:
++              app.kubernetes.io/name: {{ $name }}-operator
++              app.kubernetes.io/instance: {{ .Release.Name }}
+@@ -98,3 +102,3 @@ spec:
+-# The operator calls the Kubernetes API and nothing else: it holds a node certificate only to read
+-# the CA bundle (finding 4), it never dials a node. DNS stays open because this chart does not know
+-# whether the cluster resolves the API server by name.
++# The operator reads serving and worker metrics and calls the Kubernetes API. This permits the
++# node port, not an HTTP path: the metrics token authorizes scrapes and TLS verifies the node.
++# The operator holds only the node CA, not a client certificate. DNS stays open for API discovery.
+@@ -122,0 +127,11 @@ spec:
++    - to:
++        - podSelector:
++            matchLabels:
++              {{- include "sutura.selectorLabels" . | nindent 14 }}
++        - podSelector:
++            matchLabels:
++              app.kubernetes.io/name: {{ $name }}-worker
++              app.kubernetes.io/instance: {{ .Release.Name }}
++      ports:
++        - port: {{ .Values.service.port }}
++          protocol: TCP
+diff --git a/nix/k3s-worker-pool.nix b/nix/k3s-worker-pool.nix
+index f7250aba2..95704ffc4 100644
+--- a/nix/k3s-worker-pool.nix
++++ b/nix/k3s-worker-pool.nix
+@@ -662,0 +663,4 @@ pkgs.testers.runNixOSTest {
++        serving = one(SERVING)
++        operator_pod = one(OPERATOR)
++        eventually(lambda: tcp(operator_pod, serving["status"]["podIP"], 8080), 30)
++        assert metrics(serving, operator_pod), "operator cannot scrape authenticated metrics during initial startup"

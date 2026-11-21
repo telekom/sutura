@@ -209,12 +209,12 @@ jobs:
           [[ "$HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git -C .. rev-parse HEAD)" = "$HELPER_SHA"
           test "$GITHUB_SHA" = "$HELPER_SHA"
-          test "$SOURCE_SHA" = 5d5b1da263e08a2aef5ca167b7ffb3a2385c1002
+          test "$SOURCE_SHA" = a783dfdb4dd78bb4195063176c1a9705f0f67d28
           test "$COMPARISON_SHA" = "$SOURCE_SHA"
-          test "$SOURCE_TREE" = e7df4023c74665f40cad495a4630493bab0aa657
+          test "$SOURCE_TREE" = 08b9e1ff7ee3759b170e0d42208c653069e50f57
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test -z "$(git status --porcelain=v1)"
-          test "$(sha256sum ../devco/chart-generation-source.patch | cut -d ' ' -f 1)" = d2d87d85aa63ed75bb0b458c619ea3f82ad5fed1a1e261f5cbd04365d619ec32
+          test "$(sha256sum ../devco/chart-generation-source.patch | cut -d ' ' -f 1)" = 9a02bc47d3c5596e23a769632792aba994b393b87a623a337c646aca5b00c8d3
           git apply --unidiff-zero --index ../devco/chart-generation-source.patch
           test "$(git write-tree)" = "$SOURCE_TREE"
           evidence="$GITHUB_WORKSPACE/chart-generation-evidence"
@@ -223,17 +223,10 @@ jobs:
           printf '%s\n' "$SOURCE_SHA" > "$evidence/source-base.txt"
           printf '%s\n' "$SOURCE_TREE" > "$evidence/source-tree.txt"
           git diff --cached --binary --full-index > "$evidence/reconstructed-source.patch"
-          for name in reading-workers-network-policy reading-workers worker-pool-ipv6 worker-pool-network-policy worker-pool-operator-digest worker-pool; do
+          for name in reading-workers-network-policy worker-pool-network-policy; do
             nix run .#helm -- template test-release charts/sutura -f "charts/sutura/testdata/values/pool/$name.yaml" > "charts/sutura/testdata/golden/pool/$name.yaml"
           done
-          chart_tmp="$(mktemp -d)"
-          trap 'rm -rf "$chart_tmp"' EXIT
-          cp -r charts/sutura "$chart_tmp/unguarded"
-          sed -i '/include "sutura.requireOffHostPosture"/d' "$chart_tmp/unguarded/templates/deployment.yaml" "$chart_tmp/unguarded/templates/configmap.yaml"
-          for name in reading-workers-group-without-sources reading-workers-undeclared-source reading-workers-without-inbound; do
-            nix run .#helm -- template test-release "$chart_tmp/unguarded" -f "charts/sutura/testdata/refusals/$name.yaml" > "charts/sutura/testdata/golden/unguarded/$name.yaml"
-          done
-          printf '%s\n' charts/sutura/testdata/golden/pool/reading-workers-network-policy.yaml charts/sutura/testdata/golden/pool/reading-workers.yaml charts/sutura/testdata/golden/pool/worker-pool-ipv6.yaml charts/sutura/testdata/golden/pool/worker-pool-network-policy.yaml charts/sutura/testdata/golden/pool/worker-pool-operator-digest.yaml charts/sutura/testdata/golden/pool/worker-pool.yaml charts/sutura/testdata/golden/unguarded/reading-workers-group-without-sources.yaml charts/sutura/testdata/golden/unguarded/reading-workers-undeclared-source.yaml charts/sutura/testdata/golden/unguarded/reading-workers-without-inbound.yaml | sort > "$evidence/expected-paths.txt"
+          printf '%s\n' charts/sutura/testdata/golden/pool/reading-workers-network-policy.yaml charts/sutura/testdata/golden/pool/worker-pool-network-policy.yaml | sort > "$evidence/expected-paths.txt"
           git diff --name-only | sort > "$evidence/actual-paths.txt"
           diff -u "$evidence/expected-paths.txt" "$evidence/actual-paths.txt"
           mapfile -t goldens < "$evidence/expected-paths.txt"
