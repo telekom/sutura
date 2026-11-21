@@ -506,6 +506,10 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
             assert diagnostic in journal, (stimulus, journal)
             no_data(stimulus, since)
         query.succeed(f"systemctl stop {service}")
+        # This recovery replaces the readers too: they retain the first reading key.
+        for machine in (reader1, reader2):
+            machine.succeed("systemctl stop sutura")
+        readers()
         serving("sutura")
         answer()
         query.succeed("systemctl stop sutura")
