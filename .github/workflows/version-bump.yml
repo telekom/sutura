@@ -40,6 +40,8 @@ jobs:
         with:
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       - name: Refuse a stale dispatch
         # Checkout persists no credential. This command-scoped helper answers Git's one HTTPS
@@ -135,7 +137,9 @@ jobs:
           #
           # `dprint` is NOT a hygiene member - it is `just lint-text`'s own tool - so it is
           # checked on its own line rather than assumed covered by the line above.
-          nix run .#xtask -- hygiene
+          # Build the unchanged guard from this dispatch's commit; check the bumped working tree.
+          BASE_FLAKE="git+file://$PWD?rev=$GITHUB_SHA"
+          nix run "$BASE_FLAKE"#xtask -- hygiene
           nix run .#dprint -- check CHANGELOG.md
 
       - name: Commit and tag
