@@ -31,11 +31,13 @@ Eligibility is deliberately narrow: one physical table, one query scope, a posit
 `column LIKE '%TERM%'`, and a nonempty ASCII alphanumeric term of at most 128 bytes. Every other
 conjunct beside it must be unable to raise on any row: a plain column compared (`=`, `<>`, `<`,
 `<=`, `>`, `>=`, `IS [NOT] NULL`, `IN`, `BETWEEN`) with literals of that column's own type, with no
-function, cast, arithmetic, subquery or second column. A string literal qualifies only against a
-column that carries a text policy: a type the dialect does not list, and an unbounded Oracle
-`NUMBER`, are pinned as text too, and the source could convert their stored values and raise on
-one row. A negative literal never qualifies against an unsigned column. Narrowing by a string on
-an ordinary text column therefore keeps redacted-only execution. A source may test the raw text before a
+function, cast, arithmetic, subquery or second column. A string literal qualifies against declared
+scalar text, including an ordinary column without a text policy. Pinning records that provenance
+as `sutura:scalar_text=true`, under the schema digest. A bare Arrow text type or a collation fact
+does not prove it: an unlisted type and an unbounded Oracle `NUMBER` are pinned as text too, and
+the source could convert their stored values and raise on one row. Oracle `CLOB` and `NCLOB` are
+not scalar text for these sibling comparisons. A negative literal never qualifies against an unsigned column.
+A source may test the raw text before a
 sibling, so a sibling that can raise on one row would make "error" versus "empty answer" a result
 signal about that row's unredacted text. Any other sibling, including a second `LIKE`, keeps
 redacted-only execution. Joins, nested
@@ -114,8 +116,9 @@ makes the remote refuse `LIKE`, which costs availability, not secrecy. This is r
 ClickHouse's behaviour, not measured here.
 DuckDB's global `default_collation` changes `=` and `ILIKE`, but not `LIKE` (measured on 2.0.0);
 a raw statement cannot set it. Adding the fact moves the schema digest of every schema that now carries one, once, at upgrade: any with a
-DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
-before.
+DataFusion or ClickHouse text column, and any native Postgres read. Declared scalar-text provenance
+also moves a schema's digest once at upgrade, even without a collation fact. Both records come
+from the catalog's declared type; nothing here verifies an authored type against the stored one.
 
 BigQuery admits a `STRING` column only where its Markdown catalog declares `collation: binary`.
 No BigQuery dictionary reader supplies this fact; a missing or named collation falls back, and

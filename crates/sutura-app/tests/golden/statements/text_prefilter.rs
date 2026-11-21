@@ -52,6 +52,8 @@ mod bigquery_collation;
 mod collation;
 #[path = "text_prefilter/cube.rs"]
 mod cube_native;
+#[path = "text_prefilter/declared_text.rs"]
+mod declared_text;
 
 // The causality base run restores the domain before this test file is compiled. Keep the fixture
 // helper buildable there; branch-provided inherent methods take precedence on the real run.
@@ -206,15 +208,17 @@ fn fixture_csv() -> std::path::PathBuf {
     std::fs::create_dir_all(&root).expect("a private fixture directory");
     let path = root.join("rows.csv");
     let mut file = std::io::BufWriter::new(std::fs::File::create(&path).expect("a fixture file"));
-    writeln!(file, "body,cohort").expect("a header");
+    writeln!(file, "body,cohort,env,is_deleted").expect("a header");
     for _ in 0..ROWS - RARE.len() - 2 {
-        writeln!(file, "unrelated,filler").expect("a filler row");
+        writeln!(file, "unrelated,filler,E,N").expect("a filler row");
     }
     for (body, cohort) in RARE {
-        writeln!(file, "{body},{cohort}").expect("a rare row");
+        let env = if *body == "caf\u{e9} TERM" { "W" } else { "E" };
+        let deleted = if *body == "term" { "Y" } else { "N" };
+        writeln!(file, "{body},{cohort},{env},{deleted}").expect("a rare row");
     }
-    writeln!(file, "{} TERM,rare", "a".repeat(4100)).expect("a real wide text cell");
-    writeln!(file, "{} secret_TERM,hidden", "a".repeat(4100)).expect("a late hidden term");
+    writeln!(file, "{} TERM,rare,E,N", "a".repeat(4100)).expect("a real wide text cell");
+    writeln!(file, "{} secret_TERM,hidden,E,N", "a".repeat(4100)).expect("a late hidden term");
     file.flush().expect("all actual fixture rows reach disk");
     path
 }
@@ -670,6 +674,7 @@ where
     observe_population(&warehouse, &path, dialect, setup);
     if matches!(coverage, Coverage::Profiles | Coverage::All) {
         verify_profiles(&warehouse, &path, dialect, &base);
+        declared_text::verify(&warehouse, &path, dialect, &base);
     }
     if matches!(coverage, Coverage::HiddenValues | Coverage::All) {
         for enabled in [false, true] {

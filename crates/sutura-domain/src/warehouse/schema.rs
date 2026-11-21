@@ -24,8 +24,8 @@ pub use types::{TypeDialect, UnboundedNumber};
 /// The digest of a [`PinnedSchemas`].
 ///
 /// Lower-case hex SHA-256 over each pinned model's name and, in order, each column's name, Arrow
-/// type, nullability, local-operator marker and, for a text column with one on record, its
-/// collation.
+/// type, nullability, local-operator marker, declared scalar-text provenance and, for a text column
+/// with one on record, its collation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct SchemaDigest(String);
 
@@ -130,6 +130,14 @@ impl PinnedSchemas {
                         .insert(column.name().clone());
                 }
                 let mapped_text = mapped.as_ref() == Some(&DataType::Utf8);
+                let oracle_lob = column
+                    .data_type()
+                    .filter(|_| *dialect == TypeDialect::Oracle)
+                    .map(|declared| {
+                        let declared = declared.as_str();
+                        declared.split_once('(').map_or(declared, |(name, _)| name).trim_end()
+                    })
+                    .filter(|name| name.eq_ignore_ascii_case("clob") || name.eq_ignore_ascii_case("nclob"));
                 let mut field = Field::new(
                     column.name().as_str(),
                     mapped.unwrap_or(DataType::Utf8),
@@ -146,6 +154,11 @@ impl PinnedSchemas {
                         String::from("utf8"),
                     )]));
                 }
+                if mapped_text && oracle_lob.is_none() && !field.metadata().contains_key("sutura:unbounded_number") {
+                    field
+                        .metadata_mut()
+                        .insert(String::from("sutura:scalar_text"), String::from("true"));
+                }
                 if !column.text_policy().is_empty() {
                     if !mapped_text || field.metadata().contains_key("sutura:unbounded_number") {
                         return Err(NotValidated::TextPolicy {
@@ -156,17 +169,10 @@ impl PinnedSchemas {
                         model: model.name().clone(),
                     })?;
                     field.metadata_mut().insert(String::from("sutura:text_policy"), encoded);
-                    if *dialect == TypeDialect::Oracle
-                        && column.data_type().is_some_and(|declared| {
-                            declared.as_str().eq_ignore_ascii_case("clob") || declared.as_str().eq_ignore_ascii_case("nclob")
-                        })
-                    {
-                        field.metadata_mut().insert(
-                            String::from("sutura:oracle_lob"),
-                            column
-                                .data_type()
-                                .map_or_else(String::new, |declared| declared.as_str().to_ascii_lowercase()),
-                        );
+                    if let Some(kind) = oracle_lob {
+                        field
+                            .metadata_mut()
+                            .insert(String::from("sutura:oracle_lob"), kind.to_ascii_lowercase());
                     }
                 }
                 if mapped_text && !field.metadata().contains_key("sutura:unbounded_number") {
@@ -374,6 +380,10 @@ fn digest_of(models: &BTreeMap<ModelName, SchemaRef>, fell_back: &BTreeMap<Model
         for field in schema.fields() {
             part(&mut hash, field.name());
             part(&mut hash, &field.data_type().to_string());
+            if let Some(scalar_text) = field.metadata().get("sutura:scalar_text") {
+                part(&mut hash, "sutura:scalar_text");
+                part(&mut hash, scalar_text);
+            }
             if let Some(lob) = field.metadata().get("sutura:oracle_lob") {
                 part(&mut hash, "sutura:oracle_lob");
                 part(&mut hash, lob);
