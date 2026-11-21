@@ -217,6 +217,7 @@ let
         };
         workerPool = {
           enabled = true;
+          acrossAboveBytes = 1;
           issuer.name = "sutura-nodes";
           min = 0;
           max = 2;
