@@ -115,8 +115,9 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
     def observed(label, since):
         sql("SYSTEM FLUSH LOGS")
         raw = sql(
-            "SELECT toString(type) AS type, query_id, user, initial_user, "
-            "toString(address) AS address, query_kind, query, read_rows, result_rows, "
+            "SELECT toString(type) AS type, query_id, initial_query_id, user, initial_user, "
+            "toString(address) AS address, query_kind, query, read_rows, read_bytes, result_rows, "
+            "ProfileEvents, toString(query_cache_usage) AS query_cache_usage, "
             "Settings, exception_code, exception "
             "FROM system.query_log "
             f"WHERE toUnixTimestamp64Micro(event_time_microseconds) >= {since} "
@@ -353,20 +354,20 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
                     name,
                     events,
                 )
-            for event in selects:
-                assert (
-                    event["type"] == "QueryFinish"
-                    and event["user"] == event["initial_user"] == caller
-                ), event
-                assert "cityHash64(" in event["query"], event
-                assert int(event["read_rows"]) > 0, event
-                check_settings(event)
             wrappers = [
                 event
                 for event in buckets
                 if event["query"].startswith("EXECUTE AS ")
                 and event["type"] == "QueryFinish"
             ]
+            for event in selects:
+                assert (
+                    event["type"] == "QueryFinish"
+                    and event["user"] == event["initial_user"] == caller
+                ), event
+                assert "cityHash64(" in event["query"], event
+                assert int(event["read_rows"]) > 0, (selects, wrappers)
+                check_settings(event)
             assert len(wrappers) == 2 and all(
                 event["user"] == "sutura"
                 and re.match(rf'^EXECUTE AS ["`]?{caller}["`]?\s', event["query"])
