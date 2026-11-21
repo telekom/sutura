@@ -525,16 +525,20 @@ impl Unparser<'_> {
         &self,
         alias: &str,
         plan: &LogicalPlan,
+        select: &SelectBuilder,
         relation: &mut RelationBuilder,
         lateral: bool,
         columns: Vec<Ident>,
     ) -> Result<()> {
         // A wrapper must export the qualifier its parent expressions render.
-        let qualifier = plan.schema().iter().next().and_then(|(name, _)| name);
-        if let Some(table_ref) = qualifier
+        // A mixed schema needs that alias only when the outer projection uses it.
+        let mut qualifiers = plan.schema().iter().filter_map(|(name, _)| name);
+        if let Some(table_ref) = qualifiers.next()
             && (matches!(table_ref, TableReference::Bare { .. })
                 || !self.dialect.full_qualified_col())
-            && plan.schema().iter().all(|(name, _)| name == qualifier)
+            && qualifiers.all(|name| name == table_ref)
+            && (plan.schema().iter().all(|(name, _)| name.is_some())
+                || select.projects_qualifier(table_ref.table()))
         {
             return self.derive(
                 plan,
@@ -859,6 +863,7 @@ impl Unparser<'_> {
                     return self.derive_with_dialect_alias(
                         "derived_projection",
                         plan,
+                        select,
                         relation,
                         unnest_input_type
                             .filter(|t| matches!(t, UnnestInputType::OuterReference))
@@ -1153,6 +1158,7 @@ impl Unparser<'_> {
                     return self.derive_with_dialect_alias(
                         "derived_limit",
                         plan,
+                        select,
                         relation,
                         false,
                         vec![],
@@ -1219,6 +1225,7 @@ impl Unparser<'_> {
                     return self.derive_with_dialect_alias(
                         "derived_sort",
                         plan,
+                        select,
                         relation,
                         false,
                         vec![],
@@ -1292,6 +1299,7 @@ impl Unparser<'_> {
                     return self.derive_with_dialect_alias(
                         "derived_aggregate",
                         agg.input.as_ref(),
+                        select,
                         relation,
                         false,
                         vec![],
@@ -1311,6 +1319,7 @@ impl Unparser<'_> {
                     return self.derive_with_dialect_alias(
                         "derived_distinct",
                         plan,
+                        select,
                         relation,
                         false,
                         vec![],
@@ -1698,6 +1707,7 @@ impl Unparser<'_> {
                     return self.derive_with_dialect_alias(
                         "derived_union",
                         plan,
+                        select,
                         relation,
                         false,
                         vec![],
@@ -1888,6 +1898,7 @@ impl Unparser<'_> {
                     self.derive_with_dialect_alias(
                         "derived_unnest",
                         subquery.subquery.as_ref(),
+                        select,
                         relation,
                         true,
                         vec![],

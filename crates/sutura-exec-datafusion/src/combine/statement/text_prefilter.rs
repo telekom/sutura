@@ -238,8 +238,8 @@ fn plain<'a>(expression: &Expr, table: &'a StatementTable, alias: Option<&Ident>
 ///
 /// An Arrow `Utf8` field alone proves nothing: a type the dialect does not list falls back to
 /// `Utf8`, and an unbounded Oracle `NUMBER` is `Utf8` too, so a string literal could make the source
-/// convert stored values and raise on one row. Only a column carrying a text policy is proven
-/// declared text, because pinning refuses a policy on a fallback or unbounded-number column.
+/// convert stored values and raise on one row. Pinning marks declared scalar text explicitly;
+/// a text policy also proves declared text. Neither proof admits an Oracle LOB comparison.
 fn literal_of(expression: &Expr, field: &Field) -> bool {
     let kind = field.data_type();
     let unsigned = matches!(kind, DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64);
@@ -258,7 +258,8 @@ fn literal_of(expression: &Expr, field: &Field) -> bool {
         );
     let metadata = field.metadata();
     let text = matches!(kind, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
-        && metadata.contains_key("sutura:text_policy")
+        && (metadata.contains_key("sutura:text_policy")
+            || metadata.get("sutura:scalar_text").is_some_and(|value| value == "true"))
         && !metadata.contains_key("sutura:unbounded_number")
         && !metadata.contains_key("sutura:oracle_lob");
     match expression {

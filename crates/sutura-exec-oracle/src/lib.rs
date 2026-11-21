@@ -478,6 +478,8 @@ impl OracleWarehouse {
             subject: String::from("committing the text-policy fixture"),
             cause: DriverError::from(cause),
         })?;
+        // ponytail: use the CSV fixture's DDL settling delay before the read-only probe.
+        std::thread::sleep(std::time::Duration::from_secs(8));
         fixture::snapshot::await_read_only(&guard, "policy_text")
     }
 

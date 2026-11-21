@@ -97,7 +97,22 @@ fn two_pins_that_differ_only_in_a_fallback_have_different_digests() {
     };
     let (listed, unlisted) = (pin("text"), pin("GEOGRAPHY"));
     let orders = ModelName::parse("orders").expect("a test model is a model");
-    assert_eq!(listed.of(&orders), unlisted.of(&orders), "both pin as Utf8");
+    let listed_schema = listed.of(&orders).unwrap();
+    let unlisted_schema = unlisted.of(&orders).unwrap();
+    assert_eq!(
+        listed_schema
+            .fields()
+            .iter()
+            .map(|field| field.data_type())
+            .collect::<Vec<_>>(),
+        unlisted_schema
+            .fields()
+            .iter()
+            .map(|field| field.data_type())
+            .collect::<Vec<_>>(),
+        "both pin as Utf8"
+    );
+    assert_ne!(listed_schema, unlisted_schema, "only declared text carries scalar provenance");
     assert_eq!(listed.fell_back(&orders).count(), 0);
     assert_eq!(unlisted.fell_back(&orders).count(), 1);
     assert_ne!(listed.digest(), unlisted.digest());
@@ -113,15 +128,81 @@ fn operator_markers_change_the_schema_digest_without_changing_column_types() {
     let name = ModelName::parse("orders").unwrap();
     let field = Field::new("amount", DataType::Utf8, true);
     let plain = BTreeMap::from([(name.clone(), Arc::new(Schema::new(vec![field.clone()])))]);
-    let marked = field.with_metadata(HashMap::from([(
-        String::from("sutura:unbounded_number"),
-        String::from("utf8"),
-    )]));
-    let marked = BTreeMap::from([(name, Arc::new(Schema::new(vec![marked])))]);
-    assert_ne!(
-        super::digest_of(&plain, &BTreeMap::new()),
-        super::digest_of(&marked, &BTreeMap::new())
-    );
+    let mut digests = vec![super::digest_of(&plain, &BTreeMap::new())];
+    for (key, value) in [
+        ("sutura:unbounded_number", "utf8"),
+        ("sutura:scalar_text", "true"),
+        ("sutura:scalar_text", "false"),
+    ] {
+        let marked = field
+            .clone()
+            .with_metadata(HashMap::from([(String::from(key), String::from(value))]));
+        let marked = BTreeMap::from([(name.clone(), Arc::new(Schema::new(vec![marked])))]);
+        digests.push(super::digest_of(&marked, &BTreeMap::new()));
+    }
+    for (index, left) in digests.iter().enumerate() {
+        for right in &digests[index + 1..] {
+            assert_ne!(left, right, "each marker and its exact value participate in identity");
+        }
+    }
+}
+
+#[test]
+fn scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type() {
+    use crate::catalog::TextPolicy;
+    use std::collections::BTreeSet;
+
+    let source = SourceName::parse("lake").unwrap();
+    let name = ModelName::parse("notes").unwrap();
+    for (dialect, declared, scalar, lob) in [
+        (TypeDialect::DataFusion, "text", true, None),
+        (TypeDialect::DuckDb, "VARCHAR", true, None),
+        (TypeDialect::Cube, "string", true, None),
+        (TypeDialect::Postgres, "varchar(20)", true, None),
+        (TypeDialect::ClickHouse, "LowCardinality(Nullable(String))", true, None),
+        (TypeDialect::BigQuery, "STRING", true, None),
+        (TypeDialect::Oracle, "  VaRcHaR2 (16)  ", true, None),
+        (TypeDialect::Oracle, "NCHAR(16)", true, None),
+        (TypeDialect::Oracle, "CLOB", false, Some("clob")),
+        (TypeDialect::Oracle, "  nClOb (4000)  ", false, Some("nclob")),
+        (TypeDialect::Oracle, "CLOB(", false, None),
+        (TypeDialect::Oracle, "NUMBER", false, None),
+        (TypeDialect::Oracle, "XMLTYPE", false, None),
+        (TypeDialect::Postgres, "GEOGRAPHY", false, None),
+    ] {
+        for protected in [false, true] {
+            let mut body = column("body", Some(declared));
+            if protected {
+                let policy: TextPolicy = serde_json::from_value(serde_json::json!({"max_text_bytes":128})).unwrap();
+                body = body.with_text_policy(policy);
+            }
+            let definitions = Definitions::assemble(vec![model("notes", "lake", vec![body])], vec![], vec![]).unwrap();
+            let pinned = PinnedSchemas::pin_with_unbounded_numbers(
+                &definitions,
+                &BTreeMap::from([(source.clone(), dialect)]),
+                &BTreeSet::from([source.clone()]),
+            );
+            if protected && !scalar && lob.is_none() {
+                assert!(
+                    matches!(pinned, Err(NotValidated::TextPolicy { .. })),
+                    "{dialect:?} {declared}"
+                );
+                continue;
+            }
+            let pinned = pinned.unwrap();
+            let field = pinned.of(&name).unwrap().field_with_name("body").unwrap();
+            assert_eq!(field.data_type(), &DataType::Utf8, "{dialect:?} {declared}");
+            assert_eq!(
+                field.metadata().get("sutura:scalar_text").map(String::as_str),
+                scalar.then_some("true"),
+                "{dialect:?} {declared} protected={protected}"
+            );
+            assert_eq!(
+                field.metadata().get("sutura:oracle_lob").map(String::as_str),
+                protected.then_some(lob).flatten()
+            );
+        }
+    }
 }
 
 #[test]

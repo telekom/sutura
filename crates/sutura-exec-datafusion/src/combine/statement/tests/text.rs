@@ -83,6 +83,50 @@ fn source_outputs(tables: &[StatementTable], sql: &str) -> (String, Vec<String>)
 }
 
 #[test]
+fn oracle_lob_top_n_keeps_the_qualified_output_in_scope() {
+    use datafusion::sql::sqlparser::ast::{SetExpr, Statement, TableFactor};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+
+    let [table] = lob_table(r#"{"max_text_bytes":128,"redact":[{"pattern":"secret","replace":"masked"}]}"#);
+    let mut fields = table.schema().fields().to_vec();
+    fields.push(Arc::new(Field::new("ID", DataType::Int64, false)));
+    let tables = [StatementTable::new(
+        table.source().clone(),
+        table.table().clone(),
+        table.dialect(),
+        Arc::new(Schema::new(fields)),
+    )];
+    let (sql, _) = source_outputs(
+        &tables,
+        r#"SELECT r."LABEL", length(r."SCRIPT") AS n FROM "TEXT_EVENTS" r ORDER BY n DESC, r."ID" LIMIT 3"#,
+    );
+    let parsed = Parser::parse_sql(&GenericDialect, &sql).unwrap();
+    let [Statement::Query(query)] = parsed.as_slice() else {
+        panic!("expected one Oracle statement: {sql}");
+    };
+    let SetExpr::Select(output) = query.body.as_ref() else {
+        panic!("expected the LOB result projection: {sql}");
+    };
+    let TableFactor::Derived { subquery, .. } = &output.from[0].relation else {
+        panic!("expected the labelled result: {sql}");
+    };
+    let SetExpr::Select(labelled) = subquery.body.as_ref() else {
+        panic!("expected the labelled result projection: {sql}");
+    };
+    let TableFactor::Derived {
+        subquery,
+        alias: Some(alias),
+        ..
+    } = &labelled.from[0].relation
+    else {
+        panic!("the qualified output must resolve through the derived table: {sql}");
+    };
+    assert_eq!(alias.name.value, "r", "{sql}");
+    assert!(subquery.order_by.is_some() && subquery.fetch.is_some(), "{sql}");
+}
+
+#[test]
 fn oracle_lob_control_expressions_carry_their_lineage() {
     let tables = lob_table(r#"{"max_text_bytes":4000}"#);
     // A condition, a filter or an ordering reads its operands, so a LOB there reaches the output's
