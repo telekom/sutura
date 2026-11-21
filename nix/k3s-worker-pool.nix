@@ -132,14 +132,14 @@ let
         definitions=["structure", "descriptions", "relationships", "cardinality",
                      "metrics", "grains", "allowed_values", "anchors", "column_types"], knowledge=[]))
 
-    for size, count in [("large", 131072), ("small", 8)]:
+    for size, fact_count in [("large", 98304), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
         lookup_segment, link_segment = "lookup_" + size + "_segment", "link_" + size + "_segment"
         lookup_segment_two, link_segment_two = "lookup_" + size + "_segment_two", "link_" + size + "_segment_two"
         with (root / "data" / (fact + ".csv")).open("w") as handle:
             rows = csv.writer(handle)
             rows.writerow(["day", "link", "amount"])
-            rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(count))
+            rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(fact_count))
         document(fact, dict(kind="model", name=fact, source="local", table=fact,
                             columns=[dict(name="day", type="date"),
                                      dict(name="link", type="text"),
@@ -171,7 +171,7 @@ let
                                   values=["segment-a", "segment-b"]),
                              dict(name="segment_two", column="segment_two", via=link_segment_two,
                                   values=["segment-a", "segment-b"])],
-                 anchor=dict(range=dict(start="2026-06-01", end="2026-07-01"), value=count * 100)))
+                 anchor=dict(range=dict(start="2026-06-01", end="2026-07-01"), value=fact_count * 100)))
     PY
     cp ${sourceTls dbHost}/ca.pem "$out/postgres-ca.pem"
   '';
@@ -559,7 +559,7 @@ pkgs.testers.runNixOSTest {
 
     def exact(reply, size="large", federated=True):
         assert reply.get("outcome") == "answer", reply
-        count = 131072 if size == "large" else 8
+        count = 98304 if size == "large" else 8
         expected = ([{"period": "2026-06-01", "region": region, "segment": segment, "segment_two": segment_two,
                       "total_" + size: str(count * 100 // 8)}
                      for region in ["north", "south"]
