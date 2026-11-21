@@ -744,6 +744,9 @@ pkgs.testers.runNixOSTest {
             pool(min=0, warm=0, idleAfterSeconds=0)
             settled(0)
         exec(${builtins.toJSON (import ./k3s-worker-pool-calibration.nix)}, globals())
+        expected = evidence["roomy"]["answer"]
+        ceiling = evidence["ceiling"]
+        runtime_images = evidence["roomy"]["pod"]["images"]
         with subtest("small one-source and genuinely small federated plans stay local"):
             for size, federated in [("large", False), ("small", False), ("small", True)]:
                 before = gauge(serving, "sutura_worker_slots_wanted")
