@@ -122,14 +122,15 @@ ci.yml:release-status
 # context it can check like any other.
 
 # The reusable integration workflow and its called jobs are gated by ci-aggregate.
+ci.yml:qa-plan
 ci.yml:qa
 qa.yml:plan
 qa.yml:core-graph
 qa.yml:integration
 qa.yml:demo
 qa.yml:cross
-qa.yml:e2e-datahub-adbc
-qa.yml:bigquery-conformance
+ci.yml:e2e-datahub-adbc
+ci.yml:bigquery-conformance
 qa.yml:integration-verdict
 cross-link.yml:link
 demo-container.yml:smoke-test

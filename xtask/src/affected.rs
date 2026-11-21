@@ -831,7 +831,7 @@ macro_rules! registered {
     /// job results. The release publication guard lives in that shell, so these tests extract and
     /// run the script the workflow actually ships.
     pub(super) mod shell_simulation {
-        use super::super::aggregate_shell::{run_aggregator, run_matrix_suite, run_qa};
+        use super::super::aggregate_shell::{run_aggregator, run_matrix_suite};
 
         #[test]
         fn a_release_commit_skip_of_ci_is_green() {
@@ -919,7 +919,7 @@ macro_rules! registered {
 
         #[test]
         fn a_required_but_skipped_datahub_adbc_leg_is_red() {
-            let (ok, text) = run_qa(&[("DATAHUB_REQUIRED", "true"), ("DATAHUB_RESULT", "skipped")]);
+            let (ok, text) = run_aggregator(&[("DATAHUB_REQUIRED", "true"), ("DATAHUB_RESULT", "skipped")]);
             assert!(!ok, "a required hosted leg cannot skip: {text}");
             assert!(
                 text.contains("e2e-datahub-adbc must run"),
@@ -929,7 +929,7 @@ macro_rules! registered {
 
         #[test]
         fn a_failed_unrequired_datahub_adbc_leg_is_red() {
-            let (ok, text) = run_qa(&[("DATAHUB_REQUIRED", "false"), ("DATAHUB_RESULT", "failure")]);
+            let (ok, text) = run_aggregator(&[("DATAHUB_REQUIRED", "false"), ("DATAHUB_RESULT", "failure")]);
             assert!(!ok, "a failed hosted leg cannot be waived: {text}");
             assert!(
                 text.contains("e2e-datahub-adbc reported"),

@@ -29,7 +29,12 @@ pub(super) fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
     let defaults = [
         ("CI_RESULT", "success"),
         ("FAST_RESULT", "success"),
+        ("PLAN_RESULT", "success"),
         ("QA_RESULT", "success"),
+        ("BQ_RESULT", "skipped"),
+        ("BQ_REQUIRED", "false"),
+        ("DATAHUB_RESULT", "skipped"),
+        ("DATAHUB_REQUIRED", "false"),
         ("RELEASE_PUSH", "false"),
         ("RELEASE_RESULT", "skipped"),
         ("CAUS_RESULT", "skipped"),
@@ -48,7 +53,7 @@ pub(super) fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
 
 pub(super) fn run_qa(envs: &[(&str, &str)]) -> (bool, String) {
     let defaults = [
-        ("PLAN_RESULT", "success"),
+        ("PLAN_PRESENT", "true"),
         ("CORE_RESULT", "skipped"),
         ("CORE_REQUIRED", "false"),
         ("MATRIX_COUNT", "0"),
@@ -57,11 +62,6 @@ pub(super) fn run_qa(envs: &[(&str, &str)]) -> (bool, String) {
         ("DEMO_RESULT", "skipped"),
         ("CROSS_REQUIRED", "false"),
         ("CROSS_RESULT", "skipped"),
-        ("DATAHUB_REQUIRED", "false"),
-        ("DATAHUB_RESULT", "skipped"),
-        ("BQ_REQUIRED", "false"),
-        ("BQ_RESULT", "skipped"),
-        ("LIVE_ELIGIBLE", "true"),
     ];
     run(
         &shell("qa.yml", "integration-verdict", "Require every selected suite"),

@@ -52,15 +52,8 @@
 //! one is an edit here. Nor does it verify that `always()` behaves as measured; that is GitHub's
 //! semantics, observed over the runs above and not reproduced by this repository.
 //!
-//! **The release-skip clause - what [`RELEASE_SKIP`] does and does not pin.** The `ci` job's own
-//! `if:` skips the whole job - `Secrets` included - on a `chore(release):` commit, and
-//! `bigquery-driver-check` repeats that test as a conjunct in its own `if:`. [`RELEASE_SKIP`] holds
-//! that the clause APPEARS as a conjunct on each named job's `if:` - it does not pin the category
-//! clause that sits beside it (`needs.identity-classify.outputs.data_source_bigquery == 'true'`),
-//! because that axis is held by the category registry in `affected` and pinning it here would
-//! couple the rule to a job rename. The clause is matched as exact normalized text: a paraphrased
-//! clause FAILS CLOSED - it does not match and the refusal fires - rather than passing on a
-//! looser `contains`. See [`carries_release_skip`].
+//! The release bump skips both core CI and the ordinary QA caller. The linked-driver exercise
+//! inherits the QA caller's release guard. The tag runs full QA and checks the published binaries.
 //!
 //! # The second thing this holds: LATENCY, not just skippability (#512(b))
 //!
@@ -251,7 +244,7 @@ fn pull_request_types(text: &str) -> Option<Vec<&str>> {
 
 /// The CI and reusable QA jobs skip the main release bump. Release calls full QA on its tag.
 const RELEASE_SKIP_CLAUSE: &str = "!startsWith(github.event.head_commit.message || '', 'chore(release):')";
-const RELEASE_SKIP: &[&str] = &["ci", "qa"];
+const RELEASE_SKIP: &[&str] = &["ci", "qa", "qa-plan"];
 
 /// How many release-skip rows this rule holds, for the success line.
 pub(super) const fn release_skip_held() -> usize {
@@ -262,11 +255,11 @@ pub(super) const fn release_skip_held() -> usize {
 const PINNED_JOB_IF: &[(&str, &str)] = &[
     (
         "bigquery-conformance",
-        "contains(fromJSON(needs.plan.outputs.selected), 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
     ),
     (
         "e2e-datahub-adbc",
-        "contains(fromJSON(needs.plan.outputs.selected), 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
     ),
 ];
 
@@ -305,7 +298,32 @@ pub(super) fn job_if_problems(root: &Path) -> Vec<String> {
         )];
     };
     let qa = std::fs::read_to_string(root.join(".github/workflows/qa.yml")).unwrap_or_default();
-    [release_skip_check(&text), pinned_job_if_check(&qa)].concat()
+    let mut problems = [release_skip_check(&text), pinned_job_if_check(&text)].concat();
+    if !linked_driver_runs_in_qa(root, &qa) {
+        problems.push(String::from(
+            "QA must execute the linked-driver check for selected BigQuery or PostgreSQL changes and require the matrix result",
+        ));
+    }
+    problems
+}
+
+fn linked_driver_runs_in_qa(root: &Path, qa: &str) -> bool {
+    let runner = std::fs::read_to_string(root.join("nix/ci-suite.sh")).unwrap_or_default();
+    crate::changes::ci_suites::linked_driver_is_enrolled(root)
+        && runner
+            .lines()
+            .any(|line| line == "bigquery-driver) bash nix/bigquery-driver-check.sh ;;")
+        && super::step::job(qa, "integration")
+            .is_some_and(|lines| lines.contains(&"      matrix: ${{ fromJSON(inputs.suite-plan).matrix }}"))
+        && super::step::named_step(qa, "integration", "Run suite").is_some_and(|lines| {
+            lines.contains(&"          SUITE: ${{ matrix.id }}")
+                && lines.contains(&r#"        run: bash nix/ci-suite.sh "$SUITE""#)
+        })
+        && super::step::job(qa, "integration-verdict").is_some_and(|lines| {
+            lines.contains(&"          MATRIX_COUNT: ${{ fromJSON(inputs.suite-plan || '{}').count }}")
+                && lines.contains(&"          MATRIX_RESULT: ${{ needs.integration.result }}")
+                && lines.contains(&r#"            *) require "integration matrix" "$MATRIX_RESULT" true ;;"#)
+        })
 }
 
 /// The release-skip rule itself, over the text, so a test can put a tree in front of it.
@@ -644,14 +662,10 @@ mod tests {
         assert_eq!(release_skip_check(&text), Vec::<String>::new());
     }
 
-    /// Mutation (a): drop the release clause from `qa`, leaving only the category
-    /// clause. Red against base (no refusal exists), green with the change - the rule names the line.
+    /// Dropping the QA caller's release guard would rerun the linked-driver suite on the bump.
     #[test]
-    fn dropping_the_release_clause_from_qa_is_refused() {
-        let text = release_skip_tree(
-            Some("needs.identity-classify.result == 'success'"),
-            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
-        );
+    fn dropping_the_release_clause_from_bigquery_driver_check_is_refused() {
+        let text = release_skip_tree(Some("needs.identity-classify.result == 'success'"), Some(RELEASE_SKIP_CLAUSE));
         let found = release_skip_check(&text);
         assert_eq!(found.len(), 1, "only qa is broken: {found:?}");
         assert!(found[0].contains("qa"), "the refusal names the job: {found:?}");
@@ -782,7 +796,11 @@ mod tests {
                 "github.event_name == 'pull_request'",
             ),
             ("release", "run-all-checks: true", "run-all-checks: false"),
-            ("release", "needs: [build, gates, qa]", "needs: [build, gates]"),
+            (
+                "release",
+                "needs: [build, gates, qa-plan, qa, bigquery-conformance, e2e-datahub-adbc]",
+                "needs: [build, gates, qa-plan, qa]",
+            ),
         ] {
             let (ci, release) = if file == "ci" {
                 (ci.replacen(before, after, 1), release.clone())

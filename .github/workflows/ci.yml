@@ -288,9 +288,8 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-ci
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    # SKIPPED ON THE RELEASE COMMIT, and the jobs below `needs: [ci]` so they skip with it -
-    # `bigquery-driver-check` too, which no longer needs `ci` and repeats this test in its own `if:`.
-    # `bigquery-conformance` no longer needs `ci` either and never runs on a push (#1696).
+    # The version bump skips core CI and ordinary QA. The tag workflow runs full QA,
+    # including live conformance and the linked-driver exercise.
     # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
     # token, because the `main` ruleset requires a pull request and GITHUB_TOKEN cannot be given
     # a bypass without bypassing every workflow here. An App token's push DOES start workflow
@@ -634,8 +633,7 @@ jobs:
       #
       # Cheap to always run for `Licensing`'s reason: four Go cross-builds with no dependency on
       # the Rust closure, so there is nothing to wait for and nothing saved by skipping. It builds
-      # the `.so`; whether that `.so` LOADS is `bigquery-driver-check` below, which is a different
-      # question and a different venue.
+      # the `.so`. The `bigquery-driver` QA suite runs the linked-driver check.
       - name: ADBC driver
         if: ${{ !cancelled() && github.event_name != 'push' }}
         run: nix build .#checks.x86_64-linux.adbc-driver-bigquery .#checks.x86_64-linux.adbc-driver-postgresql .#checks.x86_64-linux.adbc-driver-duckdb .#checks.x86_64-linux.adbc-driver-clickhouse -L
@@ -1215,15 +1213,87 @@ jobs:
           set -eu
           nix run .#kind-smoke
 
-  qa:
+  qa-plan:
     needs: [identity-classify]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
+    uses: $/.github/workflows/qa.yml
+    with:
+      plan-only: true
+      fast-checked: true
+      run-all-checks: ${{ inputs.run-all-checks || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}
+      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}
+
+  qa:
+    needs: [identity-classify, qa-plan]
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     uses: $/.github/workflows/qa.yml
     with:
       fast-checked: true
       run-all-checks: ${{ inputs.run-all-checks || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
-      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}
-      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}
+      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}
+
+  e2e-datahub-adbc:
+    needs: [identity-classify, qa-plan]
+    if: contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: rust-mcp-16core
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    environment: bq-test
+    # docker info exceeded the default timeout on this venue (#1013).
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Run live suite
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: bash nix/ci-live-qa.sh e2e-datahub-adbc
+
+      - name: Remove credential
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP"/sutura-bq-key.*
+
+  bigquery-conformance:
+    needs: [identity-classify, qa-plan]
+    if: contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    environment: bq-test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Run live suite
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
+        run: bash nix/ci-live-qa.sh bigquery-conformance
+
+      - name: Remove credential
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP"/sutura-bq-key.*
 
   # #1280: `Test causality` AS ITS OWN JOB. It was the last step of `ci` and the one `ci` waited on
   # after everything else had finished, 175 s when it compiled and 9 s when nothing was separable
@@ -1624,14 +1694,30 @@ jobs:
 
   ci-aggregate:
     runs-on: ubuntu-latest
-    needs: [ci, identity-classify, qa, causality, postgres-linked-driver, shipped-features, release-status]
+    needs: [
+      ci,
+      identity-classify,
+      qa-plan,
+      qa,
+      bigquery-conformance,
+      e2e-datahub-adbc,
+      causality,
+      postgres-linked-driver,
+      shipped-features,
+      release-status,
+    ]
     if: ${{ !cancelled() }}
     steps:
       - name: Aggregate the required checks
         env:
           CI_RESULT: ${{ needs.ci.result }}
           FAST_RESULT: ${{ needs.identity-classify.result }}
+          PLAN_RESULT: ${{ needs.qa-plan.result }}
           QA_RESULT: ${{ needs.qa.result }}
+          BQ_REQUIRED: ${{ contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
+          BQ_RESULT: ${{ needs.bigquery-conformance.result }}
+          DATAHUB_REQUIRED: ${{ contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
+          DATAHUB_RESULT: ${{ needs.e2e-datahub-adbc.result }}
           RELEASE_PUSH: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):') }}
           RELEASE_RESULT: ${{ needs.release-status.result }}
           CAUS_RESULT: ${{ needs.causality.result }}
@@ -1648,17 +1734,27 @@ jobs:
             if [ "$3" != true ] && [ "$2" = skipped ]; then return; fi
             fail "$1 reported '$2'"
           }
+          require_live() {
+            if [ "$3" = true ] && [ "$2" != success ]; then
+              fail "$1 must run but reported '$2'"
+            fi
+            require "$@"
+          }
           require "fast checks" "$FAST_RESULT" true
           if [ "$RELEASE_PUSH" = true ]; then
             if [ "$RELEASE_RESULT" != success ]; then
               fail "release workflow did not publish this release: '$RELEASE_RESULT'"
             fi
             require ci "$CI_RESULT" false
+            require "QA plan" "$PLAN_RESULT" false
             require QA "$QA_RESULT" false
           else
             require ci "$CI_RESULT" true
+            require "QA plan" "$PLAN_RESULT" true
             require QA "$QA_RESULT" true
           fi
+          require_live bigquery-conformance "$BQ_RESULT" "$BQ_REQUIRED"
+          require_live e2e-datahub-adbc "$DATAHUB_RESULT" "$DATAHUB_REQUIRED"
           require causality "$CAUS_RESULT" "$CAUS_REQUIRED"
           require postgres-linked-driver "$PGD_RESULT" "$PGD_REQUIRED"
           require shipped-features "$SHIP_RESULT" "$SHIP_REQUIRED"

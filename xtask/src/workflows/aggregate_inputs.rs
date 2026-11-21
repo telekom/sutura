@@ -9,7 +9,12 @@ use std::path::Path;
 const REQUIRED: &[(&str, &str)] = &[
     ("CI_RESULT", "ci"),
     ("FAST_RESULT", "identity-classify"),
+    ("PLAN_RESULT", "qa-plan"),
     ("QA_RESULT", "qa"),
+    ("BQ_REQUIRED", "qa-plan"),
+    ("BQ_RESULT", "bigquery-conformance"),
+    ("DATAHUB_REQUIRED", "qa-plan"),
+    ("DATAHUB_RESULT", "e2e-datahub-adbc"),
     ("RELEASE_PUSH", ""),
     ("RELEASE_RESULT", "release-status"),
     ("CAUS_RESULT", "causality"),
@@ -24,7 +29,18 @@ const REQUIRED: &[(&str, &str)] = &[
 const EXPRESSIONS: &[(&str, &str)] = &[
     ("CI_RESULT", "needs.ci.result"),
     ("FAST_RESULT", "needs.identity-classify.result"),
+    ("PLAN_RESULT", "needs.qa-plan.result"),
     ("QA_RESULT", "needs.qa.result"),
+    (
+        "BQ_REQUIRED",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
+    ),
+    ("BQ_RESULT", "needs.bigquery-conformance.result"),
+    (
+        "DATAHUB_REQUIRED",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
+    ),
+    ("DATAHUB_RESULT", "needs.e2e-datahub-adbc.result"),
     (
         "RELEASE_PUSH",
         "github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')",
@@ -433,7 +449,12 @@ mod tests {
         [
             "          CI_RESULT: ${{ needs.ci.result }}",
             "          FAST_RESULT: ${{ needs.identity-classify.result }}",
+            "          PLAN_RESULT: ${{ needs.qa-plan.result }}",
             "          QA_RESULT: ${{ needs.qa.result }}",
+            "          BQ_REQUIRED: ${{ contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}",
+            "          BQ_RESULT: ${{ needs.bigquery-conformance.result }}",
+            "          DATAHUB_REQUIRED: ${{ contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}",
+            "          DATAHUB_RESULT: ${{ needs.e2e-datahub-adbc.result }}",
             "          RELEASE_PUSH: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):') }}",
             "          RELEASE_RESULT: ${{ needs.release-status.result }}",
             "          CAUS_RESULT: ${{ needs.causality.result }}",

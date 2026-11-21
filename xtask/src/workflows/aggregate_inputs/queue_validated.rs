@@ -20,30 +20,41 @@ pub(super) fn check(root: &Path, ci: &str) -> Vec<String> {
             "queue-validated rule: the lookup must use the checked queue event and fall back on failure",
         ));
     }
-    let qa_valid = job_needs(ci, "qa") == ["identity-classify"]
-        && step::job(ci, "qa").is_some_and(|lines| {
+    let ci_ready = ["identity-classify", "qa-plan"];
+    let release_ready = ["qa-plan"];
+    let qa_valid = job_needs(ci, "qa-plan") == ["identity-classify"]
+        && step::job(ci, "qa-plan").is_some_and(|lines| {
             lines.contains(&"    uses: $/.github/workflows/qa.yml")
                 && lines.contains(&"      fast-checked: true")
+                && lines.contains(&"      plan-only: true")
                 && lines.contains(&"      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}")
                 && lines.contains(&"      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}")
-        });
+        })
+        && qa_uses_plan(ci, &ci_ready)
+        && live_jobs_use_plan(ci, &ci_ready);
     if !qa_valid {
         out.push(String::from(
-            "queue-validated rule: ordinary QA must wait for fast checks and read their evidence outputs",
+            "queue-validated rule: ordinary QA must wait for fast checks, use their evidence, and share the plan with the direct live jobs",
         ));
     }
-    let release_valid = job_needs(&release, "qa") == ["gates"]
-        && job_needs(&release, "publish").iter().any(|need| need == "qa")
-        && step::job(&release, "qa").is_some_and(|lines| {
+    let release_valid = job_needs(&release, "qa-plan") == ["gates"]
+        && step::job(&release, "qa-plan").is_some_and(|lines| {
             lines.contains(&"    uses: $/.github/workflows/qa.yml")
+                && lines.contains(&"      plan-only: true")
                 && lines.contains(&"      run-all-checks: true")
                 && !lines
                     .iter()
                     .any(|line| line.contains("green-jobs:") || line.contains("tested-commit:"))
-        });
+        })
+        && qa_uses_plan(&release, &release_ready)
+        && step::job(&release, "qa").is_some_and(|lines| lines.contains(&"      run-all-checks: true"))
+        && live_jobs_use_plan(&release, &release_ready)
+        && ["qa-plan", "qa", "bigquery-conformance", "e2e-datahub-adbc"]
+            .iter()
+            .all(|required| job_needs(&release, "publish").iter().any(|need| need == *required));
     if !release_valid {
         out.push(String::from(
-            "queue-validated rule: release publication must require full QA without PR verdicts",
+            "queue-validated rule: release publication must require full QA and both direct live jobs without PR verdicts",
         ));
     }
     if !step::job(ci, "qa-receipt").is_some_and(|lines| {
@@ -65,4 +76,28 @@ pub(super) fn check(root: &Path, ci: &str) -> Vec<String> {
         ));
     }
     out
+}
+
+fn qa_uses_plan(workflow: &str, ready: &[&str]) -> bool {
+    job_needs(workflow, "qa").iter().map(String::as_str).eq(ready.iter().copied())
+        && step::job(workflow, "qa").is_some_and(|lines| {
+            lines.contains(&"    uses: $/.github/workflows/qa.yml")
+                && lines.contains(&"      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}")
+                && !lines
+                    .iter()
+                    .any(|line| line.contains("green-jobs:") || line.contains("tested-commit:"))
+        })
+}
+
+fn live_jobs_use_plan(workflow: &str, ready: &[&str]) -> bool {
+    ["bigquery-conformance", "e2e-datahub-adbc"].iter().all(|job| {
+        job_needs(workflow, job).iter().map(String::as_str).eq(ready.iter().copied())
+            && step::job(workflow, job).is_some_and(|lines| lines.contains(&"    environment: bq-test"))
+            && step::named_step(workflow, job, "Run live suite").is_some_and(|lines| {
+                lines.contains(&"          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}")
+                    && lines
+                        .iter()
+                        .any(|line| *line == format!("        run: bash nix/ci-live-qa.sh {job}"))
+            })
+    })
 }

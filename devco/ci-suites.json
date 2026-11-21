@@ -10,7 +10,7 @@
   {
     "id": "bigquery-driver",
     "venue": "standard",
-    "timeout": 25,
+    "timeout": 45,
     "categories": ["data_source_bigquery", "data_source_postgres"],
     "paths": ["nix/adbc*"],
     "crates": ["sutura-exec-bigquery", "sutura-exec-postgres"]

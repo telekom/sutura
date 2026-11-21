@@ -833,7 +833,7 @@ mod tests {
                 ".github/actions/build-artefacts/action.yml:16",
                 ".github/actions/embedded-dependency-list/action.yml:15",
                 ".github/actions/push-images/action.yml:13",
-                ".github/workflows/cross-link.yml:120",
+                ".github/workflows/cross-link.yml:116",
                 ".github/workflows/release-performance.yml:91",
                 ".github/workflows/release.yml:85",
             ],
@@ -850,11 +850,11 @@ mod tests {
                 ".github/actions/build-artefacts/action.yml:267 -> inputs.binaries",
                 ".github/actions/embedded-dependency-list/action.yml:83 -> inputs.binaries",
                 ".github/actions/push-images/action.yml:84 -> inputs.binaries",
-                ".github/workflows/cross-link.yml:271 -> env.BINARIES",
+                ".github/workflows/cross-link.yml:267 -> env.BINARIES",
                 ".github/workflows/release-performance.yml:224 -> env.BINARIES",
                 ".github/workflows/release-performance.yml:326 -> env.BINARIES",
-                ".github/workflows/release.yml:323 -> env.BINARIES",
-                ".github/workflows/release.yml:517 -> env.BINARIES",
+                ".github/workflows/release.yml:332 -> env.BINARIES",
+                ".github/workflows/release.yml:526 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"
         );

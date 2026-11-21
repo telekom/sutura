@@ -52,7 +52,7 @@ impl Suite {
         }
         match self.venue {
             Venue::Standard | Venue::Kvm => green.contains(&format!("qa / suite ({})", self.id)),
-            Venue::BigQuery => green.contains(&format!("qa / {}", self.id)),
+            Venue::BigQuery => green.contains(&self.id),
             Venue::Caller => !self.checks.is_empty() && self.checks.iter().all(|check| green.contains(check)),
         }
     }
@@ -171,6 +171,21 @@ fn load_manifest(root: &Path) -> Result<Vec<Suite>, String> {
         return Err(format!("{MANIFEST} names no QA suites"));
     }
     Ok(suites)
+}
+
+/// The linked-driver exercise stays in the matrix for either adapter.
+pub(crate) fn linked_driver_is_enrolled(root: &Path) -> bool {
+    load_manifest(root).is_ok_and(|suites| {
+        suites.iter().any(|suite| {
+            suite.id == "bigquery-driver"
+                && suite.venue == Venue::Standard
+                && !suite.before_merge
+                && suite.advisory_pr_check.is_none()
+                && ["data_source_bigquery", "data_source_postgres"]
+                    .iter()
+                    .all(|name| suite.categories.iter().any(|category| category == *name))
+        })
+    })
 }
 
 /// IDs that the reusable QA workflow can select for a live matrix exemption.
@@ -310,15 +325,14 @@ fn emit(mode: Run<'_>) -> Result<(), String> {
         .filter(|suite| matches!(suite.venue, Venue::Standard | Venue::Kvm))
         .collect();
     let ids: Vec<&str> = selected.iter().map(|suite| suite.id.as_str()).collect();
-    let matrix = serde_json::json!({ "include": ordinary });
-    let ids = serde_json::json!(ids);
-    println!("ci-suites: selected {ids}");
+    let plan = serde_json::json!({ "selected": ids, "matrix": { "include": ordinary }, "count": ordinary.len() });
+    println!("ci-suites: selected {ids:?}");
     if let Ok(output) = std::env::var("GITHUB_OUTPUT") {
         let mut target = std::fs::OpenOptions::new()
             .append(true)
             .open(output)
             .map_err(|e| e.to_string())?;
-        writeln!(target, "matrix={matrix}\nselected={ids}\ncount={}", ordinary.len()).map_err(|e| e.to_string())?;
+        writeln!(target, "suite-plan={plan}").map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -357,7 +371,7 @@ mod tests {
             .expect("BigQuery suite");
         let oracle = suites.iter().find(|one| one.id == "oracle-native").expect("Oracle suite");
         let green = BTreeSet::from([
-            String::from("qa / bigquery-conformance"),
+            String::from("bigquery-conformance"),
             String::from("qa / suite (oracle-native)"),
         ]);
         let selected = planned_suites(&suites, &[bigquery], Some(&[oracle]), &green);

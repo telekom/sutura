@@ -2,7 +2,18 @@ name: QA
 
 on:
   workflow_call:
+    outputs:
+      suite-plan:
+        description: Selected suite IDs, uncredentialed matrix, and its count
+        value: ${{ jobs.plan.outputs.suite-plan }}
     inputs:
+      plan-only:
+        description: Select suites and export the plan
+        type: boolean
+        default: false
+      suite-plan:
+        description: The validated JSON plan returned by plan-only mode
+        type: string
       run-all-checks:
         description: Run every suite without selection or verdict reuse
         type: boolean
@@ -23,12 +34,11 @@ permissions:
 
 jobs:
   plan:
+    if: inputs.plan-only
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     outputs:
-      count: ${{ steps.select.outputs.count }}
-      matrix: ${{ steps.select.outputs.matrix }}
-      selected: ${{ steps.select.outputs.selected }}
+      suite-plan: ${{ steps.select.outputs.suite-plan }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -95,6 +105,18 @@ jobs:
             nix run .#xtask -- ci-suites --all
           fi
 
+      - name: Validate suite plan
+        env:
+          SUITE_PLAN: ${{ steps.select.outputs.suite-plan }}
+        run: |
+          jq -e '
+            (.selected | type == "array" and all(.[]; type == "string")) and
+            (.matrix.include | type == "array") and
+            (.matrix.include | length) == .count and
+            all(.matrix.include[]; .id | type == "string") and
+            ([.matrix.include[].id] - .selected | length) == 0
+          ' <<< "$SUITE_PLAN" >/dev/null
+
       - name: Structural gates
         if: "!inputs.fast-checked"
         run: nix build .#checks.x86_64-linux.hygiene -L
@@ -104,8 +126,7 @@ jobs:
         run: nix build .#checks.x86_64-linux.clippy -L
 
   core-graph:
-    needs: [plan]
-    if: inputs.run-all-checks && !inputs.fast-checked
+    if: "!inputs.plan-only && inputs.run-all-checks && !inputs.fast-checked"
     runs-on: rust-mcp-32core
     timeout-minutes: 90
     steps:
@@ -131,13 +152,12 @@ jobs:
 
   integration:
     name: suite (${{ matrix.id }})
-    needs: [plan]
-    if: needs.plan.outputs.count != '0'
+    if: ${{ !inputs.plan-only && fromJSON(inputs.suite-plan || '{}').count > 0 }}
     runs-on: rust-mcp-16core
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(inputs.suite-plan).matrix }}
     env:
       SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
     steps:
@@ -186,161 +206,30 @@ jobs:
           done
 
   demo:
-    needs: [plan]
-    if: contains(fromJSON(needs.plan.outputs.selected), 'demo-container')
+    if: ${{ !inputs.plan-only && contains(fromJSON(inputs.suite-plan || '{}').selected, 'demo-container') }}
     uses: $/.github/workflows/demo-container.yml
 
   cross:
-    needs: [plan]
-    if: contains(fromJSON(needs.plan.outputs.selected), 'cross-link')
+    if: ${{ !inputs.plan-only && contains(fromJSON(inputs.suite-plan || '{}').selected, 'cross-link') }}
     uses: $/.github/workflows/cross-link.yml
 
-  e2e-datahub-adbc:
-    needs: [plan]
-    if: contains(fromJSON(needs.plan.outputs.selected), 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
-    runs-on: rust-mcp-16core
-    timeout-minutes: 75
-    permissions:
-      contents: read
-    environment: bq-test
-    # #1013: `docker info` gave no answer inside the 10s default in 3 logged WedgedDaemon failures (cause
-    # not established; 60s is unmeasured). Silence past 60s still FAILS - `compose.rs`'s `absent` veto.
-    env:
-      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
-        with:
-          extra_nix_config: |
-            fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-      - name: Place credential outside the checkout
-        env:
-          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
-        run: |
-          set -eu
-          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
-            echo "bq-test has no CI credential" >&2
-            exit 1
-          fi
-          umask 077
-          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
-      - name: Mask resource names
-        env:
-          K: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: |
-          set -eu
-          python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
-            2>/dev/null || { echo "the CI credential names no project_id" >&2; exit 1; }
-          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
-            echo "bq-test has no SUTURA_BQ_DATASET" >&2
-            exit 1
-          fi
-          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
-      - name: Served DataHub and ADBC answer
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: nix run .#e2e-datahub-adbc -- --no-capture --no-fail-fast
-      - name: Remove credential
-        if: always()
-        run: rm -f "$RUNNER_TEMP/bq-key.json"
-
-  bigquery-conformance:
-    needs: [plan]
-    if: contains(fromJSON(needs.plan.outputs.selected), 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
-    runs-on: rust-mcp-16core
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    environment: bq-test
-    # The adapter suffixes every physical table with GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT, so
-    # merge-group runs and retries can share the configured dataset without replacing fixtures.
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
-        with:
-          extra_nix_config: |
-            fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-      - name: Place credential outside the checkout
-        env:
-          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
-        run: |
-          set -eu
-          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
-            echo "bq-test has no CI credential" >&2
-            exit 1
-          fi
-          umask 077
-          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
-      # The project comes off the key, masked before it is exported, so it reaches the cells
-      # without reaching the log.
-      - name: Mask resource names and read the project off the key
-        env:
-          K: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: |
-          set -eu
-          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
-            || { echo "the CI credential names no project_id" >&2; exit 1; }
-          if [ -z "$project" ]; then
-            echo "the CI credential names an empty project_id" >&2
-            exit 1
-          fi
-          printf '::add-mask::%s\n' "$project"
-          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
-            echo "bq-test has no SUTURA_BQ_DATASET" >&2
-            exit 1
-          fi
-          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
-          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-      - name: Load the example corpus once
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: nix run .#bigquery-provision -- --no-capture
-      - name: Golden corpus on BigQuery
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
-          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-          SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
-        run: nix run .#bigquery-conformance -- --no-capture
-      - name: Remove credential
-        if: always()
-        run: rm -f "$RUNNER_TEMP/bq-key.json"
-
   integration-verdict:
-    needs: [plan, core-graph, integration, demo, cross, e2e-datahub-adbc, bigquery-conformance]
-    if: ${{ !cancelled() }}
+    needs: [core-graph, integration, demo, cross]
+    if: ${{ !inputs.plan-only && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every selected suite
         env:
-          PLAN_RESULT: ${{ needs.plan.result }}
+          PLAN_PRESENT: ${{ inputs.suite-plan != '' }}
           CORE_RESULT: ${{ needs.core-graph.result }}
           CORE_REQUIRED: ${{ inputs.run-all-checks && !inputs.fast-checked }}
-          MATRIX_COUNT: ${{ needs.plan.outputs.count }}
+          MATRIX_COUNT: ${{ fromJSON(inputs.suite-plan || '{}').count }}
           MATRIX_RESULT: ${{ needs.integration.result }}
-          DEMO_REQUIRED: ${{ contains(fromJSON(needs.plan.outputs.selected || '[]'), 'demo-container') }}
-          CROSS_REQUIRED: ${{ contains(fromJSON(needs.plan.outputs.selected || '[]'), 'cross-link') }}
-          DATAHUB_REQUIRED: ${{ contains(fromJSON(needs.plan.outputs.selected || '[]'), 'e2e-datahub-adbc') }}
-          BQ_REQUIRED: ${{ contains(fromJSON(needs.plan.outputs.selected || '[]'), 'bigquery-conformance') }}
+          DEMO_REQUIRED: ${{ contains(fromJSON(inputs.suite-plan || '{}').selected, 'demo-container') }}
+          CROSS_REQUIRED: ${{ contains(fromJSON(inputs.suite-plan || '{}').selected, 'cross-link') }}
           DEMO_RESULT: ${{ needs.demo.result }}
           CROSS_RESULT: ${{ needs.cross.result }}
-          DATAHUB_RESULT: ${{ needs.e2e-datahub-adbc.result }}
-          BQ_RESULT: ${{ needs.bigquery-conformance.result }}
-          LIVE_ELIGIBLE: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
         run: |
           set -euo pipefail
           require() {
@@ -354,7 +243,10 @@ jobs:
               exit 1
             fi
           }
-          require "suite plan" "$PLAN_RESULT" true
+          if [ "$PLAN_PRESENT" != true ]; then
+            echo "QA: missing suite plan" >&2
+            exit 1
+          fi
           require "core graph" "$CORE_RESULT" "$CORE_REQUIRED"
           case "$MATRIX_COUNT" in
             0) require "integration matrix" "$MATRIX_RESULT" false ;;
@@ -363,9 +255,3 @@ jobs:
           esac
           require demo-container "$DEMO_RESULT" "$DEMO_REQUIRED"
           require cross-link "$CROSS_RESULT" "$CROSS_REQUIRED"
-          if [ "$LIVE_ELIGIBLE" != true ]; then
-            DATAHUB_REQUIRED=false
-            BQ_REQUIRED=false
-          fi
-          require e2e-datahub-adbc "$DATAHUB_RESULT" "$DATAHUB_REQUIRED"
-          require bigquery-conformance "$BQ_RESULT" "$BQ_REQUIRED"

@@ -17,8 +17,8 @@
 # at all - and the reason the allocator is replaced, since musl's own serialises every thread on
 # one lock (see `crates/sutura-cli/src/main.rs`).
 #
-# FOUR JOBS: `gates` once, `qa` and `build` (a matrix over the four targets) in parallel off
-# `gates`, `publish` last. This was a single job, on the argument that nothing then has to be
+# `gates` checks the tag before target builds and QA planning. The live jobs and reusable QA
+# wait for the same plan. Publication requires all results. This was a single job, so nothing had to be
 # handed between jobs. The handover is real work - two more actions and four artifacts - and it
 # buys two things.
 #
@@ -253,11 +253,19 @@ jobs:
   # libc at all.
   #
   # The release exercises every integration against the tag after the main ancestry check.
-  qa:
+  qa-plan:
     needs: [gates]
     uses: $/.github/workflows/qa.yml
     with:
+      plan-only: true
       run-all-checks: true
+
+  qa:
+    needs: [qa-plan]
+    uses: $/.github/workflows/qa.yml
+    with:
+      run-all-checks: true
+      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}
 
   # NO write permissions, which is the point of having this job separate at all. Everything
   # that compiles happens here, under a token that can read the repository and nothing else.
@@ -351,7 +359,7 @@ jobs:
   # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
   # `vN.N.N` tag may move `:latest`, which is what consumers pull.
   publish:
-    needs: [build, gates, qa]
+    needs: [build, gates, qa-plan, qa, bigquery-conformance, e2e-datahub-adbc]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: rust-mcp-32core
     timeout-minutes: 60
@@ -433,8 +441,8 @@ jobs:
       # the same omission class #111 was. `cargo xtask check-shipped-binaries` is the rule for
       # that, and it runs on a pull request rather than at tag time.
       # The driver check against the artefacts this release publishes - the release-only half of
-      # `ci.yml`'s `bigquery-driver-check`, which runs on the `ci` profile per pull request (see
-      # `nix/bigquery-driver-check.sh` for what that leaves out: LTO and stripping).
+      # the `bigquery-driver` QA suite, which exercises the `ci` profile. This checks the
+      # release profile with LTO and stripping.
       - name: The published binaries carry a working ADBC BigQuery driver
         env:
           SUTURA_DRIVER_CHECK_PROFILE: release
@@ -882,3 +890,65 @@ jobs:
             echo "::error::attached ${attached} asset(s) but dist/ holds ${count}. The release is published and its assets are immutable, so this cannot be topped up: the notes can still be edited, the assets cannot."
             exit 1
           fi
+
+  e2e-datahub-adbc:
+    needs: [qa-plan]
+    if: startsWith(github.ref, 'refs/tags/v') && contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc')
+    runs-on: rust-mcp-16core
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    environment: bq-test
+    # docker info exceeded the default timeout on this venue (#1013).
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Run live suite
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+        run: bash nix/ci-live-qa.sh e2e-datahub-adbc
+
+      - name: Remove credential
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP"/sutura-bq-key.*
+
+  bigquery-conformance:
+    needs: [qa-plan]
+    if: startsWith(github.ref, 'refs/tags/v') && contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance')
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    environment: bq-test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Run live suite
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
+        run: bash nix/ci-live-qa.sh bigquery-conformance
+
+      - name: Remove credential
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP"/sutura-bq-key.*
