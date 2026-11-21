@@ -44,6 +44,28 @@ pub(crate) fn open_clickhouse(
         .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
 }
 
+/// Erases sources only where a peer reads them, so lookup splits reach the per-kind dispatcher.
+#[cfg(feature = "clickhouse")]
+pub(super) fn served<B>(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<super::ClickHouseSource>,
+    broker: B,
+    combiner: sutura_exec_datafusion::DataFusionCombiner,
+    settings: &sutura_config::Settings,
+) -> Result<super::Serving, String>
+where
+    B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
+{
+    let tls = settings.server().tls();
+    if !super::nodes::read_by_a_peer(&engines, tls) {
+        return super::compose::started(catalogs, engines, broker, combiner, None, settings);
+    }
+    let erased = engines.into_mapped(|clickhouse| super::kind::AnyWarehouse::ClickHouse(Box::new(clickhouse)));
+    let engines = super::nodes::splitting(erased, tls, settings.runtime());
+    super::compose::started(catalogs, engines, broker, combiner, None, settings)
+}
+
 /// The refusal for a build that did not link the `ClickHouse` adapter.
 ///
 /// **Two definitions of one signature rather than a `cfg` inside one body**, for the reason
