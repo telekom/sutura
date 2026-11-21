@@ -127,3 +127,45 @@ fn a_postgres_only_change_runs_the_leg_that_runs_its_server_cells() {
         "the aggregator must see the postgres leg as selected: {bq_selected}"
     );
 }
+
+/// Queue reuse consumes successful job names after the unchanged API filters; exercise its actual
+/// result loop so one Oracle matrix success cannot stand in for both venues.
+#[test]
+fn oracle_queue_reuse_requires_both_matrix_lanes() {
+    let root = crate::repo::root().expect("repository root");
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("workflow");
+    let step = crate::workflows::step::named_step(&workflow, "queue-validated", "Legs the merge queue ran green on this commit")
+        .expect("queue lookup step");
+    let body = crate::workflows::step::shell(&step)
+        .into_iter()
+        .skip_while(|line| !line.trim_start().starts_with("for leg in "))
+        .map(str::trim_start)
+        .collect::<Vec<_>>()
+        .join("\n");
+    for (names, expected) in [
+        ("oracle-tier (acceptance)\noracle-tier (native)", true),
+        ("oracle-tier (acceptance)", false),
+        ("oracle-tier (native)", false),
+        ("", false),
+        ("oracle-tier", false),
+        ("oracle-tier (acceptance)\noracle-tier (native-extra)", false),
+    ] {
+        let output = std::process::Command::new("bash")
+            .args(["--noprofile", "--norc", "-euo", "pipefail", "-c", &body])
+            .env_remove("BASH_ENV")
+            .env("passed", names)
+            .env("GITHUB_OUTPUT", "/dev/stdout")
+            .output()
+            .expect("queue result loop executes");
+        let printed = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{names:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            printed.lines().any(|line| line == format!("oracle_tier={expected}")),
+            "{names:?}: {printed}"
+        );
+    }
+}

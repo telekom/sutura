@@ -1597,7 +1597,12 @@ jobs:
             passed="$passed"$'\n'"$jobs"
           done
           for leg in keycloak-served-test bigquery-driver-check multi-node multi-node-postgres multi-node-oracle k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
-            if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
+            if [ "$leg" = oracle-tier ]; then
+              if printf '%s\n' "$passed" | grep -qxF -- 'oracle-tier (acceptance)' &&
+                printf '%s\n' "$passed" | grep -qxF -- 'oracle-tier (native)'; then hit=true; else hit=false; fi
+            else
+              if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
+            fi
             echo "$leg: $hit"
             echo "${leg//-/_}=$hit" >> "$GITHUB_OUTPUT"
           done
@@ -2399,12 +2404,19 @@ jobs:
   # Category-gated on `data_source_oracle` or `catalog_rdbms` (whose Oracle dictionary reader's live
   # cells run here, #972), like `bigquery-driver-check` on its own category, and
   # held run-or-fail by `ci-aggregate`. It also runs `sutura-app`'s golden and differential cells for
-  # the `oracle` data system, each opening its own user on the tier; the cap is 50 minutes rather
-  # than 30 for an estimated fifteen more, not a measurement. An app rather than a `checks.*` entry because it needs a
+  # the `oracle` data system, each opening its own user on the tier. Acceptance and native/legacy
+  # use independent fixtures and run on separate runners; fail-fast is off so both report evidence.
+  # Each keeps the 50-minute cap. This repeats bootstrap and loses writable Cargo-target sharing;
+  # hosted measurement must establish the net speed change. An app rather than a `checks.*` entry because it needs a
   # docker socket, and because its cell panics on a missing endpoint, which would go fatal on every
   # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
   # info` inside the 10s default has wedged on this runner.
   oracle-tier:
+    name: oracle-tier (${{ matrix.lane }})
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [acceptance, native]
     needs: [identity-classify, queue-validated]
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.oracle_tier != 'true' }}
     runs-on: rust-mcp-16core
@@ -2414,7 +2426,7 @@ jobs:
     env:
       SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
     concurrency:
-      group: oracle-tier-${{ github.ref }}
+      group: oracle-tier-${{ matrix.lane }}-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2429,13 +2441,15 @@ jobs:
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
       - name: Oracle acceptance cells
+        if: matrix.lane == 'acceptance'
         run: nix run .#oracle-acceptance -- --no-capture
 
       - name: Oracle native encryption and legacy verifier cells
+        if: matrix.lane == 'native'
         run: nix run .#oracle-native-acceptance
 
       - name: Keep Oracle native and legacy venue evidence
-        if: always()
+        if: always() && matrix.lane == 'native'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: oracle-native-acceptance
