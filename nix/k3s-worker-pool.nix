@@ -135,11 +135,11 @@ let
     for size, count in [("large", 131072), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
         lookup_segment, link_segment = "lookup_" + size + "_segment", "link_" + size + "_segment"
+        lookup_segment_two, link_segment_two = "lookup_" + size + "_segment_two", "link_" + size + "_segment_two"
         with (root / "data" / (fact + ".csv")).open("w") as handle:
             rows = csv.writer(handle)
             rows.writerow(["day", "link", "amount"])
-            rows.writerows(("2026-06-01", "c" + str(n), 25)
-                           for n in range(count) for _ in range(4))
+            rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(count))
         document(fact, dict(kind="model", name=fact, source="local", table=fact,
                             columns=[dict(name="day", type="date"),
                                      dict(name="link", type="text"),
@@ -156,12 +156,20 @@ let
         document(link_segment, dict(kind="relationship", name=link_segment,
                             origin=dict(model=fact, column="link"),
                             target=dict(model=lookup_segment, column="link"), join_type="many_to_one"))
+        document(lookup_segment_two, dict(kind="model", name=lookup_segment_two, source="geo_aux_2", table=lookup_segment_two,
+                            columns=[dict(name="link", type="text"),
+                                     dict(name="segment_two", type="text")]))
+        document(link_segment_two, dict(kind="relationship", name=link_segment_two,
+                            origin=dict(model=fact, column="link"),
+                            target=dict(model=lookup_segment_two, column="link"), join_type="many_to_one"))
         document("total_" + size, dict(kind="metric", name="total_" + size, model=fact,
                  measure=dict(simple=dict(aggregate="sum", column="amount")),
                  time_column="day", grains=["month"], audience="open",
                  dimensions=[dict(name="region", column="region", via=link,
                                   values=["north", "south"]),
                              dict(name="segment", column="segment", via=link_segment,
+                                  values=["segment-a", "segment-b"]),
+                             dict(name="segment_two", column="segment_two", via=link_segment_two,
                                   values=["segment-a", "segment-b"])],
                  anchor=dict(range=dict(start="2026-06-01", end="2026-07-01"), value=count * 100)))
     PY
@@ -170,6 +178,17 @@ let
   files = {
     kind = "files";
     data_dir = "/srv/sutura/data";
+    posture = "shared-service-user";
+  };
+  postgres = dbHost: {
+    kind = "postgres";
+    host = dbHost;
+    port = 5432;
+    database = "sutura";
+    user = "sutura";
+    password_file = "/srv/sutura/password";
+    transport_mode = "verified";
+    transport_anchors = "/srv/sutura/postgres-ca.pem";
     posture = "shared-service-user";
   };
   values =
@@ -236,28 +255,9 @@ let
           ];
           sources = {
             local = files;
-            geo = {
-              kind = "postgres";
-              host = dbHost;
-              port = 5432;
-              database = "sutura";
-              user = "sutura";
-              password_file = "/srv/sutura/password";
-              transport_mode = "verified";
-              transport_anchors = "/srv/sutura/postgres-ca.pem";
-              posture = "shared-service-user";
-            };
-            geo_aux = {
-              kind = "postgres";
-              host = dbHost;
-              port = 5432;
-              database = "sutura";
-              user = "sutura";
-              password_file = "/srv/sutura/password";
-              transport_mode = "verified";
-              transport_anchors = "/srv/sutura/postgres-ca.pem";
-              posture = "shared-service-user";
-            };
+            geo = postgres dbHost;
+            geo_aux = postgres dbHost;
+            geo_aux_2 = postgres dbHost;
           };
           security = {
             identity = "single-user";
@@ -366,14 +366,17 @@ pkgs.testers.runNixOSTest {
         CREATE TABLE lookup_large_segment AS SELECT 'c' || n AS link,
           CASE WHEN n % 4 < 2 THEN 'segment-a' ELSE 'segment-b' END AS segment
           FROM generate_series(0, 131071) AS n;
+        CREATE TABLE lookup_large_segment_two AS SELECT 'c' || n AS link,
+          CASE WHEN n % 8 < 4 THEN 'segment-a' ELSE 'segment-b' END AS segment_two
+          FROM generate_series(0, 131071) AS n;
         CREATE TABLE lookup_small AS SELECT * FROM lookup_large WHERE link IN
           ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
         CREATE TABLE lookup_small_segment AS SELECT * FROM lookup_large_segment WHERE link IN
           ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
-        ALTER TABLE lookup_large OWNER TO sutura;
-        ALTER TABLE lookup_large_segment OWNER TO sutura;
-        ALTER TABLE lookup_small OWNER TO sutura;
-        ALTER TABLE lookup_small_segment OWNER TO sutura;
+        CREATE TABLE lookup_small_segment_two AS SELECT * FROM lookup_large_segment_two WHERE link IN
+          ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
+        ALTER TABLE lookup_large, lookup_large_segment, lookup_large_segment_two,
+          lookup_small, lookup_small_segment, lookup_small_segment_two OWNER TO sutura;
         ANALYZE;
       '';
     };
@@ -535,7 +538,7 @@ pkgs.testers.runNixOSTest {
     def question(size="large", federated=True):
         return {"metrics": ["total_" + size], "grain": "month",
                 "range": {"start": "2026-06-01", "end": "2026-07-01"},
-                "dimensions": ["region", "segment"] if federated else []}
+                "dimensions": ["region", "segment", "segment_two"] if federated else []}
 
     def start_query(label, question, address, correlation=None):
         base = "/tmp/" + label
@@ -559,10 +562,11 @@ pkgs.testers.runNixOSTest {
     def exact(reply, size="large", federated=True):
         assert reply.get("outcome") == "answer", reply
         count = 131072 if size == "large" else 8
-        expected = ([{"period": "2026-06-01", "region": region, "segment": segment,
-                      "total_" + size: str(count * 25)}
+        expected = ([{"period": "2026-06-01", "region": region, "segment": segment, "segment_two": segment_two,
+                      "total_" + size: str(count * 100 // 8)}
                      for region in ["north", "south"]
-                     for segment in ["segment-a", "segment-b"]] if federated else
+                     for segment in ["segment-a", "segment-b"]
+                     for segment_two in ["segment-a", "segment-b"]] if federated else
                     [{"period": "2026-06-01", "total_" + size: str(count * 100)}])
         assert set(reply["columns"]) == set(expected[0]), reply
         assert reply["rows"] == [[row[c] for c in reply["columns"]] for row in expected], reply
