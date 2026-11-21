@@ -138,7 +138,8 @@ let
         with (root / "data" / (fact + ".csv")).open("w") as handle:
             rows = csv.writer(handle)
             rows.writerow(["day", "link", "amount"])
-            rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(count))
+            rows.writerows(("2026-06-01", "c" + str(n), 25)
+                           for n in range(count) for _ in range(4))
         document(fact, dict(kind="model", name=fact, source="local", table=fact,
                             columns=[dict(name="day", type="date"),
                                      dict(name="link", type="text"),
