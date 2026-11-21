@@ -144,6 +144,11 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
             and not re.search(r"\bLIMIT\s+0\b", event["query"], re.IGNORECASE)
         ]
 
+    def bucket_parity(statement):
+        found = re.search(r"%\s*2\)?\s*=\s*([01])\b", statement)
+        assert found, statement
+        return found[1]
+
     def no_data(label, since):
         events = observed(label, since)
         assert not data(events), (label, events)
@@ -366,7 +371,22 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
                     and event["user"] == event["initial_user"] == caller
                 ), event
                 assert "cityHash64(" in event["query"], event
-                assert int(event["read_rows"]) > 0, (selects, wrappers)
+                assert (
+                    int(event["ProfileEvents"].get("SelectedRows", 0)) > 0
+                    and int(event["ProfileEvents"].get("SelectedBytes", 0)) > 0
+                ), (selects, wrappers)
+                matching = [
+                    wrapper
+                    for wrapper in wrappers
+                    if wrapper["address"] == event["address"]
+                    and bucket_parity(wrapper["query"]) == bucket_parity(event["query"])
+                    and int(wrapper["result_rows"]) == int(event["result_rows"])
+                ]
+                assert (
+                    len(matching) == 1
+                    and int(matching[0]["read_rows"]) > 0
+                    and int(matching[0]["read_bytes"]) > 0
+                ), (selects, wrappers)
                 check_settings(event)
             assert len(wrappers) == 2 and all(
                 event["user"] == "sutura"
