@@ -2,10 +2,27 @@
   "cargo_profile": "ci",
   "mutants": [
     {
-      "label": "whole-read-claim-clickhouse",
+      "label": "worker-own-service-user",
       "package": "sutura-exec-clickhouse",
       "tests": [
-        "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup"
+        "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver"
+      ],
+      "preimage_sha256": "8740dbffeec2806764856c6cda4eef48d4cb10ee0d8cb514dcbebd48384d0b18",
+      "mutated_sha256": "9aa72718f78776c0402c192443faf4b03a61cf66e32b2e5484ad9ac6fa0875a5",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+          "before": "(SourcePosture::ImpersonationAtSource, PartitionIdentity::Switched(name)) if name.as_str() != adapter.username => {",
+          "after": "(SourcePosture::ImpersonationAtSource, PartitionIdentity::Switched(name)) => {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "whole-read-fallback-cofile",
+      "package": "sutura-exec-clickhouse",
+      "tests": [
+        "a_table_too_large_for_the_ready_workers_is_read_whole_and_never_refused"
       ],
       "preimage_sha256": "8740dbffeec2806764856c6cda4eef48d4cb10ee0d8cb514dcbebd48384d0b18",
       "mutated_sha256": "a214528f144d1b3ad9ac5383cd1d93789f5d46e730b86e258f9cb78ffbee404d",
@@ -17,21 +34,56 @@
           "count": 1
         }
       ]
+    },
+    {
+      "label": "fewest-buckets-not-all-workers",
+      "package": "sutura-exec-clickhouse",
+      "tests": [
+        "a_table_the_ready_workers_can_split_is_cut_into_the_fewest_buckets"
+      ],
+      "preimage_sha256": "8740dbffeec2806764856c6cda4eef48d4cb10ee0d8cb514dcbebd48384d0b18",
+      "mutated_sha256": "34ae7f2d3b90febaa1943fe5d3e32a9065b07fb3e772528a2e4798b5bc32a77c",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+          "before": "        SplitDecision::Split(partitions) => Some(u32::try_from(partitions.get()).unwrap_or(u32::MAX)),",
+          "after": "        SplitDecision::Split(_) => Some(u32::try_from(ready_workers.get()).unwrap_or(u32::MAX)),",
+          "count": 1
+        }
+      ]
     }
   ],
   "test_files": {
-    "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup": "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs"
+    "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+    "a_table_too_large_for_the_ready_workers_is_read_whole_and_never_refused": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+    "a_table_the_ready_workers_can_split_is_cut_into_the_fewest_buckets": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs"
   },
   "test_identities": {
-    "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup": [
-      "sutura-exec-clickhouse::adbc_execute_as_legs",
-      "adbc_execute_as_legs::buckets::a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup"
+    "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver": [
+      "sutura-exec-clickhouse",
+      "adbc::buckets::tests::a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver"
+    ],
+    "a_table_too_large_for_the_ready_workers_is_read_whole_and_never_refused": [
+      "sutura-exec-clickhouse",
+      "adbc::buckets::tests::a_table_too_large_for_the_ready_workers_is_read_whole_and_never_refused"
+    ],
+    "a_table_the_ready_workers_can_split_is_cut_into_the_fewest_buckets": [
+      "sutura-exec-clickhouse",
+      "adbc::buckets::tests::a_table_the_ready_workers_can_split_is_cut_into_the_fewest_buckets"
     ]
   },
   "test_functions": {
-    "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup": {
-      "name": "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup",
-      "indent": "        "
+    "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver": {
+      "name": "a_switched_bucket_refuses_the_reading_workers_own_service_user_before_loading_the_driver",
+      "indent": "    "
+    },
+    "a_table_too_large_for_the_ready_workers_is_read_whole_and_never_refused": {
+      "name": "a_table_too_large_for_the_ready_workers_is_read_whole_and_never_refused",
+      "indent": "    "
+    },
+    "a_table_the_ready_workers_can_split_is_cut_into_the_fewest_buckets": {
+      "name": "a_table_the_ready_workers_can_split_is_cut_into_the_fewest_buckets",
+      "indent": "    "
     }
   }
 }
