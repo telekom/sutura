@@ -132,12 +132,14 @@ let
         definitions=["structure", "descriptions", "relationships", "cardinality",
                      "metrics", "grains", "allowed_values", "anchors", "column_types"], knowledge=[]))
 
-    for size, count in [("large", 131072), ("small", 8)]:
+    for size, fact_count in [("large", 32768), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
+        lookup_segment, link_segment = "lookup_" + size + "_segment", "link_" + size + "_segment"
+        lookup_segment_two, link_segment_two = "lookup_" + size + "_segment_two", "link_" + size + "_segment_two"
         with (root / "data" / (fact + ".csv")).open("w") as handle:
             rows = csv.writer(handle)
             rows.writerow(["day", "link", "amount"])
-            rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(count))
+            rows.writerows(("2026-06-01", "c" + str(n), 100) for n in range(fact_count))
         document(fact, dict(kind="model", name=fact, source="local", table=fact,
                             columns=[dict(name="day", type="date"),
                                      dict(name="link", type="text"),
@@ -148,12 +150,28 @@ let
         document(link, dict(kind="relationship", name=link,
                             origin=dict(model=fact, column="link"),
                             target=dict(model=lookup, column="link"), join_type="many_to_one"))
+        document(lookup_segment, dict(kind="model", name=lookup_segment, source="geo_aux", table=lookup_segment,
+                            columns=[dict(name="link", type="text"),
+                                     dict(name="segment", type="text")]))
+        document(link_segment, dict(kind="relationship", name=link_segment,
+                            origin=dict(model=fact, column="link"),
+                            target=dict(model=lookup_segment, column="link"), join_type="many_to_one"))
+        document(lookup_segment_two, dict(kind="model", name=lookup_segment_two, source="geo_aux_2", table=lookup_segment_two,
+                            columns=[dict(name="link", type="text"),
+                                     dict(name="segment_two", type="text")]))
+        document(link_segment_two, dict(kind="relationship", name=link_segment_two,
+                            origin=dict(model=fact, column="link"),
+                            target=dict(model=lookup_segment_two, column="link"), join_type="many_to_one"))
         document("total_" + size, dict(kind="metric", name="total_" + size, model=fact,
                  measure=dict(simple=dict(aggregate="sum", column="amount")),
                  time_column="day", grains=["month"], audience="open",
                  dimensions=[dict(name="region", column="region", via=link,
-                                  values=["north", "south"])],
-                 anchor=dict(range=dict(start="2026-06-01", end="2026-07-01"), value=count * 100)))
+                                  values=["north", "south"]),
+                             dict(name="segment", column="segment", via=link_segment,
+                                  values=["segment-a", "segment-b"]),
+                             dict(name="segment_two", column="segment_two", via=link_segment_two,
+                                  values=["segment-a", "segment-b"])],
+                 anchor=dict(range=dict(start="2026-06-01", end="2026-07-01"), value=fact_count * 100)))
     PY
     cp ${sourceTls dbHost}/ca.pem "$out/postgres-ca.pem"
   '';
@@ -161,6 +179,11 @@ let
     kind = "files";
     data_dir = "/srv/sutura/data";
     posture = "shared-service-user";
+  };
+  postgres = dbHost: {
+    kind = "postgres"; host = dbHost; port = 5432; database = "sutura"; user = "sutura";
+    password_file = "/srv/sutura/password"; transport_mode = "verified";
+    transport_anchors = "/srv/sutura/postgres-ca.pem"; posture = "shared-service-user";
   };
   values =
     dbHost:
@@ -194,6 +217,8 @@ let
         };
         workerPool = {
           enabled = true;
+          # Put the large fixture across while the small federated control stays local.
+          acrossAboveBytes = 8 * 1024 * 1024;
           issuer.name = "sutura-nodes";
           min = 0;
           max = 2;
@@ -226,21 +251,13 @@ let
           ];
           sources = {
             local = files;
-            geo = {
-              kind = "postgres";
-              host = dbHost;
-              port = 5432;
-              database = "sutura";
-              user = "sutura";
-              password_file = "/srv/sutura/password";
-              transport_mode = "verified";
-              transport_anchors = "/srv/sutura/postgres-ca.pem";
-              posture = "shared-service-user";
-            };
+            geo = postgres dbHost;
+            geo_aux = postgres dbHost;
+            geo_aux_2 = postgres dbHost;
           };
           security = {
             identity = "single-user";
-            single_user_because = "one fixture identity reads both sources";
+            single_user_because = "one fixture identity reads all declared sources";
           };
         };
         extraVolumes = [
@@ -342,10 +359,24 @@ pkgs.testers.runNixOSTest {
         CREATE TABLE lookup_large AS SELECT 'c' || n AS link,
           CASE WHEN n % 2 = 0 THEN 'north' ELSE 'south' END AS region
           FROM generate_series(0, 131071) AS n;
+        CREATE TABLE lookup_large_segment AS SELECT 'c' || n AS link,
+          CASE WHEN n % 4 < 2 THEN 'segment-a' ELSE 'segment-b' END AS segment
+          FROM generate_series(0, 131071) AS n;
+        CREATE TABLE lookup_large_segment_two AS SELECT 'c' || n AS link,
+          CASE WHEN n % 8 < 4 THEN 'segment-a' ELSE 'segment-b' END AS segment_two
+          FROM generate_series(0, 131071) AS n;
         CREATE TABLE lookup_small AS SELECT * FROM lookup_large WHERE link IN
           ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
+        CREATE TABLE lookup_small_segment AS SELECT * FROM lookup_large_segment WHERE link IN
+          ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
+        CREATE TABLE lookup_small_segment_two AS SELECT * FROM lookup_large_segment_two WHERE link IN
+          ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
         ALTER TABLE lookup_large OWNER TO sutura;
+        ALTER TABLE lookup_large_segment OWNER TO sutura;
+        ALTER TABLE lookup_large_segment_two OWNER TO sutura;
         ALTER TABLE lookup_small OWNER TO sutura;
+        ALTER TABLE lookup_small_segment OWNER TO sutura;
+        ALTER TABLE lookup_small_segment_two OWNER TO sutura;
         ANALYZE;
       '';
     };
@@ -405,6 +436,7 @@ pkgs.testers.runNixOSTest {
     import secrets
     import shlex
     import time
+    from pathlib import Path
 
     HOSTS = {"machine": machine, "agent1": agent1, "agent2": agent2}
     SOURCE = "${nodes.db.networking.primaryIPAddress}"
@@ -506,11 +538,12 @@ pkgs.testers.runNixOSTest {
     def question(size="large", federated=True):
         return {"metrics": ["total_" + size], "grain": "month",
                 "range": {"start": "2026-06-01", "end": "2026-07-01"},
-                "dimensions": ["region"] if federated else []}
+                "dimensions": ["region", "segment", "segment_two"] if federated else []}
 
-    def start_query(label, question, address):
+    def start_query(label, question, address, correlation=None):
         base = "/tmp/" + label
-        command = (f"curl -sS --max-time 310 --cacert /tmp/ca.pem "
+        correlation_header = "" if correlation is None else f"-H {q('x-correlation-id: ' + correlation)} "
+        command = (f"curl -sS --max-time 310 --cacert /tmp/ca.pem {correlation_header}"
                    f"--resolve sutura.default.svc:8080:{address} "
                    f"-H {q('authorization: Bearer ' + access_token)} -H 'content-type: application/json' "
                    f"--data {q(json.dumps(question))} -o {base}.json -w '%{{http_code}}' "
@@ -528,9 +561,12 @@ pkgs.testers.runNixOSTest {
 
     def exact(reply, size="large", federated=True):
         assert reply.get("outcome") == "answer", reply
-        count = 131072 if size == "large" else 8
-        expected = ([{"period": "2026-06-01", "region": region, "total_" + size: str(count * 50)}
-                     for region in ["north", "south"]] if federated else
+        count = 32768 if size == "large" else 8
+        expected = ([{"period": "2026-06-01", "region": region, "segment": segment, "segment_two": segment_two,
+                      "total_" + size: str(count * 100 // 8)}
+                     for region in ["north", "south"]
+                     for segment in ["segment-a", "segment-b"]
+                     for segment_two in ["segment-a", "segment-b"]] if federated else
                     [{"period": "2026-06-01", "total_" + size: str(count * 100)}])
         assert set(reply["columns"]) == set(expected[0]), reply
         assert reply["rows"] == [[row[c] for c in reply["columns"]] for row in expected], reply
@@ -660,6 +696,10 @@ pkgs.testers.runNixOSTest {
         machine.succeed(f"kubectl create secret generic sutura-metrics-token --from-literal=token={metrics_token}")
         machine.succeed("helm install sutura ${chart} -f ${values nodes.db.networking.primaryIPAddress} --wait --timeout 5m")
         address = get("service/sutura")["spec"]["clusterIP"]
+        serving = one(SERVING)
+        operator_pod = one(OPERATOR)
+        eventually(lambda: tcp(operator_pod, serving["status"]["podIP"], 8080), 30)
+        assert metrics(serving, operator_pod), "operator cannot scrape authenticated metrics during initial startup"
         settled(0)
 
         # A venue overlay, not a new chart setting. Combining workers have no fixture mounts.
@@ -738,40 +778,14 @@ pkgs.testers.runNixOSTest {
                                    "policies": get("networkpolicies")["items"]}
             pool(min=0, warm=0, idleAfterSeconds=0)
             settled(0)
-        with subtest("discovery only: roomy reference and candidate bounded refusal"):
-            config = copy.deepcopy(get("configmap/sutura-config"))
-            # Keep the exact base bytes; only the environment topology is erased.
-            config["metadata"] = {"name": "reference-config"}
-            config["data"]["development.yaml"] = json.dumps({"server": {"nodes": None}})
-            apply(config)
-            assert get("configmap/reference-config")["data"]["base.yaml"] == get("configmap/sutura-config")["data"]["base.yaml"]
-            evidence["config"] = {name: get("configmap/" + name)["data"] for name in ["sutura-config", "reference-config"]}
-            roomy = reference(512 * 1024 * 1024)
-            status, reply, _ = finish_query(start_query("roomy", question(), roomy["status"]["podIP"]))
-            assert status == 200, reply
-            expected = exact(reply)
-            runtime_images = identity(roomy)["images"]
-            evidence["roomy"] = {"answer": expected, "pod": identity(roomy), "ceiling": 512 * 1024 * 1024}
-            trials = []
-            # Discovery only: no accepted C. Freeze one observed value in later acceptance source.
-            ceiling = None
-            for mib in [64, 32, 16, 8, 4]:
-                bounded = reference(mib * 1024 * 1024)
-                status, reply, _ = finish_query(start_query("bounded", question(), bounded["status"]["podIP"]))
-                trials.append({"ceiling": mib * 1024 * 1024, "status": status, "reply": reply, "pod": identity(bounded)})
-                if status == 422 and reply.get("reason", {}).get("code") == "resources_exhausted":
-                    ceiling = mib * 1024 * 1024
-                    assert str(ceiling) in reply["reason"]["detail"], reply
-                    break
-                assert status == 200 and exact(reply) == expected, reply
-            assert ceiling is not None, trials
-            assert identity(get("pod/reference"))["restarts"] == [0]
-            evidence["calibration"] = trials
-            evidence["ceiling"] = ceiling
-            machine.succeed("kubectl delete pod reference --wait=true")
-            set_ceiling("sutura", ceiling)
-            set_ceiling("sutura-workers", ceiling)
-            serving = one(SERVING)
+        exec(${builtins.toJSON (import ./k3s-worker-pool-calibration.nix)}, globals())
+        roomy_record = evidence["roomy"]
+        assert isinstance(roomy_record, dict), roomy_record
+        expected = roomy_record["answer"]
+        ceiling = evidence["ceiling"]
+        roomy_pod = roomy_record["pod"]
+        assert isinstance(roomy_pod, dict), roomy_pod
+        runtime_images = roomy_pod["images"]
         with subtest("small one-source and genuinely small federated plans stay local"):
             for size, federated in [("large", False), ("small", False), ("small", True)]:
                 before = gauge(serving, "sutura_worker_slots_wanted")
@@ -976,11 +990,11 @@ pkgs.testers.runNixOSTest {
     except Exception:
         for command in ["kubectl get suturaworkerpools -o yaml", "kubectl get pods -A -o wide",
                         "kubectl describe pods", "kubectl logs deployment/sutura-operator --tail=100",
-                        "kubectl logs deployment/sutura --tail=100", "kubectl logs -l " + q(WORKERS) + " --tail=100"]:
+                        "kubectl logs deployment/sutura --tail=-1", "kubectl logs -l " + q(WORKERS) + " --tail=100",
+                        "for file in /tmp/cold.exit /tmp/cold.status /tmp/cold.json /tmp/cold.stderr; do echo \"$file\"; cat \"$file\"; done"]:
             print(machine.execute(command)[1])
         raise
     finally:
-        machine.succeed("printf %s " + q(json.dumps(evidence, indent=2)) + " > /tmp/elastic-evidence.json")
-        machine.copy_from_machine("/tmp/elastic-evidence.json")
+        Path(driver.out_dir, "elastic-evidence.json").write_text(json.dumps(evidence, indent=2))
   '';
 }
