@@ -508,9 +508,10 @@ pkgs.testers.runNixOSTest {
                 "range": {"start": "2026-06-01", "end": "2026-07-01"},
                 "dimensions": ["region"] if federated else []}
 
-    def start_query(label, question, address):
+    def start_query(label, question, address, correlation=None):
         base = "/tmp/" + label
-        command = (f"curl -sS --max-time 310 --cacert /tmp/ca.pem "
+        correlation_header = "" if correlation is None else f"-H {q('x-correlation-id: ' + correlation)} "
+        command = (f"curl -sS --max-time 310 --cacert /tmp/ca.pem {correlation_header}"
                    f"--resolve sutura.default.svc:8080:{address} "
                    f"-H {q('authorization: Bearer ' + access_token)} -H 'content-type: application/json' "
                    f"--data {q(json.dumps(question))} -o {base}.json -w '%{{http_code}}' "
@@ -742,40 +743,7 @@ pkgs.testers.runNixOSTest {
                                    "policies": get("networkpolicies")["items"]}
             pool(min=0, warm=0, idleAfterSeconds=0)
             settled(0)
-        with subtest("discovery only: roomy reference and candidate bounded refusal"):
-            config = copy.deepcopy(get("configmap/sutura-config"))
-            # Keep the exact base bytes; only the environment topology is erased.
-            config["metadata"] = {"name": "reference-config"}
-            config["data"]["development.yaml"] = json.dumps({"server": {"nodes": None}})
-            apply(config)
-            assert get("configmap/reference-config")["data"]["base.yaml"] == get("configmap/sutura-config")["data"]["base.yaml"]
-            evidence["config"] = {name: get("configmap/" + name)["data"] for name in ["sutura-config", "reference-config"]}
-            roomy = reference(512 * 1024 * 1024)
-            status, reply, _ = finish_query(start_query("roomy", question(), roomy["status"]["podIP"]))
-            assert status == 200, reply
-            expected = exact(reply)
-            runtime_images = identity(roomy)["images"]
-            evidence["roomy"] = {"answer": expected, "pod": identity(roomy), "ceiling": 512 * 1024 * 1024}
-            trials = []
-            # Discovery only: no accepted C. Freeze one observed value in later acceptance source.
-            ceiling = None
-            for mib in [64, 32, 16, 8, 4]:
-                bounded = reference(mib * 1024 * 1024)
-                status, reply, _ = finish_query(start_query("bounded", question(), bounded["status"]["podIP"]))
-                trials.append({"ceiling": mib * 1024 * 1024, "status": status, "reply": reply, "pod": identity(bounded)})
-                if status == 422 and reply.get("reason", {}).get("code") == "resources_exhausted":
-                    ceiling = mib * 1024 * 1024
-                    assert str(ceiling) in reply["reason"]["detail"], reply
-                    break
-                assert status == 200 and exact(reply) == expected, reply
-            assert ceiling is not None, trials
-            assert identity(get("pod/reference"))["restarts"] == [0]
-            evidence["calibration"] = trials
-            evidence["ceiling"] = ceiling
-            machine.succeed("kubectl delete pod reference --wait=true")
-            set_ceiling("sutura", ceiling)
-            set_ceiling("sutura-workers", ceiling)
-            serving = one(SERVING)
+        exec(${builtins.toJSON (import ./k3s-worker-pool-calibration.nix)}, globals())
         with subtest("small one-source and genuinely small federated plans stay local"):
             for size, federated in [("large", False), ("small", False), ("small", True)]:
                 before = gauge(serving, "sutura_worker_slots_wanted")
