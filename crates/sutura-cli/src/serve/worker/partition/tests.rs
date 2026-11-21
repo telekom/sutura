@@ -53,6 +53,9 @@ mod tokens;
 #[cfg(all(feature = "distributed", feature = "bigquery", feature = "postgres"))]
 mod native_bigquery;
 
+#[cfg(feature = "clickhouse")]
+mod switched;
+
 #[tokio::test]
 async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decoding_or_dispatch() {
     use sutura_domain::identity::{Secret, VerifierId, WorkloadPool};
@@ -75,6 +78,14 @@ async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decod
     let forwarded = Forwarded::new(Secret::new("fixture-token"), &pool);
     assert!(matches!(
         reader.read_forwarded(&partner, b"malformed", &local, b"", &schema, forwarded, None),
+        Err(Unread::LegNotCertified)
+    ));
+
+    let switched = sutura_exec_datafusion::SwitchedPrincipal::new(
+        sutura_domain::identity::PrincipalName::parse("user@example.com").expect("a principal"),
+    );
+    assert!(matches!(
+        reader.read_switched(&partner, b"malformed", &local, b"", &schema, switched, None),
         Err(Unread::LegNotCertified)
     ));
 

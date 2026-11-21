@@ -289,7 +289,7 @@ where
     }
 }
 
-/// Why a reading worker read nothing with a caller's token.
+/// Why a reading worker read nothing with a caller's token or as a caller's switched principal.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenUnread {
     /// The grant the token was admitted under has ended on this node's clock, so the token may have.
@@ -301,6 +301,9 @@ pub enum TokenUnread {
     /// A source of this kind reads a partition only with the caller's token, and none was granted.
     #[error("a partition of `{at}` is read only with its caller's token, and its grant names none")]
     NoToken { at: SourceName },
+    /// A source of this kind reads only as its own declared identity, never as a switched principal.
+    #[error("this reading worker reads no partition of `{at}` as a caller's switched principal")]
+    NotSwitched { at: SourceName },
 }
 
 /// Why a [`PartitionReader`] read nothing.
