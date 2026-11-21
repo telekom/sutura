@@ -480,8 +480,12 @@ metadata:
     app.kubernetes.io/version: "latest"
     app.kubernetes.io/managed-by: Helm
 spec:
-  # The operator owns the count from here on: an upgrade that leaves `min` alone leaves it.
+  # The chart renders the floor; the operator reconciles the count against demand.
   replicas: 0
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: sutura-worker
@@ -504,6 +508,7 @@ spec:
         - name: worker
           image: "ghcr.io/telekom/sutura:latest-musl"
           imagePullPolicy: IfNotPresent
+          terminationMessagePolicy: FallbackToLogsOnError
           args: ["serve"]
           ports:
             - name: http

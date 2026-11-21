@@ -124,8 +124,9 @@ and what they may hold?
     select it.
 11. **A question waits for workers, bounded.** A cross-node question that finds fewer ready workers
     than it needs waits for them, up to a setting below its deadline, and its demand counts in the
-    gauge while it waits. If they are not ready in time, it is refused, as a refusal the caller may
-    retry.
+    gauge while it waits. When the wait ends, it plans across those that resolved, even if fewer
+    than wanted. If none resolved, it is refused, as a refusal the caller may retry. A nonempty
+    pool does not promise enough capacity to answer; the execution's resource bounds still apply.
 12. **Each worker has its own certificate**, from cert-manager's CSI driver, issued by the
     deployment's authority. A leaked key names one pod. The cluster needs the driver installed.
 13. **A chart value switches the pool on, and the pool may be empty.** Off, the default, the chart
@@ -156,7 +157,7 @@ and what they may hold?
 | Operator     | A `SuturaWorkerPool` whose `min` is above its `max`                              | Decision 4  |
 | Operator     | An API group that is not a lowercase DNS subdomain                               | Decision 14 |
 | Operator     | A `SuturaWorkerPool` naming a Deployment it does not own (2026-11-01, finding 4) | Decision 9  |
-| Serving node | A cross-node question whose workers are not ready within its wait                | Decision 11 |
+| Serving node | A cross-node question for which no worker resolves within its wait               | Decision 11 |
 
 A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal gets its own cell.
 
@@ -169,7 +170,8 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
   only if it ends in time; otherwise its question fails, as the shuffle record's lost node does.
 - **An empty pool starts cold.** With `min` and `warm` at 0, the first cross-node question waits
   for a pod to be scheduled, its image pulled and its certificate issued. A wait shorter than that
-  refuses it, and so does a pool already at `max`.
+  refuses it if no worker resolves. A pool already at `max` supplies no extra workers; execution
+  across its ready workers can still be refused for insufficient resources.
 - **A waiting question holds its serving node's slot.** It counts against that node's concurrency
   bound while it waits, so a burst of cross-node questions can fill a serving node before any
   worker is ready.
@@ -179,8 +181,9 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
   (`docs/adr/0015-an-authenticated-metrics-endpoint.md`).
 - **A worker checks its configuration, not its pod.** A credential mounted into the worker
   Deployment by hand is not refused. The chart mounts none.
-- **The chart leaves the worker count unset**, so an upgrade keeps the count the operator set. A
-  new worker Deployment starts with one worker, removed after `idleAfter` if nothing asks for it.
+- **The chart renders `min` as the worker replica count.** The operator reconciles that count to
+  demand plus the warm reserve within the pool's bounds. An apply that writes the replica count
+  can temporarily resize the pool before the operator's next pass.
 - **Pod patches are namespace-wide, and a pod patch reaches more than its deletion cost.** RBAC
   cannot narrow `list`/`patch` on `pods` by `resourceNames` or a label selector, so the operator's
   token may list and patch any pod in its namespace, not only the workers'. The operator itself
