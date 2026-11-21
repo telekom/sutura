@@ -261,7 +261,7 @@ let
           };
           security = {
             identity = "single-user";
-            single_user_because = "one fixture identity reads both sources";
+            single_user_because = "one fixture identity reads all declared sources";
           };
         };
         extraVolumes = [
