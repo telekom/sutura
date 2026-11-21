@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant.rs b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+@@ -304,7 +304,7 @@
+     let grant = reading::ReadingGrant::new(
+         reading::LegDigest::of(wire),
+         source.clone(),
+-        reading::Partition::of(partition.to_vec()),
++        reading::Partition::of([partition, b"mismatch"].concat()),
+         reading::Expiry::at(until),
+         reading::MaskedCaller::of(subject),
+         (verifier.clone(), reading::caller_context(source, caller)),

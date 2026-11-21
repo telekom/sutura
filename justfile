@@ -251,7 +251,7 @@ ci:
     if [ "$cpus" -ge 8 ] && [ "$((pages * page_bytes))" -ge 34359738368 ]; then jobs=2; fi
     cores=$((cpus / jobs))
     checks=()
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node multi-node-postgres multi-node-oracle k3s-autoscaling k3s-worker-pool vendored-oracledb vendored-clickhouse-adbc slides; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node multi-node-postgres multi-node-clickhouse multi-node-oracle k3s-autoscaling k3s-worker-pool vendored-oracledb vendored-clickhouse-adbc slides; do
         checks+=(".#checks.$system.$check")
     done
     printf 'ci graph: checks=%s max-jobs=%s cores=%s\n' "${#checks[@]}" "$jobs" "$cores"
