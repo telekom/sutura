@@ -19,7 +19,7 @@ use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned, SplitLeg};
 use super::super::super::PostgresSource;
 use super::super::AnyWarehouseError;
 use super::super::grant::{self, Described, HeldSplit, Read};
-use super::{PartitionReads, SplitKind};
+use super::{PartitionReads, SplitKind, refuse_switched};
 
 impl SplitKind for PostgresSource {
     /// Through `split_by_estimate`. A split of two or more partitions offered a `grantee` is granted
@@ -59,7 +59,7 @@ impl SplitKind for PostgresSource {
         grant::granted_or_read(split, grantee, deadline, rows, SystemTime::now)
     }
 
-    /// Runs as this node's own declared service user for the source, whatever `_reads` names, and
+    /// Runs as this node's own declared service user for the source, refusing a switched principal, and
     /// reads the partition's own columns rather than `_granted`: `AdbcPostgres::read_partition`'s
     /// own limit; nothing checks either against the planning node's.
     #[expect(
@@ -71,9 +71,10 @@ impl SplitKind for PostgresSource {
         leg: &LegPlan,
         partition: &[u8],
         _granted: &SchemaRef,
-        _reads: &PartitionReads,
+        reads: &PartitionReads,
         deadline: Deadline,
     ) -> Result<ResultBatches, Unread> {
+        refuse_switched(leg, reads)?;
         self.read_partition(leg, partition, deadline)
             .map_err(|cause| unread(leg.source(), cause))
     }
