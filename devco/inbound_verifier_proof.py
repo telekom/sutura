@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 import tomllib
@@ -254,6 +255,113 @@ def mutations():
     )
 
 
+def release_guard_proof():
+    assert PLAN["source_tree"] == "e875f949f6bc93e516217344567d6a2c79f112b5"
+    assert PLAN["comparison_sha"] == "39fe9886db7480381153e8d0cd2c6245547b43ad"
+    assert git("diff", "--name-only", PLAN["comparison_sha"], PLAN["source_sha"]) == (
+        b".github/workflows/version-bump.yml\n"
+    )
+    url = f"git+file://{Path.cwd()}?rev={PLAN['source_sha']}"
+
+    def resolved(label):
+        status, text = execute(label, ["nix", "flake", "metadata", "--json", url])
+        assert status == 0
+        metadata = json.loads(
+            next(line for line in text.splitlines() if line.startswith("{"))
+        )
+        assert metadata["locked"]["type"] == "git"
+        assert metadata["locked"]["rev"] == PLAN["source_sha"]
+        for record in (metadata, metadata["locked"]):
+            assert "dirtyRev" not in record and "dirtyShortRev" not in record
+        return metadata["path"]
+
+    clean_path = resolved("clean-flake")
+    status, text = execute(
+        "app-program",
+        ["nix", "eval", "--raw", url + "#apps.x86_64-linux.xtask.program"],
+    )
+    assert status == 0
+    programs = re.findall(r"(?m)^(/nix/store/[a-z0-9]{32}-sutura-xtask)$", text)
+    assert len(programs) == 1, text
+    settings = json.loads(subprocess.check_output(["nix", "config", "show", "--json"]))
+    selected = {
+        key: settings[key]
+        for key in ("substituters", "trusted-public-keys", "require-sigs", "fallback")
+    }
+    workflow = Path(".github/workflows/version-bump.yml").read_text()
+    for setting, expected_key in (
+        ("substituters", "extra-substituters"),
+        ("trusted-public-keys", "extra-trusted-public-keys"),
+    ):
+        expected = next(
+            line.strip().split(" = ", 1)[1].split()
+            for line in workflow.splitlines()
+            if line.strip().startswith(expected_key + " = ")
+        )
+        assert set(expected) <= set(settings[setting]["value"])
+    assert settings["require-sigs"]["value"] is True
+    assert settings["fallback"]["value"] is True
+    write("nix-config.json", selected)
+    command = ["nix", "run", url + "#xtask", "--", "hygiene"]
+
+    def sweep(label):
+        started = time.monotonic()
+        status, text = execute(label, command)
+        write(label + "-elapsed.json", {"seconds": time.monotonic() - started})
+        return status, text
+
+    status, text = sweep("head")
+    assert status == 0 and "xtask hygiene: ok - " in text
+    exact(BASELINE)
+    program = Path(programs[0])
+    write(
+        "app-identity.json",
+        {
+            "url": url,
+            "source": PLAN["source_sha"],
+            "tree": PLAN["source_tree"],
+            "store_source": clean_path,
+            "program": str(program),
+            "program_sha256": digest(program.read_bytes()),
+        },
+    )
+    path = Path("Cargo.toml")
+    original = path.read_bytes()
+    changed = original + b"\n" * 1001
+    assert tomllib.loads(original.decode()) == tomllib.loads(changed.decode())
+    expected = dict(BASELINE)
+    expected[str(path)] = [os.lstat(path).st_mode, digest(changed)]
+    try:
+        path.write_bytes(changed)
+        exact(expected)
+        write("mutant-state.json", expected)
+        assert resolved("dirty-flake") == clean_path
+        status, text = sweep("mutant")
+        exact(expected)
+        assert status != 0
+        assert "xtask max-lines: FAILED - " in text
+        assert re.search(r"(?m)^  Cargo\.toml: [0-9]+ lines$", text)
+        assert "xtask hygiene: stopped at `max-lines`" in text
+    finally:
+        path.write_bytes(original)
+        exact(BASELINE)
+        status, text = sweep("restored")
+        exact(BASELINE)
+        assert status == 0 and "xtask hygiene: ok - " in text
+    write(
+        "release-guard-proof.json",
+        {
+            "source": PLAN["source_sha"],
+            "tree": PLAN["source_tree"],
+            "comparison": PLAN["comparison_sha"],
+            "falsifier": "Cargo.toml blank lines; TOML values unchanged",
+            "own_refusal": "max-lines names Cargo.toml and stops hygiene",
+            "restored": True,
+            "limit": "Hygiene URL/CWD proof only; no release dispatch or predicted cache speedup.",
+        },
+    )
+
+
 def bootstrap(mode, plan_path):
     out = Path("target/inbound-verifier-proof") / ("bootstrap-" + mode)
     out.mkdir(parents=True, exist_ok=False)
@@ -419,7 +527,7 @@ if __name__ == "__main__":
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("preflight", "validate", "ship-check")
+    assert mode in ("preflight", "validate", "ship-check", "release-guard")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
     PLAN = json.loads(Path(plan_path).read_text())
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
@@ -429,7 +537,7 @@ if __name__ == "__main__":
         == PLAN["comparison_sha"]
     )
     assert not git("status", "--porcelain")
-    if not os.environ.get("SUTURA_PROOF_BOUND"):
+    if mode != "release-guard" and not os.environ.get("SUTURA_PROOF_BOUND"):
         bootstrap(mode, plan_path)
         sys.exit(0)
     OUT = Path("target/inbound-verifier-proof") / mode
@@ -459,32 +567,36 @@ if __name__ == "__main__":
     )
     write("source-manifest.json", BASELINE)
     try:
-        environment()
-        os.environ["SHIP_CHECK_BASE_REF"] = PLAN["comparison_sha"]
-        inherited_home = os.environ["CARGO_HOME"]
-        native_home = Path(tempfile.mkdtemp(prefix=mode + "-cargo-home-")).resolve()
-        os.environ["CARGO_HOME"] = str(native_home)
-        os.environ.pop("CARGO_NET_OFFLINE", None)
-        os.environ.pop("SUTURA_SATELLITE_CARGO_VENDOR_DIR", None)
-        assert not list(native_home.iterdir())
-        write(
-            "native-environment.json",
-            {
-                "CARGO_HOME": str(native_home),
-                "initial_home_entries": [],
-                "CARGO_TARGET_DIR": os.environ.get("CARGO_TARGET_DIR"),
-                "CARGO_NET_OFFLINE": os.environ.get("CARGO_NET_OFFLINE"),
-                "SUTURA_SATELLITE_CARGO_VENDOR_DIR": os.environ.get(
-                    "SUTURA_SATELLITE_CARGO_VENDOR_DIR"
-                ),
-                "limit": "Fresh Cargo home after source-pinned warm-environment checks; warm target retained.",
-            },
-        )
-        if mode == "preflight":
-            fuzz_metadata_preflight(inherited_home)
+        if mode == "release-guard":
+            release_guard_proof()
             status = 0
         else:
-            status, _ = execute(mode, ["just", mode])
+            environment()
+            os.environ["SHIP_CHECK_BASE_REF"] = PLAN["comparison_sha"]
+            inherited_home = os.environ["CARGO_HOME"]
+            native_home = Path(tempfile.mkdtemp(prefix=mode + "-cargo-home-")).resolve()
+            os.environ["CARGO_HOME"] = str(native_home)
+            os.environ.pop("CARGO_NET_OFFLINE", None)
+            os.environ.pop("SUTURA_SATELLITE_CARGO_VENDOR_DIR", None)
+            assert not list(native_home.iterdir())
+            write(
+                "native-environment.json",
+                {
+                    "CARGO_HOME": str(native_home),
+                    "initial_home_entries": [],
+                    "CARGO_TARGET_DIR": os.environ.get("CARGO_TARGET_DIR"),
+                    "CARGO_NET_OFFLINE": os.environ.get("CARGO_NET_OFFLINE"),
+                    "SUTURA_SATELLITE_CARGO_VENDOR_DIR": os.environ.get(
+                        "SUTURA_SATELLITE_CARGO_VENDOR_DIR"
+                    ),
+                    "limit": "Fresh Cargo home after source-pinned warm-environment checks; warm target retained.",
+                },
+            )
+            if mode == "preflight":
+                fuzz_metadata_preflight(inherited_home)
+                status = 0
+            else:
+                status, _ = execute(mode, ["just", mode])
         exact(BASELINE)
         assert not git("status", "--porcelain")
         assert status == 0

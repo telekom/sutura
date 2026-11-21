@@ -37,10 +37,14 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Check fuzz metadata or run both finishing tasks on the pinned source
+        description: Check pinned metadata, run finishing tasks or prove the release guard
         type: choice
         required: true
-        options: [preflight, gates]
+        options: [preflight, gates, release-guard]
+      expected_helper_sha:
+        description: Exact helper commit for the temporary release guard proof
+        type: string
+        required: false
       source_sha:
         description: Exact frozen source commit
         type: string
@@ -90,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: ${{ fromJSON(inputs.operation == 'gates' && '["validate","ship-check"]' || '["preflight"]') }}
+        task: ${{ fromJSON(inputs.operation == 'gates' && '["validate","ship-check"]' || inputs.operation == 'release-guard' && '["release-guard"]' || '["preflight"]') }}
     runs-on: rust-mcp-16core
     timeout-minutes: 360
     steps:
@@ -108,6 +112,7 @@ jobs:
       - uses: $/.github/actions/reclaim-disk
 
       - name: Open KVM for the full validation gate
+        if: inputs.operation != 'release-guard'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -134,6 +139,7 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_TREE: ${{ inputs.source_tree }}
           COMPARISON_SHA: ${{ inputs.comparison_sha }}
+          HELPER_SHA: ${{ inputs.expected_helper_sha }}
         run: |
           set -euo pipefail
           unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
@@ -144,6 +150,13 @@ jobs:
           finishing_plan_path="$RUNNER_TEMP/finishing-plan.json"
           printf '{"source_sha":"%s","source_tree":"%s","comparison_sha":"%s"}\n' "$SOURCE_SHA" "$SOURCE_TREE" "$COMPARISON_SHA" > "$finishing_plan_path"
           case "$OPERATION:$TASK" in
+            release-guard:release-guard)
+              [[ "$HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
+              test "$(git -C .. rev-parse HEAD)" = "$HELPER_SHA"
+              test "$GITHUB_WORKFLOW_SHA" = "$HELPER_SHA"
+              nix shell --inputs-from . nixpkgs#python3 --command python3 -I ../devco/inbound_verifier_proof.py "$TASK" "$finishing_plan_path"
+              exit 0
+              ;;
             gates:validate|gates:ship-check|preflight:preflight) ;;
             *) exit 2 ;;
           esac
