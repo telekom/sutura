@@ -213,8 +213,9 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
         "'http://127.0.0.1:8123/?query=INSERT%20INTO%20dim_customer_seed%20FORMAT%20CSVWithNames'"
     )
     sql("CREATE TABLE dim_customer_split AS dim_customer_seed")
+    sql("ALTER TABLE dim_customer_split ADD COLUMN copy_number UInt64")
     sql(
-        "INSERT INTO dim_customer_split SELECT customer_key, customer_id, segment, region FROM dim_customer_seed CROSS JOIN numbers(30000) AS copies"
+        "INSERT INTO dim_customer_split SELECT customer_key, customer_id, segment, region, copies.number FROM dim_customer_seed CROSS JOIN numbers(30000) AS copies"
     )
     sql(
         "CREATE TABLE dim_region (region String, sales_area String) ENGINE = MergeTree ORDER BY region"
@@ -226,7 +227,10 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
     assert list(
         map(
             int,
-            rows("SELECT count(), uniqExact(customer_key) FROM dim_customer_split")[0],
+            rows(
+                "SELECT count(), uniqExact(customer_key) FROM dim_customer_split",
+                "fixture_census",
+            )[0],
         )
     ) == [1200000, 40]
     assert (
@@ -237,6 +241,12 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
         )
         == 1200000
     )
+    assert list(
+        map(
+            int,
+            rows("SELECT count(), uniqExact(customer_key) FROM dim_customer_split")[0],
+        )
+    ) == [40, 40]
     defaults = {}
     for caller in ("sutura", *GOLDEN):
         names = ", ".join(f"'{name}'" for name in PINNED)
@@ -257,6 +267,15 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
             if caller == "analyst_a"
             else [row for row in customers if row[1] == "north"]
         )
+        assert list(
+            map(
+                int,
+                rows(
+                    "SELECT count(), uniqExact(customer_key) FROM dim_customer_split",
+                    caller,
+                )[0],
+            )
+        ) == [len(expected), len(expected)]
         reference = rows(
             'SELECT customer_key AS "0_link", region FROM dim_customer_split GROUP BY customer_key, region ORDER BY customer_key, region',
             caller,

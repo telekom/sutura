@@ -1,5 +1,6 @@
 # Five VMs, one fixed local MergeTree shard and fixture-issued access tokens. Repeated physical
-# rows trigger the production split; forty returned groups prove routing, not capacity or clusters.
+# rows trigger the production split; source policies expose one copy per key to every runtime user.
+# Forty returned groups prove routing, not capacity or clusters.
 # query_log separates LIMIT 0 metadata from bucket data and records caller and reader addresses.
 # IPv4 ingress is default-deny; IPv6 is disabled and unmeasured. No human sign-in is exercised.
 { pkgs, sutura, clickhouse, clickhouseDriver, example }:
@@ -42,7 +43,7 @@ let
     if re.fullmatch(r"[0-9a-f]{32}", password) is None:
         raise ValueError("fixture password must be 32 lowercase hexadecimal characters")
     hashes = {}
-    for user in ("sutura", "analyst_a", "analyst_b", "analyst_ungranted", "analyst_readonly"):
+    for user in ("sutura", "fixture_census", "analyst_a", "analyst_b", "analyst_ungranted", "analyst_readonly"):
         credential = password if user == "sutura" else f"{user}-{password}"
         hashes[user] = hashlib.sha256(credential.encode()).hexdigest()
         material.joinpath(f"curl-{user}.netrc").write_text(
@@ -163,6 +164,13 @@ let
         profile = "default";
         quota = "default";
         grants.query = [ "GRANT ALL ON *.*" "REVOKE IMPERSONATE ON *" "REVOKE ACCESS MANAGEMENT ON *.*" "GRANT IMPERSONATE ON analyst_a" "GRANT IMPERSONATE ON analyst_b" "GRANT IMPERSONATE ON analyst_readonly" ];
+        databases.default.dim_customer_split.filter = "copy_number = 0";
+      };
+      fixture_census = {
+        networks.ip = "127.0.0.1";
+        profile = "default";
+        quota = "default";
+        grants.query = [ "GRANT SELECT ON default.dim_customer_split" ];
       };
     } // builtins.mapAttrs (name: filter: {
       networks.ip = "0.0.0.0/0";
@@ -171,7 +179,7 @@ let
       grants.query = [ "GRANT SELECT ON default.*" ] ++ pkgs.lib.optionals (builtins.elem name [ "analyst_a" "analyst_b" ]) [
         "GRANT SELECT(rows, data_uncompressed_bytes, active, database, table) ON system.parts"
       ];
-      databases.default.dim_customer_split.filter = filter;
+      databases.default.dim_customer_split.filter = "copy_number = 0 AND (${filter})";
     }) { analyst_a = "1"; analyst_b = "region = 'north'"; analyst_ungranted = "1"; analyst_readonly = "1"; };
     profiles = { default = { log_queries = 1; log_query_settings = 1; }; read_only_caller = { readonly = 1; }; };
     quotas.default = { };
