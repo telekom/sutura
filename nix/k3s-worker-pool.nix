@@ -217,7 +217,8 @@ let
         };
         workerPool = {
           enabled = true;
-          acrossAboveBytes = 1;
+          # Put the large fixture across while the small federated control stays local.
+          acrossAboveBytes = 8 * 1024 * 1024;
           issuer.name = "sutura-nodes";
           min = 0;
           max = 2;
