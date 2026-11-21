@@ -45,7 +45,7 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
     evidence["roomy"]["answer"] = expected
     trials = []
     evidence["calibration"] = trials
-    # Discovery only: freeze an observed combine-only value in later acceptance source.
+    # Discovery only: retain the combine-only refusal and use the last answering ceiling below.
     ceiling, upper, lower, mib = None, None, None, 64
     for attempt in range(7):
         assert 4 <= mib <= 64 and all(t["ceiling"] != mib * 1024 * 1024 for t in trials), trials
@@ -76,9 +76,12 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
         [(trial["ceiling"], trial["status"], trial["phase"]) for trial in trials],
     )
     assert identity(get("pod/reference"))["restarts"] == [0]
-    evidence["ceiling"] = ceiling
+    assert upper is not None
+    acceptance_ceiling = upper * 1024 * 1024
+    evidence["combine_ceiling"] = ceiling
+    evidence["ceiling"] = acceptance_ceiling
     machine.succeed("kubectl delete pod reference --wait=true")
-    set_ceiling("sutura", ceiling)
-    set_ceiling("sutura-workers", ceiling)
+    set_ceiling("sutura", acceptance_ceiling)
+    set_ceiling("sutura-workers", acceptance_ceiling)
     serving = one(SERVING)
 ''
