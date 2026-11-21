@@ -40,7 +40,11 @@ on:
         description: Check fuzz metadata or run both finishing tasks on the pinned source
         type: choice
         required: true
-        options: [preflight, gates]
+        options: [preflight, gates, clickhouse-adbc-proof]
+      expected_helper_sha:
+        description: Exact helper commit for the ClickHouse ADBC proof
+        type: string
+        required: false
       source_sha:
         description: Exact frozen source commit
         type: string
@@ -86,7 +90,7 @@ jobs:
         run: bash nix/format-text.sh check
 
   finishing-tasks:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.operation != 'clickhouse-adbc-proof'
     strategy:
       fail-fast: false
       matrix:
@@ -160,7 +164,7 @@ jobs:
 
   # Task success is required here; independent acceptance still reads both exact-source packets.
   finishing:
-    if: always() && github.event_name == 'workflow_dispatch'
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.operation != 'clickhouse-adbc-proof'
     needs: [finishing-tasks]
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -171,3 +175,57 @@ jobs:
         run: |
           set -eu
           test "$TASKS_RESULT" = success
+
+  # Hosted-only proof for the vendored driver's own locked Nix check. The helper mutates the
+  # exact source in a separate checkout, records each expected failure, restores it, and reruns
+  # the same check; it is not part of the workspace's normal test graph.
+  clickhouse-adbc-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'clickhouse-adbc-proof'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Run the exact source and mutation proof
+        working-directory: source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          PROOF_OUT: ${{ github.workspace }}/clickhouse-adbc-proof
+          HELPER_SHA: ${{ inputs.expected_helper_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$HELPER_SHA"
+          test "$(git -C .. rev-parse HEAD)" = "$HELPER_SHA"
+          test "$SOURCE_SHA" = 6524af8b57f5ec1506125fd4fb553066f3543dec
+          test "$SOURCE_TREE" = 65986579984d20fcd8ca757cca94cfcea46e7022
+          bash "../devco/clickhouse-adbc-native-proof.sh"
+
+      - name: Retain every native mutation log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clickhouse-adbc-proof-${{ github.run_id }}
+          path: clickhouse-adbc-proof/
+          if-no-files-found: error
+          retention-days: 14
