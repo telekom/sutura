@@ -1,0 +1,106 @@
+{
+  "cargo_profile": "ci",
+  "test_identities": {
+    "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type": [
+      "sutura-domain",
+      "warehouse::schema::tests::scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type"
+    ],
+    "operator_markers_change_the_schema_digest_without_changing_column_types": [
+      "sutura-domain",
+      "warehouse::schema::tests::operator_markers_change_the_schema_digest_without_changing_column_types"
+    ],
+    "raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows": [
+      "sutura-app::golden",
+      "statements::text_prefilter::oracle::raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows"
+    ]
+  },
+  "test_files": {
+    "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+    "operator_markers_change_the_schema_digest_without_changing_column_types": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+    "raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows": "crates/sutura-app/tests/golden/statements/text_prefilter/declared_text.rs"
+  },
+  "test_functions": {
+    "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type": {
+      "name": "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type",
+      "indent": ""
+    },
+    "operator_markers_change_the_schema_digest_without_changing_column_types": {
+      "name": "operator_markers_change_the_schema_digest_without_changing_column_types",
+      "indent": ""
+    },
+    "raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows": {
+      "name": "verify",
+      "indent": ""
+    }
+  },
+  "mutants": [
+    {
+      "label": "omit-scalar-text-pin",
+      "package": "sutura-domain",
+      "tests": [
+        "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type"
+      ],
+      "preimage_sha256": "6d62eac02d9ab222e278f546b69208de1c305d0485133fcbb8846ecd95fcb1ba",
+      "mutated_sha256": "5d6629f1edf559184a8e0273956d6a986829c3b5e33fa1dc8a58e62cf36bf9cb",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "                if mapped_text && oracle_lob.is_none() && !field.metadata().contains_key(\"sutura:unbounded_number\") {\n                    field\n                        .metadata_mut()\n                        .insert(String::from(\"sutura:scalar_text\"), String::from(\"true\"));\n                }\n",
+          "after": "",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "overbroad-scalar-text-pin",
+      "package": "sutura-domain",
+      "tests": [
+        "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type"
+      ],
+      "preimage_sha256": "6d62eac02d9ab222e278f546b69208de1c305d0485133fcbb8846ecd95fcb1ba",
+      "mutated_sha256": "13d9cb0cf1a119263f0da72d080d34916efbc7f1137df13b13bcea3c6cb3dcf5",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "if mapped_text && oracle_lob.is_none() && !field.metadata().contains_key(\"sutura:unbounded_number\") {",
+          "after": "if mapped_text {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "omit-scalar-text-digest",
+      "package": "sutura-domain",
+      "tests": [
+        "operator_markers_change_the_schema_digest_without_changing_column_types"
+      ],
+      "preimage_sha256": "6d62eac02d9ab222e278f546b69208de1c305d0485133fcbb8846ecd95fcb1ba",
+      "mutated_sha256": "9ea226648571b086acaeb13abfae42d9f1eb34093f1155c6b3dc8058e2763c22",
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/warehouse/schema.rs",
+          "before": "            if let Some(scalar_text) = field.metadata().get(\"sutura:scalar_text\") {\n                part(&mut hash, \"sutura:scalar_text\");\n                part(&mut hash, scalar_text);\n            }\n",
+          "after": "",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "remove-scalar-text-admission",
+      "package": "sutura-exec-datafusion",
+      "tests": [
+        "raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows"
+      ],
+      "preimage_sha256": "e4c06557806c89094d4dbfc72a803a7409ea7b2e0f9511ed7826009ab11fbbae",
+      "mutated_sha256": "f4a125b43495a7ccaff7fb123de228f2d6b1b9df7d1767f57f5cdcfce303dfed",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-datafusion/src/combine/statement/text_prefilter.rs",
+          "before": "        && (metadata.contains_key(\"sutura:text_policy\")\n            || metadata.get(\"sutura:scalar_text\").is_some_and(|value| value == \"true\"))",
+          "after": "        && metadata.contains_key(\"sutura:text_policy\")",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

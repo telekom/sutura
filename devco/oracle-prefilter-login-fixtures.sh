@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Installs the same source and dictionary corpus for each verifier, then checks the stored type.
+set -euo pipefail
+name="$1"
+service="$2"
+verifier="$3"
+export SUTURA_ORACLE_ACCEPTANCE_USER=FIXTURE12
+export SUTURA_ORACLE_ACCEPTANCE_PASSWORD="$ORACLE_PASSWORD"
+export SUTURA_ORACLE_ACCEPTANCE_SERVICE="$service"
+export SUTURA_ORACLE_ACCEPTANCE_VERIFIER="$verifier"
+test "$verifier" = 11G
+export SUTURA_ORACLE_ACCEPTANCE_LEGACY_USER=FIXTURE11
+export SUTURA_ORACLE_ACCEPTANCE_LEGACY_PASSWORD="$ORACLE_PASSWORD"
+create_legacy="DECLARE
+  hash VARCHAR2(40);
+BEGIN
+  SELECT RAWTOHEX(STANDARD_HASH(UTL_RAW.CONCAT(UTL_RAW.CAST_TO_RAW('$ORACLE_PASSWORD'), HEXTORAW('00112233445566778899')), 'SHA1')) INTO hash FROM dual;
+  EXECUTE IMMEDIATE 'CREATE USER FIXTURE11 IDENTIFIED BY VALUES ''S:' || hash || '00112233445566778899''';
+END;
+/"
+legacy_user="$SUTURA_ORACLE_ACCEPTANCE_LEGACY_USER"
+docker exec -i "$name" sqlplus -s / as sysdba <<SQL
+WHENEVER SQLERROR EXIT FAILURE
+SET ECHO OFF VERIFY OFF
+ALTER SESSION SET CONTAINER=$service;
+CREATE USER FIXTURE12 IDENTIFIED BY "$ORACLE_PASSWORD";
+$create_legacy
+GRANT CREATE SESSION TO FIXTURE12, $legacy_user;
+GRANT CREATE TABLE TO FIXTURE12;
+ALTER USER FIXTURE12 QUOTA UNLIMITED ON USERS;
+ALTER USER $legacy_user QUOTA UNLIMITED ON USERS;
+CREATE TABLE FIXTURE12.EVENTS (ID NUMBER(10) NOT NULL PRIMARY KEY, PAYLOAD VARCHAR2(2000) NOT NULL, MONTH DATE NOT NULL);
+INSERT INTO FIXTURE12.EVENTS SELECT LEVEL, LPAD(TO_CHAR(LEVEL), 2000, 'x'), DATE '2026-06-01' FROM dual CONNECT BY LEVEL <= 128;
+CREATE TABLE $legacy_user.EVENTS AS SELECT * FROM FIXTURE12.EVENTS;
+CREATE TABLE $legacy_user.EVENTS_MORE AS SELECT ID FROM FIXTURE12.EVENTS;
+CREATE TABLE $legacy_user.TEXT_EVENTS (ID NUMBER(10), SCRIPT CLOB, SCRIPT_N NCLOB);
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (1, 'IDENTIFIED BY secret', 'IDENTIFIED BY secret');
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (2, 'IDENTIFIED BY another', 'IDENTIFIED BY another');
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (3, RPAD('wide ', 1000, 'wide '), RPAD('wide ', 1000, 'wide '));
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (4, NULL, NULL);
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (5, RPAD(UNISTR('\00E9'), 1000, UNISTR('\00E9')), RPAD(UNISTR('\00E9'), 1000, UNISTR('\00E9')));
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (6, TO_CLOB(RPAD('a', 2999, 'a')) || 'late-note IDENTIFIED BY secret ' || TO_CLOB(RPAD('z', 3000, 'z')), TO_NCLOB(RPAD('a', 2999, 'a')) || 'late-note IDENTIFIED BY secret ' || TO_NCLOB(RPAD('z', 3000, 'z')));
+INSERT INTO $legacy_user.TEXT_EVENTS VALUES (7, TO_CLOB(RPAD('a', 2500, 'a')) || UNISTR('\00E9') || TO_CLOB(RPAD('z', 3500, 'z')), TO_NCLOB(RPAD('a', 2500, 'a')) || UNISTR('\00E9') || TO_NCLOB(RPAD('z', 3500, 'z')));
+ALTER TABLE $legacy_user.TEXT_EVENTS ADD (NATIVE_NUMBER NUMBER);
+UPDATE $legacy_user.TEXT_EVENTS SET NATIVE_NUMBER = CASE WHEN ID = 6 THEN 10 ELSE ID END;
+
+CREATE TABLE $legacy_user.COLUMNS (
+  environment VARCHAR2(64), catalog_name VARCHAR2(64), schema_name VARCHAR2(64),
+  table_name VARCHAR2(64), model_name VARCHAR2(64), table_description VARCHAR2(256),
+  column_name VARCHAR2(64), column_ordinal NUMBER(10), column_type VARCHAR2(64),
+  column_description VARCHAR2(256), is_primary_key NUMBER(1), is_deleted NUMBER(1));
+INSERT INTO $legacy_user.COLUMNS VALUES ('test', NULL, 'FIXTURE12', 'EVENTS', 'events',
+  'The login fixture.', 'ID', 1, 'NUMBER', 'An event key.', 1, 0);
+INSERT INTO $legacy_user.COLUMNS VALUES ('test', NULL, 'FIXTURE12', 'EVENTS', 'events',
+  'The login fixture.', 'PAYLOAD', 2, 'VARCHAR2', 'A multi-record payload.', 0, 0);
+INSERT INTO $legacy_user.COLUMNS VALUES ('test', NULL, 'FIXTURE12', 'EVENTS', 'events',
+  'The login fixture.', 'MONTH', 3, 'DATE', 'The fixture month.', 0, 0);
+CREATE TABLE FIXTURE12.COLUMNS AS SELECT * FROM $legacy_user.COLUMNS;
+COMMIT;
+SELECT username, password_versions FROM dba_users WHERE username IN ('FIXTURE12', '$legacy_user');
+DECLARE
+  versions VARCHAR2(100);
+BEGIN
+  SELECT TRIM(password_versions) INTO versions FROM dba_users WHERE username='$legacy_user';
+  IF versions <> '$verifier' OR versions IS NULL THEN
+    RAISE_APPLICATION_ERROR(-20001, 'legacy account does not hold only the expected verifier');
+  END IF;
+END;
+/
+EXIT
+SQL
+
+# Wait for both dictionary users to read their own table in a read-only transaction.
+for readiness_user in FIXTURE12 "$legacy_user"; do
+  readiness_password="$ORACLE_PASSWORD"
+  if [ "$readiness_user" = "$legacy_user" ]; then
+    readiness_password="$SUTURA_ORACLE_ACCEPTANCE_LEGACY_PASSWORD"
+  fi
+  readable=false
+  for _ in $(seq 1 30); do
+    if SUTURA_ORACLE_READINESS_USER="$readiness_user" SUTURA_ORACLE_READINESS_PASSWORD="$readiness_password" \
+      docker exec -i -e SUTURA_ORACLE_READINESS_USER -e SUTURA_ORACLE_READINESS_PASSWORD -e SUTURA_ORACLE_ACCEPTANCE_SERVICE \
+        "$name" bash -c 'exec sqlplus -L -s "$SUTURA_ORACLE_READINESS_USER/$SUTURA_ORACLE_READINESS_PASSWORD@localhost:1521/$SUTURA_ORACLE_ACCEPTANCE_SERVICE"' <<SQL
+WHENEVER SQLERROR EXIT FAILURE
+SET TRANSACTION READ ONLY;
+SELECT COUNT(*) FROM COLUMNS;
+ROLLBACK;
+EXIT
+SQL
+    then
+      readable=true
+      break
+    fi
+    sleep 2
+  done
+  test "$readable" = true
+done
+if [ "${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
+  return
+fi
+if [ "$SUTURA_ORACLE_ACCEPTANCE_MODE" = native ] && [ "${SUTURA_ORACLE_BASE_PROOF:-0}" != 1 ]; then
+  SUTURA_ORACLE_NATIVE_EXPECT=success cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \
+    oracle_native::oracle_native_logins_require_both_strong_services_on_both_production_paths -- --ignored --nocapture
+fi
+oracle_test_filter=oracle_native::oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in
+if [ "${SUTURA_ORACLE_BASE_PROOF:-0}" = 1 ]; then
+  oracle_test_filter=oracle_native::oracle_
+fi
+cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \
+  "$oracle_test_filter" -- --ignored --nocapture
+
+if [ "${SUTURA_ORACLE_BASE_PROOF:-0}" != 1 ]; then
+  bash "${SUTURA_PREFILTER_HELPER_DIR:?}/oracle-prefilter-proof.sh" "$name" "$service" "$legacy_user"
+fi

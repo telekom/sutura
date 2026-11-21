@@ -1,0 +1,88 @@
+{
+  "status": "SOURCE_ONLY_NOT_EXECUTED",
+  "app": "apps.x86_64-linux.oracle-native-acceptance.program",
+  "source_sha": "62864fd225d52f049fc589cdfc9850906f1a9767",
+  "source_tree": "4434770507953861aecf5603a6b905114fc48f3f",
+  "comparison_sha": "39fe9886db7480381153e8d0cd2c6245547b43ad",
+  "runner_basis_commit": "e1225b059270d12989ca96c8d12594d39c714d59",
+  "runner_basis_sha256": "618678e649fcf47867935ffcd59a30649096525c64d6ca54e9a7d732fef27707",
+  "runner_sha256": "c102b453ccf6c983e1669b5d5474ecd52a61ec79f5b9d66cdcf788f810ac7d0a",
+  "runner_change": "Only the optional exact pub(super) prefix in region(); generic support and ownership checks unchanged from basis.",
+  "app_substitutions": [
+    {
+      "before": "bash nix/oracle-native-probe.sh",
+      "after": "bash \"${SUTURA_PREFILTER_HELPER_DIR:?}/oracle-prefilter-native-probe.sh\"",
+      "count": 2
+    }
+  ],
+  "legacy_probe": "nix/oracle-legacy-probe.sh remains unchanged and is still run by the original generated app",
+  "helper_copies": [
+    {
+      "original": "nix/oracle-native-probe.sh",
+      "original_sha256": "6fec144800b0cec555aa81d8baabdcd05dfad60d3076668a66c28747a0319899",
+      "helper": "devco/oracle-prefilter-native-probe.sh",
+      "helper_sha256": "3bc813e4d2a05ac5f1bd133133b5c84834167ab92f5f4b4652ba73d9dd1d5919",
+      "before": "source nix/oracle-login-fixtures.sh",
+      "after": "# shellcheck source=devco/oracle-prefilter-login-fixtures.sh\n  source \"${SUTURA_PREFILTER_HELPER_DIR:?}/oracle-prefilter-login-fixtures.sh\"",
+      "count": 1,
+      "other_bytes_unchanged": true
+    },
+    {
+      "original": "nix/oracle-login-fixtures.sh",
+      "original_sha256": "823dc89cd33dce22fbdd1dc953b8b6cf17c07fa9b7da1fc8128e51bb161f6e73",
+      "helper": "devco/oracle-prefilter-login-fixtures.sh",
+      "helper_sha256": "a31f7046e491094b213c50e16aef56dd536a67ac9f666a2a3ca65ef343f01e65",
+      "other_bytes_unchanged": true,
+      "edits": [
+        {
+          "before": "bash nix/oracle-raw-cells.sh",
+          "after": "bash \"${SUTURA_PREFILTER_HELPER_DIR:?}/oracle-prefilter-proof.sh\"",
+          "count": 1
+        }
+      ],
+      "scope": "Modern native 11G fixture only; both fixture users inherit the existing generated and masked ORACLE_PASSWORD. Original legacy probe and nix/oracle-login-fixtures.sh remain unchanged.",
+      "modern_only": "11G"
+    },
+    {
+      "original": "nix/oracle-raw-cells.sh",
+      "original_sha256": "6eb5f4a39326c9adab5204529c30daee2691f8b46036b58ffb7c01b6a1ea9653",
+      "helper": "devco/oracle-prefilter-proof.sh",
+      "helper_sha256": "f601e6f9ca40f6a80458c2cf73e13927b96f06abbf394633534371d88be9ef96",
+      "original_prefix_bytes": 1567,
+      "original_prefix_unchanged": true,
+      "callback": "modern native only; unchanged legacy probe has no callback"
+    }
+  ],
+  "callback_environment": {
+    "SUTURA_PREFILTER_HELPER_DIR": "absolute helper checkout devco directory",
+    "SUTURA_PROOF_HELPER": "absolute helper checkout devco/inbound_verifier_proof.py",
+    "SUTURA_PROOF_PLAN": "absolute helper checkout devco/declared-text-source.json"
+  },
+  "unset_before_app": [
+    "SUTURA_PROOF_BOUND",
+    "SUTURA_ORACLE_BASE_SHA",
+    "SUTURA_ORACLE_BASE_PROOF",
+    "SUTURA_ORACLE_CLAIM_PROOF",
+    "JUST_JUSTFILE"
+  ],
+  "bootstrap": "The unchanged runner causality-app bootstrap supplies nextest, required Postgres/ClickHouse tiers and drivers; modern Oracle port and admin credentials remain inherited.",
+  "regular_task": "Canonical just test-only discovery and whole affected binaries, ci Cargo profile, nofailfast nextest profile; no ignored-cell wrapper.",
+  "required_retention": [
+    "original generated app",
+    "substituted generated app",
+    "realised app context",
+    "helper and plan hashes",
+    "all original native and legacy baseline logs",
+    "target/inbound-verifier-proof",
+    "target/oracle-native-probe",
+    "target/oracle-legacy-probe",
+    "target/oracle-raw-product"
+  ],
+  "limits": [
+    "No source-only check proves a native fixture, million-row census, intended kill, or full restored binary pass.",
+    "Runner own_sites admits any panic in the named owner; acceptance also requires the exact intended assertion and mismatch in declared-text-ownership.json.",
+    "One callback per fresh hosted job; fixed output directory is never reused.",
+    "Scalar admission removal may fail the plain query first; only unmutated head/restored run the later UPPER branch.",
+    "No legacy-only application fixture or new workflow/task/framework is introduced."
+  ]
+}

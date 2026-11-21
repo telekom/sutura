@@ -103,8 +103,11 @@ def results(text):
     return {(binary, name): status for status, binary, name in RESULT.findall(text)}
 
 
-def whole(label, binary, cells, green):
-    status, text = execute(label, ["just", "test-only", f"binary_id(={binary})"])
+def whole(label, binary, cells, green, profile=""):
+    command = ["just", "test-only", f"binary_id(={binary})"]
+    if profile:
+        command.append(profile)
+    status, text = execute(label, command)
     rows = results(text)
     assert rows and {key[0] for key in rows} == {binary}, (
         "missing or competing test binaries"
@@ -121,26 +124,51 @@ def whole(label, binary, cells, green):
 
 
 def region(path, cell):
+    specification = PLAN.get("test_functions", {}).get(cell, {"name": cell})
+    function = specification["name"]
     lines = Path(path).read_text().splitlines()
     starts = [
         (i, m.group(1))
         for i, line in enumerate(lines)
-        if (m := re.match(rf"^([ \t]*)(?:async )?fn {re.escape(cell)}\(", line))
+        if (
+            m := re.match(
+                rf"^([ \t]*)(?:pub\(super\) )?(?:async )?fn {re.escape(function)}(?:<[^\n]+>)?\(",
+                line,
+            )
+        )
     ]
+    if "indent" in specification:
+        starts = [
+            (line, indent)
+            for line, indent in starts
+            if indent == specification["indent"]
+        ]
     assert len(starts) == 1, (path, cell, starts)
     start, indent = starts[0]
     end = next(i for i in range(start + 1, len(lines)) if lines[i] == indent + "}")
     return start + 1, end + 1, "\n".join(lines[start : end + 1])
 
 
-def own_sites(text, cell):
+def own_sites(text, cell, full_name):
     path = PLAN["test_files"][cell]
     start, end, body = region(path, cell)
     sites = []
-    for match in re.finditer(r" panicked at ([^\n]+):(\d+):(\d+):", text):
+    for match in re.finditer(
+        rf"thread '{re.escape(full_name)}'(?: \(\d+\))? panicked at ([^\n]+):(\d+):(\d+):",
+        text,
+    ):
         found_path, line = match.group(1), int(match.group(2))
-        if found_path == path and start <= line <= end:
-            lines = text[match.start() :].splitlines()
+        lines = text[match.start() :].splitlines()
+        if found_path != path:
+            if not re.search(r"/insta-[^/]+/src/runtime\.rs$", found_path):
+                continue
+            reported = re.fullmatch(
+                r"\s*snapshot assertion for '[^']+' failed in line (\d+)", lines[1]
+            )
+            if not reported:
+                continue
+            line = int(reported.group(1))
+        if start <= line <= end:
             sites.append({"path": path, "line": line, "panic": "\n".join(lines[:8])})
     assert sites, ("no panic site inside the named test function", cell)
     return {"cell": cell, "function_sha256": digest(body.encode()), "sites": sites}
@@ -150,9 +178,23 @@ def mutations():
     global BINARY_CELLS
     os.environ["NEXTEST_PROFILE"] = "nofailfast"
     packages = sorted({mutant["package"] for mutant in PLAN["mutants"]})
+    explicit = PLAN.get("test_identities", {})
+    discovery = (
+        " | ".join(
+            f"binary_id(={binary})"
+            for binary in sorted({identity[0] for identity in explicit.values()})
+        )
+        if explicit
+        else " | ".join(f"package(={package})" for package in packages)
+    )
+    profile = PLAN.get("cargo_profile", "")
+    assert not profile or re.fullmatch(r"[A-Za-z0-9_-]+", profile)
+    discover_command = ["just", "test-only", discovery]
+    if profile:
+        discover_command.append(profile)
     status, text = execute(
         "discover",
-        ["just", "test-only", " | ".join(f"package(={p})" for p in packages)],
+        discover_command,
     )
     assert status == 0
     rows = results(text)
@@ -162,6 +204,16 @@ def mutations():
     cells = sorted({cell for mutant in PLAN["mutants"] for cell in mutant["tests"]})
     locations = {}
     for cell in cells:
+        if explicit:
+            assert cell in explicit, ("unbound declared identity", cell)
+            identity = tuple(explicit[cell])
+            assert rows.get(identity) == "PASS", (
+                "missing exact identity",
+                cell,
+                identity,
+            )
+            locations[cell] = identity
+            continue
         found = [
             (binary, full)
             for (binary, full), verdict in rows.items()
@@ -169,6 +221,9 @@ def mutations():
         ]
         assert len(found) == 1, (cell, found)
         locations[cell] = found[0]
+    assert not explicit or set(explicit) == set(cells), (
+        "undeclared or unmeasured identity"
+    )
     write("binaries.json", locations)
     exact(BASELINE)
     saved_tests = {
@@ -184,7 +239,7 @@ def mutations():
         full_names = [locations[cell][1] for cell in names]
         exact(BASELINE)
         assert not git("status", "--porcelain")
-        whole(label + "-head", binary, full_names, True)
+        whole(label + "-head", binary, full_names, True, profile)
         exact(BASELINE)
         changed = {}
         evidence = None
@@ -203,17 +258,19 @@ def mutations():
                     assert "/tests/" not in path and not path.endswith("/tests.rs")
                     file = Path(path)
                     changed.setdefault(path, file.read_bytes())
+                    assert digest(changed[path]) == mutant["preimage_sha256"]
                     source = file.read_text()
                     assert source.count(edit["before"]) == edit["count"] == 1
                     file.write_text(source.replace(edit["before"], edit["after"], 1))
             expected = dict(BASELINE)
             for path, old in changed.items():
                 new = Path(path).read_bytes()
+                assert digest(new) == mutant["mutated_sha256"]
                 old_tail = re.split(
-                    rb"(?m)^#\[cfg\(test\)\]\nmod tests", old, maxsplit=1
+                    rb"(?m)^#\[cfg\(test\)\]\nmod tests[ \t]*\{", old, maxsplit=1
                 )[1:]
                 new_tail = re.split(
-                    rb"(?m)^#\[cfg\(test\)\]\nmod tests", new, maxsplit=1
+                    rb"(?m)^#\[cfg\(test\)\]\nmod tests[ \t]*\{", new, maxsplit=1
                 )[1:]
                 assert old_tail == new_tail, "inline test module changed"
                 expected[path] = [os.lstat(path).st_mode, digest(new)]
@@ -224,14 +281,14 @@ def mutations():
             )
             exact(expected)
             write(label + "-mutant-state.json", expected)
-            text = whole(label + "-mutant", binary, full_names, False)
+            text = whole(label + "-mutant", binary, full_names, False, profile)
             exact(expected)
-            evidence = [own_sites(text, cell) for cell in names]
+            evidence = [own_sites(text, cell, locations[cell][1]) for cell in names]
         finally:
             for path, content in changed.items():
                 Path(path).write_bytes(content)
             exact(BASELINE)
-            whole(label + "-restored", binary, full_names, True)
+            whole(label + "-restored", binary, full_names, True, profile)
             exact(BASELINE)
             assert not git("status", "--porcelain")
         write(
@@ -419,9 +476,25 @@ if __name__ == "__main__":
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("preflight", "validate", "ship-check")
+    assert mode in ("preflight", "validate", "ship-check", "mutations", "sql-mutations")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
     PLAN = json.loads(Path(plan_path).read_text())
+    if mode in ("mutations", "sql-mutations"):
+        mutation_file = (
+            "sql1909-finishing-mutations.json"
+            if mode == "sql-mutations"
+            else "sql1912-finishing-mutations.json"
+        )
+        mutation_plan = json.loads(Path(__file__).with_name(mutation_file).read_bytes())
+        for key in (
+            "mutants",
+            "test_files",
+            "test_identities",
+            "test_functions",
+            "cargo_profile",
+        ):
+            if key in mutation_plan:
+                PLAN[key] = mutation_plan[key]
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == PLAN["source_tree"]
     assert (
@@ -482,6 +555,9 @@ if __name__ == "__main__":
         )
         if mode == "preflight":
             fuzz_metadata_preflight(inherited_home)
+            status = 0
+        elif mode in ("mutations", "sql-mutations"):
+            mutations()
             status = 0
         else:
             status, _ = execute(mode, ["just", mode])

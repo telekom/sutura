@@ -1,0 +1,92 @@
+{
+  "status": "SOURCE_ONLY_NOT_EXECUTED",
+  "source_sha": "62864fd225d52f049fc589cdfc9850906f1a9767",
+  "source_tree": "4434770507953861aecf5603a6b905114fc48f3f",
+  "runner_sha256": "c102b453ccf6c983e1669b5d5474ecd52a61ec79f5b9d66cdcf788f810ac7d0a",
+  "runner_limit": "own_sites accepts any panic in the exact named owner; acceptance must additionally require these exact assertion ranges and intended values, reviewed in complete logs.",
+  "cells": {
+    "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type": {
+      "binary": "sutura-domain",
+      "full_test": "warehouse::schema::tests::scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type",
+      "path": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+      "function": {
+        "name": "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type",
+        "indent": ""
+      },
+      "start_line": 151,
+      "end_line": 206,
+      "function_sha256": "8916e96642336f056b28f3578c2d977564417e58f86ff5fac386b87caeb1873f",
+      "assertion": {
+        "first_line": 195,
+        "last_line": 199,
+        "text": "            assert_eq!(\n                field.metadata().get(\"sutura:scalar_text\").map(String::as_str),\n                scalar.then_some(\"true\"),\n                \"{dialect:?} {declared} protected={protected}\"\n            );"
+      }
+    },
+    "operator_markers_change_the_schema_digest_without_changing_column_types": {
+      "binary": "sutura-domain",
+      "full_test": "warehouse::schema::tests::operator_markers_change_the_schema_digest_without_changing_column_types",
+      "path": "crates/sutura-domain/src/warehouse/schema/tests.rs",
+      "function": {
+        "name": "operator_markers_change_the_schema_digest_without_changing_column_types",
+        "indent": ""
+      },
+      "start_line": 122,
+      "end_line": 148,
+      "function_sha256": "925201d301ec2cdf17ff0e19a2ce98f1f872473b26e9262ed9cda2769c916d2e",
+      "assertion": {
+        "first_line": 145,
+        "last_line": 145,
+        "text": "            assert_ne!(left, right, \"each marker and its exact value participate in identity\");"
+      }
+    },
+    "raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows": {
+      "binary": "sutura-app::golden",
+      "full_test": "statements::text_prefilter::oracle::raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows",
+      "path": "crates/sutura-app/tests/golden/statements/text_prefilter/declared_text.rs",
+      "function": {
+        "name": "verify",
+        "indent": ""
+      },
+      "start_line": 105,
+      "end_line": 171,
+      "function_sha256": "aa95a8ed4a2e7274ce55790a1ffcc7feaa26af2eb5b393487db0f0ade786d3aa",
+      "assertion": {
+        "first_line": 164,
+        "last_line": 169,
+        "text": "        assert_eq!(\n            searches[1] - searches[0],\n            usize::from(prefilter_capable(dialect) && (!upper || dialect == TypeDialect::Oracle)),\n            \"the native statement carries the raw search beside two declared ordinary text siblings: {} upper={upper}\",\n            W::NAME\n        );"
+      }
+    }
+  },
+  "mutants": {
+    "omit-scalar-text-pin": {
+      "owning_cells": [
+        "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type"
+      ],
+      "required_failure": "The marker equality must fail for DataFusion text protected=false: left None, right Some(\"true\").",
+      "not_accepted": "compile failure, setup or fixture panic, source refusal, timeout, abort, skip or exemption, different assertion, or incomplete whole-binary inventory"
+    },
+    "overbroad-scalar-text-pin": {
+      "owning_cells": [
+        "scalar_text_provenance_requires_a_declared_non_lob_non_number_text_type"
+      ],
+      "required_failure": "The marker equality must fail for Oracle CLOB protected=false: left Some(\"true\"), right None. The positive declarations preceding it must complete.",
+      "not_accepted": "compile failure, setup or fixture panic, source refusal, timeout, abort, skip or exemption, different assertion, or incomplete whole-binary inventory"
+    },
+    "omit-scalar-text-digest": {
+      "owning_cells": [
+        "operator_markers_change_the_schema_digest_without_changing_column_types"
+      ],
+      "required_failure": "The exact each-marker identity assert_ne must fail with equal digests for plain versus scalar-text=true; no type is changed.",
+      "not_accepted": "compile failure, setup or fixture panic, source refusal, timeout, abort, skip or exemption, different assertion, or incomplete whole-binary inventory"
+    },
+    "remove-scalar-text-admission": {
+      "owning_cells": [
+        "raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows"
+      ],
+      "required_failure": "The native raw-search delivery equality must fail with left 0 and right 1 for oracle upper=false after exact typed baseline/opt-in answer and independent expected-row equalities passed. Do not credit a setup/refusal failure or claim an UPPER-specific mutant kill.",
+      "not_accepted": "compile failure, setup or fixture panic, source refusal, timeout, abort, skip or exemption, different assertion, or incomplete whole-binary inventory"
+    }
+  },
+  "required_head_restored": "Complete affected binary passes, identical discovered inventory and unchanged owning function hashes; native head/restored must show the actual million-row Oracle census and both plain/UPPER ordinary-text-siblings queries.",
+  "restore": "Unchanged runner finally restores exact tracked bytes, confirms raw index identity, reruns the whole affected binary, and retains source/index manifests. Final export raw index equality is reported and must be reviewed too."
+}
