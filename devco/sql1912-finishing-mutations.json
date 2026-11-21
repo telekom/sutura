@@ -1,0 +1,37 @@
+{
+  "cargo_profile": "ci",
+  "mutants": [
+    {
+      "label": "whole-read-claim-clickhouse",
+      "package": "sutura-exec-clickhouse",
+      "tests": [
+        "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup"
+      ],
+      "preimage_sha256": "8740dbffeec2806764856c6cda4eef48d4cb10ee0d8cb514dcbebd48384d0b18",
+      "mutated_sha256": "a214528f144d1b3ad9ac5383cd1d93789f5d46e730b86e258f9cb78ffbee404d",
+      "edits": [
+        {
+          "path": "crates/sutura-exec-clickhouse/src/adbc/buckets.rs",
+          "before": "        SplitDecision::Whole | SplitDecision::Refused(_) => None,",
+          "after": "        SplitDecision::Whole => None,\n        SplitDecision::Refused(_) => Some(2),",
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "test_files": {
+    "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup": "crates/sutura-exec-clickhouse/tests/adbc_execute_as_legs.rs"
+  },
+  "test_identities": {
+    "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup": [
+      "sutura-exec-clickhouse::adbc_execute_as_legs",
+      "adbc_execute_as_legs::buckets::a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup"
+    ]
+  },
+  "test_functions": {
+    "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup": {
+      "name": "a_table_past_what_the_workers_split_is_read_whole_and_answers_its_narrow_lookup",
+      "indent": "        "
+    }
+  }
+}
