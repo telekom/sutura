@@ -20,7 +20,7 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::helpers::attached_token::AttachedToken;
 use sqlparser::ast::{
-    self, LimitClause, OrderByKind, SelectFlavor, visit_expressions_mut,
+    self, LimitClause, OrderByKind, SelectFlavor, Visit, visit_expressions_mut,
 };
 
 #[derive(Clone)]
@@ -249,6 +249,46 @@ impl SelectBuilder {
     pub fn already_projected(&self) -> bool {
         self.projection.is_some()
     }
+
+    pub(super) fn projects_qualifier(&self, qualifier: &str) -> bool {
+        struct ProjectionQualifier<'a> {
+            name: &'a str,
+            subqueries: usize,
+        }
+
+        impl ast::Visitor for ProjectionQualifier<'_> {
+            type Break = ();
+
+            fn pre_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries -= 1;
+                ControlFlow::Continue(())
+            }
+
+            fn pre_visit_expr(&mut self, expr: &ast::Expr) -> ControlFlow<()> {
+                if self.subqueries == 0
+                    && let ast::Expr::CompoundIdentifier(parts) = expr
+                    && let [table, _] = parts.as_slice()
+                    && table.value == self.name
+                {
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::Continue(())
+            }
+        }
+
+        self.projection
+            .visit(&mut ProjectionQualifier {
+                name: qualifier,
+                subqueries: 0,
+            })
+            .is_break()
+    }
+
     pub fn into(&mut self, value: Option<ast::SelectInto>) -> &mut Self {
         self.into = value;
         self
