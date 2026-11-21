@@ -6,6 +6,49 @@ use sutura_domain::warehouse::schema::PinnedSchemas;
 
 use super::*;
 
+fn fixture_csv() -> std::path::PathBuf {
+    let root = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "text-prefilter-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    std::fs::create_dir_all(&root).expect("a private fixture directory");
+    let path = root.join("rows.csv");
+    let mut file = std::io::BufWriter::new(std::fs::File::create(&path).expect("a fixture file"));
+    writeln!(file, "body,cohort,env,is_deleted").expect("a header");
+    for _ in 0..ROWS - RARE.len() - 2 {
+        writeln!(file, "unrelated,filler,E,N").expect("a filler row");
+    }
+    for (body, cohort) in RARE {
+        let env = if *body == "caf\u{e9} TERM" { "W" } else { "E" };
+        let deleted = if *body == "term" { "Y" } else { "N" };
+        writeln!(file, "{body},{cohort},{env},{deleted}").expect("a rare row");
+    }
+    writeln!(file, "{} TERM,rare,E,N", "a".repeat(4100)).expect("a real wide text cell");
+    writeln!(file, "{} secret_TERM,hidden,E,N", "a".repeat(4100)).expect("a late hidden term");
+    file.flush().expect("all actual fixture rows reach disk");
+    path
+}
+
+pub(super) fn native<W>()
+where
+    W: TextFixture + Sync,
+    W::Error: Send,
+{
+    if !runs_here::<W>() {
+        return;
+    }
+    let setup = Instant::now();
+    let csv = fixture_csv();
+    let (warehouse, path) = W::open_text_fixture(csv.clone());
+    let dialect = warehouse.type_dialect().expect("a registered native dialect");
+    observe_population(&warehouse, &path, dialect, setup);
+    let base = serde_json::json!({"max_text_bytes":128,"redact":[{"pattern":"secret_[^ ]+","replace":"[masked]"}]});
+    verify(&warehouse, &path, dialect, &base);
+    warehouse.close_text_fixture(&path);
+    std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
+}
+
 fn table(path: &QualifiedTable, dialect: TypeDialect, policy: &serde_json::Value) -> StatementTable {
     let text = match dialect {
         TypeDialect::Oracle => "VARCHAR2(4000)",

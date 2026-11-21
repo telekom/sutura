@@ -35,10 +35,6 @@ fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, en
             Field::new("BODY", DataType::Utf8, true).with_metadata(metadata),
             Field::new("id", DataType::Int64, true),
             Field::new("label", DataType::Utf8, true),
-            Field::new("env", DataType::Utf8, true)
-                .with_metadata(HashMap::from([(String::from("sutura:scalar_text"), String::from("true"))])),
-            Field::new("is_deleted", DataType::Utf8, true)
-                .with_metadata(HashMap::from([(String::from("sutura:scalar_text"), String::from("true"))])),
             Field::new("name", DataType::Utf8, true).with_metadata(name_metadata.clone()),
             Field::new("amount", DataType::Utf8, true).with_metadata(with(&name_metadata, "sutura:unbounded_number", "utf8")),
             Field::new("doc", DataType::Utf8, true).with_metadata(with(&name_metadata, "sutura:oracle_lob", "clob")),
@@ -535,8 +531,21 @@ fn declared_scalar_text_siblings_allow_the_raw_search_without_weakening_unknown_
         TypeDialect::Oracle,
     ] {
         let source = || {
+            let original = table(dialect, &["[masked]"], true, dialect == TypeDialect::Oracle, true);
+            let mut fields = original.schema().fields().to_vec();
+            fields.extend(["env", "is_deleted"].map(|name| {
+                Arc::new(
+                    Field::new(name, DataType::Utf8, true)
+                        .with_metadata(HashMap::from([(String::from("sutura:scalar_text"), String::from("true"))])),
+                )
+            }));
             collated(
-                &table(dialect, &["[masked]"], true, dialect == TypeDialect::Oracle, true),
+                &StatementTable::new(
+                    original.source().clone(),
+                    original.table().clone(),
+                    dialect,
+                    Arc::new(Schema::new(fields)),
+                ),
                 Some("binary"),
             )
         };
