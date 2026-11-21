@@ -1,10 +1,16 @@
 diff --git a/vendor/datafusion-distributed/src/completion_chain_tests.rs b/vendor/datafusion-distributed/src/completion_chain_tests.rs
-index 0b6d8e1f2..bf4950c0e 100644
+index 0b6d8e1f2..c2f140013 100644
 --- a/vendor/datafusion-distributed/src/completion_chain_tests.rs
 +++ b/vendor/datafusion-distributed/src/completion_chain_tests.rs
-@@ -11,13 +11,13 @@ use datafusion::common::{DataFusionError, Result};
+@@ -7,17 +7,19 @@ use crate::{
+ use async_trait::async_trait;
+ use datafusion::arrow::array::{ArrayRef, Int32Array};
+ use datafusion::arrow::record_batch::RecordBatch;
++use datafusion::common::tree_node::TreeNodeRecursion;
+ use datafusion::common::{DataFusionError, Result};
  use datafusion::datasource::memory::MemorySourceConfig;
  use datafusion::execution::{SessionStateBuilder, TaskContext};
++use datafusion::physical_expr::PhysicalExpr;
  use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 -use datafusion::physical_plan::{ExecutionPlan, SendableRecordBatchStream};
 +use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, SendableRecordBatchStream};
@@ -18,7 +24,7 @@ index 0b6d8e1f2..bf4950c0e 100644
  use std::time::Duration;
  use tokio::sync::Notify;
  use tokio::time::Instant;
-@@ -29,6 +29,42 @@ struct Channel {
+@@ -29,6 +31,48 @@ struct Channel {
      worker_timeout: Option<Duration>,
      cuts: Arc<AtomicUsize>,
      preparations: Arc<AtomicUsize>,
@@ -50,6 +56,12 @@ index 0b6d8e1f2..bf4950c0e 100644
 +    fn name(&self) -> &str { "ObservedHead" }
 +    fn properties(&self) -> &Arc<PlanProperties> { self.inner.properties() }
 +    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> { vec![&self.inner] }
++    fn apply_expressions(
++        &self,
++        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> Result<TreeNodeRecursion>,
++    ) -> Result<TreeNodeRecursion> {
++        Ok(TreeNodeRecursion::Continue)
++    }
 +    fn with_new_children(self: Arc<Self>, children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
 +        assert_eq!(children.len(), 1);
 +        Ok(Arc::new(Self { inner: Arc::clone(&children[0]), gate: Arc::clone(&self.gate) }))
@@ -61,7 +73,7 @@ index 0b6d8e1f2..bf4950c0e 100644
  }
 
  #[async_trait]
-@@ -41,6 +77,10 @@ impl WorkerChannel for Channel {
+@@ -41,6 +85,10 @@ impl WorkerChannel for Channel {
          metrics: ExecutionPlanMetricsSet,
          context: &Arc<TaskContext>,
      ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
@@ -72,7 +84,7 @@ index 0b6d8e1f2..bf4950c0e 100644
          if let (Some(request), Some(timeout)) = (&mut request.completion, self.worker_timeout) {
              request.timeout = timeout;
          }
-@@ -81,6 +121,12 @@ impl WorkerChannel for Channel {
+@@ -81,6 +129,12 @@ impl WorkerChannel for Channel {
          metrics: ExecutionPlanMetricsSet,
          context: &Arc<TaskContext>,
      ) -> Result<Vec<BoxStream<'static, Result<RecordBatch>>>> {
@@ -85,7 +97,7 @@ index 0b6d8e1f2..bf4950c0e 100644
          self.inner.execute_task(headers, request, metrics, context).await
      }
 
-@@ -95,6 +141,7 @@ struct Resolver {
+@@ -95,6 +149,7 @@ struct Resolver {
      worker_timeout: Option<Duration>,
      cuts: Arc<AtomicUsize>,
      preparations: Arc<AtomicUsize>,
@@ -93,7 +105,7 @@ index 0b6d8e1f2..bf4950c0e 100644
  }
 
  #[async_trait]
-@@ -110,6 +157,7 @@ impl ChannelResolver for Resolver {
+@@ -110,6 +165,7 @@ impl ChannelResolver for Resolver {
              worker_timeout: self.worker_timeout,
              cuts: Arc::clone(&self.cuts),
              preparations: Arc::clone(&self.preparations),
@@ -101,7 +113,7 @@ index 0b6d8e1f2..bf4950c0e 100644
          }))
      }
  }
-@@ -136,16 +184,34 @@ fn execution(
+@@ -136,16 +192,34 @@ fn execution(
      Arc<QueryCompletion>,
      Arc<AtomicUsize>,
      Arc<AtomicUsize>,
@@ -138,7 +150,7 @@ index 0b6d8e1f2..bf4950c0e 100644
          .unwrap()
          .with_distributed_route_tasks_handler(|_: crate::RouteTasksEvent<'_>| {
              Some(Ok(crate::RouteTasksEventResponse::new(vec![
-@@ -158,12 +224,29 @@ fn execution(
+@@ -158,12 +232,29 @@ fn execution(
              worker_timeout,
              cuts: Arc::clone(&cuts),
              preparations: Arc::clone(&preparations),
@@ -169,7 +181,7 @@ index 0b6d8e1f2..bf4950c0e 100644
      let plan = DistributedExec::new(boundary);
      let stream = plan.execute(0, SessionContext::from(state).task_ctx()).unwrap();
      (stream, completion, cuts, preparations)
-@@ -201,6 +284,43 @@ fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
+@@ -201,6 +292,43 @@ fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
      }))
  }
 

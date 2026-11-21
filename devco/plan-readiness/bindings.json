@@ -1,15 +1,15 @@
 {
   "base": "39fe9886db7480381153e8d0cd2c6245547b43ad",
-  "test_only_tree": "ae5eaa7ace2436f6bea82f516c3dbf6d0a0295c8",
-  "fixed_tree": "d5c801c78f9dc3b2750eb97b1d142d8d2ab6dd33",
-  "test_blob": "bf4950c0eafed227a01916f138771896dde16e19",
+  "test_only_tree": "aa218fb802d37f461264ec85145449bf84dad84b",
+  "fixed_tree": "79e7a6cde825f8eb67d9eafdfa5c7cb3276a6c69",
+  "test_blob": "c2f14001370b4708a8af0f09f070b83042139dce",
   "test_names": [
     "completion_chain_waits_for_real_worker_plan_readiness_before_execute",
     "completion_chain_dynamic_preparation_remains_live_before_head_execution"
   ],
   "base_tree": "bb6928d846b9670719188ba6897cfecf87831222",
   "patches": {
-    "test-only.patch": "9cc6e65c9477279692423b0bb10cba400cf063633cccd3bbbef6f24825b5c93d",
+    "test-only.patch": "f23520a458a9fd5ab1e4d3b1dba73c6873d38e68f0fc070ce1c13d78ce92061c",
     "product-only.patch": "b67d7deb8e8ee14ac7be3b26ac410faabc32d56e730cd8c7f83adac6a2ff9c58"
   }
 }
