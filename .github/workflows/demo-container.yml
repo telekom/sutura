@@ -25,9 +25,8 @@
 # answer/refusal smoke test still runs: it is `examples/demo-chatinterface/healthcheck.py`'s `HEALTHCHECK`, asking the
 # `sutura` server directly, and `xtask dev-up --only demo` blocks on it turning healthy.
 #
-# NOT REQUIRED ON A PULL REQUEST, and `devco/required-contexts` records why: the context this job
-# reports through `ci.yml` is prefixed by the caller's job, the same shape `cross-link.yml`'s legs
-# report, which the classification rule there cannot resolve as a required context either.
+# The caller-prefixed context is advisory on pull requests and required through
+# `ci-aggregate` in the merge queue. Release publication requires its own call.
 #
 # THE LIMIT, next to the claim. This proves the image answers and refuses ONCE, on first probe,
 # behind the readiness latch `examples/demo-chatinterface/healthcheck.py` already uses for its external checks - it is a

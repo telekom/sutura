@@ -66,11 +66,12 @@ use crate::workflows::sources::{Source, ci_sources, in_scope_dir, in_scope_text}
 /// prints exactly that sentence. `just causality "` is: a call that passes the base ref is a
 /// venue running the recipe, and `devenv.nix`'s `ship-check` is that venue.
 const NEEDLES: &[&str] = &[
-    "test-causality",
+    CAUSALITY_TASK,
     "nix run .#causality",
     "check-claim-mutation-kills",
     RECIPE_CALL,
 ];
+const CAUSALITY_TASK: &str = "test-causality";
 
 /// A call to the recipe that passes it a base ref, the one spelling that provisions the test tier.
 const RECIPE_CALL: &str = "just causality \"";
@@ -281,7 +282,15 @@ fn invocations(sources: &[Source]) -> Vec<Found<'_>> {
             if trimmed.starts_with('#') {
                 continue;
             }
-            if NEEDLES.iter().any(|needle| trimmed.contains(needle)) {
+            if NEEDLES.iter().any(|needle| {
+                trimmed.match_indices(needle).any(|(at, matched)| {
+                    // Receipt readers match the task's diagnostic prefix, which ends in a colon.
+                    *needle != CAUSALITY_TASK
+                        || trimmed
+                            .get(at.saturating_add(matched.len())..)
+                            .is_some_and(|suffix| !suffix.starts_with(':'))
+                })
+            }) {
                 out.push(Found {
                     label: &source.label,
                     number: index.saturating_add(1),
@@ -564,7 +573,10 @@ mod tests {
                 "flake.nix",
                 "# `nix run .#causality -- --since <ref>` - the red-before-green gate.\n            exec cargo run -q --profile ci -p xtask -- test-causality \"$@\"\n",
             ),
-            source("ci.yml", "          echo \"scoped per commit - see \\`just causality\\`\"\n"),
+            source(
+                "ci.yml",
+                "          echo \"scoped per commit - see \\`just causality\\`\"\n          grep -q '^xtask test-causality: no changed tests' \"$log\"\n",
+            ),
         ];
         let found = invocations(&sources);
         assert_eq!(

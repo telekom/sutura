@@ -4,7 +4,7 @@
 //! `ci` selected them must be red. The `cross` arm is here too: its legs report a context no ruleset
 //! lists, so a red one reaches a merge only through this shell.
 
-use super::aggregate_shell::run_aggregator;
+use super::aggregate_shell::{run_aggregator, run_qa};
 
 /// (result var, required var, the name the verdict must carry).
 type Moved = (&'static str, &'static str, &'static str);
@@ -17,15 +17,7 @@ const MOVED: [Moved; 3] = [
 
 /// A clean aggregate but for the one pair under test.
 fn with(result_var: &'static str, result: &'static str, required_var: &'static str, required: &'static str) -> (bool, String) {
-    run_aggregator(&[
-        ("CI_RESULT", "success"),
-        ("KC_RESULT", "skipped"),
-        ("KC_SELECTED", ""),
-        ("BQ_RESULT", "skipped"),
-        ("BQ_SELECTED", ""),
-        (result_var, result),
-        (required_var, required),
-    ])
+    run_aggregator(&[(result_var, result), (required_var, required)])
 }
 
 #[test]
@@ -34,7 +26,7 @@ fn a_required_moved_job_that_did_not_succeed_is_red() {
         for result in ["skipped", "failure", "cancelled"] {
             let (ok, text) = with(result_var, result, required_var, "true");
             assert!(!ok, "a selected `{name}` that reported {result} cannot pass: {text}");
-            assert!(text.contains(&format!("{name} must run")), "the leg must be named: {text}");
+            assert!(text.contains(&format!("{name} reported")), "the leg must be named: {text}");
         }
     }
 }
@@ -54,13 +46,13 @@ fn a_failed_unrequired_moved_job_is_red() {
 #[test]
 fn a_cross_leg_that_ran_and_is_not_green_is_red_and_a_skipped_one_is_not() {
     for result in ["failure", "cancelled"] {
-        let (ok, text) = with("CROSS_RESULT", result, "CAUS_REQUIRED", "false");
+        let (ok, text) = run_qa(&[("CROSS_RESULT", result)]);
         assert!(!ok, "a `cross` that reported {result} cannot pass: {text}");
-        assert!(text.contains("cross reported"), "the leg must be named: {text}");
+        assert!(text.contains("cross-link reported"), "the leg must be named: {text}");
     }
-    // The merge queue never runs `cross`, and the classification may skip it.
+    // A cross job unchanged or outside the selection may skip.
     for result in ["success", "skipped"] {
-        let (ok, text) = with("CROSS_RESULT", result, "CAUS_REQUIRED", "false");
+        let (ok, text) = run_qa(&[("CROSS_RESULT", result)]);
         assert!(ok, "a `cross` that reported {result} must aggregate green: {text}");
     }
 }

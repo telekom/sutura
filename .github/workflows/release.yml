@@ -17,7 +17,7 @@
 # at all - and the reason the allocator is replaced, since musl's own serialises every thread on
 # one lock (see `crates/sutura-cli/src/main.rs`).
 #
-# FOUR JOBS: `gates` once, `demo` and `build` (a matrix over the four targets) in parallel off
+# FOUR JOBS: `gates` once, `qa` and `build` (a matrix over the four targets) in parallel off
 # `gates`, `publish` last. This was a single job, on the argument that nothing then has to be
 # handed between jobs. The handover is real work - two more actions and four artifacts - and it
 # buys two things.
@@ -28,7 +28,7 @@
 # matrix buys latency and pays for it in CPU. For a release, where the thing waiting is a
 # person, that is the right trade - but it is a trade, not a free win.
 #
-# A token boundary, second, and that one is free. `gates`, `demo` and `build` hold nothing beyond
+# A token boundary, second, and that one is free. `gates`, `qa` and `build` hold nothing beyond
 # `contents: read`. `publish` is the only job that can write a release or push to GHCR, and it
 # compiles nothing: it loads image tarballs, pushes bytes, and renders text. It never executes
 # anything the build jobs produced, and it is the one job with no build cache attached.
@@ -171,15 +171,20 @@ jobs:
       # `zizmor:` and sits on the flagged line itself.
       - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # zizmor: ignore[cache-poisoning] v15 - not reachable, see above
 
+      - name: Fast release checks
+        run: |
+          set -eu
+          nix build .#checks.x86_64-linux.fmt -L
+          bash nix/format-text.sh check
+          bash nix/lint-workflows.sh
+          nix run .#classify
+          nix build .#checks.x86_64-linux.hygiene -L
+          nix build .#checks.x86_64-linux.clippy -L
+
       - name: Gates
         run: |
           set -eu
-          nix build .#checks.x86_64-linux.hygiene -L
-          nix build .#checks.x86_64-linux.fmt -L
-          nix build .#checks.x86_64-linux.clippy -L
           nix run .#deny
-          nix build .#checks.x86_64-linux.nextest -L
-          nix build .#checks.x86_64-linux.doctest -L
           nix build .#checks.x86_64-linux.one-binary -L
           # And which FEATURES the artefacts this release publishes carry, read out of their own
           # embedded dependency list. `nix/shipped.nix` decides it; this is what asserts it.
@@ -247,16 +252,12 @@ jobs:
   # runs on a host whose glibc is older than the builder's, and in an image that carries no
   # libc at all.
   #
-  # THE DEMO'S CONTAINER TIER, REQUIRED HERE. `ci.yml` calls the same file, `.github/workflows/
-  # demo-container.yml`, advisory - a red demo never blocks unrelated work there. It is `publish`'s
-  # own `needs:` below that makes this the release boundary: a tag whose assembled demo image
-  # cannot answer or refuse does not ship. See that file's header for what the job proves, what it
-  # does not (docker, not hermetic; no paid model), and the limit next to both claims.
-  demo:
+  # The release exercises every integration against the tag after the main ancestry check.
+  qa:
     needs: [gates]
-    # No `permissions:` block: a caller cannot grant a called workflow more than it holds, so
-    # omitting it leaves this workflow's own `contents: read`.
-    uses: $/.github/workflows/demo-container.yml
+    uses: $/.github/workflows/qa.yml
+    with:
+      run-all-checks: true
 
   # NO write permissions, which is the point of having this job separate at all. Everything
   # that compiles happens here, under a token that can read the repository and nothing else.
@@ -350,7 +351,7 @@ jobs:
   # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
   # `vN.N.N` tag may move `:latest`, which is what consumers pull.
   publish:
-    needs: [build, gates, demo]
+    needs: [build, gates, qa]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: rust-mcp-32core
     timeout-minutes: 60

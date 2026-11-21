@@ -1511,8 +1511,17 @@
             if [ "''${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
               exec bash nix/oracle-native-probe.sh
             fi
-            bash nix/oracle-native-probe.sh
-            bash nix/oracle-legacy-probe.sh
+            shard="''${SUTURA_ORACLE_ACCEPTANCE_SHARD:-all}"
+            case "$shard" in
+              all|native|legacy) ;;
+              *) printf 'Unknown Oracle acceptance shard: %s\n' "$shard" >&2; exit 2 ;;
+            esac
+            if [ "$shard" != legacy ]; then
+              bash nix/oracle-native-probe.sh
+            fi
+            if [ "$shard" != native ]; then
+              bash nix/oracle-legacy-probe.sh
+            fi
           '');
         };
 

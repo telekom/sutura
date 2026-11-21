@@ -1,9 +1,9 @@
-diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index dcdb80dcf..dd1ea60b6 100644
---- a/.github/workflows/ci.yml
-+++ b/.github/workflows/ci.yml
-@@ -2447,3 +2447,3 @@ jobs:
-           if [ "$OM_SELECTED" = "true" ]; then
--            if [ "$OM_RESULT" != "success" ]; then
-+            if [ "$OM_RESULT" = "success" ]; then
-               fail "ci-openmetadata-tier must run (catalog_openmetadata category selected) but reported '$OM_RESULT'"
+--- a/.github/workflows/qa.yml
++++ b/.github/workflows/qa.yml
+@@ -360,5 +360,5 @@
+             0) require "integration matrix" "$MATRIX_RESULT" false ;;
+             ''|*[!0-9]*) echo "QA: missing or invalid matrix count" >&2; exit 1 ;;
+-            *) require "integration matrix" "$MATRIX_RESULT" true ;;
++            *) require "integration matrix" "${MATRIX_RESULT/#success/failure}" true ;;
+           esac
+           require demo-container "$DEMO_RESULT" "$DEMO_REQUIRED"

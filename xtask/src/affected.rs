@@ -184,7 +184,7 @@ fn print_report(cats: &Categories) {
     }
 }
 
-fn derive(paths: &[String], base: Option<&str>) -> Categories {
+pub(super) fn derive(paths: &[String], base: Option<&str>) -> Categories {
     let root = Path::new(".");
     derive_from(paths, registry_categories(root), root, base)
 }
@@ -831,7 +831,7 @@ macro_rules! registered {
     /// job results. The release publication guard lives in that shell, so these tests extract and
     /// run the script the workflow actually ships.
     pub(super) mod shell_simulation {
-        use super::super::aggregate_shell::run_aggregator;
+        use super::super::aggregate_shell::{run_aggregator, run_matrix_suite, run_qa};
 
         #[test]
         fn a_release_commit_skip_of_ci_is_green() {
@@ -842,17 +842,13 @@ macro_rules! registered {
             // base) and is the documented, valid release shape now.
             let (ok, text) = run_aggregator(&[
                 ("CI_RESULT", "skipped"),
-                ("KC_RESULT", "skipped"),
-                ("KC_SELECTED", ""),
-                ("BQ_RESULT", "skipped"),
-                ("BQ_SELECTED", ""),
-                ("EVENT", "push"),
-                ("PR_HEAD", ""),
-                ("REPO", "telekom/sutura"),
+                ("QA_RESULT", "skipped"),
+                ("RELEASE_PUSH", "true"),
+                ("RELEASE_RESULT", "success"),
             ]);
             assert!(ok, "release-commit skip must aggregate GREEN, got: {text}");
             assert!(
-                text.contains("ok - every category-gated leg green"),
+                text.contains("ok - all required checks green"),
                 "the aggregator should affirm the belt: {text}"
             );
         }
@@ -861,11 +857,9 @@ macro_rules! registered {
         fn a_failed_release_workflow_keeps_main_red() {
             let (ok, text) = run_aggregator(&[
                 ("CI_RESULT", "skipped"),
+                ("QA_RESULT", "skipped"),
+                ("RELEASE_PUSH", "true"),
                 ("RELEASE_RESULT", "failure"),
-                ("KC_RESULT", "skipped"),
-                ("KC_SELECTED", ""),
-                ("BQ_RESULT", "skipped"),
-                ("BQ_SELECTED", ""),
             ]);
             assert!(!ok, "a failed release workflow must keep the aggregate RED: {text}");
             assert!(
@@ -878,19 +872,10 @@ macro_rules! registered {
         fn a_selected_but_skipped_keycloak_leg_is_still_red() {
             // The same #135 rule, over `keycloak-served-test`: it reads no secret, so it carries
             // no event exception at all - every event that selects `identity` must see it succeed.
-            let (ok, text) = run_aggregator(&[
-                ("CI_RESULT", "success"),
-                ("KC_RESULT", "skipped"),
-                ("KC_SELECTED", "true"),
-                ("BQ_RESULT", "skipped"),
-                ("BQ_SELECTED", ""),
-                ("EVENT", "push"),
-                ("PR_HEAD", ""),
-                ("REPO", "telekom/sutura"),
-            ]);
+            let (ok, text) = run_matrix_suite("keycloak-served", "skipped", true);
             assert!(!ok, "selected-but-skipped must stay RED, got: {text}");
             assert!(
-                text.contains("keycloak-served-test must run"),
+                text.contains("integration matrix must run"),
                 "the verdict should name the required-but-skipped leg: {text}"
             );
         }
@@ -903,19 +888,10 @@ macro_rules! registered {
             // `data_source_bigquery` had no leg to be held to. This cell is what makes the new
             // arm of the aggregator mean something: it reads no secret either, so every event
             // that selects the category must see it succeed.
-            let (ok, text) = run_aggregator(&[
-                ("CI_RESULT", "success"),
-                ("KC_RESULT", "success"),
-                ("KC_SELECTED", "true"),
-                ("BQ_RESULT", "skipped"),
-                ("BQ_SELECTED", "true"),
-                ("EVENT", "push"),
-                ("PR_HEAD", ""),
-                ("REPO", "telekom/sutura"),
-            ]);
+            let (ok, text) = run_matrix_suite("bigquery-driver", "skipped", true);
             assert!(!ok, "selected-but-skipped must stay RED, got: {text}");
             assert!(
-                text.contains("bigquery-driver-check must run"),
+                text.contains("integration matrix must run"),
                 "the verdict should name the required-but-skipped leg: {text}"
             );
         }
@@ -927,49 +903,23 @@ macro_rules! registered {
             // asked for, and the aggregator may not wave it through. Without this the `else` arm
             // of the new branch could return green for every value and the cell above would not
             // see it.
-            let (ok, text) = run_aggregator(&[
-                ("CI_RESULT", "success"),
-                ("KC_RESULT", "success"),
-                ("KC_SELECTED", "true"),
-                ("BQ_RESULT", "failure"),
-                ("BQ_SELECTED", ""),
-                ("EVENT", "push"),
-                ("PR_HEAD", ""),
-                ("REPO", "telekom/sutura"),
-            ]);
+            let (ok, text) = run_matrix_suite("bigquery-driver", "failure", false);
             assert!(!ok, "an unselected leg that FAILED must stay RED, got: {text}");
             assert!(
-                text.contains("bigquery-driver-check reported"),
+                text.contains("integration matrix reported"),
                 "the verdict should name the leg and what it reported: {text}"
             );
         }
 
         #[test]
         fn a_clean_run_is_green() {
-            let (ok, text) = run_aggregator(&[
-                ("CI_RESULT", "success"),
-                ("KC_RESULT", "success"),
-                ("KC_SELECTED", "true"),
-                ("BQ_RESULT", "success"),
-                ("BQ_SELECTED", "true"),
-                ("EVENT", "push"),
-                ("PR_HEAD", ""),
-                ("REPO", "telekom/sutura"),
-            ]);
+            let (ok, text) = run_matrix_suite("keycloak-served", "success", true);
             assert!(ok, "a clean run must aggregate GREEN, got: {text}");
         }
 
         #[test]
         fn a_required_but_skipped_datahub_adbc_leg_is_red() {
-            let (ok, text) = run_aggregator(&[
-                ("CI_RESULT", "success"),
-                ("KC_RESULT", "success"),
-                ("KC_SELECTED", "true"),
-                ("BQ_RESULT", "success"),
-                ("BQ_SELECTED", "true"),
-                ("E2E_RESULT", "skipped"),
-                ("E2E_REQUIRED", "true"),
-            ]);
+            let (ok, text) = run_qa(&[("DATAHUB_REQUIRED", "true"), ("DATAHUB_RESULT", "skipped")]);
             assert!(!ok, "a required hosted leg cannot skip: {text}");
             assert!(
                 text.contains("e2e-datahub-adbc must run"),
@@ -979,15 +929,7 @@ macro_rules! registered {
 
         #[test]
         fn a_failed_unrequired_datahub_adbc_leg_is_red() {
-            let (ok, text) = run_aggregator(&[
-                ("CI_RESULT", "success"),
-                ("KC_RESULT", "success"),
-                ("KC_SELECTED", "true"),
-                ("BQ_RESULT", "success"),
-                ("BQ_SELECTED", "true"),
-                ("E2E_RESULT", "failure"),
-                ("E2E_REQUIRED", "false"),
-            ]);
+            let (ok, text) = run_qa(&[("DATAHUB_REQUIRED", "false"), ("DATAHUB_RESULT", "failure")]);
             assert!(!ok, "a failed hosted leg cannot be waived: {text}");
             assert!(
                 text.contains("e2e-datahub-adbc reported"),
