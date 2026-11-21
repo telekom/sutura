@@ -8340,8 +8340,8 @@ use sutura_domain::warehouse::ParamValue;</p>
 </span><span id="__span-452-489"><a id="__codelineno-452-489" name="__codelineno-452-489" href="#__codelineno-452-489"></a>Whether a source part reads a column under a text policy, and where that policy runs.
 </span><span id="__span-452-490"><a id="__codelineno-452-490" name="__codelineno-452-490" href="#__codelineno-452-490"></a>
 </span><span id="__span-452-491"><a id="__codelineno-452-491" name="__codelineno-452-491" href="#__codelineno-452-491"></a>Decides what a leg that ran past the deadline means: one that never read masked text is a slow
-</span><span id="__span-452-492"><a id="__codelineno-452-492" name="__codelineno-452-492" href="#__codelineno-452-492"></a>statement, and one whose source applies the policy itself (`Self::AtSource`) is a search a filter
-</span><span id="__span-452-493"><a id="__codelineno-452-493" name="__codelineno-452-493" href="#__codelineno-452-493"></a>on another column narrows. **The limit:** the engine reads it off the planned scans' projected
+</span><span id="__span-452-492"><a id="__codelineno-452-492" name="__codelineno-452-492" href="#__codelineno-452-492"></a>statement, and a filter on another column can narrow masking at its source (`Self::AtSource`)
+</span><span id="__span-452-493"><a id="__codelineno-452-493" name="__codelineno-452-493" href="#__codelineno-452-493"></a>or the rows entering a local policy at Cube (`Self::Locally`). **The limit:** the engine reads it off the planned scans' projected
 </span><span id="__span-452-494"><a id="__codelineno-452-494" name="__codelineno-452-494" href="#__codelineno-452-494"></a>columns, so a column the planner pruned is not read, and a part that reads a policy column only to
 </span><span id="__span-452-495"><a id="__codelineno-452-495" name="__codelineno-452-495" href="#__codelineno-452-495"></a>project it is read all the same.
 </span><span id="__span-452-496"><a id="__codelineno-452-496" name="__codelineno-452-496" href="#__codelineno-452-496"></a>
@@ -9571,8 +9571,8 @@ comparison for.</p>
 <h4 id="use-policyread"><code>use PolicyRead</code><a class="headerlink" href="#use-policyread" title="Permanent link">&para;</a></h4>
 <p>Whether a source part reads a column under a text policy, and where that policy runs.</p>
 <p>Decides what a leg that ran past the deadline means: one that never read masked text is a slow
-statement, and one whose source applies the policy itself (<code>Self::AtSource</code>) is a search a filter
-on another column narrows. <strong>The limit:</strong> the engine reads it off the planned scans' projected
+statement, and a filter on another column can narrow masking at its source (<code>Self::AtSource</code>)
+or the rows entering a local policy at Cube (<code>Self::Locally</code>). <strong>The limit:</strong> the engine reads it off the planned scans' projected
 columns, so a column the planner pruned is not read, and a part that reads a policy column only to
 project it is read all the same.</p>
 <h4 id="use-slotsheld"><code>use SlotsHeld</code><a class="headerlink" href="#use-slotsheld" title="Permanent link">&para;</a></h4>
@@ -10098,8 +10098,8 @@ loudly rather than passing over a fabricated number.</p>
 <h5 id="use-policyread_1"><code>use PolicyRead</code><a class="headerlink" href="#use-policyread_1" title="Permanent link">&para;</a></h5>
 <p>Whether a source part reads a column under a text policy, and where that policy runs.</p>
 <p>Decides what a leg that ran past the deadline means: one that never read masked text is a slow
-statement, and one whose source applies the policy itself (<code>Self::AtSource</code>) is a search a filter
-on another column narrows. <strong>The limit:</strong> the engine reads it off the planned scans' projected
+statement, and a filter on another column can narrow masking at its source (<code>Self::AtSource</code>)
+or the rows entering a local policy at Cube (<code>Self::Locally</code>). <strong>The limit:</strong> the engine reads it off the planned scans' projected
 columns, so a column the planner pruned is not read, and a part that reads a policy column only to
 project it is read all the same.</p>
 <h5 id="use-statementanswer_1"><code>use StatementAnswer</code><a class="headerlink" href="#use-statementanswer_1" title="Permanent link">&para;</a></h5>
@@ -12200,16 +12200,14 @@ those. It names deployment bounds, caller-scoped planning categories and safe so
 - <code>PlanSpansMoreThanOneSource</code> - The statement reads tables of more than one source, and <code>tools.run_sql.federation_allowed</code> is off.</p>
 <p>Refused before any leg exists, so nothing reached a data system. Carries no source name: the
   caller already holds its own tool's source list.
-- <code>PolicySearchNeedsNarrowing</code> - A statement part that reads a column under a text policy ran past the request's deadline at a source that applies the policy itself.</p>
-<p><strong>A backstop, not a fix, and the limit stated with the claim.</strong> The policy masks every row it
-  reads before the statement's own predicate sees it, so a search with no other filter reads the
-  whole column, and a filter on a column without a policy narrows it. This refusal names that
-  cause where a generic timeout would not; it does not make the statement finish, and a statement
-  over a policy column that is not a search is named the same way. <strong>Not given at Cube:</strong> its
-  protected tables are read whole and filtered here, so the remedy cannot help, and a timeout
-  there stays <code>Self::DeadlineExceeded</code> until filters reach Cube (<code>docs/raw-text-search.md</code>).
-  <strong>What it discloses:</strong> that a column the caller can already read carries a text policy, and
-  nothing about the policy.</p>
+- <code>PolicySearchNeedsNarrowing</code> - A statement part reading a text-policy column exceeded its deadline, or its Cube source answer exceeded a size or row bound before local masking and filtering.</p>
+<p>A supported filter on a column without a policy narrows the rows needing masking. This is a
+  backstop, not acceleration: it preserves the request's deadline and source bounds. Cube only
+  accepts the policy-free comparison shapes in <code>docs/raw-text-search.md</code>; other predicates
+  stay local. A projection over a policy column is classified the same way as a search.
+  Planning, pre-leg and local-part deadlines retain <code>Self::DeadlineExceeded</code>.
+  <strong>What it discloses:</strong> a column the caller can already read carries a text policy, and
+  nothing about that policy.</p>
 <h4 id="methods_104">Methods<a class="headerlink" href="#methods_104" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-706-1"><a id="__codelineno-706-1" name="__codelineno-706-1" href="#__codelineno-706-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>

@@ -672,10 +672,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#a-statement-over-a-policy-column-that-runs-out-of-time" class="md-nav__link">
+  <a href="#a-statement-over-a-policy-column-that-reaches-a-source-bound" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A statement over a policy column that runs out of time
+        A statement over a policy column that reaches a source bound
       
     </span>
   </a>
@@ -2653,10 +2653,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#a-statement-over-a-policy-column-that-runs-out-of-time" class="md-nav__link">
+  <a href="#a-statement-over-a-policy-column-that-reaches-a-source-bound" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A statement over a policy column that runs out of time
+        A statement over a policy column that reaches a source bound
       
     </span>
   </a>
@@ -2734,15 +2734,20 @@ alias scopes retain redacted-only execution. Each ordered replacement must be no
 contain no full term, and start and end with characters absent from that term. These barriers
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.</p>
-<p>The current eligible comparison arms are DataFusion's binary <code>LIKE</code>, ClickHouse's <code>LIKE</code> for admitted ASCII-alphanumeric needles, Oracle native CLOB/NCLOB
-<code>LIKE</code> with an optional <code>UPPER</code> around that column, and PostgreSQL <code>LIKE</code> on a column pinned
-binary, read from the dictionary or authored in a local catalog document. Cube's local policy execution is not an eligible arm
-and keeps redacted-only execution. Oracle uses its binary character-set uppercase mapping, not
-<code>NLS_UPPER</code>. At execution time only a binary <code>NLS_SORT</code> permits raw row rejection; every other
-value, including NULL, retains all rows. No session setting is changed. Non-LOB Oracle columns and
-other source dialects retain redacted-only execution because their pinned schemas do not establish
-binary comparison semantics. This is a generic policy with conservative engine eligibility, not
-universal acceleration.</p>
+<p>The eligible comparison arms are DataFusion's binary <code>LIKE</code>, ClickHouse's <code>LIKE</code> for the
+admitted ASCII-alphanumeric needle, Oracle native CLOB/NCLOB <code>LIKE</code> with an optional <code>UPPER</code>, and
+PostgreSQL, DuckDB and BigQuery text columns pinned <code>binary</code>. Cube's local policy execution adds
+no raw condition on a policy column. Oracle uses its binary character-set uppercase mapping, not
+<code>NLS_UPPER</code>; only a binary <code>NLS_SORT</code> permits raw row rejection, and any other or NULL value retains
+all rows. No session setting is changed. Non-LOB Oracle columns retain redacted-only execution.
+Eligibility does not establish a speedup.</p>
+<p>DuckDB's <code>LIKE</code> consults a column's <code>NOCASE</code> or <code>NOACCENT</code> collation, and <code>REGEXP_REPLACE</code> keeps it
+(measured on 2.0.0; an ICU locale, <code>NFC</code> and <code>default_collation</code> did not change <code>LIKE</code>). Its catalog
+views report a collated column as plain <code>VARCHAR</code>, so only an authored <code>collation: binary</code> admits
+it. A named, unreadable or missing fact falls back. Nothing checks that authored pin at run time.
+For DuckDB alone the replacement barrier folds ASCII case: a case-insensitive comparison cannot
+make an admitted replacement create a match. The native cell covers an incorrect binary pin over
+a <code>NOCASE</code> column; other collations and versions remain outside that measurement.</p>
 <p>PostgreSQL binds a collation to each column, so the pinned column decides, and an unknown or named
 collation falls back. Binary means the database default (always deterministic), <code>pg_catalog."C"</code> or
 <code>pg_catalog."POSIX"</code>, or a <code>binary</code> an author wrote in a local catalog document. A wrong authored
@@ -2766,8 +2771,8 @@ true. A <code>char(n)</code> column is eligible: the view reads it as <code>text
 condition is always <code>'%needle%'</code> over an ASCII alphanumeric needle, which padding spaces can
 neither create nor hide.</p>
 <p>Pinned text columns carry a collation fact, <code>sutura:collation</code> in the schema's field metadata and
-under the schema digest, so a change re-pins. <code>binary</code> means byte-for-byte comparison; a named</p>
-<p>collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
+under the schema digest, so a change re-pins. <code>binary</code> means byte-for-byte comparison; a named
+collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
 only on a column whose declared type the dialect reads as text, never on one that fell back to
 text. DataFusion and ClickHouse have no per-column collation and pin <code>binary</code>, over any collation a
 catalog authors for them. A native Postgres dictionary records the column's collation for the
@@ -2778,8 +2783,8 @@ binary, including a user schema's own <code>C</code>. A <code>citext</code> colu
 Markdown column may declare <code>collation: binary</code> or a name. That declaration is an authored claim,
 trusted as far as its author is. Two models over one physical column that pin different known
 collations are refused at pinning, naming the column; an unknown one contradicts nothing. Oracle
-records nothing here, because its check is the run-time <code>NLS_SORT</code> above. No other dialect reads
-the fact yet; recording it enables no engine.</p>
+records nothing here, because its check is the run-time <code>NLS_SORT</code> above. PostgreSQL, DuckDB,
+BigQuery and ClickHouse use the fact to decide admission.</p>
 <p>What <code>binary</code> does not cover. It holds for <code>LIKE</code> and equality, not for ordering under a locale, and
 a type can still change equality: Postgres <code>bpchar</code> ignores trailing spaces in <code>=</code>. A
 <code>postgres_fdw</code> foreign table's <code>default</code> is the remote server's default. ClickHouse tables on the
@@ -2791,15 +2796,30 @@ wildcard, no escape): a case- or accent-insensitive remote returns more rows, ne
 the exact redacted predicate still decides. Before PostgreSQL 18 a nondeterministic collation
 makes the remote refuse <code>LIKE</code>, which costs availability, not secrecy. This is read from
 ClickHouse's behaviour, not measured here.
-DuckDB's global <code>default_collation</code> setting can contradict an authored <code>binary</code>. Adding the fact
-moves the schema digest of every schema that now carries one, once, at upgrade: any with a
+DuckDB's global <code>default_collation</code> changes <code>=</code> and <code>ILIKE</code>, but not <code>LIKE</code> (measured on 2.0.0);
+a raw statement cannot set it. Adding the fact moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.</p>
+<p>BigQuery admits a <code>STRING</code> column only where its Markdown catalog declares <code>collation: binary</code>.
+No BigQuery dictionary reader supplies this fact; a missing or named collation falls back, and
+nothing checks the author's declaration at run time. Dataset or table defaults can therefore
+contradict the pin. The native million-row venue observed <code>LIKE</code> matching seven binary rows and
+eight rows under stored <code>und:ci</code>. Redaction-only and redaction-plus-clipping searches over that
+collated column both ended in a collation refusal, with the opt-in off and on. An unrecorded binary
+column returned identical rows without an added raw condition. A deliberately mislabelled binary
+pin added the raw condition and still received a collation refusal in this fixture; that observation
+is not a guarantee for another expression or collation. The raw condition uses a backtick-quoted,
+qualified column: a double-quoted token is a string literal in BigQuery. Timings are wall-clock
+measurements, not slot statistics or a claim of lower billed bytes.</p>
+<p>DataFusion and ClickHouse have no per-column collation. Production pinning sets <code>binary</code> over any
+authored collation, so neither engine can supply a native collated-column fallback case. ClickHouse
+still refuses named or unknown facts in a hand-built statement schema; the capability cell holds
+that guard. DataFusion needs no column fact because its comparison is fixed by the engine.</p>
 <p>ClickHouse has no column collation and its <code>LIKE</code> is case-sensitive. ClickHouse documents <code>LIKE</code>
 matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted
 needle shape only: ASCII alphanumeric, no <code>_</code>, no escape, which makes the pattern a plain substring
-search. A column of its</p>
-<p>pinned schema carries the collation fact <code>binary</code> and a column pinned anything else (unknown or a
+search. A column of its pinned schema carries the collation fact <code>binary</code> and a column pinned
+anything else (unknown or a
 named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
 test reads the stored column qualified by its table, in the form <code>`table`.`column`</code>: ClickHouse
 resolves a bare name to the projection alias of the same name unless <code>prefer_column_name_to_alias</code>
@@ -2819,24 +2839,22 @@ does not establish a speedup. Native measurements must report actual row count, 
 baseline query time and opted-in query time separately, along with exact result equality and
 hidden-secret probes. They describe their engine version and fixture, not a production latency
 guarantee.</p>
-<h2 id="a-statement-over-a-policy-column-that-runs-out-of-time">A statement over a policy column that runs out of time<a class="headerlink" href="#a-statement-over-a-policy-column-that-runs-out-of-time" title="Permanent link">&para;</a></h2>
+<h2 id="a-statement-over-a-policy-column-that-reaches-a-source-bound">A statement over a policy column that reaches a source bound<a class="headerlink" href="#a-statement-over-a-policy-column-that-reaches-a-source-bound" title="Permanent link">&para;</a></h2>
 <p>A text policy masks every row of the column before the statement's own predicate sees it, so a
 search over a policy column with no other filter reads the whole column. Where such a statement
-runs past the request's deadline at a source that applies the policy itself, the refusal is
-<code>policy_search_needs_narrowing</code> (<code>422</code>), not a generic <code>deadline_exceeded</code>. Add a filter on a column
-without a policy so that fewer rows reach the masking.</p>
-<p>It is named only when a part of the statement reads a column under a text policy and the source
-applies the policy. The reason is given where the source applies the policy; at Cube it is given once
-filters reach Cube, which a separate change adds.</p>
+runs past the request's deadline at its source, or a Cube answer exceeds a size or row bound before
+local masking and filtering, the refusal is <code>policy_search_needs_narrowing</code> (<code>422</code>). Add a
+supported filter on a column without a policy so that fewer rows reach the masking.</p>
+<p>It is named only when the affected source part reads a column under a text policy. At Cube the
+policy runs locally, and supported filters on columns without a policy narrow the source answer
+before local masking. The same source bounds and deadline still apply.</p>
 <p>What this does not do:</p>
 <ul>
 <li>It is a backstop, not a fix. The statement still does not finish, and the policy still masks
   every row it reads. The refusal only names the cause and the remedy.</li>
-<li>It is not given at Cube. A Cube source holding a protected table is sent only bare scans, and the
-  policy and every predicate run in this deployment over the rows Cube answers. A filter on a column
-  without a policy is not sent to Cube, so the remedy cannot help there. A timeout stays
-  <code>deadline_exceeded</code>, and a protected Cube table with more than 10,000 rows cannot be searched: that
-  size refusal stays <code>result_too_large</code> or <code>too_many_rows</code>.</li>
+<li>At Cube, only the supported policy-free comparisons below narrow its answer. A filter that keeps
+  too many rows, or only searches the protected text, still reaches the same bound. Other sources'
+  size refusals keep <code>result_too_large</code> or <code>too_many_rows</code>: their policy already runs at the source.</li>
 <li>A timeout in the local part of the plan stays <code>deadline_exceeded</code>, whether or not a policy column
   was read. So does a timeout of a statement that reads no policy column, a budget already spent
   before a part runs, and a timeout while planning.</li>
@@ -2867,9 +2885,14 @@ compares text by its warehouse's collation and holds numbers at their own precis
 answer fewer rows than the engine would keep. A conjunct that raises at Cube on a row the local plan
 would not reach changes which statements fail, so none that can raise is sent.</p>
 <p>Each sent conjunct also stays in the local filter, above the policy, so a Cube that answers more
-rows than the conjunct selects is corrected. A Cube that answers fewer is not, and nothing here
-proves that none does: the listed forms are chosen so that equal text is equal under any collation,
-and the proof of that is by reading, not by a Cube run. The 10,000-row cap, the memory budget and
+rows than the conjunct selects is corrected. A Cube that answers fewer is not: the listed forms
+are chosen so that equal text is equal under any collation. The native Cube cell checks equality
+over a million-row ClickHouse-backed fixture, including duplicate text, NULL and hidden terms;
+it does not establish comparison behaviour for every warehouse Cube can serve. This venue exercises
+the transport and planner. Named-refusal classification is covered separately by the application
+cell with the real planner and Cube adapter over a scripted transport; it is not a native served
+caller proof. The planner keeps policy-column predicates local, including when
+their pins name collations. The 10,000-row cap, the memory budget and
 the deadline still apply to what comes back, so a filter that leaves more than 10,000 rows, or a
 search whose only condition reads the policy column, still cannot answer.</p>
 
