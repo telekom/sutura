@@ -52,6 +52,8 @@ mod bigquery_collation;
 mod collation;
 #[path = "text_prefilter/cube.rs"]
 mod cube_native;
+#[path = "text_prefilter/declared_text.rs"]
+mod declared_text;
 
 // The causality base run restores the domain before this test file is compiled. Keep the fixture
 // helper buildable there; branch-provided inherent methods take precedence on the real run.
@@ -760,6 +762,7 @@ macro_rules! system {
             #[test]
             fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
                 super::native::<$warehouse>(super::Coverage::All);
+                super::declared_text::native::<$warehouse>();
             }
 
             #[test]
@@ -827,6 +830,7 @@ macro_rules! system {
             #[test]
             fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
                 super::native::<$warehouse>(super::Coverage::Profiles);
+                super::declared_text::native::<$warehouse>();
             }
 
             #[test]
@@ -845,6 +849,7 @@ macro_rules! system {
             #[test]
             fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
                 super::native::<$warehouse>(super::Coverage::All);
+                super::declared_text::native::<$warehouse>();
             }
         }
     };

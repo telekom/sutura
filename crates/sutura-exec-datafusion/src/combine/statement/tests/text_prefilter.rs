@@ -521,6 +521,90 @@ fn a_sibling_conjunct_that_can_raise_keeps_the_redacted_only_path() {
 }
 
 #[test]
+fn declared_scalar_text_siblings_allow_the_raw_search_without_weakening_unknown_types() {
+    for dialect in [
+        TypeDialect::DataFusion,
+        TypeDialect::DuckDb,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let source = || {
+            let original = table(dialect, &["[masked]"], true, dialect == TypeDialect::Oracle, true);
+            let mut fields = original.schema().fields().to_vec();
+            fields.extend(["env", "is_deleted"].map(|name| {
+                Arc::new(
+                    Field::new(name, DataType::Utf8, true)
+                        .with_metadata(HashMap::from([(String::from("sutura:scalar_text"), String::from("true"))])),
+                )
+            }));
+            collated(
+                &StatementTable::new(
+                    original.source().clone(),
+                    original.table().clone(),
+                    dialect,
+                    Arc::new(Schema::new(fields)),
+                ),
+                Some("binary"),
+            )
+        };
+        let search = if dialect == TypeDialect::Oracle {
+            "UPPER(\"BODY\")"
+        } else {
+            "\"BODY\""
+        };
+        let sql = |sibling: &str| format!("SELECT \"BODY\" FROM \"notes\" WHERE {sibling} AND {search} LIKE '%TERM%'");
+        for sibling in [
+            "env = 'E' AND is_deleted = 'N'",
+            "env IN ('E', 'W') AND is_deleted <> 'Y'",
+            "env BETWEEN 'A' AND 'Z' AND is_deleted IS NOT NULL",
+        ] {
+            assert!(raw_predicates(&sql(sibling), source())[0].is_some(), "{dialect:?} {sibling}");
+        }
+        for sibling in ["label = 'E'", "amount = '1'", "doc = 'E'", "CAST(env AS INT) = 1"] {
+            assert!(
+                raw_predicates(&sql(sibling), source()).iter().all(Option::is_none),
+                "{dialect:?} {sibling}"
+            );
+        }
+        // Even a known collation is not declared scalar-text provenance.
+        let forged = postgres_collated(&source(), &[("label", "binary")]);
+        assert!(raw_predicates(&sql("label = 'E'"), forged).iter().all(Option::is_none));
+        for marker in [None, Some("false"), Some("TRUE"), Some("")] {
+            let original = source();
+            let fields = original
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| {
+                    let mut field = field.as_ref().clone();
+                    if field.name() == "env" {
+                        field.metadata_mut().remove("sutura:scalar_text");
+                        if let Some(marker) = marker {
+                            field
+                                .metadata_mut()
+                                .insert(String::from("sutura:scalar_text"), String::from(marker));
+                        }
+                    }
+                    field
+                })
+                .collect::<Vec<_>>();
+            let unproven = StatementTable::new(
+                original.source().clone(),
+                original.table().clone(),
+                dialect,
+                Arc::new(Schema::new(fields)),
+            );
+            assert!(
+                raw_predicates(&sql("env = 'E'"), unproven).iter().all(Option::is_none),
+                "{dialect:?} {marker:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn the_cube_local_policy_never_adds_a_raw_condition() {
     let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     let acknowledged = || table(TypeDialect::Cube, &["[masked]"], true, false, true);

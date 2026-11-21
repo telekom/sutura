@@ -7,7 +7,7 @@ use crate::catalog::{Collation, Column, Definitions, Description, Model};
 use crate::model::{ColumnName, ModelName, QualifiedTable, SourceName, TableName};
 use crate::pinned::NotValidated;
 
-/// The digest the base tree computes for [`baseline`], before any collation fact existed.
+/// The digest of [`baseline`] before either declared scalar-text or collation provenance existed.
 const BASE_DIGEST: &str = "0097b110d8842cef7c23c4e4eddea59b3f9632dd25ed21b4b15a37657cbcbd9d";
 
 fn column(name: &str, declared: &str) -> Column {
@@ -62,12 +62,17 @@ fn baseline(body: Collation) -> PinnedSchemas {
 }
 
 #[test]
-fn a_schema_with_no_collation_fact_hashes_as_the_base_tree_did_and_each_fact_moves_it() {
-    assert_eq!(baseline(Collation::Unknown).digest().as_str(), BASE_DIGEST);
+fn declared_scalar_text_and_each_collation_fact_move_the_schema_digest() {
+    let unknown = baseline(Collation::Unknown);
+    assert_ne!(
+        unknown.digest().as_str(),
+        BASE_DIGEST,
+        "declared scalar text re-pins even without a collation"
+    );
     let binary = baseline(Collation::Binary);
     let folded = baseline(Collation::named("und:ci"));
     let other = baseline(Collation::named("und:ai"));
-    let digests = [binary.digest(), folded.digest(), other.digest()];
+    let digests = [unknown.digest(), binary.digest(), folded.digest(), other.digest()];
     for (index, left) in digests.iter().enumerate() {
         assert_ne!(left.as_str(), BASE_DIGEST, "a recorded collation re-pins");
         for right in &digests[index + 1..] {

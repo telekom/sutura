@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use parking_lot::MutexGuard;
 
 use super::FixtureError;
-use crate::{DriverError, OracleWarehouse};
+use crate::{DriverError, OracleError, OracleWarehouse};
 
 /// `ORA-01466`: the table's definition changed after the snapshot began.
 const DEFINITION_CHANGED: usize = 1466;
@@ -27,15 +27,29 @@ pub(crate) fn lock(warehouse: &OracleWarehouse) -> ExecutionGuard<'_> {
     }
 }
 
-/// Waits, bounded, until a `SET TRANSACTION READ ONLY` can read `table` on the connection `guard`
-/// holds. For a short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it
-/// would a split read; any other refusal, and `ORA-01466` at the deadline, is returned with its cause.
+/// Probes `table` through a fresh shared-user session per attempt, while `guard` holds the fixture
+/// lock. Only `ORA-01466` retries, for up to 60 seconds; every other refusal is returned with its
+/// cause. Connect, handshake and cleanup are not bounded by that retry deadline.
 pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result<(), FixtureError> {
     let refused = |cause: oracledb::Error| statement_refused(table, DriverError::from(cause));
-    let connection = &guard.warehouse.connection;
+    let config = guard
+        .warehouse
+        .raw_config
+        .as_ref()
+        .ok_or(FixtureError::SnapshotNeedsSharedUser)?;
     let probe = format!(r#"SELECT COUNT(*) FROM "{table}""#);
     let deadline = Instant::now() + DEADLINE;
     loop {
+        crate::oracle_trace::refuse()
+            .map_err(OracleError::from)
+            .map_err(FixtureError::SnapshotConnect)?;
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "oracle_trace::refuse was asked immediately before this probe dial"
+        )]
+        let connection = oracledb::connect(config.clone())
+            .map_err(crate::connect_err)
+            .map_err(FixtureError::SnapshotConnect)?;
         connection.rollback().map_err(refused)?;
         connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(refused)?;
         match connection.query_row(&probe, &[]) {
@@ -45,6 +59,7 @@ pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result
                 if !cause.has_ora_code(DEFINITION_CHANGED) || Instant::now() >= deadline {
                     return Err(statement_refused(table, cause));
                 }
+                drop(connection);
                 std::thread::sleep(RETRY);
             }
         }
