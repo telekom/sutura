@@ -1,0 +1,215 @@
+diff --git a/vendor/datafusion-distributed/src/completion_chain_tests.rs b/vendor/datafusion-distributed/src/completion_chain_tests.rs
+index 0b6d8e1f2..bf4950c0e 100644
+--- a/vendor/datafusion-distributed/src/completion_chain_tests.rs
++++ b/vendor/datafusion-distributed/src/completion_chain_tests.rs
+@@ -11,13 +11,13 @@ use datafusion::common::{DataFusionError, Result};
+ use datafusion::datasource::memory::MemorySourceConfig;
+ use datafusion::execution::{SessionStateBuilder, TaskContext};
+ use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
+-use datafusion::physical_plan::{ExecutionPlan, SendableRecordBatchStream};
++use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, SendableRecordBatchStream};
+ use datafusion::prelude::{SessionConfig, SessionContext};
+ use futures::stream::BoxStream;
+ use futures::{Stream, StreamExt, TryStreamExt};
+ use http::HeaderMap;
+ use std::sync::Arc;
+-use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+ use std::time::Duration;
+ use tokio::sync::Notify;
+ use tokio::time::Instant;
+@@ -29,6 +29,42 @@ struct Channel {
+     worker_timeout: Option<Duration>,
+     cuts: Arc<AtomicUsize>,
+     preparations: Arc<AtomicUsize>,
++    preparation_gate: Option<Arc<PreparationGate>>,
++}
++
++#[derive(Debug, Default)]
++struct PreparationGate {
++    entered: Notify,
++    release: Notify,
++    released: AtomicBool,
++    executions: AtomicUsize,
++    head_executions: AtomicUsize,
++}
++
++#[derive(Debug)]
++struct ObservedHead {
++    inner: Arc<dyn ExecutionPlan>,
++    gate: Arc<PreparationGate>,
++}
++
++impl DisplayAs for ObservedHead {
++    fn fmt_as(&self, format: DisplayFormatType, output: &mut std::fmt::Formatter) -> std::fmt::Result {
++        self.inner.fmt_as(format, output)
++    }
++}
++
++impl ExecutionPlan for ObservedHead {
++    fn name(&self) -> &str { "ObservedHead" }
++    fn properties(&self) -> &Arc<PlanProperties> { self.inner.properties() }
++    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> { vec![&self.inner] }
++    fn with_new_children(self: Arc<Self>, children: Vec<Arc<dyn ExecutionPlan>>) -> Result<Arc<dyn ExecutionPlan>> {
++        assert_eq!(children.len(), 1);
++        Ok(Arc::new(Self { inner: Arc::clone(&children[0]), gate: Arc::clone(&self.gate) }))
++    }
++    fn execute(&self, partition: usize, context: Arc<TaskContext>) -> Result<SendableRecordBatchStream> {
++        self.gate.head_executions.fetch_add(1, Ordering::SeqCst);
++        self.inner.execute(partition, context)
++    }
+ }
+
+ #[async_trait]
+@@ -41,6 +77,10 @@ impl WorkerChannel for Channel {
+         metrics: ExecutionPlanMetricsSet,
+         context: &Arc<TaskContext>,
+     ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
++        if let Some(gate) = &self.preparation_gate {
++            gate.entered.notify_one();
++            gate.release.notified().await;
++        }
+         if let (Some(request), Some(timeout)) = (&mut request.completion, self.worker_timeout) {
+             request.timeout = timeout;
+         }
+@@ -81,6 +121,12 @@ impl WorkerChannel for Channel {
+         metrics: ExecutionPlanMetricsSet,
+         context: &Arc<TaskContext>,
+     ) -> Result<Vec<BoxStream<'static, Result<RecordBatch>>>> {
++        if let Some(gate) = &self.preparation_gate {
++            gate.executions.fetch_add(1, Ordering::SeqCst);
++            if !gate.released.load(Ordering::SeqCst) || self.preparations.load(Ordering::SeqCst) == 0 {
++                return Err(datafusion::common::exec_datafusion_err!("ExecuteTask entered before plan readiness"));
++            }
++        }
+         self.inner.execute_task(headers, request, metrics, context).await
+     }
+
+@@ -95,6 +141,7 @@ struct Resolver {
+     worker_timeout: Option<Duration>,
+     cuts: Arc<AtomicUsize>,
+     preparations: Arc<AtomicUsize>,
++    preparation_gate: Option<Arc<PreparationGate>>,
+ }
+
+ #[async_trait]
+@@ -110,6 +157,7 @@ impl ChannelResolver for Resolver {
+             worker_timeout: self.worker_timeout,
+             cuts: Arc::clone(&self.cuts),
+             preparations: Arc::clone(&self.preparations),
++            preparation_gate: self.preparation_gate.as_ref().map(Arc::clone),
+         }))
+     }
+ }
+@@ -136,16 +184,34 @@ fn execution(
+     Arc<QueryCompletion>,
+     Arc<AtomicUsize>,
+     Arc<AtomicUsize>,
++) {
++    execution_with_preparation(producer, cut_after_row, worker_timeout, None, false)
++}
++
++fn execution_with_preparation(
++    producer: Option<Arc<TaskCompletionProducer>>,
++    cut_after_row: Option<Arc<Notify>>,
++    worker_timeout: Option<Duration>,
++    preparation_gate: Option<Arc<PreparationGate>>,
++    dynamic: bool,
++) -> (
++    SendableRecordBatchStream,
++    Arc<QueryCompletion>,
++    Arc<AtomicUsize>,
++    Arc<AtomicUsize>,
+ ) {
+     let worker = worker(producer);
+-    let completion = Arc::new(QueryCompletion::new(1, 1, 8, Instant::now() + Duration::from_secs(2)).unwrap());
++    let tasks = if dynamic { 2 } else { 1 };
++    let completion = Arc::new(QueryCompletion::new(tasks, tasks, 8 * tasks, Instant::now() + Duration::from_secs(2)).unwrap());
+     let cuts = Arc::new(AtomicUsize::new(0));
+     let preparations = Arc::new(AtomicUsize::new(0));
+     let state = SessionStateBuilder::new()
+         .with_default_features()
+         .with_config(SessionConfig::new().with_extension(Arc::clone(&completion)))
+         .with_distributed_planner()
+-        .with_distributed_dynamic_task_count(false)
++        .with_distributed_dynamic_task_count(dynamic)
++        .unwrap()
++        .with_distributed_max_tasks_per_stage(1)
+         .unwrap()
+         .with_distributed_route_tasks_handler(|_: crate::RouteTasksEvent<'_>| {
+             Some(Ok(crate::RouteTasksEventResponse::new(vec![
+@@ -158,12 +224,29 @@ fn execution(
+             worker_timeout,
+             cuts: Arc::clone(&cuts),
+             preparations: Arc::clone(&preparations),
++            preparation_gate: preparation_gate.as_ref().map(Arc::clone),
+         })
+         .build();
+     let values: ArrayRef = Arc::new(Int32Array::from(vec![7]));
+     let batch = RecordBatch::try_from_iter([("value", values)]).unwrap();
+     let leaf = MemorySourceConfig::try_new_exec(&[vec![batch.clone()]], batch.schema(), None).unwrap();
+-    let boundary = Arc::new(NetworkCoalesceExec::try_new(leaf, 1, 1).unwrap());
++    let boundary: Arc<dyn ExecutionPlan> = if dynamic {
++        let column: Arc<dyn datafusion::physical_expr::PhysicalExpr> =
++            Arc::new(datafusion::physical_expr::expressions::Column::new("value", 0));
++        let repartition = Arc::new(datafusion::physical_plan::repartition::RepartitionExec::try_new(
++            leaf, datafusion::physical_expr::Partitioning::Hash(vec![Arc::clone(&column)], 1),
++        ).unwrap());
++        let projected = Arc::new(datafusion::physical_plan::projection::ProjectionExec::try_new(
++            vec![(column, "value".to_owned())], repartition,
++        ).unwrap());
++        Arc::new(datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec::new(projected))
++    } else {
++        Arc::new(NetworkCoalesceExec::try_new(leaf, 1, 1).unwrap())
++    };
++    let boundary = match preparation_gate {
++        Some(gate) => Arc::new(ObservedHead { inner: boundary, gate }) as Arc<dyn ExecutionPlan>,
++        None => boundary,
++    };
+     let plan = DistributedExec::new(boundary);
+     let stream = plan.execute(0, SessionContext::from(state).task_ctx()).unwrap();
+     (stream, completion, cuts, preparations)
+@@ -201,6 +284,43 @@ fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
+     }))
+ }
+
++#[tokio::test]
++async fn completion_chain_waits_for_real_worker_plan_readiness_before_execute() {
++    let gate = Arc::new(PreparationGate::default());
++    let (stream, completion, _, preparations) = execution_with_preparation(
++        Some(ready(Arc::new(AtomicUsize::new(0)))), None, None, Some(Arc::clone(&gate)), false,
++    );
++    tokio::time::timeout(Duration::from_secs(1), gate.entered.notified()).await.unwrap();
++    // On this current-thread runtime, the old synchronous preparation executes the head
++    // before its spawned SetPlan task can signal `entered`. This assertion needs no sleep.
++    assert_eq!(gate.head_executions.load(Ordering::SeqCst), 0, "head executed before gated SetPlan readiness");
++    assert_eq!(preparations.load(Ordering::SeqCst), 0);
++    assert_eq!(gate.executions.load(Ordering::SeqCst), 0, "ExecuteTask entered while SetPlan was gated");
++    gate.released.store(true, Ordering::SeqCst);
++    gate.release.notify_one();
++    let (rows, failure) = drain(stream).await.unwrap();
++    assert_eq!(rows, 1);
++    assert!(failure.is_none(), "{failure:?}");
++    assert_eq!(preparations.load(Ordering::SeqCst), 1);
++    assert_eq!(gate.executions.load(Ordering::SeqCst), 1);
++    assert_eq!(gate.head_executions.load(Ordering::SeqCst), 1);
++    assert_eq!(completion.take().unwrap()[0].records, vec![vec![42]]);
++}
++
++#[tokio::test]
++async fn completion_chain_dynamic_preparation_remains_live_before_head_execution() {
++    let (stream, completion, _, preparations) = execution_with_preparation(
++        Some(ready(Arc::new(AtomicUsize::new(0)))), None, None, None, true,
++    );
++    let (rows, failure) = drain(stream).await.unwrap();
++    assert_eq!(rows, 1);
++    assert!(failure.is_none(), "{failure:?}");
++    assert_eq!(preparations.load(Ordering::SeqCst), 2);
++    let receipts = completion.take().unwrap();
++    assert_eq!(receipts.len(), 2);
++    assert!(receipts.iter().all(|receipt| receipt.records == vec![vec![42]]));
++}
++
+ #[tokio::test]
+ async fn completion_chain_publishes_receipts_only_after_real_worker_rows() {
+     let calls = Arc::new(AtomicUsize::new(0));

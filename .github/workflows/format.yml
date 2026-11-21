@@ -40,7 +40,7 @@ on:
         description: Check fuzz metadata or run both finishing tasks on the pinned source
         type: choice
         required: true
-        options: [preflight, gates]
+        options: [preflight, gates, plan-readiness]
       source_sha:
         description: Exact frozen source commit
         type: string
@@ -90,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: ${{ fromJSON(inputs.operation == 'gates' && '["validate","ship-check"]' || '["preflight"]') }}
+        task: ${{ fromJSON(inputs.operation == 'gates' && '["validate","ship-check"]' || inputs.operation == 'plan-readiness' && '["plan-readiness"]' || '["preflight"]') }}
     runs-on: rust-mcp-16core
     timeout-minutes: 360
     steps:
@@ -108,6 +108,7 @@ jobs:
       - uses: $/.github/actions/reclaim-disk
 
       - name: Open KVM for the full validation gate
+        if: inputs.operation != 'plan-readiness'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -144,10 +145,14 @@ jobs:
           finishing_plan_path="$RUNNER_TEMP/finishing-plan.json"
           printf '{"source_sha":"%s","source_tree":"%s","comparison_sha":"%s"}\n' "$SOURCE_SHA" "$SOURCE_TREE" "$COMPARISON_SHA" > "$finishing_plan_path"
           case "$OPERATION:$TASK" in
-            gates:validate|gates:ship-check|preflight:preflight) ;;
+            gates:validate|gates:ship-check|preflight:preflight|plan-readiness:plan-readiness) ;;
             *) exit 2 ;;
           esac
-          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py "$TASK" "$finishing_plan_path"
+          proof_tools=()
+          if [ "$OPERATION" = plan-readiness ]; then
+            proof_tools=(nixpkgs#clang nixpkgs#lld nixpkgs#coreutils)
+          fi
+          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks "${proof_tools[@]}" --command python3 -I ../devco/inbound_verifier_proof.py "$TASK" "$finishing_plan_path"
 
       - name: Retain evidence and any generated changes
         if: always()

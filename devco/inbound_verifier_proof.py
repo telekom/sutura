@@ -414,12 +414,395 @@ def fuzz_metadata_preflight(inherited_home):
     )
 
 
+def plan_readiness():
+    global OUT, TRACKED, INDEX, SAVED_INDEX
+    OUT = Path("target/inbound-verifier-proof/plan-readiness").resolve()
+    OUT.mkdir(parents=True, exist_ok=False)
+    payload = Path(__file__).resolve().parent / "plan-readiness"
+    binding = json.loads((payload / "bindings.json").read_text())
+    assert PLAN["source_sha"] == PLAN["comparison_sha"] == binding["base"]
+    assert PLAN["source_tree"] == binding["base_tree"]
+    assert (
+        subprocess.check_output(["git", "-C", "..", "rev-parse", "HEAD"])
+        .decode()
+        .strip()
+        == os.environ["GITHUB_WORKFLOW_SHA"]
+    )
+    for name, expected in binding["patches"].items():
+        assert digest((payload / name).read_bytes()) == expected
+    TRACKED = git("ls-files", "-z").decode().rstrip("\0").split("\0")
+    INDEX = Path(git("rev-parse", "--git-path", "index").decode().strip())
+    SAVED_INDEX = INDEX.read_bytes()
+    baseline = state()
+    test_file = Path("vendor/datafusion-distributed/src/completion_chain_tests.rs")
+    paths = [
+        test_file,
+        *map(
+            Path,
+            (
+                "vendor/datafusion-distributed/src/coordinator/distributed.rs",
+                "vendor/datafusion-distributed/src/coordinator/prepare_dynamic_plan.rs",
+                "vendor/datafusion-distributed/src/coordinator/prepare_static_plan.rs",
+                "vendor/datafusion-distributed/src/coordinator/query_coordinator.rs",
+            ),
+        ),
+    ]
+    saved = {path: (path.read_bytes(), path.stat().st_mode) for path in paths}
+    write(
+        "bindings.json",
+        dict(
+            binding,
+            helper=os.environ["GITHUB_WORKFLOW_SHA"],
+            source=PLAN,
+            run_id=os.environ["GITHUB_RUN_ID"],
+        ),
+    )
+    (OUT / "index-initial.bin").write_bytes(SAVED_INDEX)
+    write("source-initial.json", baseline)
+
+    def tree(label, expected):
+        env = dict(os.environ, GIT_INDEX_FILE=str(OUT / "proof.index"))
+        subprocess.run(["git", "read-tree", binding["base"]], env=env, check=True)
+        subprocess.run(["git", "add", "-u"], env=env, check=True)
+        actual = (
+            subprocess.check_output(["git", "write-tree"], env=env).decode().strip()
+        )
+        assert actual == expected, (label, actual, expected)
+        assert INDEX.read_bytes() == SAVED_INDEX
+        write(
+            label + "-tree.json",
+            {
+                "tree": actual,
+                "tracked": state(),
+                "index_sha256": digest(INDEX.read_bytes()),
+            },
+        )
+
+    def apply(name):
+        subprocess.run(["git", "apply", "--check", str(payload / name)], check=True)
+        subprocess.run(["git", "apply", str(payload / name)], check=True)
+
+    build_root = Path(
+        tempfile.mkdtemp(prefix="sutura-plan-readiness-", dir=os.environ["RUNNER_TEMP"])
+    )
+    try:
+        url = (
+            Path.cwd().as_uri().replace("file:", "git+file:", 1)
+            + "?rev="
+            + binding["base"]
+        )
+        installable = url + "#apps.x86_64-linux.cargo.program"
+        cargo = (
+            subprocess.check_output(["nix", "eval", "--raw", installable])
+            .decode()
+            .strip()
+        )
+        context = json.loads(
+            subprocess.check_output(
+                ["nix", "eval", "--json", "--apply", "builtins.getContext", installable]
+            )
+        )
+        assert len(context) == 1 and all(path.endswith(".drv") for path in context)
+        subprocess.run(["nix-store", "--realise", *context], check=True)
+        os.environ["CARGO_HOME"] = str(build_root / "cargo-home")
+        os.environ["CARGO_TARGET_DIR"] = str(build_root / "cargo-target")
+        os.environ.pop("CARGO_NET_OFFLINE", None)
+        for key in list(os.environ):
+            if (
+                key.startswith("CARGO_")
+                and key not in ("CARGO_HOME", "CARGO_TARGET_DIR", "CARGO_TERM_COLOR")
+            ) or key in (
+                "RUSTC",
+                "RUSTDOC",
+                "RUSTC_WRAPPER",
+                "RUSTC_WORKSPACE_WRAPPER",
+                "RUSTFLAGS",
+                "RUSTDOCFLAGS",
+            ):
+                os.environ.pop(key)
+        write(
+            "compiler.json",
+            {
+                "installable": installable,
+                "wrapper": cargo,
+                "context": context,
+                "wrapper_sha256": digest(Path(cargo).read_bytes()),
+                "version": subprocess.check_output(
+                    [cargo, "--version", "--verbose"]
+                ).decode(),
+                "linkers": {key: shutil.which(key) for key in ("clang", "ld.lld")},
+            },
+        )
+        assert all(
+            shutil.which(key).startswith("/nix/store/") for key in ("clang", "ld.lld")
+        )
+        harness = OUT / "harness"
+        harness.mkdir()
+        manifest = Path("vendor/datafusion-distributed/Cargo.toml").read_text()
+        assert manifest.count('path = "src/lib.rs"') == 1
+        manifest = manifest.replace(
+            'path = "src/lib.rs"',
+            "path = " + json.dumps(str(test_file.parent.joinpath("lib.rs").resolve())),
+            1,
+        )
+        manifest = manifest.replace(
+            'readme = "README.md"',
+            "readme = "
+            + json.dumps(str(test_file.parent.parent.joinpath("README.md").resolve())),
+            1,
+        )
+        root_manifest = Path("Cargo.toml").read_text()
+        patches = tomllib.loads(root_manifest)["patch"]["crates-io"]
+        manifest += "\n[workspace]\n\n[patch.crates-io]\n"
+        for name, spec in patches.items():
+            assert set(spec) == {"path"}, (name, spec)
+            manifest += (
+                name
+                + " = { path = "
+                + json.dumps(str(Path(spec["path"]).resolve()))
+                + " }\n"
+            )
+        manifest += "\n" + root_manifest[root_manifest.index("[profile.dev]") :]
+        manifest_path = harness / "Cargo.toml"
+        manifest_path.write_text(manifest)
+        lock = harness / "Cargo.lock"
+        lock.write_bytes(Path("Cargo.lock").read_bytes())
+        command = [
+            cargo,
+            "test",
+            "--manifest-path",
+            str(manifest_path),
+            "--locked",
+            "--profile",
+            "ci",
+            "--lib",
+            "--all-features",
+        ]
+        code, _ = execute(
+            "resolve-proof-dev-graph",
+            [
+                "timeout",
+                "10m",
+                cargo,
+                "metadata",
+                "--manifest-path",
+                str(manifest_path),
+                "--all-features",
+                "--format-version",
+                "1",
+            ],
+        )
+        assert code == 0, "proof dependency resolution failed; no tests measured"
+        pinned = tomllib.loads(Path("Cargo.lock").read_text())["package"]
+        resolved = tomllib.loads(lock.read_text())["package"]
+        old = {(p["name"], p.get("source"), p["version"]) for p in pinned}
+        names = {p["name"] for p in pinned}
+        assert all(
+            p["name"] not in names or (p["name"], p.get("source"), p["version"]) in old
+            for p in resolved
+        ), "proof resolution changed an existing root pin"
+        lock_hash = digest(lock.read_bytes())
+        write(
+            "proof-lock.json",
+            {
+                "sha256": lock_hash,
+                "root_sha256": digest(Path("Cargo.lock").read_bytes()),
+                "new_dev_packages": [p for p in resolved if p["name"] not in names],
+                "manifest_sha256": digest(manifest_path.read_bytes()),
+                "limit": "standalone vendor dev graph; existing root package versions preserved; not the shipped workspace graph",
+            },
+        )
+
+        def compile_library(label):
+            assert digest(lock.read_bytes()) == lock_hash
+            code, text = execute(
+                label + "-compile",
+                ["timeout", "60m", *command, "--no-run", "--message-format=json"],
+            )
+            assert code == 0, "compile failure is never a killing assertion"
+            artifacts = []
+            for line in text.splitlines():
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (
+                    event.get("reason") == "compiler-artifact"
+                    and event.get("target", {}).get("name") == "datafusion_distributed"
+                    and event.get("profile", {}).get("test")
+                    and event.get("executable")
+                ):
+                    artifacts.append(event["executable"])
+            assert len(artifacts) == 1, artifacts
+            binary = artifacts[0]
+            write(
+                label + "-binary.json",
+                {
+                    "path": binary,
+                    "sha256": digest(Path(binary).read_bytes()),
+                    "lock_sha256": lock_hash,
+                    "test_blob": git("hash-object", str(test_file)).decode().strip(),
+                },
+            )
+            assert digest(lock.read_bytes()) == lock_hash
+            return binary
+
+        def run(label, binary, cell, green, assertion=None):
+            args = [
+                "timeout",
+                "120s",
+                binary,
+                cell,
+                "--test-threads=1",
+                "--format=json",
+                "-Z",
+                "unstable-options",
+            ]
+            if not cell.endswith("::"):
+                args.append("--exact")
+            code, text = execute(label, args)
+            events = []
+            for line in text.splitlines():
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+            terminal = [
+                e
+                for e in events
+                if e.get("type") == "test" and e.get("event") in ("ok", "failed")
+            ]
+            outcomes = {e["name"]: e for e in terminal}
+            assert len(outcomes) == len(terminal), "duplicate test result"
+            suites = [
+                e
+                for e in events
+                if e.get("type") == "suite" and e.get("event") in ("ok", "failed")
+            ]
+            assert len(suites) == 1, "missing or duplicate suite completion"
+            assert suites[0]["event"] == ("ok" if green else "failed")
+            assert suites[0]["ignored"] == 0
+            assert suites[0]["passed"] == (len(outcomes) if green else 0)
+            assert suites[0]["failed"] == (0 if green else len(outcomes))
+            expected = (
+                {
+                    "completion_chain_tests::" + name
+                    for name in re.findall(
+                        r"#\[tokio::test\]\s+async fn (\w+)\(", test_file.read_text()
+                    )
+                }
+                if cell.endswith("::")
+                else {cell}
+            )
+            assert set(outcomes) == expected, (outcomes, expected)
+            assert code == (0 if green else 101), (
+                "timeout or unrelated runner failure is never kill credit"
+            )
+            assert all(
+                e["event"] == ("ok" if green else "failed") for e in outcomes.values()
+            )
+            if not green:
+                failure = outcomes[cell].get("stdout", "")
+                assert assertion in failure, failure
+                name = cell.rsplit("::", 1)[1]
+                PLAN["test_files"] = {name: str(test_file.resolve())}
+                owned = own_sites(failure, name)
+                if name == binding["test_names"][0]:
+                    assert all(
+                        assertion
+                        in test_file.read_text().splitlines()[site["line"] - 1]
+                        for site in owned["sites"]
+                    )
+                if name == binding["test_names"][1]:
+                    assert "left: 0" in failure and "right: 1" in failure
+                    assert all(
+                        test_file.read_text().splitlines()[site["line"] - 1].strip()
+                        == "assert_eq!(rows, 1);"
+                        for site in owned["sites"]
+                    )
+                write(label + "-own-assertion.json", owned)
+            write(label + "-results.json", outcomes)
+
+        apply("test-only.patch")
+        tree("test-only", binding["test_only_tree"])
+        assert (
+            git("hash-object", str(test_file)).decode().strip() == binding["test_blob"]
+        )
+        binary = compile_library("test-only")
+        run(
+            "base-red",
+            binary,
+            "completion_chain_tests::" + binding["test_names"][0],
+            False,
+            "head executed before gated SetPlan readiness",
+        )
+        apply("product-only.patch")
+        tree("fixed", binding["fixed_tree"])
+        assert (
+            git("hash-object", str(test_file)).decode().strip() == binding["test_blob"]
+        )
+        binary = compile_library("fixed")
+        run("fixed-green", binary, "completion_chain_tests::", True)
+        dynamic = paths[2]
+        dynamic_saved = dynamic.read_bytes()
+        needle = b"            Ok(async move {\n"
+        assert dynamic_saved.count(needle) == 1
+        try:
+            dynamic.write_bytes(
+                dynamic_saved.replace(
+                    needle,
+                    needle
+                    + b"                futures::future::pending::<()>().await;\n",
+                    1,
+                )
+            )
+            write(
+                "dynamic-mutant.json",
+                {
+                    "path": str(dynamic),
+                    "before_sha256": digest(dynamic_saved),
+                    "after_sha256": digest(dynamic.read_bytes()),
+                    "mutation": "setup waits forever before dynamic sampling/head; query's own unchanged deadline must refuse",
+                },
+            )
+            binary = compile_library("dynamic-mutant")
+            run(
+                "dynamic-mutant-red",
+                binary,
+                "completion_chain_tests::" + binding["test_names"][1],
+                False,
+                "assertion `left == right` failed",
+            )
+        finally:
+            dynamic.write_bytes(dynamic_saved)
+        tree("restored", binding["fixed_tree"])
+        binary = compile_library("restored")
+        run("restored-green", binary, "completion_chain_tests::", True)
+        write(
+            "acceptance.json",
+            {
+                "status": "own base assertion red, fixed module green, dynamic own assertion mutant red, restored module green",
+                "binding": binding,
+                "limit": "controlled real-worker ordering and dynamic liveness only; original503 cause unproven",
+            },
+        )
+    finally:
+        for path, (data, mode) in saved.items():
+            path.write_bytes(data)
+            path.chmod(mode)
+        (OUT / "index-final.bin").write_bytes(INDEX.read_bytes())
+        write("source-final.json", state())
+        assert state() == baseline and INDEX.read_bytes() == SAVED_INDEX
+        assert not git("status", "--porcelain"), "source checkout was not restored"
+        shutil.rmtree(build_root)
+
+
 if __name__ == "__main__":
     assert os.environ.get("GITHUB_ACTIONS") == "true", "hosted execution only"
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("preflight", "validate", "ship-check")
+    assert mode in ("preflight", "validate", "ship-check", "plan-readiness")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
     PLAN = json.loads(Path(plan_path).read_text())
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
@@ -429,6 +812,9 @@ if __name__ == "__main__":
         == PLAN["comparison_sha"]
     )
     assert not git("status", "--porcelain")
+    if mode == "plan-readiness":
+        plan_readiness()
+        sys.exit(0)
     if not os.environ.get("SUTURA_PROOF_BOUND"):
         bootstrap(mode, plan_path)
         sys.exit(0)

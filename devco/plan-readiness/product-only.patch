@@ -1,0 +1,196 @@
+diff --git a/vendor/datafusion-distributed/src/coordinator/distributed.rs b/vendor/datafusion-distributed/src/coordinator/distributed.rs
+index 18bdf1894..83ee4014b 100644
+--- a/vendor/datafusion-distributed/src/coordinator/distributed.rs
++++ b/vendor/datafusion-distributed/src/coordinator/distributed.rs
+@@ -222,7 +222,7 @@ impl ExecutionPlan for DistributedExec {
+             let d_cfg = DistributedConfig::from_config_options(context.session_config().options())?;
+             let result = match d_cfg.dynamic_task_count {
+                 true => prepare_dynamic_plan(&query_coordinator, &base_plan).await?,
+-                false => prepare_static_plan(&query_coordinator, &base_plan)?,
++                false => prepare_static_plan(&query_coordinator, &base_plan).await?,
+             };
+
+             plan_for_viz
+diff --git a/vendor/datafusion-distributed/src/coordinator/prepare_dynamic_plan.rs b/vendor/datafusion-distributed/src/coordinator/prepare_dynamic_plan.rs
+index dff4e285a..fa8df958f 100644
+--- a/vendor/datafusion-distributed/src/coordinator/prepare_dynamic_plan.rs
++++ b/vendor/datafusion-distributed/src/coordinator/prepare_dynamic_plan.rs
+@@ -14,7 +14,7 @@ use crate::{
+ use dashmap::DashMap;
+ use datafusion::common::stats::Precision;
+ use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
+-use datafusion::common::{Result, exec_err, plan_err};
++use datafusion::common::{Result, exec_datafusion_err, exec_err, plan_err};
+ use datafusion::physical_plan::metrics::MetricsSet;
+ use datafusion::physical_plan::{
+     ColumnStatistics, ExecutionPlan, ExecutionPlanProperties, Statistics, StatisticsArgs,
+@@ -84,6 +84,7 @@ pub(super) async fn prepare_dynamic_plan(
+
+             let mut workers = Vec::with_capacity(input_stage.tasks);
+             let mut load_info_rxs = Vec::with_capacity(input_stage.tasks);
++            let mut preparations = Vec::with_capacity(input_stage.tasks);
+
+             let routed_urls = stage_coordinator.routed_urls()?;
+
+@@ -91,7 +92,8 @@ pub(super) async fn prepare_dynamic_plan(
+                 workers.push(routed_url.clone());
+                 // Spawns the task that feeds this subplan to this worker. There will be as
+                 // many as this spawned tasks as workers.
+-                let (worker_tx, worker_rx) = stage_coordinator.send_plan_task(i, routed_url)?;
++                let (worker_tx, worker_rx, prepared) = stage_coordinator.send_plan_task(i, routed_url)?;
++                preparations.push(prepared);
+                 load_info_rxs.push({
+                     let rx = stage_coordinator.worker_to_coordinator_task(i, worker_rx);
+                     UnboundedReceiverStream::new(rx)
+@@ -101,6 +103,9 @@ pub(super) async fn prepare_dynamic_plan(
+
+             let plans_for_viz = Arc::clone(&plans_for_viz);
+             Ok(async move {
++                for preparation in preparations {
++                    preparation.await.map_err(|cause| exec_datafusion_err!("worker plan preparation task dropped: {cause}"))??;
++                }
+                 let (stats, consumer_tc) = if nb_type == TypeId::of::<NetworkCoalesceExec>() {
+                     (None, Maximum(1))
+                 } else {
+diff --git a/vendor/datafusion-distributed/src/coordinator/prepare_static_plan.rs b/vendor/datafusion-distributed/src/coordinator/prepare_static_plan.rs
+index 0c51e3a13..1fee5fab6 100644
+--- a/vendor/datafusion-distributed/src/coordinator/prepare_static_plan.rs
++++ b/vendor/datafusion-distributed/src/coordinator/prepare_static_plan.rs
+@@ -3,7 +3,7 @@ use crate::coordinator::query_coordinator::QueryCoordinator;
+ use crate::stage::RemoteStage;
+ use crate::{NetworkBoundaryExt, Stage};
+ use datafusion::common::tree_node::{Transformed, TreeNode};
+-use datafusion::common::{Result, exec_err};
++use datafusion::common::{Result, exec_datafusion_err, exec_err};
+ use datafusion::physical_plan::ExecutionPlan;
+ use std::sync::Arc;
+
+@@ -17,10 +17,11 @@ use std::sync::Arc;
+ ///    become nodes without children and traversing them will not go further down in.
+ /// 4. Spawn a background task per worker that waits for the worker to finish and collects
+ ///    its metrics into [DistributedExec::task_metrics] via the coordinator channel.
+-pub(super) fn prepare_static_plan(
++pub(super) async fn prepare_static_plan(
+     query_coordinator: &QueryCoordinator,
+     base_plan: &Arc<dyn ExecutionPlan>,
+ ) -> Result<PreparedPlan> {
++    let mut preparations = Vec::new();
+     let prepared = Arc::clone(base_plan).transform_up(|plan| {
+         // The following logic is just applied on network boundaries.
+         let Some(plan) = plan.as_network_boundary() else {
+@@ -40,7 +41,8 @@ pub(super) fn prepare_static_plan(
+             workers.push(routed_url.clone());
+             // Spawn a task that sends the subplan to the chosen URL.
+             // There will be as many spawned tasks as workers.
+-            let (worker_tx, worker_rx) = stage_coordinator.send_plan_task(i, routed_url)?;
++            let (worker_tx, worker_rx, prepared) = stage_coordinator.send_plan_task(i, routed_url)?;
++            preparations.push(prepared);
+             stage_coordinator.worker_to_coordinator_task(i, worker_rx);
+             stage_coordinator.coordinator_to_worker_task(i, worker_tx)?;
+         }
+@@ -54,6 +56,9 @@ pub(super) fn prepare_static_plan(
+             },
+         ))?))
+     })?;
++    for preparation in preparations {
++        preparation.await.map_err(|cause| exec_datafusion_err!("worker plan preparation task dropped: {cause}"))??;
++    }
+     Ok(PreparedPlan {
+         head_stage: prepared.data,
+         // If the plan was statically planned, the base plan is the same one that will be used for
+diff --git a/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs b/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
+index 1478013d1..3042e8a77 100644
+--- a/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
++++ b/vendor/datafusion-distributed/src/coordinator/query_coordinator.rs
+@@ -27,7 +27,7 @@ use datafusion::prelude::SessionConfig;
+ use futures::{Stream, StreamExt, TryStreamExt};
+ use std::ops::DerefMut;
+ use std::sync::{Arc, Mutex};
+-use tokio::sync::Notify;
++use tokio::sync::{Notify, oneshot};
+ use tokio_util::sync::CancellationToken;
+ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+ use tokio_stream::wrappers::UnboundedReceiverStream;
+@@ -141,6 +141,7 @@ impl<'a> StageCoordinator<'a> {
+     ) -> Result<(
+         UnboundedSender<CoordinatorToWorkerMsg>,
+         UnboundedReceiver<WorkerToCoordinatorMsg>,
++        oneshot::Receiver<Result<()>>,
+     )> {
+         let session_config = self.task_ctx.session_config();
+
+@@ -168,6 +169,7 @@ impl<'a> StageCoordinator<'a> {
+             tokio::sync::mpsc::unbounded_channel();
+         let (worker_to_coordinator_tx, worker_to_coordinator_rx) =
+             tokio::sync::mpsc::unbounded_channel();
++        let (prepared_tx, prepared_rx) = oneshot::channel();
+
+         let mut headers = get_config_extension_propagation_headers(session_config)?;
+         headers.extend(get_passthrough_headers(session_config));
+@@ -186,32 +188,47 @@ impl<'a> StageCoordinator<'a> {
+         self.join_set.lock().unwrap().spawn(async move {
+             let start = Instant::now();
+
+-            let mut client = match LocalWorkerContext::from_ctx(&task_ctx) {
+-                Some(lw) if lw.self_url == url => {
+-                    metrics.local_coordinator_channels.add(1);
+-                    Ok(lw.to_worker_channel())
++            let prepared = async {
++                let mut client = match LocalWorkerContext::from_ctx(&task_ctx) {
++                    Some(lw) if lw.self_url == url => {
++                        metrics.local_coordinator_channels.add(1);
++                        Ok(lw.to_worker_channel())
++                    }
++                    _ => {
++                        metrics.remote_coordinator_channels.add(1);
++                        let ch_resolver = get_distributed_channel_resolver(task_ctx.as_ref());
++                        ch_resolver.get_worker_client_for_url(&url).await
++                    }
++                }?;
++                client
++                    .coordinator_channel(
++                        headers,
++                        set_plan_request,
++                        coordinator_to_worker_stream,
++                        metrics_set,
++                        &task_ctx,
++                    )
++                    .await
++            }
++            .await;
++            let worker_to_coordinator_stream = match prepared {
++                Ok(stream) => {
++                    // Both native channels return only after the worker writes its task data.
++                    let _ = prepared_tx.send(Ok(()));
++                    stream
+                 }
+-                _ => {
+-                    metrics.remote_coordinator_channels.add(1);
+-                    let ch_resolver = get_distributed_channel_resolver(task_ctx.as_ref());
+-                    ch_resolver.get_worker_client_for_url(&url).await
++                Err(cause) => {
++                    let cause = Arc::new(cause);
++                    let _ = prepared_tx.send(Err(DataFusionError::Shared(Arc::clone(&cause))));
++                    return Err(DataFusionError::Shared(cause));
+                 }
+-            }?;
+-            let worker_to_coordinator_stream = client
+-                .coordinator_channel(
+-                    headers,
+-                    set_plan_request,
+-                    coordinator_to_worker_stream,
+-                    metrics_set,
+-                    &task_ctx,
+-                )
+-                .await?;
++            };
+             metrics.plan_send_latency.record(&start);
+             receive_worker_messages(worker_to_coordinator_stream, worker_to_coordinator_tx,
+                 task_key, completion, completion_request).await
+         });
+
+-        Ok((coordinator_to_worker_tx, worker_to_coordinator_rx))
++        Ok((coordinator_to_worker_tx, worker_to_coordinator_rx, prepared_rx))
+     }
+
+     /// Spawns a background task in charge of collecting messages sent by a worker. Some things that
