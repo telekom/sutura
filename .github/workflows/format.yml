@@ -153,7 +153,7 @@ jobs:
               [[ "$HELPER_SHA" =~ ^[0-9a-f]{40}$ ]]
               test "$(git -C .. rev-parse HEAD)" = "$HELPER_SHA"
               test "$GITHUB_WORKFLOW_SHA" = "$HELPER_SHA"
-              nix shell --inputs-from . nixpkgs#python3 --command python3 -I - <<'PYTHON'
+              nix shell --inputs-from . nixpkgs#python3 nixpkgs#just --command python3 -I - <<'PYTHON'
           import hashlib, json, os, subprocess
           from pathlib import Path
           helper = Path("..").resolve()
