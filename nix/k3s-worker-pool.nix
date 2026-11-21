@@ -181,15 +181,9 @@ let
     posture = "shared-service-user";
   };
   postgres = dbHost: {
-    kind = "postgres";
-    host = dbHost;
-    port = 5432;
-    database = "sutura";
-    user = "sutura";
-    password_file = "/srv/sutura/password";
-    transport_mode = "verified";
-    transport_anchors = "/srv/sutura/postgres-ca.pem";
-    posture = "shared-service-user";
+    kind = "postgres"; host = dbHost; port = 5432; database = "sutura"; user = "sutura";
+    password_file = "/srv/sutura/password"; transport_mode = "verified";
+    transport_anchors = "/srv/sutura/postgres-ca.pem"; posture = "shared-service-user";
   };
   values =
     dbHost:
@@ -375,8 +369,12 @@ pkgs.testers.runNixOSTest {
           ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
         CREATE TABLE lookup_small_segment_two AS SELECT * FROM lookup_large_segment_two WHERE link IN
           ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
-        ALTER TABLE lookup_large, lookup_large_segment, lookup_large_segment_two,
-          lookup_small, lookup_small_segment, lookup_small_segment_two OWNER TO sutura;
+        ALTER TABLE lookup_large OWNER TO sutura;
+        ALTER TABLE lookup_large_segment OWNER TO sutura;
+        ALTER TABLE lookup_large_segment_two OWNER TO sutura;
+        ALTER TABLE lookup_small OWNER TO sutura;
+        ALTER TABLE lookup_small_segment OWNER TO sutura;
+        ALTER TABLE lookup_small_segment_two OWNER TO sutura;
         ANALYZE;
       '';
     };
