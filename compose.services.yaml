@@ -1,5 +1,4 @@
 # The development SERVICE tier: one independent instance per worktree.
-#
 # Separate from `compose.dev.yaml`'s build container: opening a shell must not start databases.
 #
 # Nothing in this file is per-worktree by itself, and that is the design. `xtask` supplies the
@@ -187,6 +186,37 @@ x-openmetadata-environment: &openmetadata-environment
   ELASTICSEARCH_SCHEME: http
   SEARCH_TYPE: opensearch
   PIPELINE_SERVICE_CLIENT_ENABLED: "false"
+
+# The three Cube models share one image, database connection and readiness probe.
+x-cube-runtime: &cube-runtime
+  image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
+  profiles: [cube]
+  depends_on:
+    cube-clickhouse:
+      condition: service_healthy
+  environment: &cube-environment
+    CUBEJS_DB_TYPE: clickhouse
+    CUBEJS_DB_HOST: cube-clickhouse
+    CUBEJS_DB_PORT: "8123"
+    CUBEJS_DB_NAME: default
+    CUBEJS_DB_USER: *fixture-user
+    CUBEJS_DB_PASS: *fixture-password
+    CUBEJS_DEV_MODE: "false"
+    # Initializes REST cubesql's native engine; this port is not published.
+    CUBEJS_PG_SQL_PORT: "15432"
+    CUBEJS_TELEMETRY: "false"
+    CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+  healthcheck: &cube-healthcheck # The image carries node and no curl or wget.
+    test: [
+      "CMD",
+      "node",
+      "-e",
+      "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+    ]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+    start_period: 10s
 
 services:
 
@@ -690,6 +720,8 @@ services:
         target: /docker-entrypoint-initdb.d/init.sql
       - source: metrics-layer-clickhouse-init
         target: /docker-entrypoint-initdb.d/metrics_layer.sql
+      - source: cube-text-search-init
+        target: /docker-entrypoint-initdb.d/text_search.sql
       - source: cube-subscriptions
         target: /corpus/fct_subscription_monthly.csv
       - source: cube-usage
@@ -720,49 +752,35 @@ services:
     # Converges: when Cube is packaged as a nix-native tier, taking `nix/postgres-tier.nix`'s shape.
     #   Until then the `ci-cube-tier` job (`nix run .#cube-acceptance`) and `just cube-acceptance`
     #   are its venues; no nix check reaches it.
-    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
-    profiles:
-      - cube
+    <<: *cube-runtime
+    ports:
+      - 4000
     hostname: cube
-    depends_on:
-      cube-clickhouse:
-        condition: service_healthy
     environment:
-      CUBEJS_DB_TYPE: clickhouse
-      CUBEJS_DB_HOST: cube-clickhouse
-      CUBEJS_DB_PORT: "8123"
-      CUBEJS_DB_NAME: default
-      CUBEJS_DB_USER: *fixture-user
-      CUBEJS_DB_PASS: *fixture-password
-      CUBEJS_DEV_MODE: "false"
-      # Initializes the native engine used by REST cubesql; this port is not published.
-      CUBEJS_PG_SQL_PORT: "15432"
-      CUBEJS_TELEMETRY: "false"
-      # Production mode asks for Cube Store as its cache and queue; the in-process driver is the
-      # one-container fixture's answer.
-      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
-      # A FIXTURE, the `x-datahub-backend-environment` signing key's argument: the HS256 key a
-      # deployment token for this tier is signed with, reachable from nothing outside this host.
+      <<: *cube-environment
       CUBEJS_API_SECRET: sutura-dev-cube-secret-with-256-bits
-    # `configs:` rather than a bind mount: each file is read from THIS worktree's checkout and
-    # copied into the container, so nothing on the host is shared between worktrees.
     configs:
       - source: cube-model
         target: /cube/conf/model/single_player.yml
+    healthcheck:
+      <<: *cube-healthcheck
+
+  # A separate model keeps the text-search fixture out of the catalog conformance corpus.
+  cube-text-search:
+    # CI venue: compose only.
+    # Because: Cube is not in nixpkgs, and a nix check has no docker socket or network.
+    # Converges: with the `cube` block, when Cube has a nix-native tier.
+    <<: *cube-runtime
     ports:
       - 4000
+    environment:
+      <<: *cube-environment
+      CUBEJS_API_SECRET: sutura-dev-cube-secret-with-256-bits
+    configs:
+      - source: cube-text-search-model
+        target: /cube/conf/model/text_search.yml
     healthcheck:
-      # The image carries `node` and no `curl` or `wget`.
-      test: [
-        "CMD",
-        "node",
-        "-e",
-        "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
-      ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
+      <<: *cube-healthcheck
 
   # The identity provider of `examples/metrics-layer`: its realm, two callers and the deployment's
   # own client. The issuer is fixed, so a token asked for on the published port and one asked for by
@@ -809,9 +827,9 @@ services:
     # CI venue: compose only.
     # Because: the `cube` block's - Cube is not in `nixpkgs`, and a nix check has no docker socket.
     # Converges: with the `cube` block, when Cube is packaged as a nix-native tier.
-    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
-    profiles:
-      - cube
+    <<: *cube-runtime
+    ports:
+      - 4000
     hostname: cube-metrics
     depends_on:
       cube-clickhouse:
@@ -819,16 +837,7 @@ services:
       cube-keycloak:
         condition: service_healthy
     environment:
-      CUBEJS_DB_TYPE: clickhouse
-      CUBEJS_DB_HOST: cube-clickhouse
-      CUBEJS_DB_PORT: "8123"
-      CUBEJS_DB_NAME: default
-      CUBEJS_DB_USER: *fixture-user
-      CUBEJS_DB_PASS: *fixture-password
-      CUBEJS_DEV_MODE: "false"
-      CUBEJS_PG_SQL_PORT: "15432"
-      CUBEJS_TELEMETRY: "false"
-      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+      <<: *cube-environment
       CUBEJS_JWK_URL: http://cube-keycloak:8080/realms/metrics-layer/protocol/openid-connect/certs
       CUBEJS_JWT_ALGS: RS256
       CUBEJS_JWT_ISSUER: https://localhost:8443/realms/metrics-layer
@@ -836,20 +845,8 @@ services:
     configs:
       - source: metrics-layer-model
         target: /cube/conf/model/metrics_layer.yml
-    ports:
-      - 4000
     healthcheck:
-      # The `cube` block's probe, for its reason.
-      test: [
-        "CMD",
-        "node",
-        "-e",
-        "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
-      ]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
+      <<: *cube-healthcheck
 
   # The local chat demo: ONE container holding the sutura server and the chat client, because a
   # single supervisor is what makes "either child exits, the demo ends" true.
@@ -977,6 +974,10 @@ configs:
     file: examples/cube/model/single_player.yml
   cube-clickhouse-init:
     file: examples/cube/clickhouse/init.sql
+  cube-text-search-init:
+    file: examples/cube/text-search/init.sql
+  cube-text-search-model:
+    file: examples/cube/text-search/model.yml
   metrics-layer-clickhouse-init:
     file: examples/metrics-layer/clickhouse/init.sql
   metrics-layer-model:

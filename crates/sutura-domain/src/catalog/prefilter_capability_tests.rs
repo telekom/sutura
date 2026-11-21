@@ -1,6 +1,6 @@
 //! Which engine families may carry the raw necessary condition, and which keep the redacted-only path.
 
-use super::PrefilterCapability;
+use super::{Collation, PrefilterCapability};
 use crate::warehouse::schema::TypeDialect;
 
 #[test]
@@ -13,11 +13,23 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
     let capable = [
         (TypeDialect::DataFusion, PrefilterCapability::DataFusion),
         (TypeDialect::Oracle, PrefilterCapability::Oracle),
+        (TypeDialect::Postgres, PrefilterCapability::Postgres),
     ];
     for (dialect, capability) in capable {
         assert_eq!(PrefilterCapability::of(dialect), Some(capability), "{dialect:?}");
     }
-    assert!(PrefilterCapability::of(TypeDialect::ClickHouse).is_some());
+    for dialect in [TypeDialect::DuckDb, TypeDialect::BigQuery] {
+        let capability = PrefilterCapability::of(dialect).expect("the new engine arm exists");
+        assert!(capability.admits(&Collation::Binary), "{dialect:?}");
+        for collation in [Collation::Unknown, Collation::named("und:ci")] {
+            assert!(!capability.admits(&collation), "{dialect:?} {collation:?}");
+        }
+    }
+    let clickhouse = PrefilterCapability::of(TypeDialect::ClickHouse).expect("the ClickHouse arm exists");
+    assert!(clickhouse.admits(&Collation::Binary));
+    for collation in [Collation::named("und:ci"), Collation::Unknown] {
+        assert!(!clickhouse.admits(&collation), "{collation:?}");
+    }
     for dialect in [
         TypeDialect::DuckDb,
         TypeDialect::DataFusion,
@@ -28,12 +40,12 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
         TypeDialect::Oracle,
     ] {
         let carries = match dialect {
-            TypeDialect::DuckDb => false,
+            TypeDialect::DuckDb => true,
             TypeDialect::DataFusion => true,
             TypeDialect::Cube => false,
             TypeDialect::Postgres => true,
             TypeDialect::ClickHouse => true,
-            TypeDialect::BigQuery => false,
+            TypeDialect::BigQuery => true,
             TypeDialect::Oracle => true,
         };
         assert_eq!(PrefilterCapability::of(dialect).is_some(), carries, "{dialect:?}");

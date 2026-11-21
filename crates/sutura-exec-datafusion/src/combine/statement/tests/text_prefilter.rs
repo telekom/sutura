@@ -6,7 +6,10 @@ use std::ops::ControlFlow;
 use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
+
 use sutura_domain::catalog::COLLATION_METADATA_KEY;
+
+use sutura_domain::catalog::Collation;
 
 use super::*;
 
@@ -37,6 +40,31 @@ fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, en
             Field::new("doc", DataType::Utf8, true).with_metadata(with(&name_metadata, "sutura:oracle_lob", "clob")),
             Field::new("big", DataType::UInt64, true),
         ])),
+    )
+}
+
+/// `source` with its `BODY` column pinned under `collation`, as the pin writes it; `None` pins nothing.
+fn duckdb_collated(source: &StatementTable, collation: Option<&str>) -> StatementTable {
+    let fields: Vec<Field> = source
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut metadata = field.metadata().clone();
+            if field.name() == "BODY" {
+                drop(metadata.remove("sutura:collation"));
+                if let Some(collation) = collation {
+                    drop(metadata.insert(String::from("sutura:collation"), String::from(collation)));
+                }
+            }
+            field.as_ref().clone().with_metadata(metadata)
+        })
+        .collect();
+    StatementTable::new(
+        source.source().clone(),
+        source.table().clone(),
+        source.dialect(),
+        Arc::new(Schema::new(fields)),
     )
 }
 
@@ -233,17 +261,64 @@ fn oracle_raw_lob_prefilter_resolves_full_and_basename_qualifiers_without_an_ali
 fn source_engines_without_comparison_evidence_keep_the_redacted_only_path() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
     assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some());
-    for dialect in [TypeDialect::Postgres, TypeDialect::DuckDb, TypeDialect::BigQuery] {
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+    ] {
+        let source = table(dialect, &["[masked]"], true, false, true);
+        let source = if dialect == TypeDialect::DuckDb {
+            duckdb_collated(&source, Some("binary"))
+        } else {
+            source
+        };
+        let predicates = raw_predicates(sql, source);
+        if dialect == TypeDialect::DuckDb {
+            assert!(predicates.iter().any(Option::is_some), "{dialect:?}");
+            continue;
+        }
+        assert!(predicates.iter().all(Option::is_none), "{dialect:?}");
+    }
+}
+
+#[test]
+fn a_duckdb_column_takes_the_raw_condition_only_when_pinned_binary() {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let enabled = table(TypeDialect::DuckDb, &["[masked]"], true, false, true);
+    assert!(raw_predicates(sql, duckdb_collated(&enabled, Some("binary")))[0].is_some());
+    // `NOCASE` and `NOACCENT` are consulted by `LIKE` and survive `REGEXP_REPLACE`; an unreadable
+    // fact and a missing one are no evidence either.
+    for pinned in [
+        Some("named:NOCASE"),
+        Some("named:NOACCENT"),
+        Some("named:de"),
+        Some("BINARY"),
+        Some("unreadable"),
+        None,
+    ] {
         assert!(
-            raw_predicates(sql, table(dialect, &["[masked]"], true, false, true))
+            raw_predicates(sql, duckdb_collated(&enabled, pinned))
                 .iter()
                 .all(Option::is_none),
-            "{dialect:?}"
+            "{pinned:?}"
+        );
+    }
+    for dialect in [TypeDialect::DataFusion, TypeDialect::Oracle] {
+        let enabled = table(dialect, &["[masked]"], true, dialect == TypeDialect::Oracle, true);
+        let sql = if dialect == TypeDialect::Oracle {
+            "SELECT count(\"BODY\") FROM \"notes\" WHERE UPPER(\"BODY\") LIKE '%TERM%'"
+        } else {
+            sql
+        };
+        assert!(
+            raw_predicates(sql, duckdb_collated(&enabled, None))[0].is_some(),
+            "{dialect:?} reads no collation fact"
         );
     }
     let clickhouse = table(TypeDialect::ClickHouse, &["[masked]"], true, false, true);
     assert!(
-        raw_predicates(sql, collated(&clickhouse, Some("binary")))
+        raw_predicates(sql, duckdb_collated(&clickhouse, Some("binary")))
             .iter()
             .any(Option::is_some),
         "ClickHouse takes the new binary-column arm"
@@ -355,6 +430,33 @@ fn a_postgres_sibling_on_another_policy_column_must_be_pinned_binary_too() {
 }
 
 #[test]
+fn a_replacement_that_differs_only_in_case_never_passes_the_proof_where_a_collation_may_apply() {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let predicates = |replacement| {
+        raw_predicates(
+            sql,
+            duckdb_collated(&table(TypeDialect::DuckDb, &[replacement], true, false, true), Some("binary")),
+        )
+    };
+    assert!(predicates("[masked]")[0].is_some());
+    for replacement in ["term", "[tErM]"] {
+        assert!(predicates(replacement).iter().all(Option::is_none), "{replacement}");
+    }
+    assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["term"], true, false, true))[0].is_some());
+}
+
+#[test]
+fn a_non_ascii_replacement_never_passes_the_proof() {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%K%'";
+    let duckdb = |replacement| duckdb_collated(&table(TypeDialect::DuckDb, &[replacement], true, false, true), Some("binary"));
+    assert!(raw_predicates(sql, duckdb("[redacted]"))[0].is_some());
+    let kelvin = "[\u{212A}]";
+    for source in [duckdb(kelvin), table(TypeDialect::DataFusion, &[kelvin], true, false, true)] {
+        assert!(raw_predicates(sql, source).iter().all(Option::is_none));
+    }
+}
+
+#[test]
 fn a_sibling_conjunct_that_can_raise_keeps_the_redacted_only_path() {
     let sql = |sibling: &str| format!("SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%' AND {sibling}");
     let enabled = || table(TypeDialect::DataFusion, &["[masked]"], true, false, true);
@@ -453,6 +555,53 @@ fn the_redacted_projection_reads_the_qualified_stored_column_beside_its_alias() 
             rewritten.contains(&format!("AS {quote}BODY{quote}")),
             "{dialect:?}: {rewritten}"
         );
+    }
+}
+
+fn bigquery_conditions(collation: Option<&Collation>) -> Vec<Option<Expr>> {
+    let sql = "SELECT count(\"BODY\") FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    let source = table(TypeDialect::BigQuery, &["[masked]"], true, false, true);
+    let fields = source
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut field = field.as_ref().clone();
+            if let Some(collation) = collation.filter(|_| field.name() == "BODY") {
+                collation.pin_onto(&mut field);
+            }
+            field
+        })
+        .collect::<Vec<_>>();
+    let pinned = StatementTable::new(
+        source.source().clone(),
+        source.table().clone(),
+        TypeDialect::BigQuery,
+        Arc::new(Schema::new(fields)),
+    );
+    raw_predicates(sql, pinned)
+}
+
+#[test]
+fn bigquery_takes_the_raw_condition_only_over_a_column_pinned_binary() {
+    let binary = bigquery_conditions(Some(&Collation::Binary));
+    let [Some(condition)] = binary.as_slice() else {
+        panic!("one raw necessary condition over a binary pin");
+    };
+    let Statement::Query(expected) = parsed("SELECT 1 FROM notes WHERE (`notes`.`BODY` LIKE '%TERM%')") else {
+        panic!("a query");
+    };
+    let SetExpr::Select(expected) = *expected.body else {
+        panic!("a select");
+    };
+    assert_eq!(
+        Some(condition),
+        expected.selection.as_ref(),
+        "backticks, qualified by the table"
+    );
+    for collation in [None, Some(Collation::Unknown), Some(Collation::named("und:ci"))] {
+        let conditions = bigquery_conditions(collation.as_ref());
+        assert!(conditions.iter().all(Option::is_none), "{collation:?}: {conditions:?}");
     }
 }
 

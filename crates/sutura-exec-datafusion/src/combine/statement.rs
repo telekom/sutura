@@ -429,7 +429,7 @@ struct Part {
 }
 
 /// Whether a scan of `plan` projects a column under a text policy. Cube's policy runs here over the
-/// rows its leg answers, so a filter on another column does not reach Cube and does not narrow them.
+/// rows its leg answers; supported conjuncts on columns without a policy narrow those rows at Cube.
 fn policy_read(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<PolicyRead> {
     let mut reads = false;
     plan.apply_with_subqueries(|node| {

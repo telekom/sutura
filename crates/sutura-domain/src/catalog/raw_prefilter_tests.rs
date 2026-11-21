@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use super::{Column, Definitions, Description, InvalidTextPolicy, Model, RawPrefilter, TextPolicy};
+use super::{
+    Collation, Column, Definitions, Description, InvalidTextPolicy, Model, PrefilterCapability, RawPrefilter, TextPolicy,
+};
 
 use crate::model::{ColumnName, ModelName, SourceName, TableName};
 use crate::warehouse::schema::{PinnedSchemas, TypeDialect};
@@ -102,4 +104,19 @@ fn a_raw_prefilter_without_a_redaction_rule_is_refused() {
         TextPolicy::parse(None, Vec::new(), Some(RawPrefilter::parse("a reason").expect("a reason"))),
         Err(InvalidTextPolicy::PrefilterWithoutRedaction)
     );
+}
+
+#[test]
+fn bigquery_admits_a_column_only_when_the_catalog_pins_it_binary() {
+    let bigquery = PrefilterCapability::of(TypeDialect::BigQuery).expect("the BigQuery arm exists");
+    assert!(bigquery.admits(&Collation::Binary));
+    for collation in [Collation::Unknown, Collation::named("und:ci"), Collation::named("binary")] {
+        assert!(!bigquery.admits(&collation), "{collation:?}");
+    }
+    for engine in [PrefilterCapability::DataFusion, PrefilterCapability::Oracle] {
+        assert!(
+            engine.admits(&Collation::Unknown),
+            "{engine:?} decides without a pinned collation"
+        );
+    }
 }

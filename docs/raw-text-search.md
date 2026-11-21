@@ -45,15 +45,21 @@ contain no full term, and start and end with characters absent from that term. T
 prevent a replacement from creating a match or bridging deleted text. Where clipping happens
 before search, the truncation marker must pass the same proof. Unknown shapes fall back.
 
-The current eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's `LIKE` for admitted ASCII-alphanumeric needles, Oracle native CLOB/NCLOB
-`LIKE` with an optional `UPPER` around that column, and PostgreSQL `LIKE` on a column pinned
-binary, read from the dictionary or authored in a local catalog document. Cube's local policy execution is not an eligible arm
-and keeps redacted-only execution. Oracle uses its binary character-set uppercase mapping, not
-`NLS_UPPER`. At execution time only a binary `NLS_SORT` permits raw row rejection; every other
-value, including NULL, retains all rows. No session setting is changed. Non-LOB Oracle columns and
-other source dialects retain redacted-only execution because their pinned schemas do not establish
-binary comparison semantics. This is a generic policy with conservative engine eligibility, not
-universal acceleration.
+The eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's `LIKE` for the
+admitted ASCII-alphanumeric needle, Oracle native CLOB/NCLOB `LIKE` with an optional `UPPER`, and
+PostgreSQL, DuckDB and BigQuery text columns pinned `binary`. Cube's local policy execution adds
+no raw condition on a policy column. Oracle uses its binary character-set uppercase mapping, not
+`NLS_UPPER`; only a binary `NLS_SORT` permits raw row rejection, and any other or NULL value retains
+all rows. No session setting is changed. Non-LOB Oracle columns retain redacted-only execution.
+Eligibility does not establish a speedup.
+
+DuckDB's `LIKE` consults a column's `NOCASE` or `NOACCENT` collation, and `REGEXP_REPLACE` keeps it
+(measured on 2.0.0; an ICU locale, `NFC` and `default_collation` did not change `LIKE`). Its catalog
+views report a collated column as plain `VARCHAR`, so only an authored `collation: binary` admits
+it. A named, unreadable or missing fact falls back. Nothing checks that authored pin at run time.
+For DuckDB alone the replacement barrier folds ASCII case: a case-insensitive comparison cannot
+make an admitted replacement create a match. The native cell covers an incorrect binary pin over
+a `NOCASE` column; other collations and versions remain outside that measurement.
 
 PostgreSQL binds a collation to each column, so the pinned column decides, and an unknown or named
 collation falls back. Binary means the database default (always deterministic), `pg_catalog."C"` or
@@ -81,7 +87,6 @@ neither create nor hide.
 
 Pinned text columns carry a collation fact, `sutura:collation` in the schema's field metadata and
 under the schema digest, so a change re-pins. `binary` means byte-for-byte comparison; a named
-
 collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
 only on a column whose declared type the dialect reads as text, never on one that fell back to
 text. DataFusion and ClickHouse have no per-column collation and pin `binary`, over any collation a
@@ -93,8 +98,8 @@ binary, including a user schema's own `C`. A `citext` column or a domain over te
 Markdown column may declare `collation: binary` or a name. That declaration is an authored claim,
 trusted as far as its author is. Two models over one physical column that pin different known
 collations are refused at pinning, naming the column; an unknown one contradicts nothing. Oracle
-records nothing here, because its check is the run-time `NLS_SORT` above. No other dialect reads
-the fact yet; recording it enables no engine.
+records nothing here, because its check is the run-time `NLS_SORT` above. PostgreSQL, DuckDB,
+BigQuery and ClickHouse use the fact to decide admission.
 
 What `binary` does not cover. It holds for `LIKE` and equality, not for ordering under a locale, and
 a type can still change equality: Postgres `bpchar` ignores trailing spaces in `=`. A
@@ -107,17 +112,33 @@ wildcard, no escape): a case- or accent-insensitive remote returns more rows, ne
 the exact redacted predicate still decides. Before PostgreSQL 18 a nondeterministic collation
 makes the remote refuse `LIKE`, which costs availability, not secrecy. This is read from
 ClickHouse's behaviour, not measured here.
-DuckDB's global `default_collation` setting can contradict an authored `binary`. Adding the fact
-moves the schema digest of every schema that now carries one, once, at upgrade: any with a
+DuckDB's global `default_collation` changes `=` and `ILIKE`, but not `LIKE` (measured on 2.0.0);
+a raw statement cannot set it. Adding the fact moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. A schema with none hashes as
 before.
+
+BigQuery admits a `STRING` column only where its Markdown catalog declares `collation: binary`.
+No BigQuery dictionary reader supplies this fact; a missing or named collation falls back, and
+nothing checks the author's declaration at run time. Dataset or table defaults can therefore
+contradict the pin. The native million-row venue observed `LIKE` matching seven binary rows and
+eight rows under stored `und:ci`. Redaction-only and redaction-plus-clipping searches over that
+collated column both ended in a collation refusal, with the opt-in off and on. An unrecorded binary
+column returned identical rows without an added raw condition. A deliberately mislabelled binary
+pin added the raw condition and still received a collation refusal in this fixture; that observation
+is not a guarantee for another expression or collation. The raw condition uses a backtick-quoted,
+qualified column: a double-quoted token is a string literal in BigQuery. Timings are wall-clock
+measurements, not slot statistics or a claim of lower billed bytes.
+
+DataFusion and ClickHouse have no per-column collation. Production pinning sets `binary` over any
+authored collation, so neither engine can supply a native collated-column fallback case. ClickHouse
+still refuses named or unknown facts in a hand-built statement schema; the capability cell holds
+that guard. DataFusion needs no column fact because its comparison is fixed by the engine.
 
 ClickHouse has no column collation and its `LIKE` is case-sensitive. ClickHouse documents `LIKE`
 matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted
 needle shape only: ASCII alphanumeric, no `_`, no escape, which makes the pattern a plain substring
-search. A column of its
-
-pinned schema carries the collation fact `binary` and a column pinned anything else (unknown or a
+search. A column of its pinned schema carries the collation fact `binary` and a column pinned
+anything else (unknown or a
 named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
 test reads the stored column qualified by its table, in the form `` `table`.`column` ``: ClickHouse
 resolves a bare name to the projection alias of the same name unless `prefer_column_name_to_alias`
@@ -139,27 +160,25 @@ baseline query time and opted-in query time separately, along with exact result 
 hidden-secret probes. They describe their engine version and fixture, not a production latency
 guarantee.
 
-## A statement over a policy column that runs out of time
+## A statement over a policy column that reaches a source bound
 
 A text policy masks every row of the column before the statement's own predicate sees it, so a
 search over a policy column with no other filter reads the whole column. Where such a statement
-runs past the request's deadline at a source that applies the policy itself, the refusal is
-`policy_search_needs_narrowing` (`422`), not a generic `deadline_exceeded`. Add a filter on a column
-without a policy so that fewer rows reach the masking.
+runs past the request's deadline at its source, or a Cube answer exceeds a size or row bound before
+local masking and filtering, the refusal is `policy_search_needs_narrowing` (`422`). Add a
+supported filter on a column without a policy so that fewer rows reach the masking.
 
-It is named only when a part of the statement reads a column under a text policy and the source
-applies the policy. The reason is given where the source applies the policy; at Cube it is given once
-filters reach Cube, which a separate change adds.
+It is named only when the affected source part reads a column under a text policy. At Cube the
+policy runs locally, and supported filters on columns without a policy narrow the source answer
+before local masking. The same source bounds and deadline still apply.
 
 What this does not do:
 
 - It is a backstop, not a fix. The statement still does not finish, and the policy still masks
   every row it reads. The refusal only names the cause and the remedy.
-- It is not given at Cube. A Cube source holding a protected table is sent only bare scans, and the
-  policy and every predicate run in this deployment over the rows Cube answers. A filter on a column
-  without a policy is not sent to Cube, so the remedy cannot help there. A timeout stays
-  `deadline_exceeded`, and a protected Cube table with more than 10,000 rows cannot be searched: that
-  size refusal stays `result_too_large` or `too_many_rows`.
+- At Cube, only the supported policy-free comparisons below narrow its answer. A filter that keeps
+  too many rows, or only searches the protected text, still reaches the same bound. Other sources'
+  size refusals keep `result_too_large` or `too_many_rows`: their policy already runs at the source.
 - A timeout in the local part of the plan stays `deadline_exceeded`, whether or not a policy column
   was read. So does a timeout of a statement that reads no policy column, a budget already spent
   before a part runs, and a timeout while planning.
@@ -194,8 +213,13 @@ answer fewer rows than the engine would keep. A conjunct that raises at Cube on 
 would not reach changes which statements fail, so none that can raise is sent.
 
 Each sent conjunct also stays in the local filter, above the policy, so a Cube that answers more
-rows than the conjunct selects is corrected. A Cube that answers fewer is not, and nothing here
-proves that none does: the listed forms are chosen so that equal text is equal under any collation,
-and the proof of that is by reading, not by a Cube run. The 10,000-row cap, the memory budget and
+rows than the conjunct selects is corrected. A Cube that answers fewer is not: the listed forms
+are chosen so that equal text is equal under any collation. The native Cube cell checks equality
+over a million-row ClickHouse-backed fixture, including duplicate text, NULL and hidden terms;
+it does not establish comparison behaviour for every warehouse Cube can serve. This venue exercises
+the transport and planner. Named-refusal classification is covered separately by the application
+cell with the real planner and Cube adapter over a scripted transport; it is not a native served
+caller proof. The planner keeps policy-column predicates local, including when
+their pins name collations. The 10,000-row cap, the memory budget and
 the deadline still apply to what comes back, so a filter that leaves more than 10,000 rows, or a
 search whose only condition reads the policy column, still cannot answer.

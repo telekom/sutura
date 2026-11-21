@@ -88,8 +88,9 @@ const TAG: &str = "run_sql";
                            `code: deadline_exceeded` - this deployment stopped the statement after \
                            the asker's own per-request budget; narrow the statement rather than \
                            retrying it as is. `code: policy_search_needs_narrowing` - a statement \
-                           over a column under a text policy ran out of time at a source that applies \
-                           it; add a filter on a column without a policy.",
+                           over a column under a text policy reached its deadline, or its Cube source \
+                           answer exceeded a bound before local masking; add a supported filter on \
+                           a column without a policy.",
             body = RawOutcomeBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),

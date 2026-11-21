@@ -209,18 +209,16 @@ pub enum RawRefusalReason {
     /// Refused before any leg exists, so nothing reached a data system. Carries no source name: the
     /// caller already holds its own tool's source list.
     PlanSpansMoreThanOneSource,
-    /// A statement part that reads a column under a text policy ran past the request's deadline at a
-    /// source that applies the policy itself.
+    /// A statement part reading a text-policy column exceeded its deadline, or its Cube source
+    /// answer exceeded a size or row bound before local masking and filtering.
     ///
-    /// **A backstop, not a fix, and the limit stated with the claim.** The policy masks every row it
-    /// reads before the statement's own predicate sees it, so a search with no other filter reads the
-    /// whole column, and a filter on a column without a policy narrows it. This refusal names that
-    /// cause where a generic timeout would not; it does not make the statement finish, and a statement
-    /// over a policy column that is not a search is named the same way. **Not given at Cube:** its
-    /// protected tables are read whole and filtered here, so the remedy cannot help, and a timeout
-    /// there stays [`Self::DeadlineExceeded`] until filters reach Cube (`docs/raw-text-search.md`).
-    /// **What it discloses:** that a column the caller can already read carries a text policy, and
-    /// nothing about the policy.
+    /// A supported filter on a column without a policy narrows the rows needing masking. This is a
+    /// backstop, not acceleration: it preserves the request's deadline and source bounds. Cube only
+    /// accepts the policy-free comparison shapes in `docs/raw-text-search.md`; other predicates
+    /// stay local. A projection over a policy column is classified the same way as a search.
+    /// Planning, pre-leg and local-part deadlines retain [`Self::DeadlineExceeded`].
+    /// **What it discloses:** a column the caller can already read carries a text policy, and
+    /// nothing about that policy.
     PolicySearchNeedsNarrowing,
 }
 
@@ -276,7 +274,7 @@ impl fmt::Display for RawRefusalReason {
             ),
             Self::PolicySearchNeedsNarrowing => write!(
                 f,
-                "a statement over a column under a text policy ran out of time; add a filter on a column without a policy"
+                "a statement over a column under a text policy reached a time or source result bound; add a filter on a column without a policy"
             ),
         }
     }

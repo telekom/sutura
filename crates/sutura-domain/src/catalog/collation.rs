@@ -142,9 +142,7 @@ impl Collation {
     /// [`Self::Unknown`] writes nothing, so a field with no collation fact hashes as it always did.
     ///
     /// The pin writes the fact only for a column the dialect reads as text, from the catalog's
-    /// column or the dialect. Public for one caller outside the domain: the raw text prefilter's
-    /// golden fixture in `sutura-app`, which builds a pinned field by hand to carry the collation an
-    /// engine fixes (`TypeDialect::engine_collation`).
+    /// column or the dialect. Public for fixtures that build pinned fields outside the domain.
     pub fn pin_onto(&self, field: &mut arrow_schema::Field) {
         if let Some(text) = self.encoded() {
             field.metadata_mut().insert(String::from(COLLATION_METADATA_KEY), text);

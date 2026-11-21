@@ -158,24 +158,29 @@ fn deadline_exceeded() -> RawRefusalReason {
     }
 }
 
-/// Named where the source applies the policy itself, so a filter on another column narrows the scan.
-/// A Cube leg is sent only bare scans, so its timeout keeps the generic refusal until filters reach it.
+/// A supported filter on another column narrows source-side masking and Cube's local-policy input.
 #[test]
-fn a_leg_past_its_deadline_is_named_only_where_the_source_applies_the_policy() {
-    assert_eq!(
-        refused(PolicyRead::AtSource, Ends::TimedOut),
-        RawRefusalReason::PolicySearchNeedsNarrowing
-    );
-    for read in [PolicyRead::Locally, PolicyRead::Unread] {
-        assert_eq!(refused(read, Ends::TimedOut), deadline_exceeded(), "{read:?}");
+fn a_leg_past_its_deadline_is_named_wherever_it_read_a_policy_column() {
+    for read in [PolicyRead::AtSource, PolicyRead::Locally] {
+        assert_eq!(
+            refused(read, Ends::TimedOut),
+            RawRefusalReason::PolicySearchNeedsNarrowing,
+            "{read:?}"
+        );
     }
+    assert_eq!(refused(PolicyRead::Unread, Ends::TimedOut), deadline_exceeded());
 }
 
-/// A policy read renames a source-side deadline and nothing else: a source's own size refusals, and the
-/// row cap, are what they were.
+/// Only Cube's local policy names a size refusal: the cap counts input rows before local filtering.
 #[test]
-fn a_policy_read_does_not_rename_a_size_refusal() {
-    for read in [PolicyRead::Unread, PolicyRead::AtSource, PolicyRead::Locally] {
+fn a_size_refusal_is_named_only_where_the_policy_runs_after_the_leg() {
+    for ends in [Ends::TooMuchData, Ends::Rows(past_the_cap())] {
+        assert_eq!(
+            refused(PolicyRead::Locally, ends),
+            RawRefusalReason::PolicySearchNeedsNarrowing
+        );
+    }
+    for read in [PolicyRead::Unread, PolicyRead::AtSource] {
         assert_eq!(refused(read, Ends::TooMuchData), RawRefusalReason::ResultTooLarge, "{read:?}");
         assert_eq!(
             refused(read, Ends::Rows(past_the_cap())),
