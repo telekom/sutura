@@ -3,7 +3,7 @@ use crate::coordinator::query_coordinator::QueryCoordinator;
 use crate::stage::RemoteStage;
 use crate::{NetworkBoundaryExt, Stage};
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::{Result, exec_err};
+use datafusion::common::{Result, exec_datafusion_err, exec_err};
 use datafusion::physical_plan::ExecutionPlan;
 use std::sync::Arc;
 
@@ -17,10 +17,11 @@ use std::sync::Arc;
 ///    become nodes without children and traversing them will not go further down in.
 /// 4. Spawn a background task per worker that waits for the worker to finish and collects
 ///    its metrics into [DistributedExec::task_metrics] via the coordinator channel.
-pub(super) fn prepare_static_plan(
+pub(super) async fn prepare_static_plan(
     query_coordinator: &QueryCoordinator,
     base_plan: &Arc<dyn ExecutionPlan>,
 ) -> Result<PreparedPlan> {
+    let mut preparations = Vec::new();
     let prepared = Arc::clone(base_plan).transform_up(|plan| {
         // The following logic is just applied on network boundaries.
         let Some(plan) = plan.as_network_boundary() else {
@@ -40,7 +41,8 @@ pub(super) fn prepare_static_plan(
             workers.push(routed_url.clone());
             // Spawn a task that sends the subplan to the chosen URL.
             // There will be as many spawned tasks as workers.
-            let (worker_tx, worker_rx) = stage_coordinator.send_plan_task(i, routed_url)?;
+            let (worker_tx, worker_rx, prepared) = stage_coordinator.send_plan_task(i, routed_url)?;
+            preparations.push(prepared);
             stage_coordinator.worker_to_coordinator_task(i, worker_rx);
             stage_coordinator.coordinator_to_worker_task(i, worker_tx)?;
         }
@@ -54,6 +56,9 @@ pub(super) fn prepare_static_plan(
             },
         ))?))
     })?;
+    for preparation in preparations {
+        preparation.await.map_err(|cause| exec_datafusion_err!("worker plan preparation task dropped: {cause}"))??;
+    }
     Ok(PreparedPlan {
         head_stage: prepared.data,
         // If the plan was statically planned, the base plan is the same one that will be used for

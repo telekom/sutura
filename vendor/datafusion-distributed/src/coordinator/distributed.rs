@@ -222,7 +222,7 @@ impl ExecutionPlan for DistributedExec {
             let d_cfg = DistributedConfig::from_config_options(context.session_config().options())?;
             let result = match d_cfg.dynamic_task_count {
                 true => prepare_dynamic_plan(&query_coordinator, &base_plan).await?,
-                false => prepare_static_plan(&query_coordinator, &base_plan)?,
+                false => prepare_static_plan(&query_coordinator, &base_plan).await?,
             };
 
             plan_for_viz
