@@ -746,13 +746,13 @@ def plan_readiness():
                 name = cell.rsplit("::", 1)[1]
                 PLAN["test_files"] = {name: str(test_file.resolve())}
                 owned = own_sites(failure, name)
-                if name == binding["test_names"][0]:
+                if label == "base-red":
                     assert all(
                         assertion
                         in test_file.read_text().splitlines()[site["line"] - 1]
                         for site in owned["sites"]
                     )
-                if name == binding["test_names"][1]:
+                if label == "dynamic-mutant-red":
                     assert "left: 0" in failure and "right: 1" in failure
                     assert all(
                         test_file.read_text().splitlines()[site["line"] - 1].strip()
@@ -808,7 +808,7 @@ def plan_readiness():
             run(
                 "dynamic-mutant-red",
                 binary,
-                "completion_chain_tests::" + binding["test_names"][1],
+                "completion_chain_tests::" + binding["test_names"][0],
                 False,
                 "assertion `left == right` failed",
             )

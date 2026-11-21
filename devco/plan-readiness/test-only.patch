@@ -1,5 +1,5 @@
 diff --git a/vendor/datafusion-distributed/src/completion_chain_tests.rs b/vendor/datafusion-distributed/src/completion_chain_tests.rs
-index 0b6d8e1f2..c2f140013 100644
+index 0b6d8e1f2..ef7b57a93 100644
 --- a/vendor/datafusion-distributed/src/completion_chain_tests.rs
 +++ b/vendor/datafusion-distributed/src/completion_chain_tests.rs
 @@ -7,17 +7,19 @@ use crate::{
@@ -181,7 +181,7 @@ index 0b6d8e1f2..c2f140013 100644
      let plan = DistributedExec::new(boundary);
      let stream = plan.execute(0, SessionContext::from(state).task_ctx()).unwrap();
      (stream, completion, cuts, preparations)
-@@ -201,6 +292,43 @@ fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
+@@ -201,6 +292,40 @@ fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
      }))
  }
 
@@ -206,10 +206,7 @@ index 0b6d8e1f2..c2f140013 100644
 +    assert_eq!(gate.executions.load(Ordering::SeqCst), 1);
 +    assert_eq!(gate.head_executions.load(Ordering::SeqCst), 1);
 +    assert_eq!(completion.take().unwrap()[0].records, vec![vec![42]]);
-+}
 +
-+#[tokio::test]
-+async fn completion_chain_dynamic_preparation_remains_live_before_head_execution() {
 +    let (stream, completion, _, preparations) = execution_with_preparation(
 +        Some(ready(Arc::new(AtomicUsize::new(0)))), None, None, None, true,
 +    );
