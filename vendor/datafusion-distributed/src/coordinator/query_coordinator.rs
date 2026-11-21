@@ -152,6 +152,8 @@ impl<'a> StageCoordinator<'a> {
             task_number: task_i,
         };
 
+        let diagnostic_started = std::time::Instant::now();
+        eprintln!("plan-handoff key={task_key:?} phase=send outcome=scheduled elapsed_us={}", diagnostic_started.elapsed().as_micros());
         let completion = session_config.get_extension::<crate::QueryCompletion>();
         let completion_request = completion.as_ref().map(|capture| capture.register(task_key)).transpose()?;
         let set_plan_request = SetPlanRequest {
@@ -184,8 +186,9 @@ impl<'a> StageCoordinator<'a> {
         let task_ctx = Arc::clone(self.task_ctx);
 
         self.join_set.lock().unwrap().spawn(async move {
+            eprintln!("plan-handoff key={task_key:?} phase=send outcome=started elapsed_us={}", diagnostic_started.elapsed().as_micros());
             let start = Instant::now();
-
+            eprintln!("plan-handoff key={task_key:?} phase=resolve outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
             let mut client = match LocalWorkerContext::from_ctx(&task_ctx) {
                 Some(lw) if lw.self_url == url => {
                     metrics.local_coordinator_channels.add(1);
@@ -196,7 +199,8 @@ impl<'a> StageCoordinator<'a> {
                     let ch_resolver = get_distributed_channel_resolver(task_ctx.as_ref());
                     ch_resolver.get_worker_client_for_url(&url).await
                 }
-            }?;
+            }.inspect_err(|_| { eprintln!("plan-handoff key={task_key:?} phase=resolve outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
+            eprintln!("plan-handoff key={task_key:?} phase=resolve outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
             let worker_to_coordinator_stream = client
                 .coordinator_channel(
                     headers,
@@ -205,10 +209,13 @@ impl<'a> StageCoordinator<'a> {
                     metrics_set,
                     &task_ctx,
                 )
-                .await?;
+                .await.inspect_err(|_| { eprintln!("plan-handoff key={task_key:?} phase=channel outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
+            eprintln!("plan-handoff key={task_key:?} phase=channel outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
             metrics.plan_send_latency.record(&start);
             receive_worker_messages(worker_to_coordinator_stream, worker_to_coordinator_tx,
                 task_key, completion, completion_request).await
+                .inspect(|_| { eprintln!("plan-handoff key={task_key:?} phase=send outcome=finished elapsed_us={}", diagnostic_started.elapsed().as_micros()); })
+                .inspect_err(|_| { eprintln!("plan-handoff key={task_key:?} phase=send outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })
         });
 
         Ok((coordinator_to_worker_tx, worker_to_coordinator_rx))

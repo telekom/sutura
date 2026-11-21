@@ -53,8 +53,13 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
         metrics: ExecutionPlanMetricsSet,
         ctx: &Arc<TaskContext>,
     ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
-        let set_plan_request = encode_set_plan_request(set_plan_request, ctx)?;
+        let key = set_plan_request.task_key;
+        let diagnostic_started = std::time::Instant::now();
+        eprintln!("plan-handoff key={key:?} phase=encode outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
+        let set_plan_request = encode_set_plan_request(set_plan_request, ctx)
+            .inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=encode outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
         let plan_bytes_sent = set_plan_request.plan_proto.len();
+        eprintln!("plan-handoff key={key:?} phase=encode outcome=ok elapsed_us={} bytes={plan_bytes_sent}", diagnostic_started.elapsed().as_micros());
         let input_stream = futures::stream::once(async move {
             pb::CoordinatorToWorkerMsg {
                 inner: Some(pb::coordinator_to_worker_msg::Inner::SetPlanRequest(
@@ -64,6 +69,7 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
         })
         .chain(c2w_stream.map(encode_coordinator_to_worker_msg));
 
+        eprintln!("plan-handoff key={key:?} phase=rpc outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
         let output_stream = self
             .coordinator_channel(Request::from_parts(
                 MetadataMap::from_headers(headers),
@@ -72,6 +78,8 @@ impl WorkerChannel for pb::worker_service_client::WorkerServiceClient<BoxCloneSy
             ))
             .boxed()
             .await
+            .inspect(|_| { eprintln!("plan-handoff key={key:?} phase=rpc outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros()); })
+            .inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=rpc outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })
             .map_err(map_status_to_datafusion_error)?
             .into_inner()
             .map_err(map_status_to_datafusion_error)

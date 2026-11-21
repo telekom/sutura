@@ -533,6 +533,46 @@ def dump(venue: Venue) -> None:
         venue.say(f"{reader.name}:\n{tail}")
 
 
+def capture_handoff(venue: Venue, out: Path) -> None:
+    receipts = {}
+    nodes = [(venue.query, "-u sutura-ref -u sutura-one -u sutura-many")]
+    nodes.extend((reader, "-u sutura") for reader in venue.readers)
+    for node, units in nodes:
+        try:
+            status, journal = node.execute(
+                f"journalctl --sync && journalctl --no-pager {units} -o cat"
+            )
+            events = [
+                line
+                for line in journal.splitlines()
+                if line.startswith("plan-handoff ")
+            ]
+            venue.say(
+                f"plan-handoff capture-begin node={node.name} status={status} events={len(events)}"
+            )
+            venue.say("\n".join(events))
+            venue.say(
+                f"plan-handoff capture-end node={node.name} status={status} events={len(events)}"
+            )
+            (out / f"plan-handoff-{node.name}.log").write_text("\n".join(events) + "\n")
+            outcome = "captured" if status == 0 and events else "inconclusive"
+            receipts[node.name] = {
+                "outcome": outcome,
+                "command_status": status,
+                "events": len(events),
+            }
+            venue.say(f"plan-handoff capture node={node.name} outcome={outcome}")
+        except Exception:  # noqa: BLE001 - preserve the original verdict if node diagnostics fail.
+            receipts[node.name] = {"outcome": "capture_error"}
+            venue.say(f"plan-handoff capture node={node.name} outcome=capture_error")
+    try:
+        (out / "plan-handoff-capture.json").write_text(
+            json.dumps(receipts, indent=2) + "\n"
+        )
+    except Exception:  # noqa: BLE001 - optional diagnostic receipts must not replace the original verdict.
+        venue.say("plan-handoff capture receipt outcome=write_error")
+
+
 def main(plan: dict, query, db, readers: list, start_all, subtest, out: Path) -> None:
     corpus = Corpus(plan)
     venue = Venue(plan, query, db, readers)
@@ -565,6 +605,8 @@ def main(plan: dict, query, db, readers: list, start_all, subtest, out: Path) ->
     except Exception:
         dump(venue)
         raise
+    finally:
+        capture_handoff(venue, out)
     text = table_of(report)
     venue.say("\n" + text)
     venue.say("results " + json.dumps(report, sort_keys=True))

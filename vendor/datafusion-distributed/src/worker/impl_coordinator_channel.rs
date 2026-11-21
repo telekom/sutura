@@ -28,6 +28,8 @@ impl Worker {
         stream: BoxStream<'static, Result<CoordinatorToWorkerMsg>>,
     ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
         let key = request.task_key;
+        let diagnostic_started = std::time::Instant::now();
+        eprintln!("plan-handoff key={key:?} phase=prepare outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
         let completion_request = request.completion;
         let completion_deadline = completion_request.map(|v| tokio::time::Instant::now().checked_add(v.timeout)
             .ok_or_else(|| exec_datafusion_err!("invalid completion deadline"))).transpose()?;
@@ -36,6 +38,8 @@ impl Worker {
             .task_data_entries
             .get_with(key, async { Default::default() })
             .await;
+        eprintln!("plan-handoff key={key:?} phase=prepare_entry outcome=obtained elapsed_us={}", diagnostic_started.elapsed().as_micros());
+
 
         let mut remote_work_unit_feed_registry = RemoteWorkUnitFeedRegistry::default();
         for decl in request.work_unit_feed_declarations {
@@ -71,6 +75,7 @@ impl Worker {
                 cfg = cfg.with_batch_size(shuffle_batch_size);
             }
 
+            eprintln!("plan-handoff key={key:?} phase=session outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
             let session_state = self
                 .session_builder
                 .build_session_state(WorkerQueryContext {
@@ -80,7 +85,8 @@ impl Worker {
                         .with_runtime_env(Arc::clone(&self.runtime)),
                     headers,
                 })
-                .await?;
+                .await.inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=session outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
+            eprintln!("plan-handoff key={key:?} phase=session outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
 
             if completion_request.is_some()
                 && session_state.config().get_extension::<crate::TaskCompletionProducer>().is_none()
@@ -88,15 +94,26 @@ impl Worker {
                 return Err(exec_datafusion_err!("required task completion producer is absent"));
             }
             let task_ctx = session_state.task_ctx();
-            let plan = request.plan.decode(&task_ctx)?;
+            eprintln!("plan-handoff key={key:?} phase=decode outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
+            let plan = request.plan.decode(&task_ctx)
+                .inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=decode outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
+            eprintln!("plan-handoff key={key:?} phase=decode outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
+
 
             let ev = WorkerPlanRewriteEvent {
                 plan,
                 session_config: session_state.config(),
             };
-            let plan = WorkerPlanRewriteHandlers::handle(ev)?.plan;
+            eprintln!("plan-handoff key={key:?} phase=rewrite outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
+            let plan = WorkerPlanRewriteHandlers::handle(ev)
+                .inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=rewrite outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?.plan;
+            eprintln!("plan-handoff key={key:?} phase=rewrite outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
+            eprintln!("plan-handoff key={key:?} phase=sampler outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
             load_info_rxs =
-                SamplerExec::kick_off_first_sampler(Arc::clone(&plan), Arc::clone(&task_ctx))?;
+                SamplerExec::kick_off_first_sampler(Arc::clone(&plan), Arc::clone(&task_ctx))
+                    .inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=sampler outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
+            eprintln!("plan-handoff key={key:?} phase=sampler outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
+
 
             // Initialize partition count to the number of partitions in the stage
             Ok::<_, DataFusionError>(TaskData {
@@ -113,12 +130,17 @@ impl Worker {
 
         let task_data_result = match completion_deadline {
             Some(deadline) => tokio::time::timeout_at(deadline, task_data()).await
+                .inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=prepare outcome=deadline elapsed_us={}", diagnostic_started.elapsed().as_micros()); })
                 .map_err(|cause| exec_datafusion_err!("task preparation deadline: {cause}"))?,
             None => task_data().await,
         }.map_err(Arc::new);
 
+        eprintln!("plan-handoff key={key:?} phase=prepare outcome={} elapsed_us={}", if task_data_result.is_ok() { "ok" } else { "error" }, diagnostic_started.elapsed().as_micros());
+        eprintln!("plan-handoff key={key:?} phase=publish outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
         entry
             .write(task_data_result.clone())
+            .inspect(|_| { eprintln!("plan-handoff key={key:?} phase=publish outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros()); })
+            .inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=publish outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })
             .map_err(|e| exec_datafusion_err!("{e}"))?;
 
         let task_data = task_data_result.map_err(DataFusionError::Shared)?;
@@ -183,6 +205,7 @@ impl Worker {
                 }
             }
 
+            eprintln!("plan-handoff key={key:?} phase=input_end outcome={} elapsed_us={}", if input_error.is_some() { "error" } else if completion_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) { "deadline" } else { "eos" }, diagnostic_started.elapsed().as_micros());
             if completion_request.is_some() { stop_load_info_on_eos.cancel(); }
             let metrics_tx = task_data.metrics_tx.lock().unwrap().take();
             if let Some(Ok(plan)) = task_data.final_plan.get() {
@@ -217,7 +240,9 @@ impl Worker {
                 }.await;
                 let _ = completion_tx.send(completion);
             }
-            task_data_entries.invalidate(&key).await
+            eprintln!("plan-handoff key={key:?} phase=invalidate outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
+            task_data_entries.invalidate(&key).await;
+            eprintln!("plan-handoff key={key:?} phase=invalidate outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
         });
 
         let load_info_stream = FuturesUnordered::from_iter(load_info_rxs)

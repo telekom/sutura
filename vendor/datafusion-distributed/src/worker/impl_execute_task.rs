@@ -20,16 +20,28 @@ impl Worker {
         &self,
         request: ExecuteTaskRequest,
     ) -> Result<(Vec<SendableRecordBatchStream>, Arc<TaskContext>)> {
+        let key = request.task_key;
+        let diagnostic_started = std::time::Instant::now();
+        eprintln!("plan-handoff key={key:?} phase=execute outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
         let entry = self
             .task_data_entries
             .get_with(request.task_key, async { Default::default() })
             .await;
+        eprintln!("plan-handoff key={key:?} phase=execute_entry outcome=obtained elapsed_us={}", diagnostic_started.elapsed().as_micros());
+
 
         // Other request is responsible for writing the plan that belongs to this TaskKey, so
         // we'll resolve immediately if it was already there, or wait until it's ready.
+        eprintln!("plan-handoff key={key:?} phase=wait outcome=start elapsed_us={}", diagnostic_started.elapsed().as_micros());
         let task_data = entry
             .read(Duration::from_secs(WAIT_PLAN_TIMEOUT_SECS))
             .await
+            .inspect(|value| { eprintln!("plan-handoff key={key:?} phase=wait outcome={} elapsed_us={}", if value.is_ok() { "ready" } else { "preparation_error" }, diagnostic_started.elapsed().as_micros()); })
+            .inspect_err(|cause| { eprintln!("plan-handoff key={key:?} phase=wait outcome={} elapsed_us={}", match cause {
+                super::single_write_multi_read::SingleWriteMultiReadError::AlreadyWritten => "already_written",
+                super::single_write_multi_read::SingleWriteMultiReadError::Timeout => "timeout",
+                super::single_write_multi_read::SingleWriteMultiReadError::NoValue => "missing_value",
+            }, diagnostic_started.elapsed().as_micros()); })
             .map_err(|e| exec_datafusion_err!("Worker::execute_task timed-out while waiting for the plan to be set by the coordinator. ({e})"))?
             .map_err(DataFusionError::Shared)?;
         task_data.task_data_metrics.mark_execution_started_once();

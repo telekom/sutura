@@ -123,12 +123,16 @@ impl pb::worker_service_server::WorkerService for Worker {
         };
 
         let set_plan_request = decode_set_plan_request(set_plan_request)?;
+        let key = set_plan_request.task_key;
+        let diagnostic_started = std::time::Instant::now();
+        eprintln!("plan-handoff key={key:?} phase=receive_plan outcome=decoded elapsed_us={}", diagnostic_started.elapsed().as_micros());
         let headers = metadata.into_headers();
         self.authorize(WorkerCall::SetPlan {
             headers: &headers,
             task_key: &set_plan_request.task_key,
         })
-        .await?;
+        .await.inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=authorize_plan outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
+        eprintln!("plan-handoff key={key:?} phase=authorize_plan outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
 
         let input_stream = body
             .map_err(map_status_to_datafusion_error)
@@ -158,11 +162,15 @@ impl pb::worker_service_server::WorkerService for Worker {
     ) -> Result<Response<Self::ExecuteTaskStream>, Status> {
         let (metadata, _ext, body) = request.into_parts();
         let request = decode_execute_task_request(body).await?;
+        let key = request.task_key;
+        let diagnostic_started = std::time::Instant::now();
+        eprintln!("plan-handoff key={key:?} phase=receive_execute outcome=decoded elapsed_us={}", diagnostic_started.elapsed().as_micros());
         self.authorize(WorkerCall::ExecuteTask {
             headers: &metadata.into_headers(),
             task_key: &request.task_key,
         })
-        .await?;
+        .await.inspect_err(|_| { eprintln!("plan-handoff key={key:?} phase=authorize_execute outcome=error elapsed_us={}", diagnostic_started.elapsed().as_micros()); })?;
+        eprintln!("plan-handoff key={key:?} phase=authorize_execute outcome=ok elapsed_us={}", diagnostic_started.elapsed().as_micros());
         let partition_range = request.target_partition_start..request.target_partition_end;
 
         let (arrow_streams, task_ctx) = self
