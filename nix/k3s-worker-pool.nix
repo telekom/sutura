@@ -134,6 +134,7 @@ let
 
     for size, count in [("large", 131072), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
+        lookup_segment, link_segment = "lookup_" + size + "_segment", "link_" + size + "_segment"
         with (root / "data" / (fact + ".csv")).open("w") as handle:
             rows = csv.writer(handle)
             rows.writerow(["day", "link", "amount"])
@@ -148,11 +149,19 @@ let
         document(link, dict(kind="relationship", name=link,
                             origin=dict(model=fact, column="link"),
                             target=dict(model=lookup, column="link"), join_type="many_to_one"))
+        document(lookup_segment, dict(kind="model", name=lookup_segment, source="geo", table=lookup_segment,
+                            columns=[dict(name="link", type="text"),
+                                     dict(name="segment", type="text")]))
+        document(link_segment, dict(kind="relationship", name=link_segment,
+                            origin=dict(model=fact, column="link"),
+                            target=dict(model=lookup_segment, column="link"), join_type="many_to_one"))
         document("total_" + size, dict(kind="metric", name="total_" + size, model=fact,
                  measure=dict(simple=dict(aggregate="sum", column="amount")),
                  time_column="day", grains=["month"], audience="open",
                  dimensions=[dict(name="region", column="region", via=link,
-                                  values=["north", "south"])],
+                                  values=["north", "south"]),
+                             dict(name="segment", column="segment", via=link_segment,
+                                  values=["segment-a", "segment-b"])],
                  anchor=dict(range=dict(start="2026-06-01", end="2026-07-01"), value=count * 100)))
     PY
     cp ${sourceTls dbHost}/ca.pem "$out/postgres-ca.pem"
@@ -342,10 +351,17 @@ pkgs.testers.runNixOSTest {
         CREATE TABLE lookup_large AS SELECT 'c' || n AS link,
           CASE WHEN n % 2 = 0 THEN 'north' ELSE 'south' END AS region
           FROM generate_series(0, 131071) AS n;
+        CREATE TABLE lookup_large_segment AS SELECT 'c' || n AS link,
+          CASE WHEN n % 4 < 2 THEN 'segment-a' ELSE 'segment-b' END AS segment
+          FROM generate_series(0, 131071) AS n;
         CREATE TABLE lookup_small AS SELECT * FROM lookup_large WHERE link IN
           ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
+        CREATE TABLE lookup_small_segment AS SELECT * FROM lookup_large_segment WHERE link IN
+          ('c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7');
         ALTER TABLE lookup_large OWNER TO sutura;
+        ALTER TABLE lookup_large_segment OWNER TO sutura;
         ALTER TABLE lookup_small OWNER TO sutura;
+        ALTER TABLE lookup_small_segment OWNER TO sutura;
         ANALYZE;
       '';
     };
@@ -507,7 +523,7 @@ pkgs.testers.runNixOSTest {
     def question(size="large", federated=True):
         return {"metrics": ["total_" + size], "grain": "month",
                 "range": {"start": "2026-06-01", "end": "2026-07-01"},
-                "dimensions": ["region"] if federated else []}
+                "dimensions": ["region", "segment"] if federated else []}
 
     def start_query(label, question, address, correlation=None):
         base = "/tmp/" + label
@@ -531,8 +547,10 @@ pkgs.testers.runNixOSTest {
     def exact(reply, size="large", federated=True):
         assert reply.get("outcome") == "answer", reply
         count = 131072 if size == "large" else 8
-        expected = ([{"period": "2026-06-01", "region": region, "total_" + size: str(count * 50)}
-                     for region in ["north", "south"]] if federated else
+        expected = ([{"period": "2026-06-01", "region": region, "segment": segment,
+                      "total_" + size: str(count * 25)}
+                     for region in ["north", "south"]
+                     for segment in ["segment-a", "segment-b"]] if federated else
                     [{"period": "2026-06-01", "total_" + size: str(count * 100)}])
         assert set(reply["columns"]) == set(expected[0]), reply
         assert reply["rows"] == [[row[c] for c in reply["columns"]] for row in expected], reply
