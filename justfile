@@ -234,23 +234,32 @@ ci:
     # anything, and a gate that cannot run on the machine of the person who runs it gets skipped.
     system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
     printf 'checks for %s\n' "$system"
-    # api-docs IS in this list: nothing else runs rustdoc over every member with private items or
-    # renders the pages, so a broken doc link or an unrenderable item was invisible locally.
-    # helm-chart IS in this list rather than `just shipped`'s: it lints and renders one chart and
-    # validates against three vendored schema files, seconds rather than the minutes a release
-    # profile build costs - `nix/helm-chart.nix` carries the derivation.
-    # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
-    # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
-    # driver), so a broken driver triple reds this task like any other gate check.
-    # adbc-driver-postgresql, -duckdb and -clickhouse are in it for the same reason, over their own builds.
+    # api-docs alone renders private-item rustdoc for every member.
+    # helm-chart lints, renders and checks vendored schemas without a release build.
+    # adbc-driver-* builds every supported driver target; without these checks a broken
+    # cross target could remain unbuilt (telekom/sutura#913).
     # postgres-linked-driver (the LINKED static musl driver), multi-node, k3s-autoscaling and k3s-worker-pool
     # (NixOS VMs, KVM) run only on an x86_64-linux host; anywhere else each is a stub saying so.
     # vendored-oracledb and vendored-clickhouse-adbc run the vendored drivers' own unit tests, which the workspace excludes.
     # slides builds the meetup deck, which `docs.yml` publishes; the build is nix-cached.
+    # Two VM venues declare at most 21 GiB guest RAM together; builders share the rest.
+    # Smaller or unreadable hosts stay serial. --cores divides the host CPU budget.
+    cpus="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 1)"
+    pages="$(getconf _PHYS_PAGES 2>/dev/null || printf 0)"
+    page_bytes="$(getconf PAGESIZE 2>/dev/null || printf 0)"
+    jobs=1
+    if [ "$cpus" -ge 8 ] && [ "$((pages * page_bytes))" -ge 34359738368 ]; then jobs=2; fi
+    cores=$((cpus / jobs))
+    checks=()
     for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node multi-node-postgres multi-node-oracle k3s-autoscaling k3s-worker-pool vendored-oracledb vendored-clickhouse-adbc slides; do
-        printf '\n=== %s ===\n' "$check"
-        nix build ".#checks.$system.$check" -L
+        checks+=(".#checks.$system.$check")
     done
+    printf 'ci graph: checks=%s max-jobs=%s cores=%s\n' "${#checks[@]}" "$jobs" "$cores"
+    started=$SECONDS
+    status=0
+    nix build "${checks[@]}" -L --no-link --max-jobs "$jobs" --cores "$cores" || status=$?
+    printf 'ci graph: duration=%ss status=%s\n' "$((SECONDS - started))" "$status"
+    exit "$status"
 
 # Run every fresh-child bounded corpus measurement.
 measure-bounds:
