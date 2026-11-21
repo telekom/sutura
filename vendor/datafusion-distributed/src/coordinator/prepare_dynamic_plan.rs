@@ -14,7 +14,7 @@ use crate::{
 use dashmap::DashMap;
 use datafusion::common::stats::Precision;
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::common::{Result, exec_err, plan_err};
+use datafusion::common::{Result, exec_datafusion_err, exec_err, plan_err};
 use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::{
     ColumnStatistics, ExecutionPlan, ExecutionPlanProperties, Statistics, StatisticsArgs,
@@ -84,6 +84,7 @@ pub(super) async fn prepare_dynamic_plan(
 
             let mut workers = Vec::with_capacity(input_stage.tasks);
             let mut load_info_rxs = Vec::with_capacity(input_stage.tasks);
+            let mut preparations = Vec::with_capacity(input_stage.tasks);
 
             let routed_urls = stage_coordinator.routed_urls()?;
 
@@ -91,7 +92,8 @@ pub(super) async fn prepare_dynamic_plan(
                 workers.push(routed_url.clone());
                 // Spawns the task that feeds this subplan to this worker. There will be as
                 // many as this spawned tasks as workers.
-                let (worker_tx, worker_rx) = stage_coordinator.send_plan_task(i, routed_url)?;
+                let (worker_tx, worker_rx, prepared) = stage_coordinator.send_plan_task(i, routed_url)?;
+                preparations.push(prepared);
                 load_info_rxs.push({
                     let rx = stage_coordinator.worker_to_coordinator_task(i, worker_rx);
                     UnboundedReceiverStream::new(rx)
@@ -101,6 +103,9 @@ pub(super) async fn prepare_dynamic_plan(
 
             let plans_for_viz = Arc::clone(&plans_for_viz);
             Ok(async move {
+                for preparation in preparations {
+                    preparation.await.map_err(|cause| exec_datafusion_err!("worker plan preparation task dropped: {cause}"))??;
+                }
                 let (stats, consumer_tc) = if nb_type == TypeId::of::<NetworkCoalesceExec>() {
                     (None, Maximum(1))
                 } else {
