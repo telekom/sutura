@@ -1,0 +1,37 @@
+diff --git a/charts/sutura/templates/worker-pool.yaml b/charts/sutura/templates/worker-pool.yaml
+index 8ac65c56b5a62cb478a62d026870cb32a1e14eff..9eb75f6b22784d7e7dd1f7a1ccd3c726d0ed5a11 100644
+--- a/charts/sutura/templates/worker-pool.yaml
++++ b/charts/sutura/templates/worker-pool.yaml
+@@ -230 +230 @@ spec:
+-  # The operator owns the count from here on: an upgrade that leaves `min` alone leaves it.
++  # The chart renders the floor; the operator reconciles the count against demand.
+@@ -231,0 +232,4 @@ spec:
++  strategy:
++    type: RollingUpdate
++    rollingUpdate:
++      maxUnavailable: 0
+@@ -258,0 +263 @@ spec:
++          terminationMessagePolicy: FallbackToLogsOnError
+diff --git a/docs/adr/20261030193029-operator-sizes-the-worker-pool.md b/docs/adr/20261030193029-operator-sizes-the-worker-pool.md
+index f4a29a4604e6ac28dbcc887ad518284f0881469b..e0ea8c18895dbd38963c2f435eb188089fcf530e 100644
+--- a/docs/adr/20261030193029-operator-sizes-the-worker-pool.md
++++ b/docs/adr/20261030193029-operator-sizes-the-worker-pool.md
+@@ -127,2 +127,3 @@ and what they may hold?
+-    gauge while it waits. If they are not ready in time, it is refused, as a refusal the caller may
+-    retry.
++    gauge while it waits. When the wait ends, it plans across those that resolved, even if fewer
++    than wanted. If none resolved, it is refused, as a refusal the caller may retry. A nonempty
++    pool does not promise enough capacity to answer; the execution's resource bounds still apply.
+@@ -159 +160 @@ and what they may hold?
+-| Serving node | A cross-node question whose workers are not ready within its wait                | Decision 11 |
++| Serving node | A cross-node question for which no worker resolves within its wait               | Decision 11 |
+@@ -172 +173,2 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
+-  refuses it, and so does a pool already at `max`.
++  refuses it if no worker resolves. A pool already at `max` supplies no extra workers; execution
++  across its ready workers can still be refused for insufficient resources.
+@@ -182,2 +184,3 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
+-- **The chart leaves the worker count unset**, so an upgrade keeps the count the operator set. A
+-  new worker Deployment starts with one worker, removed after `idleAfter` if nothing asks for it.
++- **The chart renders `min` as the worker replica count.** The operator reconciles that count to
++  demand plus the warm reserve within the pool's bounds. An apply that writes the replica count
++  can temporarily resize the pool before the operator's next pass.
