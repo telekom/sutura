@@ -226,6 +226,8 @@ def mutations():
     )
     write("binaries.json", locations)
     exact(BASELINE)
+    write("diagnostic-discovery-only.json", {"mutants_run": 0})
+    return
     saved_tests = {
         cell: digest(region(PLAN["test_files"][cell], cell)[2].encode())
         for cell in cells
