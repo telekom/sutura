@@ -980,7 +980,8 @@ pkgs.testers.runNixOSTest {
     except Exception:
         for command in ["kubectl get suturaworkerpools -o yaml", "kubectl get pods -A -o wide",
                         "kubectl describe pods", "kubectl logs deployment/sutura-operator --tail=100",
-                        "kubectl logs deployment/sutura --tail=100", "kubectl logs -l " + q(WORKERS) + " --tail=100"]:
+                        "kubectl logs deployment/sutura --tail=100", "kubectl logs -l " + q(WORKERS) + " --tail=100",
+                        "for file in /tmp/cold.exit /tmp/cold.status /tmp/cold.json /tmp/cold.stderr; do echo \"$file\"; cat \"$file\"; done"]:
             print(machine.execute(command)[1])
         raise
     finally:
