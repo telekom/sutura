@@ -53,6 +53,9 @@ mod tokens;
 #[cfg(all(feature = "distributed", feature = "bigquery", feature = "postgres"))]
 mod native_bigquery;
 
+#[cfg(feature = "clickhouse")]
+mod switched;
+
 #[tokio::test]
 async fn the_concrete_reader_checks_its_sources_verifier_membership_before_decoding_or_dispatch() {
     use sutura_domain::identity::{Secret, VerifierId, WorkloadPool};
