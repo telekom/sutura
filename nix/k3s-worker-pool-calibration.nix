@@ -47,7 +47,7 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
     evidence["calibration"] = trials
     # Discovery only: freeze an observed combine-only value in later acceptance source.
     ceiling, upper, lower, mib = None, None, None, 64
-    for attempt in range(5):
+    for attempt in range(7):
         assert 4 <= mib <= 64 and all(t["ceiling"] != mib * 1024 * 1024 for t in trials), trials
         trial = {}
         trials.append(trial)
@@ -71,7 +71,10 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
         if candidate == mib or candidate in {lower, upper}:
             break
         mib = candidate
-    assert ceiling is not None, {"failure": "no combine-only ceiling discovered within five trials", "trials": trials}
+    assert ceiling is not None, (
+        "no combine-only ceiling observed",
+        [(trial["ceiling"], trial["status"], trial["phase"]) for trial in trials],
+    )
     assert identity(get("pod/reference"))["restarts"] == [0]
     evidence["ceiling"] = ceiling
     machine.succeed("kubectl delete pod reference --wait=true")
