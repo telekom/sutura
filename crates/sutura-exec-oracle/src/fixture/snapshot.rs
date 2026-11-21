@@ -31,29 +31,39 @@ pub(crate) fn lock(warehouse: &OracleWarehouse) -> ExecutionGuard<'_> {
 /// holds. For a short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it
 /// would a split read; any other refusal, and `ORA-01466` at the deadline, is returned with its cause.
 pub(crate) fn await_read_only(guard: &ExecutionGuard<'_>, table: &str) -> Result<(), FixtureError> {
-    let refused = |cause: oracledb::Error| statement_refused(table, DriverError::from(cause));
     let connection = &guard.warehouse.connection;
     let probe = format!(r#"SELECT COUNT(*) FROM "{table}""#);
     let deadline = Instant::now() + DEADLINE;
+    let mut attempt = 0;
+    let mut last_ora = None;
     loop {
-        connection.rollback().map_err(refused)?;
-        connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(refused)?;
+        attempt += 1;
+        let refused =
+            |phase, cause: oracledb::Error| statement_refused(table, phase, attempt, last_ora, DriverError::from(cause));
+        connection
+            .rollback()
+            .map_err(|cause| refused("rollback before probe", cause))?;
+        connection
+            .execute("SET TRANSACTION READ ONLY", &[])
+            .map_err(|cause| refused("begin read-only", cause))?;
         match connection.query_row(&probe, &[]) {
-            Ok(_) => return connection.rollback().map_err(refused),
+            Ok(_) => return connection.rollback().map_err(|cause| refused("rollback after probe", cause)),
             Err(cause) => {
                 let cause = DriverError::from(cause);
                 if !cause.has_ora_code(DEFINITION_CHANGED) || Instant::now() >= deadline {
-                    return Err(statement_refused(table, cause));
+                    return Err(statement_refused(table, "count probe", attempt, last_ora, cause));
                 }
+                last_ora = cause.ora_code().or(last_ora);
                 std::thread::sleep(RETRY);
             }
         }
     }
 }
 
-fn statement_refused(table: &str, cause: DriverError) -> FixtureError {
+fn statement_refused(table: &str, phase: &str, attempt: usize, last_ora: Option<usize>, cause: DriverError) -> FixtureError {
+    let last_ora = cause.ora_code().or(last_ora);
     FixtureError::Statement {
-        subject: format!("reading {table} under a read-only snapshot"),
+        subject: format!("reading {table} under a read-only snapshot: phase={phase}, attempt={attempt}, last_ora={last_ora:?}"),
         cause,
     }
 }
