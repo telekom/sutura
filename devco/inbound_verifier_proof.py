@@ -504,6 +504,7 @@ def plan_readiness():
         )
         assert len(context) == 1 and all(path.endswith(".drv") for path in context)
         subprocess.run(["nix-store", "--realise", *context], check=True)
+        os.environ["LZMA_API_STATIC"] = "1"
         os.environ["CARGO_HOME"] = str(build_root / "cargo-home")
         os.environ["CARGO_TARGET_DIR"] = str(build_root / "cargo-target")
         os.environ.pop("CARGO_NET_OFFLINE", None)
@@ -531,6 +532,7 @@ def plan_readiness():
                     [cargo, "--version", "--verbose"]
                 ).decode(),
                 "linkers": {key: shutil.which(key) for key in ("clang", "ld.lld")},
+                "LZMA_API_STATIC": os.environ["LZMA_API_STATIC"],
             },
         )
         assert all(
