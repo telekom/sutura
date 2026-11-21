@@ -361,6 +361,3 @@ pub(super) mod postgres;
 
 #[cfg(feature = "clickhouse")]
 mod clickhouse;
-#[cfg(test)]
-#[cfg(feature = "clickhouse")]
-mod switched_tests;

@@ -272,3 +272,6 @@ fn a_split_offered_no_grantee_is_read_here() {
 
 #[cfg(feature = "bigquery")]
 mod bigquery;
+
+#[cfg(all(feature = "clickhouse", feature = "postgres"))]
+mod switched;
