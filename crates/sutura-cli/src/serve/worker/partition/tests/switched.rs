@@ -98,11 +98,52 @@ fn pinned() -> PinnedDefinitions {
 
 async fn reading(posture: &'static str) -> (super::super::Reader, Vec<u8>, SchemaRef) {
     sutura_runtime::spawn_carrying_span(move || {
-        let file = std::env::temp_dir().join(format!("sutura-switched-reader-{}-{:?}", std::process::id(), std::thread::current().id()));
-        std::fs::write(&file, "unused").expect("a fixture credential writes");
-        let registry = crate::serve::tests::direct_registry(&format!(
-            "  ledger:\n    kind: clickhouse\n    host: 127.0.0.1\n    port: 1\n    user: {SERVICE_USER}\n    password_file: {}\n    transport_mode: plaintext\n    posture: {posture}\n    hash_buckets_acknowledged_because: the fixture is immutable\n", file.display()
+        let file = std::env::temp_dir().join(format!(
+            "sutura-switched-reader-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
         ));
+        std::fs::write(&file, "unused").expect("a fixture credential writes");
+        let registry = sutura_config::Settings::load(
+            &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(format!(
+                "server:
+  tls_certificate: /tls/chain.pem
+  tls_key: /tls/key.pem
+  tls_node_authority: /tls/nodes.pem
+  nodes:
+    own: https://a.example:8443
+    others:
+      - url: https://b.example:8443
+        role: reading-worker
+        sources: [ledger]
+security:
+  identity: single-user
+  single_user_because: the test deployment reads its own fixture files
+  tls_termination: in-process
+  inbound:
+    mode: direct
+    resource: https://sutura.example.com
+    authorization_server: https://idp.example.com
+    key_set_file: /nonexistent/keys.json
+    algorithms: [RS256]
+sources:
+  ledger:
+    kind: clickhouse
+    host: 127.0.0.1
+    port: 1
+    user: {SERVICE_USER}
+    password_file: {}
+    transport_mode: plaintext
+    posture: {posture}
+    hash_buckets_acknowledged_because: the fixture is immutable
+{}",
+                file.display(),
+                crate::serve::tests::entry("facts", "shared-service-user", ""),
+            )),
+        )
+        .expect("the fixture declares a federated deployment with a reading peer")
+        .sources()
+        .clone();
         let configured = registry.get(&source()).expect("the source is declared");
         let warehouse = crate::clickhouse::build(&source(), configured, WorkingSet::of_bytes(NonZeroUsize::MIN));
         std::fs::remove_file(file).expect("the credential is removed after composition");
@@ -110,22 +151,33 @@ async fn reading(posture: &'static str) -> (super::super::Reader, Vec<u8>, Schem
         let pinned = pinned();
         let table = TableName::parse("accounts").unwrap();
         let leg = LegPlan::Lookup {
-            source: source(), metric: pinned.metric_digest(&MetricName::parse("amount_total").unwrap()).unwrap(),
+            source: source(),
+            metric: pinned.metric_digest(&MetricName::parse("amount_total").unwrap()).unwrap(),
             table: StatementTables::only(table.clone()),
             keys: vec![
-                PlanKey::new(ResultLabel::internal(InternalLabel::link(0)), PlanColumn::new(table.clone(), column("id"))),
-                PlanKey::new(ResultLabel::dimension(&DimensionName::parse("id").unwrap()), PlanColumn::new(table, column("id"))),
-            ], bindings: PlanBindings::none(),
+                PlanKey::new(
+                    ResultLabel::internal(InternalLabel::link(0)),
+                    PlanColumn::new(table.clone(), column("id")),
+                ),
+                PlanKey::new(
+                    ResultLabel::dimension(&DimensionName::parse("id").unwrap()),
+                    PlanColumn::new(table, column("id")),
+                ),
+            ],
+            bindings: PlanBindings::none(),
         };
         let wire = PartitionLeg::encode(&leg).expect("the real lookup encodes");
         sutura_app::read_recertified(&pinned, &sources, &source(), &wire, |_, _| ()).expect("the real fixture leg re-certifies");
         let reader = super::super::Reader::new(
-            pinned, crate::serve::OpenedSources::ClickHouse(sources),
+            pinned,
+            crate::serve::OpenedSources::ClickHouse(sources),
             Budget::parse(Duration::from_secs(30)).unwrap(),
             sutura_config::credentials::SourceAdmissions::from_registry(&registry),
         );
         (reader, wire, Arc::new(arrow_schema::Schema::empty()))
-    }).await.expect("the fixture composes on a blocking task")
+    })
+    .await
+    .expect("the fixture composes on a blocking task")
 }
 
 fn principal(name: &str) -> SwitchedPrincipal {
