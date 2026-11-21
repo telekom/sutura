@@ -660,6 +660,10 @@ pkgs.testers.runNixOSTest {
         machine.succeed(f"kubectl create secret generic sutura-metrics-token --from-literal=token={metrics_token}")
         machine.succeed("helm install sutura ${chart} -f ${values nodes.db.networking.primaryIPAddress} --wait --timeout 5m")
         address = get("service/sutura")["spec"]["clusterIP"]
+        serving = one(SERVING)
+        operator_pod = one(OPERATOR)
+        eventually(lambda: tcp(operator_pod, serving["status"]["podIP"], 8080), 30)
+        assert metrics(serving, operator_pod), "operator cannot scrape authenticated metrics during initial startup"
         settled(0)
 
         # A venue overlay, not a new chart setting. Combining workers have no fixture mounts.
