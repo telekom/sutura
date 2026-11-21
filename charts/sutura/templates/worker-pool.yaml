@@ -227,8 +227,12 @@ metadata:
   labels:
     {{- include "sutura.labels" . | nindent 4 }}
 spec:
-  # The operator owns the count from here on: an upgrade that leaves `min` alone leaves it.
+  # The chart renders the floor; the operator reconciles the count against demand.
   replicas: {{ .Values.workerPool.min }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ $name }}-worker
@@ -256,6 +260,7 @@ spec:
         - name: worker
           image: "{{ include "sutura.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          terminationMessagePolicy: FallbackToLogsOnError
           args: ["serve"]
           ports:
             - name: http
