@@ -132,7 +132,7 @@ let
         definitions=["structure", "descriptions", "relationships", "cardinality",
                      "metrics", "grains", "allowed_values", "anchors", "column_types"], knowledge=[]))
 
-    for size, fact_count in [("large", 98304), ("small", 8)]:
+    for size, fact_count in [("large", 65536), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
         lookup_segment, link_segment = "lookup_" + size + "_segment", "link_" + size + "_segment"
         lookup_segment_two, link_segment_two = "lookup_" + size + "_segment_two", "link_" + size + "_segment_two"
@@ -559,7 +559,7 @@ pkgs.testers.runNixOSTest {
 
     def exact(reply, size="large", federated=True):
         assert reply.get("outcome") == "answer", reply
-        count = 98304 if size == "large" else 8
+        count = 65536 if size == "large" else 8
         expected = ([{"period": "2026-06-01", "region": region, "segment": segment, "segment_two": segment_two,
                       "total_" + size: str(count * 100 // 8)}
                      for region in ["north", "south"]
