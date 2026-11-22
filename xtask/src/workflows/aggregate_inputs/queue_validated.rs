@@ -42,6 +42,7 @@ pub(super) fn check(root: &Path, ci: &str) -> Vec<String> {
             lines.contains(&"    uses: $/.github/workflows/qa.yml")
                 && lines.contains(&"      plan-only: true")
                 && lines.contains(&"      run-all-checks: true")
+                && lines.contains(&"      fast-checked: true")
                 && !lines
                     .iter()
                     .any(|line| line.contains("green-jobs:") || line.contains("tested-commit:"))
@@ -102,4 +103,91 @@ fn live_jobs_use_plan(workflow: &str, ready: &[&str]) -> bool {
                         .any(|line| *line == format!("        run: bash nix/ci-live-qa.sh {job}"))
             })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check;
+
+    /// A minimal, release-shaped `.github/workflows/release.yml`, with the `qa-plan` job's
+    /// `with:` block swapped in by the caller - this is the one axis the test below varies.
+    fn release_fixture(qa_plan_with: &str) -> String {
+        format!(
+            "jobs:\n\
+             \x20 gates:\n\
+             \x20   runs-on: ubuntu-latest\n\
+             \x20   steps:\n\
+             \x20     - run: echo gates\n\
+             \n\
+             \x20 qa-plan:\n\
+             \x20   needs: [gates]\n\
+             \x20   uses: $/.github/workflows/qa.yml\n\
+             \x20   with:\n\
+             {qa_plan_with}\
+             \n\
+             \x20 qa:\n\
+             \x20   needs: [qa-plan]\n\
+             \x20   uses: $/.github/workflows/qa.yml\n\
+             \x20   with:\n\
+             \x20     run-all-checks: true\n\
+             \x20     suite-plan: ${{{{ needs.qa-plan.outputs.suite-plan }}}}\n\
+             \n\
+             \x20 e2e-datahub-adbc:\n\
+             \x20   needs: [qa-plan]\n\
+             \x20   environment: bq-test\n\
+             \x20   steps:\n\
+             \x20     - name: Run live suite\n\
+             \x20       env:\n\
+             \x20         SUTURA_BQ_KEY: ${{{{ secrets.svc_suturua_bq_ci }}}}\n\
+             \x20       run: bash nix/ci-live-qa.sh e2e-datahub-adbc\n\
+             \n\
+             \x20 bigquery-conformance:\n\
+             \x20   needs: [qa-plan]\n\
+             \x20   environment: bq-test\n\
+             \x20   steps:\n\
+             \x20     - name: Run live suite\n\
+             \x20       env:\n\
+             \x20         SUTURA_BQ_KEY: ${{{{ secrets.svc_suturua_bq_ci }}}}\n\
+             \x20       run: bash nix/ci-live-qa.sh bigquery-conformance\n\
+             \n\
+             \x20 publish:\n\
+             \x20   needs: [qa-plan, qa, bigquery-conformance, e2e-datahub-adbc]\n\
+             \x20   steps:\n\
+             \x20     - run: echo publish\n"
+        )
+    }
+
+    /// Writes `release` to a scratch `.github/workflows/release.yml` and returns `check`'s
+    /// verdict over it - `check` reads `release.yml` off disk, so this is the cheapest fixture
+    /// that reaches it without a second, filesystem-free entry point.
+    fn release_problems(release: &str) -> Vec<String> {
+        let dir = std::env::temp_dir().join(format!(
+            "queue-validated-fixture-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let workflows = dir.join(".github/workflows");
+        std::fs::create_dir_all(&workflows).expect("scratch workflows dir");
+        std::fs::write(workflows.join("release.yml"), release).expect("write release.yml fixture");
+        let problems = check(&dir, "jobs:\n");
+        std::fs::remove_dir_all(&dir).expect("clean up scratch dir");
+        problems
+    }
+
+    const RELEASE_RULE: &str =
+        "queue-validated rule: release publication must require full QA and both direct live jobs without PR verdicts";
+
+    #[test]
+    fn release_qa_plan_without_fast_checked_is_red() {
+        let release = release_fixture("\x20     plan-only: true\n\x20     run-all-checks: true\n");
+        let problems = release_problems(&release);
+        assert!(problems.iter().any(|p| p == RELEASE_RULE), "{problems:?}");
+    }
+
+    #[test]
+    fn release_qa_plan_with_fast_checked_is_green() {
+        let release = release_fixture("\x20     plan-only: true\n\x20     fast-checked: true\n\x20     run-all-checks: true\n");
+        let problems = release_problems(&release);
+        assert!(!problems.iter().any(|p| p == RELEASE_RULE), "{problems:?}");
+    }
 }

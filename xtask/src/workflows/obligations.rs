@@ -806,8 +806,8 @@ mod tests {
             ),
             (
                 "release",
-                "      plan-only: true\n      run-all-checks: true",
-                "      plan-only: true\n      run-all-checks: false",
+                "      plan-only: true\n      fast-checked: true\n      run-all-checks: true",
+                "      plan-only: true\n      fast-checked: true\n      run-all-checks: false",
             ),
             (
                 "release",

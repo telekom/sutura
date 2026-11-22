@@ -253,11 +253,16 @@ jobs:
   # libc at all.
   #
   # The release exercises every integration against the tag after the main ancestry check.
+  # `gates` above already ran the fast checks (fmt, text format, workflow lint, hygiene,
+  # clippy) before this job, so `fast-checked: true` stops qa.yml's `plan` job from repeating
+  # them. Secrets is not one of the five: qa.yml always runs it, regardless of this flag, so
+  # it still runs here even though `gates`' "Fast release checks" step never included it.
   qa-plan:
     needs: [gates]
     uses: $/.github/workflows/qa.yml
     with:
       plan-only: true
+      fast-checked: true
       run-all-checks: true
 
   qa:
