@@ -157,21 +157,32 @@ mod tests {
         )
     }
 
+    /// A scratch directory removed on drop, so a panic between creation and cleanup does not
+    /// leak it - unlike a bare `remove_dir_all` at the end of the function, which a failed
+    /// assertion skips entirely.
+    struct ScratchDir(std::path::PathBuf);
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            if let Err(err) = std::fs::remove_dir_all(&self.0) {
+                eprintln!("scratch dir cleanup failed for {}: {err}", self.0.display());
+            }
+        }
+    }
+
     /// Writes `release` to a scratch `.github/workflows/release.yml` and returns `check`'s
     /// verdict over it - `check` reads `release.yml` off disk, so this is the cheapest fixture
     /// that reaches it without a second, filesystem-free entry point.
     fn release_problems(release: &str) -> Vec<String> {
-        let dir = std::env::temp_dir().join(format!(
+        let dir = ScratchDir(std::env::temp_dir().join(format!(
             "queue-validated-fixture-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
-        ));
-        let workflows = dir.join(".github/workflows");
+        )));
+        let workflows = dir.0.join(".github/workflows");
         std::fs::create_dir_all(&workflows).expect("scratch workflows dir");
         std::fs::write(workflows.join("release.yml"), release).expect("write release.yml fixture");
-        let problems = check(&dir, "jobs:\n");
-        std::fs::remove_dir_all(&dir).expect("clean up scratch dir");
-        problems
+        check(&dir.0, "jobs:\n")
     }
 
     const RELEASE_RULE: &str =
@@ -181,13 +192,19 @@ mod tests {
     fn release_qa_plan_without_fast_checked_is_red() {
         let release = release_fixture("\x20     plan-only: true\n\x20     run-all-checks: true\n");
         let problems = release_problems(&release);
-        assert!(problems.iter().any(|p| p == RELEASE_RULE), "{problems:?}");
+        assert!(
+            problems.iter().any(|p| p == RELEASE_RULE),
+            "missing fast-checked must redden the release rule: {problems:?}"
+        );
     }
 
     #[test]
     fn release_qa_plan_with_fast_checked_is_green() {
         let release = release_fixture("\x20     plan-only: true\n\x20     fast-checked: true\n\x20     run-all-checks: true\n");
         let problems = release_problems(&release);
-        assert!(!problems.iter().any(|p| p == RELEASE_RULE), "{problems:?}");
+        assert!(
+            !problems.iter().any(|p| p == RELEASE_RULE),
+            "a compliant release fixture must not trip the release rule: {problems:?}"
+        );
     }
 }

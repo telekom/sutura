@@ -138,8 +138,10 @@ The chart does not restrict their egress to a data source.
 
 `networkPolicy.enabled: true` adds `NetworkPolicy` objects for the serving, worker and operator
 pods (github.com/telekom/sutura#1680 finding 6): workers accept their port only from this
-release's serving pods and each other, the operator's egress is limited to DNS and the Kubernetes
-API's common ports, and serving pods get an additive policy that keeps their port reachable even if
+release's serving pods, each other and the operator. The operator can reach this release's serving
+and worker pods on their service port, plus DNS and the Kubernetes API's common ports. Network policy
+permits a port rather than just `/metrics`; the metrics token authorizes scrapes and TLS verifies the node.
+Serving pods get an additive policy that keeps their port reachable even if
 the namespace later adds a default-deny policy.
 **Off by default** - the chart cannot tell whether the cluster's CNI enforces `NetworkPolicy`, or
 whether something outside the chart's view (a service mesh, a cross-namespace ingress controller, a

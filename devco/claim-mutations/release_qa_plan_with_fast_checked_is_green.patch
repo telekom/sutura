@@ -1,0 +1,10 @@
+--- a/xtask/src/workflows/aggregate_inputs/queue_validated.rs
++++ b/xtask/src/workflows/aggregate_inputs/queue_validated.rs
+@@ -42,6 +42,7 @@
+             lines.contains(&"    uses: $/.github/workflows/qa.yml")
+                 && lines.contains(&"      plan-only: true")
+                 && lines.contains(&"      run-all-checks: true")
++                && lines.contains(&"      full-check: true")
+                 && lines.contains(&"      fast-checked: true")
+                 && !lines
+                     .iter()

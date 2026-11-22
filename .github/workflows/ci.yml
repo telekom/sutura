@@ -1488,10 +1488,31 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [ "$EVENT" = pull_request ] && [ "$status" -eq 0 ] &&
-            awk '$1 == "measured:" && $2 ~ /^[1-9][0-9]*$/ && $2 == $4 && $5 == "added" && $6 == "tests" && $7 == "measured" { covered = 1 } /^xtask test-causality: no changed tests - nothing to prove$/ { covered = 1 } END { exit !covered }' "$log" &&
-            ! grep -Eq '^xtask test-causality: (INCONCLUSIVE|NOT MECHANICALLY SEPARABLE|NO BASE BEHAVIOUR|EVERY ADDED TEST)' "$log"; then
-            echo 'reusable=true' >> "$GITHUB_OUTPUT"
+          # `xtask::causality::base::report` prints the Pass verdict as ONE line -
+          # `xtask test-causality: ok - red on base, green on head (N of M added tests measured)` -
+          # never as a standalone `measured:` line; that shape exists only on the INCONCLUSIVE and
+          # FAILED remedy paths. The awk this replaced matched `$1 == "measured:"`, which no verdict
+          # log has ever printed, so `reusable` was never set on any green run - `causality-receipt`
+          # skipped on every pull-request run measured, and the merge queue re-ran causality on
+          # every entry regardless of a matching patch.
+          #
+          # `nix run .#causality` prints everything on its way to that line - base test-output
+          # tail, build stderr - and a PR author controls the diff that produces it, so an earlier
+          # line in `$log` starting with `xtask test-causality:` cannot be trusted; only the LAST
+          # one is this run's actual verdict. Full coverage (N == M, both non-zero) is required
+          # before trusting it: a partial measurement (an orphaned or held-back test), the
+          # uncounted `measured, of a total this gate could not establish` shape, or a `0 of 0`
+          # collapse must not be read as proof.
+          if [ "$EVENT" = pull_request ] && [ "$status" -eq 0 ]; then
+            verdict=$(grep '^xtask test-causality:' "$log" | tail -1 || true)
+            if [ "$verdict" = 'xtask test-causality: no changed tests - nothing to prove' ]; then
+              echo 'reusable=true' >> "$GITHUB_OUTPUT"
+            elif echo "$verdict" |
+              grep -Eq '^xtask test-causality: ok - red on base, green on head \([1-9][0-9]* of [1-9][0-9]* added tests measured\)$'; then
+              measured_n=$(sed -E 's/.*\(([0-9]+) of ([0-9]+) added.*/\1/' <<< "$verdict")
+              measured_m=$(sed -E 's/.*\(([0-9]+) of ([0-9]+) added.*/\2/' <<< "$verdict")
+              [ "$measured_n" = "$measured_m" ] && echo 'reusable=true' >> "$GITHUB_OUTPUT"
+            fi
           fi
           exit "$status"
 
