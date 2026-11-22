@@ -168,7 +168,7 @@ mod ceiling;
 mod partition;
 
 /// A dealt leg's rows, fed to the task that scans them after its plan instead of inside it.
-mod fed;
+pub(in crate::combine) mod fed;
 
 /// A split leg's partitions as tasks of a source-reading stage, each placed on a node reading its
 /// source (Decisions 1 and 5).

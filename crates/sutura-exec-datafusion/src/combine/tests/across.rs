@@ -11,12 +11,12 @@ use datafusion::arrow::array::{ArrayRef, Int64Array, StringArray};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
-use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
 use datafusion::error::DataFusionError;
 use datafusion::functions_aggregate::expr_fn::sum;
 use datafusion::logical_expr::col;
+use datafusion::physical_plan::ExecutionPlan as _;
 use datafusion::prelude::{CsvReadOptions, SessionConfig, SessionContext};
-use datafusion_distributed::{DistributedConfig, DistributedLeafExec, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
+use datafusion_distributed::{DistributedConfig, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use sutura_domain::plan::{FederatedPlan, FederationCombiner as _, LegResult};
@@ -38,6 +38,7 @@ use url::Url;
 
 use super::{UNBOUNDED, assigned, combiner, fact, fact_linked, fact_row, lookup, lookup_linked, sum_plan, text};
 use crate::combine::across::StageReadsASource;
+use crate::combine::across::fed::FedRowsExec;
 use crate::combine::{CombineError, DataFusionCombiner, NodeIdentity, Nodes};
 use crate::pool::WorkingSet;
 
@@ -581,8 +582,11 @@ fn a_question_planned_onto_a_node_nothing_listens_on_is_refused_as_that_node_los
     assert_eq!(across.workers_not_ready(&refused), None, "{refused:?}");
 }
 
+/// A single lookup batch plans as one `FedRowsExec` naming a feed, a task's rows are fed to it
+/// off the stream its plan was set over - `fed::dealt`'s own split of that feed by task is
+/// covered at `combine::across::fed::tests::each_task_is_fed_every_nth_batch_of_each_partition_and_the_shares_are_the_leg`.
 #[test]
-fn a_single_lookup_batch_is_shared_by_rows_across_three_tasks() {
+fn a_single_lookup_batch_plans_as_one_fed_leaf_naming_a_feed() {
     let authority = Authority::generate();
     let node = authority.sign();
     let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
@@ -603,36 +607,20 @@ fn a_single_lookup_batch_is_shared_by_rows_across_three_tasks() {
     let plan = servers()
         .block_on(grouped.create_physical_plan())
         .expect("the grouping plans across the nodes");
-    let mut shares = Vec::new();
+    let mut fed_leaves = Vec::new();
     plan.apply(|plan| {
-        if let Some(leaf) = plan.downcast_ref::<DistributedLeafExec>() {
-            for variant in leaf.variants() {
-                let scan = variant.downcast_ref::<DataSourceExec>().expect("a variant scans memory");
-                let memory = scan
-                    .data_source()
-                    .downcast_ref::<MemorySourceConfig>()
-                    .expect("the data is in memory");
-                let keys = memory
-                    .partitions()
-                    .iter()
-                    .flatten()
-                    .flat_map(|batch| {
-                        let index = batch.schema().index_of("k").expect("the grouping key is present");
-                        let key = batch
-                            .column(index)
-                            .as_any()
-                            .downcast_ref::<Int64Array>()
-                            .expect("the key is an integer");
-                        key.values().iter().copied()
-                    })
-                    .collect::<Vec<_>>();
-                shares.push(keys);
-            }
+        if let Some(leaf) = plan.downcast_ref::<FedRowsExec>() {
+            fed_leaves.push(leaf.schema());
         }
         Ok(TreeNodeRecursion::Continue)
     })
     .expect("the plan is traversed");
-    assert_eq!(shares, vec![vec![0, 1, 2], vec![3, 4], vec![5, 6]]);
+    assert_eq!(fed_leaves.len(), 1, "one feed names the lookup's single batch");
+    let schema = &fed_leaves[0];
+    assert!(
+        schema.index_of("k").is_ok(),
+        "the grouping key is still the fed leaf's own schema"
+    );
 }
 
 #[test]

@@ -259,7 +259,7 @@ fn received(schema: SchemaRef, units: BoxStream<'static, Result<Unit>>) -> impl 
 
 /// A leg's scan whose rows reach the task as a feed after its plan: the leaf a dealt leg is planned
 /// with across nodes.
-pub(super) struct FedRowsExec {
+pub(in crate::combine) struct FedRowsExec {
     /// The feed the engine finds in a stage's plan by the getter registered with the session.
     pub(super) feed: WorkUnitFeed<Dealt>,
     properties: Arc<PlanProperties>,
