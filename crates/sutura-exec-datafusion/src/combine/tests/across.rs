@@ -551,6 +551,41 @@ fn repartition_caps_a_large_input_batch_and_keeps_every_row() {
 }
 
 #[test]
+fn repartition_drops_unused_string_buffers_before_queueing_batches() {
+    let suffix = "x".repeat(2048);
+    let labels = (0..13)
+        .map(|id| (id != 5).then(|| format!("{id}-{suffix}")))
+        .collect::<Vec<_>>();
+    let expected = labels.iter().map(Option::as_deref).collect::<Vec<_>>();
+    let strings: StringArray = expected.iter().collect();
+    let rows = RecordBatch::try_from_iter([("label", Arc::new(strings) as ArrayRef)]).expect("the batch builds");
+    let retained = rows.get_array_memory_size();
+    let schema = rows.schema();
+    let source = TestMemoryExec::try_new_exec(&[vec![rows]], schema, None).expect("the scan builds");
+    let exchange = RepartitionExec::try_new(source, Partitioning::RoundRobinBatch(2)).expect("the exchange builds");
+    let session = SessionContext::new_with_config(SessionConfig::new().with_batch_size(4));
+    let partitions = servers()
+        .block_on(collect_partitioned(Arc::new(exchange), session.task_ctx()))
+        .expect("the exchange runs");
+    let mut actual = Vec::new();
+    for batch in partitions.iter().flatten() {
+        assert!(
+            batch.get_array_memory_size().saturating_mul(2) < retained,
+            "each small batch retains only its own strings"
+        );
+        actual.extend(
+            batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("the output keeps its text type")
+                .iter(),
+        );
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set() {
     let authority = Authority::generate();
     let node = authority.sign();
