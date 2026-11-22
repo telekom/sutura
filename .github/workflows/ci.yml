@@ -230,7 +230,7 @@ jobs:
           FULL: ${{ inputs.run-all-checks || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
         run: |
           set -eu
-          if [ "$FULL" = "true" ]; then
+          if [ "${FULL:-false}" = "true" ]; then
             base=""
           elif [ "$EVENT" = "pull_request" ]; then
             base="$(git merge-base "$PR_BASE" HEAD || true)"
