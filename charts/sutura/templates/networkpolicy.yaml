@@ -31,7 +31,7 @@ spec:
           protocol: TCP
 {{- if .Values.workerPool.enabled }}
 ---
-# Workers answer only this release's serving pods and each other - a combine across nodes dials a
+# Workers answer this release's serving pods, peers and operator - a combine across nodes dials a
 # sibling worker directly, and a serving pod dials a worker it planned a stage onto. No other
 # namespace or workload needs the node port.
 apiVersion: networking.k8s.io/v1
@@ -55,6 +55,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: {{ $name }}-worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}-operator
               app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - port: {{ .Values.service.port }}
@@ -95,9 +99,9 @@ spec:
           protocol: TCP
 {{- end }}
 ---
-# The operator calls the Kubernetes API and nothing else: it holds a node certificate only to read
-# the CA bundle (finding 4), it never dials a node. DNS stays open because this chart does not know
-# whether the cluster resolves the API server by name.
+# The operator reads serving and worker metrics and calls the Kubernetes API. This permits the
+# node port, not an HTTP path: the metrics token authorizes scrapes and TLS verifies the node.
+# The operator holds only the node CA, not a client certificate. DNS stays open for API discovery.
 # STATED LIMIT: the API server's own address is cluster-specific and this chart has no way to name
 # it, so this bounds the port (443, the apiserver's common port, and 6443, its other common one),
 # not the destination - it does not stop the operator reaching some other HTTPS endpoint.
@@ -119,6 +123,17 @@ spec:
         - port: 53
           protocol: UDP
         - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "sutura.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}-worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: {{ .Values.service.port }}
           protocol: TCP
     - ports:
         - port: 443
