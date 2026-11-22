@@ -48,6 +48,9 @@ live-oracle = ["live", "dep:oracledb", "dep:sutura-oracle-connect"]
 # because no metric is defined, which requires `sutura-semantic::compile` to reach `MetricUnknown`.
 # Dev-only, so the library closure stays domain + thiserror.
 sutura-semantic = { workspace = true }
+# `native.rs`'s own tests build a `TextPolicy` (redaction + raw_prefilter) the same way the config
+# layer parses one; `TextPolicy`'s constructors outside that parse path are not public. Dev-only.
+serde_json = { workspace = true }
 # The provisioned-tier reach and skip-or-fail direction for `tests/provisioned.rs` - the same
 # crate every tier-backed fixture in this workspace uses (`sutura/dev`), scoped to `sutura-domain`.
 sutura-dev = { workspace = true }

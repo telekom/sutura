@@ -345,6 +345,30 @@ mod tests {
     }
 
     #[test]
+    fn a_bare_column_text_rule_attaches_its_raw_prefilter_to_a_bounded_oracle_clob() {
+        let policy: sutura_domain::catalog::TextPolicy = serde_json::from_value(serde_json::json!({
+            "max_text_bytes": 128,
+            "redact": [{"pattern": "secret_[^ ]+", "replace": "[masked]"}],
+            "raw_prefilter": {"acknowledged_because": "field #2038 reproduction: a native CLOB with a bare column rule"}
+        }))
+        .expect("a bounded policy with an acknowledged prefilter parses");
+        let selection = selection("events", &[], &[])
+            .with_text_rules(vec![(pattern("script"), policy.clone())])
+            .expect("the fixture text rule parses");
+        let selected = Dictionary::new(vec![table("events", &[("script", "CLOB")])], vec![])
+            .native(&selection, TypeDialect::Oracle)
+            .expect("a bare rule bounds the CLOB so it is admitted, matching the field's actual column_rules form");
+        let attached = selected.tables()[0]
+            .column_metadata("script")
+            .expect("the column survives selection");
+        assert_eq!(
+            attached.text(),
+            &policy,
+            "the native dictionary glue must attach the exact declared policy, raw_prefilter included, to the bare-matched column"
+        );
+    }
+
+    #[test]
     fn native_selection_refuses_unmatched_empty_and_inexact_types() {
         for (name, selected, expected) in [
             ("events", selection("absent", &[], &[]), "unmatched"),

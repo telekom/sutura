@@ -4606,6 +4606,7 @@ dependencies = [
  "oracledb",
  "rcgen",
  "rustls",
+ "serde_json",
  "sutura-adbc",
  "sutura-adbc-postgres",
  "sutura-dev",
