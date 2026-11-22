@@ -515,16 +515,33 @@ def main(config, machines, start_all, subtest, out):
                 "native_hop_failure_reached",
                 events,
             )
-            targets = ("shard1", "shard2") if label == "bad-native-ca" else ("shard2",)
-            assert any(
-                "9440" in event["exception"]
-                and any(
-                    target in event["exception"]
-                    or addresses[target] in event["exception"]
-                    for target in targets
+            if label == "bad-cluster-secret":
+                assert any(
+                    int(event["exception_code"]) == 279
+                    and "ATTEMPT_TO_READ_AFTER_EOF" in event["exception"]
+                    for event in causes
+                ), ("router_native_eof", causes)
+                # A rejected interserver login closes the connection before a query can run.
+                journal = databases["shard2"].succeed(
+                    "journalctl -u clickhouse-bad-secret.service --no-pager"
                 )
-                for event in causes
-            ), ("native_endpoint_cause", label, causes)
+                assert re.search(
+                    r"Code: 516\. DB::Exception: Interserver authentication failed for TablesStatusRequest\.",
+                    journal,
+                ), ("shard2_interserver_authentication", journal)
+            else:
+                targets = (
+                    ("shard1", "shard2") if label == "bad-native-ca" else ("shard2",)
+                )
+                assert any(
+                    "9440" in event["exception"]
+                    and any(
+                        target in event["exception"]
+                        or addresses[target] in event["exception"]
+                        for target in targets
+                    )
+                    for event in causes
+                ), ("native_endpoint_cause", label, causes)
             save(f"cause-{label}", causes)
             for host in hosts:
                 save(
