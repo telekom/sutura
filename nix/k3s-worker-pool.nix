@@ -211,6 +211,7 @@ let
           engineWorkerThreads = 2;
           workingSetMaxBytes = "536870912";
         };
+        telemetry.filter = "info,worker_pool_fixture=debug";
         security = {
           accessToken.secretName = "sutura-access-token";
           metricsToken.secretName = "sutura-metrics-token";
@@ -240,7 +241,6 @@ let
         };
         config.base = {
           server.request_timeout_seconds = 300;
-          telemetry.filter = "info,worker_pool_fixture=debug";
           catalogs = [
             {
               name = "model";
