@@ -49,6 +49,14 @@
     "crates": ["sutura-exec-postgres", "sutura-exec-datafusion"]
   },
   {
+    "id": "multi-node-clickhouse",
+    "venue": "kvm",
+    "timeout": 60,
+    "categories": ["identity", "data_source_clickhouse", "data_source_datafusion"],
+    "paths": ["nix/multi-node-clickhouse*"],
+    "crates": ["sutura-exec-clickhouse", "sutura-exec-datafusion"]
+  },
+  {
     "id": "multi-node-oracle",
     "venue": "kvm",
     "timeout": 75,

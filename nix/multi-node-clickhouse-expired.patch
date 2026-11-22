@@ -1,0 +1,20 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant.rs b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+@@ -289,7 +289,7 @@
+     wire: &[u8],
+     source: &SourceName,
+     partition: &[u8],
+-    (caller, until): (&Subject, Duration),
++    (caller, _until): (&Subject, Duration),
+     (rows, bytes): (u32, u32),
+     reads: &GrantReads,
+ ) -> Result<KeyedGrant, DataFusionError> {
+@@ -306,6 +306,6 @@
+         source.clone(),
+         reading::Partition::of(partition.to_vec()),
+-        reading::Expiry::at(until),
++        reading::Expiry::at(Duration::ZERO),
+         reading::MaskedCaller::of(subject),
+         (verifier.clone(), reading::caller_context(source, caller)),
+         reading::StreamBound { rows, bytes },
