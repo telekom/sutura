@@ -58,6 +58,8 @@ description of the local changes.
 
 The local `datafusion-sql` patch also preserves the sole explicit input qualifier on a mixed derived table when the outer projection references that qualifier. This covers the Oracle LOB projection above a row limit and sort. Projections with bare names keep the usual derived alias.
 
+The worker-pool fixture temporarily enables a debug event in the vendored repartition operator to retain the original memory reservation error when spill also fails. Remove the event after measuring the fixture.
+
 ### Distributed worker completion
 
 The distributed engine also carries an opt-in completion request on its existing coordinator

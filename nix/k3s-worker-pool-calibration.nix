@@ -22,6 +22,8 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
         assert ceiling_env == [str(record["ceiling"])], record
         boundaries = []
         for line in log.splitlines():
+            if "shuffle reservation refused:" in line:
+                print(line)
             try:
                 event = json.loads(line)
             except ValueError:

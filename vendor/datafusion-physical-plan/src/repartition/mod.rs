@@ -229,9 +229,15 @@ impl OutputChannel {
         let (payload, is_memory_batch) = {
             match self.reservation.try_grow(size) {
                 Ok(_) => (Ok(RepartitionBatch::Memory(batch)), true),
-                Err(_) => match self.spill_writer.push_batch(&batch) {
+                Err(reservation_error) => match self.spill_writer.push_batch(&batch) {
                     Ok(()) => (Ok(RepartitionBatch::Spilled), false),
-                    Err(err) => (Err(err), false),
+                    Err(err) => {
+                        log::debug!(
+                            target: "worker_pool_fixture",
+                            "shuffle reservation refused: {reservation_error}"
+                        );
+                        (Err(err), false)
+                    }
                 },
             }
         };
