@@ -7,6 +7,6 @@ diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura
          links.worker_connection_buffer_budget_bytes =
 -            working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
 +            working_set.bytes().checked_div(count.saturating_mul(2)).unwrap_or_default();
-         let planned = SessionStateBuilder::new()
-             .with_config(
-                 SessionConfig::new()
+         let config = SessionConfig::new().with_target_partitions(count);
+         // Size shuffle batches at one KiB per row under tight pools. The pool still accounts in bytes.
+         let shuffle_rows = (links.worker_connection_buffer_budget_bytes >> 10).clamp(1, config.batch_size());

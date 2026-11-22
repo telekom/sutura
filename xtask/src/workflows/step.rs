@@ -230,12 +230,46 @@ nix() {
   printf '%s' "$5" > seen-base
   git diff --name-only "$5" HEAD > seen-paths
   if [ "$GATE_EXIT" -eq 0 ]; then
-    printf '  measured:  1 of 1 added tests measured\n'
+    # `xtask::causality::base::report`'s real Pass verdict is ONE line - never the standalone
+    # `measured:` shape `old-measured` fakes below, which is what the step's old awk matched
+    # while production never printed it. Every other mode here is a coverage shape, or a log a
+    # PR author's own build/test output could smuggle an extra `xtask test-causality:` line into,
+    # that must NOT set `reusable=true`.
+    case "${CAUSALITY_OUTPUT:-full}" in
+      full)
+        printf 'xtask test-causality: ok - red on base, green on head (1 of 1 added tests measured)\n'
+        ;;
+      partial)
+        printf 'xtask test-causality: ok - red on base, green on head (1 of 2 added tests measured)\n'
+        ;;
+      uncounted)
+        printf 'xtask test-causality: ok - red on base, green on head (1 added tests measured, of a total this gate could not establish)\n'
+        ;;
+      zero)
+        printf 'xtask test-causality: ok - red on base, green on head (0 of 0 added tests measured)\n'
+        ;;
+      ok-then-inconclusive)
+        printf 'xtask test-causality: ok - red on base, green on head (1 of 1 added tests measured)\n'
+        printf 'xtask test-causality: INCONCLUSIVE - these tests were not ADDED here.\n'
+        ;;
+      none)
+        printf 'build finished; no verdict line this run\n'
+        ;;
+      old-measured)
+        printf '  measured:  1 of 1 added tests measured\n'
+        ;;
+      injected-then-partial)
+        # A full-coverage line a PR author's own output smuggled in, ahead of this run's ACTUAL
+        # (non-full) verdict - the last line in the log must win, not the first match.
+        printf 'xtask test-causality: ok - red on base, green on head (1 of 1 added tests measured)\n'
+        printf 'xtask test-causality: ok - red on base, green on head (1 of 2 added tests measured)\n'
+        ;;
+    esac
   fi
   return "$GATE_EXIT"
 }
 export -f nix
-export EVENT PR_HEAD BASE GATE_EXIT
+export EVENT PR_HEAD BASE GATE_EXIT CAUSALITY_OUTPUT
 GITHUB_STEP_SUMMARY="$PWD/summary"
 GITHUB_OUTPUT="$PWD/output"
 RUNNER_TEMP="$PWD"
@@ -315,6 +349,17 @@ for EVENT in pull_request push merge_group; do
   done
 done
 git checkout --quiet --detach "$merge_head"
+
+# Coverage-shape cases. `GATE_EXIT=0` above already proves the one true full-coverage line
+# (`CAUSALITY_OUTPUT` unset, i.e. `full`) sets `reusable=true`; each mode here must NOT.
+EVENT=pull_request
+BASE=$stale
+GATE_EXIT=0
+for CAUSALITY_OUTPUT in partial uncounted zero ok-then-inconclusive none old-measured injected-then-partial; do
+  run_step 0 "$pr_head" "$fork" topic.txt
+  [ ! -s output ] || { echo "invented-receipt ($CAUSALITY_OUTPUT)"; exit 1; }
+done
+CAUSALITY_OUTPUT=
 
 # PR causality derives its own fork even if ordinary classification had no usable base.
 EVENT=pull_request

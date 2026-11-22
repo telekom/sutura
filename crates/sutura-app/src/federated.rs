@@ -355,6 +355,15 @@ where
     B: CredentialBroker,
     C: FederationCombiner,
 {
+    tracing::info!(
+        phase = match &executed {
+            Ok(_) => "answer",
+            Err(ExecuteError::Leg(_)) => "leg",
+            Err(ExecuteError::Miswired(_)) => "miswired",
+            Err(ExecuteError::Combine(_)) => "combine",
+        },
+        "federated execution reached the result boundary"
+    );
     let cause = match executed {
         Ok(batches) => return Ok(batches),
         Err(ExecuteError::Leg(error)) => return Err(Box::new(error.answered_under(credentials))),

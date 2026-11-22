@@ -32,7 +32,6 @@ use super::metrics::{self, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet};
 use super::{
     DisplayAs, ExecutionPlanProperties, RecordBatchStream, SendableRecordBatchStream,
 };
-use crate::coalesce::LimitedBatchCoalescer;
 use crate::execution_plan::{CardinalityEffect, EvaluationType, SchedulingType};
 use crate::hash_utils::create_hashes;
 use crate::metrics::{BaselineMetrics, SpillMetrics};
@@ -47,9 +46,15 @@ use crate::{
     PlanProperties, ReplaceChildrenOptions, Statistics, validate_child_count,
 };
 
-use arrow::array::{Array, PrimitiveArray, RecordBatch, RecordBatchOptions, UInt64Array};
-use arrow::compute::take_arrays;
-use arrow::datatypes::{DataType, Schema, SchemaRef, UInt32Type};
+use arrow::array::{
+    Array, ArrayRef, GenericByteArray, GenericByteBuilder, PrimitiveArray, RecordBatch,
+    RecordBatchOptions, UInt64Array,
+};
+use arrow::compute::{BatchCoalescer, take_arrays};
+use arrow::datatypes::{
+    ArrowNativeType, BinaryType, ByteArrayType, DataType, LargeBinaryType, LargeUtf8Type, Schema,
+    SchemaRef, UInt32Type, Utf8Type,
+};
 use arrow_schema::SortOptions;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision;
@@ -211,7 +216,11 @@ impl PartitionSpillWriters {
 impl OutputChannel {
     fn coalesce(&mut self, batch: RecordBatch) -> Result<Vec<RecordBatch>> {
         match &self.shared_coalescer {
-            Some(shared) => Ok(shared.push_and_drain(batch)?),
+            Some(shared) => shared
+                .push_and_drain(batch)?
+                .into_iter()
+                .map(compact_shuffle_batch)
+                .collect(),
             None => Ok(vec![batch]),
         }
     }
@@ -250,16 +259,50 @@ impl OutputChannel {
         for batch in shared.finalize()? {
             // If this errored, it means that nobody is listening on the other side, which is fine
             // and can happen in certain cases, like when a LIMIT drops the stream that listens.
-            let _ = self.send(batch).await;
+            let _ = self.send(compact_shuffle_batch(batch)?).await;
         }
         Ok(())
     }
 }
 
+/// Coalescing one variable-width slice can leave its entire input allocation attached.
+fn compact_shuffle_batch(batch: RecordBatch) -> Result<RecordBatch> {
+    let mut replacements = None;
+    for (index, column) in batch.columns().iter().enumerate() {
+        let compacted = match column.data_type() {
+            DataType::Utf8 => compact_byte_slice::<Utf8Type>(column.as_ref()),
+            DataType::LargeUtf8 => compact_byte_slice::<LargeUtf8Type>(column.as_ref()),
+            DataType::Binary => compact_byte_slice::<BinaryType>(column.as_ref()),
+            DataType::LargeBinary => compact_byte_slice::<LargeBinaryType>(column.as_ref()),
+            _ => None,
+        };
+        if let Some(compacted) = compacted {
+            replacements.get_or_insert_with(|| batch.columns().to_vec())[index] = compacted;
+        }
+    }
+    match replacements {
+        Some(columns) => Ok(RecordBatch::try_new(batch.schema(), columns)?),
+        None => Ok(batch),
+    }
+}
+
+fn compact_byte_slice<T: ByteArrayType>(column: &dyn Array) -> Option<ArrayRef> {
+    let array = column.as_any().downcast_ref::<GenericByteArray<T>>()?;
+    let offsets = array.value_offsets();
+    let bytes = offsets.last()?.as_usize() - offsets.first()?.as_usize();
+    let active = bytes.saturating_add(size_of_val(offsets));
+    if array.get_buffer_memory_size() <= active.saturating_mul(2) {
+        return None;
+    }
+    let mut builder = GenericByteBuilder::<T>::with_capacity(array.len(), bytes);
+    builder.extend(array.iter());
+    Some(Arc::new(builder.finish()))
+}
+
 /// A producer-side coalescer shared across all input tasks targeting a
 /// single output partition.
 ///
-/// Bundles the [`LimitedBatchCoalescer`] (behind a [`Mutex`]) with the
+/// Bundles the [`BatchCoalescer`] (behind a [`Mutex`]) with the
 /// active-sender counter that tracks how many input tasks may still push
 /// into it. The last task to call [`Self::finalize`] is the one that
 /// finalizes the coalescer and ships the residual batch.
@@ -267,18 +310,16 @@ impl OutputChannel {
 /// Cheap to [`Clone`]: both fields are [`Arc`]s.
 #[derive(Clone)]
 struct SharedCoalescer {
-    inner: Arc<Mutex<LimitedBatchCoalescer>>,
+    inner: Arc<Mutex<BatchCoalescer>>,
     active_senders: Arc<AtomicUsize>,
 }
 
 impl SharedCoalescer {
     fn new(schema: SchemaRef, target_batch_size: usize, num_senders: usize) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(LimitedBatchCoalescer::new(
-                schema,
-                target_batch_size,
-                None,
-            ))),
+            // Keep Arrow's large-batch bypass disabled so the configured row limit
+            // applies before each output reserves memory on the shuffle channel.
+            inner: Arc::new(Mutex::new(BatchCoalescer::new(schema, target_batch_size))),
             active_senders: Arc::new(AtomicUsize::new(num_senders)),
         }
     }
@@ -305,7 +346,7 @@ impl SharedCoalescer {
         }
         let mut acc = Vec::new();
         let mut c = self.inner.lock();
-        c.finish()?;
+        c.finish_buffered_batch()?;
         while let Some(b) = c.next_completed_batch() {
             acc.push(b);
         }
@@ -1341,7 +1382,7 @@ impl BatchPartitioner {
 /// and for that, it will automatically coalesce batches right after repartitioning for bounded
 /// inputs. Coalescing is skipped for unbounded inputs so partial batches are emitted promptly.
 ///
-/// For this, one shared [`LimitedBatchCoalescer`] per output partition is used:
+/// For this, one shared [`BatchCoalescer`] per output partition is used:
 ///
 /// ```text
 ///                         ┌───┐                           ┌───┐

@@ -495,12 +495,18 @@ impl Nodes {
         let mut links = DistributedConfig::default();
         links.worker_connection_buffer_budget_bytes =
             working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
+        let config = SessionConfig::new().with_target_partitions(count);
+        // Size shuffle batches at one KiB per row under tight pools. The pool still accounts in bytes.
+        let shuffle_rows = (links.worker_connection_buffer_budget_bytes >> 10).clamp(1, config.batch_size());
+        let config = if shuffle_rows < config.batch_size() {
+            links.shuffle_batch_size = shuffle_rows;
+            // DistributedExec runs its final stage with the coordinator's task context.
+            config.with_batch_size(shuffle_rows)
+        } else {
+            config
+        };
         let planned = SessionStateBuilder::new()
-            .with_config(
-                SessionConfig::new()
-                    .with_target_partitions(count)
-                    .with_extension(Arc::new(receipts::CaptureDistributed)),
-            )
+            .with_config(config.with_extension(Arc::new(receipts::CaptureDistributed)))
             .with_distributed_option_extension(links)
             .with_runtime_env(environment.into_runtime())
             .with_default_features()
