@@ -445,7 +445,7 @@ pkgs.testers.runNixOSTest {
     SERVING = "app.kubernetes.io/name=sutura,app.kubernetes.io/instance=sutura"
     OPERATOR = "app.kubernetes.io/name=sutura-operator,app.kubernetes.io/instance=sutura"
     q = shlex.quote
-    evidence = {"mode": "discovery-only; no accepted fixed ceiling"}
+    evidence = {"mode": "fixed-ceiling differential"}
     denied_observations = []
     startup_refusals = {}
     resource_refusals = {}
