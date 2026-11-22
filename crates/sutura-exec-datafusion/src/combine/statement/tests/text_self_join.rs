@@ -9,6 +9,20 @@
 //! aliases - through the fallback shape, executed on real engines rather than captured text,
 //! and replaces the Oracle leg's substring count with an AST assertion that the masked
 //! column's own rewritten expression is what the outer aggregate actually reads.
+//!
+//! Fourth round (Opus re-review of 75abf9df3): the self-join cell asserted only row values
+//! that are identical for a correct mapping and a swapped one (`n1 == n2`), and never
+//! checked that the Oracle leg's own generated text actually took the derived-table
+//! fallback at all - a plan that happened to push the whole self-join down untouched would
+//! pass the same assertion. It now also reads `legs.statements` by AST and asserts the
+//! derived table's own projection carries two DISTINCT output names for the self-joined
+//! column, and an asymmetric filter on the `p` side makes `n1 != n2`, so a swap reddens the
+//! row check too. The masked-vs-unmasked cell's AST check is tightened the same way: it used
+//! to ask "does ANY projection anywhere carry a `REGEXP_REPLACE` aliased this name", which the
+//! broken collapse (both a `REGEXP_REPLACE` and a bare item named `"sales_area"` in the SAME
+//! projection) would also satisfy; it now resolves both `masked_n` and `plain_n` through
+//! that ONE derived table's own projection list, requires each resolved name to be unique
+//! there, and requires only the masked one to be the `REGEXP_REPLACE` item.
 
 use super::oracle::OracleLegs;
 use super::*;
@@ -42,10 +56,14 @@ fn a_genuine_self_join_over_one_table_runs_the_count_distinct_fallback_in_every_
             Field::new("sales_area", DataType::Utf8, true),
         ]))
     };
+    // `p`'s own filter is asymmetric: it drops the "y" row from `p`'s side of the join only,
+    // so `m` still sees both "x" and "y" (n1 = 2) while `p` sees only "x" (n2 = 1). A column
+    // swap would report (1, 2) instead of (2, 1) - the row check alone now catches it, on top
+    // of the AST assertion on `legs.statements` below.
     let sql = r#"select m."region", count(distinct m."sales_area") as n1, count(distinct p."sales_area") as n2
                from "dim_region_self" m join "dim_region_self" p on m."region" = p."region"
-               where m."region" <> 'missing' group by m."region" limit 50"#;
-    let expect = vec![vec![Value::Text(String::from("a")), Value::Integer(2), Value::Integer(2)]];
+               where m."region" <> 'missing' and p."sales_area" <> 'y' group by m."region" limit 50"#;
+    let expect = vec![vec![Value::Text(String::from("a")), Value::Integer(2), Value::Integer(1)]];
 
     for dialect in [TypeDialect::DuckDb, TypeDialect::DataFusion] {
         let tables = [StatementTable::new(
@@ -107,6 +125,31 @@ fn a_genuine_self_join_over_one_table_runs_the_count_distinct_fallback_in_every_
         expect,
         "Oracle: the self-join's two same-named columns must count distinctly; source SQL: {:?}",
         legs.statements
+    );
+
+    // Proving the VALUES come out right is not proof this reached the derived-table
+    // fallback at all - a plan that pushed the self-join down untouched could coincide on
+    // these same numbers. Assert on the generated text itself: the derived table's own
+    // projection must carry the self-joined "sales_area" column under two DISTINCT output
+    // names (sutura#1972/#2041's own disambiguation), one per side of the join.
+    let [generated] = legs.statements.as_slice() else {
+        panic!("exactly one Oracle leg statement must have run: {:?}", legs.statements);
+    };
+    let projection = derived_table_projection(generated);
+    let sales_area_outputs: Vec<&str> = projection
+        .iter()
+        .filter(|(_, expr)| column_name(expr) == "sales_area")
+        .map(|(name, _)| name.as_str())
+        .collect();
+    assert_eq!(
+        sales_area_outputs.len(),
+        2,
+        "the derived table's own projection must carry both self-joined sides of \"sales_area\": {generated}"
+    );
+    assert_ne!(
+        sales_area_outputs[0], sales_area_outputs[1],
+        "the self-joined \"sales_area\" columns must get two distinct output names in the derived \
+         table, or the outer n1/n2 can silently resolve to the wrong side: {generated}"
     );
 }
 
@@ -272,13 +315,52 @@ fn a_self_join_keeps_a_masked_column_distinct_from_an_unmasked_same_named_one() 
     let [generated] = legs.0.as_slice() else {
         panic!("one derived-table statement must reach the port: {:?}", legs.0);
     };
-    let read_by_masked_n =
+    assert_masking_rewrite_is_sound(generated);
+}
+
+/// `masked_n` and `plain_n` must each resolve, through the derived table's OWN FROM
+/// subquery's projection list only (never any `SELECT` elsewhere in the statement), to a
+/// UNIQUE output name there; `masked_n`'s item must be the `REGEXP_REPLACE(...)` rewrite and
+/// `plain_n`'s must not be. The broken collapse this guards against puts both a
+/// `REGEXP_REPLACE(..) AS "sales_area"` and a bare `"sales_area"` in the SAME projection
+/// list, which a check that only asks "does any projection anywhere have this name as a
+/// `REGEXP_REPLACE`" cannot tell apart from the fixed shape.
+fn assert_masking_rewrite_is_sound(generated: &str) {
+    let projection = derived_table_projection(generated);
+    let masked_col =
         column_read_by_alias(generated, "masked_n").unwrap_or_else(|| panic!("masked_n must read one plain column: {generated}"));
+    let plain_col =
+        column_read_by_alias(generated, "plain_n").unwrap_or_else(|| panic!("plain_n must read one plain column: {generated}"));
+
+    let masked_matches: Vec<_> = projection.iter().filter(|(name, _)| *name == masked_col).collect();
+    assert_eq!(
+        masked_matches.len(),
+        1,
+        "\"{masked_col}\" must be the UNIQUE output name in the derived table's own projection, \
+         not shared with a sibling item: {generated}"
+    );
     assert!(
-        alias_is_a_regexp_replace_output(generated, &read_by_masked_n),
-        "masked_n reads \"{read_by_masked_n}\", but that output column of the derived table is \
+        is_regexp_replace(&masked_matches[0].1),
+        "masked_n reads \"{masked_col}\", but that output column of the derived table is \
          not a REGEXP_REPLACE(...) expression - the masking rewrite and the aggregate have come \
          apart: {generated}"
+    );
+
+    assert_ne!(
+        masked_col, plain_col,
+        "masked_n and plain_n must resolve to two DIFFERENT derived-table output columns, not the \
+         same one: {generated}"
+    );
+    let plain_matches: Vec<_> = projection.iter().filter(|(name, _)| *name == plain_col).collect();
+    assert_eq!(
+        plain_matches.len(),
+        1,
+        "\"{plain_col}\" must also be the unique output name in the derived table's own projection: {generated}"
+    );
+    assert!(
+        !is_regexp_replace(&plain_matches[0].1),
+        "plain_n reads \"{plain_col}\", which the derived table's own projection builds via \
+         REGEXP_REPLACE - the masking rewrite leaked onto the unmasked sibling: {generated}"
     );
 }
 
@@ -335,42 +417,59 @@ fn column_read_by_alias(generated: &str, alias: &str) -> Option<String> {
     finder.found
 }
 
-/// Whether any projection item aliased `name`, anywhere in `generated`, is a `REGEXP_REPLACE`
-/// call - i.e. whether `name` is the masking rewrite's own output column.
-fn alias_is_a_regexp_replace_output(generated: &str, name: &str) -> bool {
-    use datafusion::sql::sqlparser::ast::{Expr, Function, Select, SelectItem, Visit as _, Visitor};
+/// The `(output_name, expr)` pairs in the derived table's OWN projection - the outer
+/// statement's `FROM` subquery, not any `SELECT` anywhere else in the statement. Scoping to
+/// this one list is what makes "is this name unique and is it the `REGEXP_REPLACE` item"
+/// mean something: a check that walks the whole statement tree cannot tell a fixed
+/// disambiguated projection from a broken collapse that happens to carry a same-named
+/// `REGEXP_REPLACE` item somewhere else.
+fn derived_table_projection(generated: &str) -> Vec<(String, datafusion::sql::sqlparser::ast::Expr)> {
+    use datafusion::sql::sqlparser::ast::{SelectItem, SetExpr, Statement, TableFactor};
     use datafusion::sql::sqlparser::dialect::GenericDialect;
     use datafusion::sql::sqlparser::parser::Parser;
-    use std::ops::ControlFlow;
 
-    struct Find<'a> {
-        name: &'a str,
-        matched: bool,
-    }
-    impl Visitor for Find<'_> {
-        type Break = ();
-
-        fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<()> {
-            for item in &select.projection {
-                let SelectItem::ExprWithAlias { expr, alias } = item else {
-                    continue;
-                };
-                if alias.value != self.name {
-                    continue;
-                }
-                if matches!(expr, Expr::Function(Function { name, .. }) if name.to_string().eq_ignore_ascii_case("REGEXP_REPLACE"))
-                {
-                    self.matched = true;
-                }
-            }
-            ControlFlow::Continue(())
-        }
-    }
-
-    let Ok(statements) = Parser::parse_sql(&GenericDialect, generated) else {
-        return false;
+    let statements = Parser::parse_sql(&GenericDialect, generated).unwrap_or_else(|cause| panic!("{generated}: {cause}"));
+    let [Statement::Query(outer)] = statements.as_slice() else {
+        panic!("expected exactly one Query statement: {generated}");
     };
-    let mut finder = Find { name, matched: false };
-    let _result: ControlFlow<()> = statements.visit(&mut finder);
-    finder.matched
+    let SetExpr::Select(outer_select) = outer.body.as_ref() else {
+        panic!("outer statement is not a plain SELECT: {generated}");
+    };
+    let Some(table) = outer_select.from.first() else {
+        panic!("outer SELECT has no FROM: {generated}");
+    };
+    let TableFactor::Derived { subquery, .. } = &table.relation else {
+        panic!("outer SELECT's FROM is not a derived table: {generated}");
+    };
+    let SetExpr::Select(inner_select) = subquery.body.as_ref() else {
+        panic!("derived table's own body is not a plain SELECT: {generated}");
+    };
+    inner_select
+        .projection
+        .iter()
+        .map(|item| match item {
+            SelectItem::ExprWithAlias { expr, alias } => (alias.value.clone(), expr.clone()),
+            SelectItem::UnnamedExpr(expr) => (column_name(expr), expr.clone()),
+            other => panic!("unexpected derived-table projection item {other:?}: {generated}"),
+        })
+        .collect()
+}
+
+/// The bare column name a plain column-reference expression reads - panics on anything else,
+/// since the derived table's own projection items are always plain (possibly qualified)
+/// column references or their `REGEXP_REPLACE` masking rewrite.
+fn column_name(expr: &datafusion::sql::sqlparser::ast::Expr) -> String {
+    use datafusion::sql::sqlparser::ast::Expr;
+    match expr {
+        Expr::CompoundIdentifier(parts) => parts.last().map_or_else(String::new, |part| part.value.clone()),
+        Expr::Identifier(ident) => ident.value.clone(),
+        Expr::Function(_) => String::new(),
+        other => panic!("expected a plain column reference or a function call, found {other:?}"),
+    }
+}
+
+/// Whether `expr` is a `REGEXP_REPLACE(...)` call - i.e. the masking rewrite's own output.
+fn is_regexp_replace(expr: &datafusion::sql::sqlparser::ast::Expr) -> bool {
+    use datafusion::sql::sqlparser::ast::{Expr, Function};
+    matches!(expr, Expr::Function(Function { name, .. }) if name.to_string().eq_ignore_ascii_case("REGEXP_REPLACE"))
 }
