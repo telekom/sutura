@@ -37,6 +37,7 @@ pub(super) async fn collected(
     // caller to retry a bound that fires again in the same place.
     let exhaustion = |cause: datafusion::error::DataFusionError| {
         if pool::exhausted(&cause) {
+            #[cfg(feature = "distributed")]
             tracing::debug!(target: "worker_pool_fixture", cause = %cause.find_root(), "combine reservation refused");
             CombineError::Exhausted { ceiling_bytes }
         } else {
