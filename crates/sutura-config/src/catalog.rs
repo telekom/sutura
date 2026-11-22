@@ -17,8 +17,8 @@ pub mod rdbms;
 pub use crate::catalog::platform::{DataHubPlatform, InvalidDataHubPlatform};
 pub use crate::catalog::rdbms::{
     CatalogConnection, CatalogEnvironment, Dialect, DictionarySource, DocumentationSchema, InvalidConnection,
-    InvalidDocumentationSchema, InvalidRdbmsCatalog, LiveRowPredicate, OracleCatalogConnection, PostgresCatalogConnection,
-    PredicateOperator, RdbmsSettings,
+    InvalidDocumentationSchema, InvalidRdbmsCatalog, LiveRowPredicate, MissingEndpointPolicy, OracleCatalogConnection,
+    PostgresCatalogConnection, PredicateOperator, RdbmsSettings,
 };
 pub(crate) use rdbms::RawColumnRule;
 

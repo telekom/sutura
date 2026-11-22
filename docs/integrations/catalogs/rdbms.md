@@ -264,7 +264,23 @@ relationships:
 
 At most 64 declarations with at most 32 distinct pairs each are accepted. Exact physical names,
 visible endpoints and known compatible mapped types are required. Equal mapped types and integer
-widths are compatible; unknown or incompatible types refuse the load, naming the endpoint.
+widths are compatible; unknown or incompatible types always refuse the load, naming the endpoint.
+An endpoint absent or excluded from the reading identity's dictionary instead follows
+`on_missing_endpoint`, default `refuse` (the behaviour above, unchanged). `on_missing_endpoint: omit`
+drops that one declaration with a `WARN` log instead of refusing the whole catalog - the same
+declaration can then serve several environments whose service users hold different grants. An
+omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
+never joins, and `describe_catalog` never lists it.
+
+```yaml
+relationships:
+  - name: events_apps
+    from: { table: inventory.events, columns: [tenant, app_id] }
+    to: { table: inventory.apps, columns: [tenant, id] }
+    cardinality: many_to_one
+    on_missing_endpoint: omit
+```
+
 `many_to_one` is the only supported written cardinality. Without the optional check, uniqueness is
 an operator assertion. With it, the catalog's own connection checks nonnull full target keys on its
 first successful dictionary read. A duplicate or a row/key-byte cap overflow refuses the load: a truncated

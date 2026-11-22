@@ -12,6 +12,7 @@ pub(crate) struct RawRelationship {
     to: RawEndpoint,
     cardinality: String,
     check_target_uniqueness: Option<RawCheck>,
+    on_missing_endpoint: Option<String>,
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +33,32 @@ pub struct DeclaredRelationship {
     from: RelationshipEndpoint,
     to: RelationshipEndpoint,
     check: Option<UniquenessCheck>,
+    on_missing_endpoint: MissingEndpointPolicy,
+}
+
+/// What a declared relationship's endpoint not being visible to the reading identity does.
+///
+/// `Refuse` is the default: the exact behaviour before this field existed, so a written catalog
+/// with no `on_missing_endpoint` key reads unchanged. `Omit` is the opt-in `telekom/sutura#2039`
+/// asks for, per relationship.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MissingEndpointPolicy {
+    #[default]
+    Refuse,
+    Omit,
+}
+impl MissingEndpointPolicy {
+    const ALL: [Self; 2] = [Self::Refuse, Self::Omit];
+    fn parse(written: &str) -> Option<Self> {
+        let written = written.trim();
+        Self::ALL.into_iter().find(|policy| policy.as_str() == written)
+    }
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Omit => "omit",
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelationshipEndpoint {
@@ -54,6 +81,8 @@ pub enum InvalidRelationship {
     Name,
     #[error("target uniqueness check requires nonzero max_rows and max_bytes")]
     Bounds,
+    #[error("relationship on_missing_endpoint must be one of refuse, omit")]
+    MissingEndpointPolicy,
 }
 const fn invalid(cause: InvalidRelationship) -> InvalidRdbmsCatalog {
     InvalidRdbmsCatalog::Relationship { cause }
@@ -112,6 +141,14 @@ pub(crate) fn parse(raw: &[RawRelationship]) -> Result<Vec<DeclaredRelationship>
                         })
                     })
                     .transpose()?,
+                on_missing_endpoint: raw
+                    .on_missing_endpoint
+                    .as_deref()
+                    .map(|written| {
+                        MissingEndpointPolicy::parse(written).ok_or_else(|| invalid(InvalidRelationship::MissingEndpointPolicy))
+                    })
+                    .transpose()?
+                    .unwrap_or_default(),
             })
         })
         .collect()
@@ -128,6 +165,9 @@ impl DeclaredRelationship {
     }
     pub const fn check(&self) -> Option<UniquenessCheck> {
         self.check
+    }
+    pub const fn on_missing_endpoint(&self) -> MissingEndpointPolicy {
+        self.on_missing_endpoint
     }
 }
 impl RelationshipEndpoint {

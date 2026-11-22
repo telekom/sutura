@@ -82,7 +82,8 @@
 pub mod descriptions;
 mod relationships;
 pub use relationships::{
-    DeclarationError, DeclaredRelationship, Relationship, RelationshipError, SingleColumnTargetUniqueness, TargetKeyKind,
+    DeclarationError, DeclaredRelationship, MissingEndpointPolicy, Relationship, RelationshipError, SingleColumnTargetUniqueness,
+    TargetKeyKind,
 };
 #[cfg(feature = "live")]
 mod documentation;

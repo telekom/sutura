@@ -144,6 +144,26 @@ fn declared_links_require_visible_columns_and_compatible_known_types() {
     ));
 }
 
+#[test]
+fn omit_policy_drops_a_declaration_whose_endpoint_is_invisible_instead_of_refusing_the_load() {
+    use crate::MissingEndpointPolicy;
+    let declaration = DeclaredRelationship::with_missing_endpoint_policy(
+        Relationship::declared(
+            None,
+            address("events"),
+            address("apps"),
+            vec![(String::from("missing"), String::from("id"))],
+        )
+        .unwrap(),
+        None,
+        MissingEndpointPolicy::Omit,
+    );
+    let loaded = dictionary()
+        .apply_relationship_declarations(&[declaration], TypeDialect::Postgres, None)
+        .expect("an omit-policy declaration never refuses the whole load");
+    assert_eq!(loaded.relationships(), []);
+}
+
 #[cfg(feature = "live")]
 #[test]
 fn boot_uniqueness_evidence_refuses_duplicates_and_a_row_past_either_bound() {
