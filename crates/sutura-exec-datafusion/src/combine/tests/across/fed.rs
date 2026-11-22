@@ -58,6 +58,10 @@ fn a_single_lookup_batch_plans_as_one_fed_leaf_naming_a_feed() {
 
 /// A single lookup batch of 7 rows, dealt across 3 tasks, gives each task a contiguous row range -
 /// not a whole-batch share, which would give task 0 all 7 rows and leave tasks 1 and 2 with none.
+///
+/// Moved here from `combine/tests/across.rs`, under its original name and asserting the same
+/// `[[0,1,2],[3,4],[5,6]]` split; it now reads the single fed leaf's own feed rather than per-task
+/// leaves, since `fed::dealt`'s leaf no longer carries rows itself.
 #[test]
 fn a_single_lookup_batch_is_shared_by_rows_across_three_tasks() {
     let authority = Authority::generate();
