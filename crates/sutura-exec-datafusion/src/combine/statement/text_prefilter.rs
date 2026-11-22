@@ -125,13 +125,8 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
         return Ok(None);
     };
     let address = path.join(".");
-    eprintln!(
-        "raw_prefilter diagnostic: FROM address={address:?} known_tables={:?}",
-        tables.iter().map(|table| table.table().to_string()).collect::<Vec<_>>()
-    );
     let mut matching = tables.iter().filter(|table| table.table().to_string() == address);
     let Some(table) = matching.next() else {
-        eprintln!("raw_prefilter diagnostic: rejected, no known table matches address={address:?}");
         return Ok(None);
     };
     if matching.next().is_some() {
@@ -372,34 +367,15 @@ fn condition(
     let Ok(field) = table.schema().field_with_name(&column.value) else {
         return Ok(None);
     };
-    eprintln!(
-        "raw_prefilter diagnostic: column={} metadata={:?}",
-        column.value,
-        field.metadata()
-    );
     if !capability.admits(&Collation::of_field(field)) {
-        eprintln!(
-            "raw_prefilter diagnostic: rejected at collation admission for column={}",
-            column.value
-        );
         return Ok(None);
     }
     let Some(encoded) = field.metadata().get("sutura:text_policy") else {
-        eprintln!(
-            "raw_prefilter diagnostic: rejected, no sutura:text_policy for column={}",
-            column.value
-        );
         return Ok(None);
     };
     let policy: TextPolicy =
         serde_json::from_str(encoded).map_err(|cause| plan_datafusion_err!("invalid pinned text policy: {cause}"))?;
     if policy.raw_prefilter().is_none() || policy.redactions().is_empty() {
-        eprintln!(
-            "raw_prefilter diagnostic: rejected, raw_prefilter={:?} redactions_empty={} for column={}",
-            policy.raw_prefilter().is_some(),
-            policy.redactions().is_empty(),
-            column.value
-        );
         return Ok(None);
     }
     let lob = field
@@ -407,14 +383,8 @@ fn condition(
         .get("sutura:oracle_lob")
         .is_some_and(|kind| matches!(kind.as_str(), "clob" | "nclob"));
     if capability == PrefilterCapability::Oracle && !lob {
-        eprintln!(
-            "raw_prefilter diagnostic: rejected at oracle-lob gate, sutura:oracle_lob={:?} for column={}",
-            field.metadata().get("sutura:oracle_lob"),
-            column.value
-        );
         return Ok(None);
     }
-    eprintln!("raw_prefilter diagnostic: applied for column={}", column.value);
     // A wrong authored binary pin must not let case folding create a replacement match.
     let folded = capability == PrefilterCapability::DuckDb;
     if !policy

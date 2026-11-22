@@ -46,7 +46,10 @@ pub(super) fn applies_on_a_native_dictionary_clob(fixture: &Fixture) {
         "        raw_prefilter:\n",
         "          acknowledged_because: this fixture accepts secret-dependent search timing\n",
     );
-    let settings = fixture.settings(rule).replace("exclude_types: [CLOB]", "exclude_types: []");
+    let settings = fixture
+        .settings(rule)
+        .replace("exclude_columns: ['SECRET*']", "exclude_columns: ['SECRET*', 'OPAQUE']")
+        .replace("exclude_types: [CLOB]", "exclude_types: []");
     let served = start_configured_with_environment(
         "native-oracle-raw-prefilter",
         &settings,
