@@ -28,7 +28,7 @@ mod acceptance {
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::execution::Execution;
     use sutura_domain::warehouse::schema::TypeDialect;
-    use sutura_domain::warehouse::{ResultBudget, Value, Warehouse as _};
+    use sutura_domain::warehouse::{ResultBudget, ResultLimit, Value, Warehouse as _};
     use sutura_exec_oracle::{Channel, Dial, OracleError, OracleWarehouse, Planned, SplitLeg};
 
     /// The tier as this process reaches it: its address, the fixture credential and its authority.
@@ -308,6 +308,10 @@ mod acceptance {
         drop_table(&session, TABLE);
         match refused {
             Err(cause) => {
+                assert_eq!(
+                    warehouse.result_limit(&cause),
+                    Some(ResultLimit::StreamRows { limit: 1_000_000 })
+                );
                 assert!(warehouse.result_did_not_fit(&cause), "the row limit is a refusal: {cause}");
                 assert_eq!(cause.to_string(), "a partition returned more than the 1000000-row limit");
                 println!("oracle-partition-row-cap: overflow refused as result_too_large");
