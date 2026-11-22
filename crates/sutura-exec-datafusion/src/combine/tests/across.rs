@@ -16,6 +16,7 @@ use datafusion::error::DataFusionError;
 use datafusion::functions_aggregate::expr_fn::sum;
 use datafusion::logical_expr::col;
 use datafusion::physical_plan::repartition::RepartitionExec;
+use datafusion::physical_plan::test::TestMemoryExec;
 use datafusion::physical_plan::{Partitioning, collect_partitioned};
 use datafusion::prelude::{CsvReadOptions, SessionConfig, SessionContext};
 use datafusion_distributed::{DistributedConfig, DistributedLeafExec, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
@@ -523,7 +524,8 @@ fn repartition_caps_a_large_input_batch_and_keeps_every_row() {
     let rows =
         RecordBatch::try_from_iter([("k", Arc::new(Int64Array::from_iter_values(0..9)) as ArrayRef)]).expect("the batch builds");
     let schema = rows.schema();
-    let source = MemorySourceConfig::try_new_exec(&[vec![rows]], schema, None).expect("the scan builds");
+    // Deliver the oversized batch directly to the exchange.
+    let source = TestMemoryExec::try_new_exec(&[vec![rows]], schema, None).expect("the scan builds");
     let exchange = RepartitionExec::try_new(source, Partitioning::RoundRobinBatch(2)).expect("the exchange builds");
     let session = SessionContext::new_with_config(SessionConfig::new().with_batch_size(4));
     let partitions = servers()
