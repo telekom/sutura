@@ -45,7 +45,7 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
     evidence["roomy"]["answer"] = expected
     trials = []
     evidence["calibration"] = trials
-    # Use the first combine-only refusal as the common bound for the cold and warm runs.
+    # Refine the bracket and use the highest observed combine refusal as the common bound.
     ceiling, upper, lower, mib = None, None, None, 64
     for attempt in range(7):
         assert 4 <= mib <= 64 and all(t["ceiling"] != mib * 1024 * 1024 for t in trials), trials
@@ -62,8 +62,7 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
             assert phase in {"leg", "combine"}, trial
             if phase == "combine":
                 # execute() reaches combine only after every exact leg has completed successfully.
-                ceiling = trial["ceiling"]
-                break
+                ceiling = trial["ceiling"] if ceiling is None else max(ceiling, trial["ceiling"])
             lower = mib
             if upper is None:
                 break
@@ -78,6 +77,7 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
     assert identity(get("pod/reference"))["restarts"] == [0]
     assert upper is not None
     evidence["ceiling"] = ceiling
+    print("worker-pool calibration (ceiling, phase):", [(t["ceiling"], t["phase"]) for t in trials])
     machine.succeed("kubectl delete pod reference --wait=true")
     set_ceiling("sutura", ceiling)
     set_ceiling("sutura-workers", ceiling)
