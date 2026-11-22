@@ -126,6 +126,55 @@ fn oracle_lob_top_n_keeps_the_qualified_output_in_scope() {
     assert!(subquery.order_by.is_some() && subquery.fetch.is_some(), "{sql}");
 }
 
+/// Every derived table in `sql` carries an alias: github.com/telekom/sutura#2041's scoping rule,
+/// held generically rather than per rewrite. A missing alias is exactly how a qualifier the
+/// planner introduced before the wrapper existed goes out of scope one level up.
+fn assert_every_derived_table_is_aliased(sql: &str) {
+    use datafusion::sql::sqlparser::ast::{SetExpr, Statement, TableFactor};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+
+    fn walk(factor: &TableFactor, sql: &str) {
+        if let TableFactor::Derived { alias, subquery, .. } = factor {
+            assert!(alias.is_some(), "an unaliased derived table is out of scope above it: {sql}");
+            if let SetExpr::Select(select) = subquery.body.as_ref() {
+                for item in &select.from {
+                    walk(&item.relation, sql);
+                    for join in &item.joins {
+                        walk(&join.relation, sql);
+                    }
+                }
+            }
+        }
+    }
+
+    let parsed = Parser::parse_sql(&GenericDialect, sql).unwrap_or_else(|cause| panic!("{sql}: {cause}"));
+    let [Statement::Query(query)] = parsed.as_slice() else {
+        panic!("one query: {sql}")
+    };
+    if let SetExpr::Select(select) = query.body.as_ref() {
+        for item in &select.from {
+            walk(&item.relation, sql);
+            for join in &item.joins {
+                walk(&join.relation, sql);
+            }
+        }
+    }
+}
+
+#[test]
+fn oracle_lob_top_n_with_a_filter_keeps_the_qualified_output_in_scope() {
+    // github.com/telekom/sutura#1972's own repro: a WHERE predicate below the length/substr/instr
+    // projection, ordered and limited, over a redacted CLOB with no explicit table alias.
+    let tables = lob_table(r#"{"max_text_bytes":4000,"redact":[{"pattern":"secret","replace":"masked"}]}"#);
+    let (reached, outputs) = source_outputs(
+        &tables,
+        r#"SELECT "LABEL", length("SCRIPT") AS n, substr("SCRIPT", 4001, 120), instr(upper("SCRIPT"), 'END') AS p FROM "TEXT_EVENTS" WHERE "LABEL" <> 'missing' ORDER BY n DESC LIMIT 3"#,
+    );
+    assert_every_derived_table_is_aliased(&reached);
+    assert_eq!(outputs.len(), 4, "{reached}");
+}
+
 #[test]
 fn oracle_lob_control_expressions_carry_their_lineage() {
     let tables = lob_table(r#"{"max_text_bytes":4000}"#);

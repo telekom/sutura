@@ -594,6 +594,12 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             r#"select r."region" from "dim_region" r where exists (select 1 from "dim_region" x where x."region" = r."region" and x."region" = 'north')"#,
             r#"select r."region" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north')"#,
             r#"select r."region", r."sales_area" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north') limit 1"#,
+            // github.com/telekom/sutura#2041: count(DISTINCT) expands into an extra GROUP BY
+            // level, and the outer level's qualifier must resolve through the inner one's alias.
+            r#"select "region", count(distinct "sales_area") as n from "dim_region" where "region" <> 'missing' group by "region" limit 50"#,
+            // #2041: a repeated expression inside OR is hoisted into a common-subexpression
+            // wrapper; the wrapper's own output and every sibling column must stay in scope above it.
+            r#"select "region", "sales_area" from "dim_region" where upper("region") like '%no%' or upper("region") like '%st%' limit 100"#,
         ] {
             let mut legs = OracleLegs {
                 engines: Engines::new(None),

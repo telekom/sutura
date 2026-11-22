@@ -547,16 +547,22 @@ impl Unparser<'_> {
                 lateral,
             );
         }
-        if self.dialect.requires_derived_table_alias() || !columns.is_empty() {
-            self.derive(
-                plan,
-                relation,
-                Some(self.new_table_alias(alias.to_string(), columns)),
-                lateral,
-            )
-        } else {
-            self.derive(plan, relation, None, lateral)
-        }
+        // Every derived table this unparser emits gets an alias, regardless of
+        // what `requires_derived_table_alias` says: an omitted alias leaves a
+        // qualifier a parent expression still carries (one this plan's own
+        // input relation used) out of scope at THIS level and every level
+        // above it, which is how a qualified reference the planner built
+        // before this wrapper existed turns into an invalid-identifier error
+        // on the rendered statement. One generic alias here replaces the
+        // per-rewrite alias-or-not decision for count-distinct's extra
+        // GROUP BY level, common-subexpression hoisting, limit/sort
+        // pushdown, and any wrapper this crate adds over one of those.
+        self.derive(
+            plan,
+            relation,
+            Some(self.new_table_alias(alias.to_string(), columns)),
+            lateral,
+        )
     }
 
     /// Projection unparsing when [`super::dialect::Dialect::unnest_as_lateral_flatten`] is enabled:
