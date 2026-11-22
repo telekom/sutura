@@ -51,7 +51,8 @@ Those three plus secure-by-design are the definition of *correct* in review here
   cell with no killing mutation is refused. A `crates/sutura-app/tests/` matrix cell whose changed
   lines run only for a data system unavailable offline may instead leave the scope under
   `Live-Cell: <test-fn-name> <system> <ci-job>`, refused unless that system's `Unavailable` entry
-  in `adapters::exemptions::EXEMPTIONS` names that job as its `runs_in` and `ci.yml` declares it,
+  in `adapters::exemptions::EXEMPTIONS` names the venue as its `runs_in` and CI declares the job
+  or selects the named QA suite from `devco/ci-suites.json`,
   refused for a name `Claim-Cell:` also declares, and refused unless the cell's own run here prints
   `exempt: <system> from Unavailable`. Its limits: the gate does not check that
   the changed lines run only for that system or that the job selects the cell; a bare name takes

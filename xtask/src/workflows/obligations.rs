@@ -52,15 +52,8 @@
 //! one is an edit here. Nor does it verify that `always()` behaves as measured; that is GitHub's
 //! semantics, observed over the runs above and not reproduced by this repository.
 //!
-//! **The release-skip clause - what [`RELEASE_SKIP`] does and does not pin.** The `ci` job's own
-//! `if:` skips the whole job - `Secrets` included - on a `chore(release):` commit, and
-//! `bigquery-driver-check` repeats that test as a conjunct in its own `if:`. [`RELEASE_SKIP`] holds
-//! that the clause APPEARS as a conjunct on each named job's `if:` - it does not pin the category
-//! clause that sits beside it (`needs.identity-classify.outputs.data_source_bigquery == 'true'`),
-//! because that axis is held by the category registry in `affected` and pinning it here would
-//! couple the rule to a job rename. The clause is matched as exact normalized text: a paraphrased
-//! clause FAILS CLOSED - it does not match and the refusal fires - rather than passing on a
-//! looser `contains`. See [`carries_release_skip`].
+//! The release bump skips both core CI and the ordinary QA caller. The linked-driver exercise
+//! inherits the QA caller's release guard. The tag runs full QA and checks the published binaries.
 //!
 //! # The second thing this holds: LATENCY, not just skippability (#512(b))
 //!
@@ -249,49 +242,26 @@ fn pull_request_types(text: &str) -> Option<Vec<&str>> {
         .map(|list| list.split(',').map(str::trim).collect())
 }
 
-/// The release-commit skip clause that `ci` and `bigquery-driver-check` both carry, normalized the
-/// way `Step::gate` normalizes (`${{ }}` stripped, whitespace collapsed to single spaces).
-///
-/// Pinned as exact text, not matched loosely: a paraphrased clause fails closed (the conjunct check
-/// below does not match and the refusal fires) rather than passing on a `contains`. The category
-/// clause beside it on `bigquery-driver-check` is deliberately NOT pinned here - see the header.
+/// The CI and reusable QA jobs skip the main release bump. Release calls full QA on its tag.
 const RELEASE_SKIP_CLAUSE: &str = "!startsWith(github.event.head_commit.message || '', 'chore(release):')";
-
-/// Jobs whose own `if:` must carry the release-skip clause as a conjunct, so a release commit does
-/// not re-run the most expensive legs in the repository.
-///
-/// `ci` skips the whole job and everything under `needs: [ci]` skips with it. `bigquery-driver-check`
-/// no longer needs `ci` and repeats the test in its own `if:` - so the clause must be pinned on
-/// both. The native legs also carry it after moving off `ci`. `ci`'s `if:` is the clause alone;
-/// the other jobs carry it beside their category and queue-reuse tests.
-const RELEASE_SKIP: &[&str] = &[
-    "bigquery-driver-check",
-    "ci",
-    "multi-node",
-    "multi-node-postgres",
-    "multi-node-oracle",
-    "k3s-autoscaling",
-    "oracle-tier",
-    "ci-datahub-tier",
-    "ci-openmetadata-tier",
-    "ci-cube-tier",
-];
+const RELEASE_SKIP: &[&str] = &["ci", "qa", "qa-plan"];
 
 /// How many release-skip rows this rule holds, for the success line.
 pub(super) const fn release_skip_held() -> usize {
     RELEASE_SKIP.len()
 }
 
-/// Jobs whose whole `if:` is pinned as exact normalized text, so any rewrite - equivalent or not -
-/// fails closed until the row is edited.
-///
-/// `bigquery-conformance` starts off `identity-classify` only because it no longer runs on a push
-/// (#1696): the owner coupled the two, and a push arm would run it on the release commit, which
-/// `identity-classify` does not skip. Limit: this holds the text, not what the text selects.
-const PINNED_JOB_IF: &[(&str, &str)] = &[(
-    "bigquery-conformance",
-    "(github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.identity-classify.outputs.data_source_bigquery == 'true'",
-)];
+/// Both credentialed QA jobs retain their event eligibility gate.
+const PINNED_JOB_IF: &[(&str, &str)] = &[
+    (
+        "bigquery-conformance",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
+    ),
+    (
+        "e2e-datahub-adbc",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
+    ),
+];
 
 /// How many job conditions are pinned to exact text, for the success line.
 pub(super) const fn pinned_job_if_held() -> usize {
@@ -327,7 +297,33 @@ pub(super) fn job_if_problems(root: &Path) -> Vec<String> {
             path.display()
         )];
     };
-    [release_skip_check(&text), pinned_job_if_check(&text)].concat()
+    let qa = std::fs::read_to_string(root.join(".github/workflows/qa.yml")).unwrap_or_default();
+    let mut problems = [release_skip_check(&text), pinned_job_if_check(&text)].concat();
+    if !linked_driver_runs_in_qa(root, &qa) {
+        problems.push(String::from(
+            "QA must execute the linked-driver check for selected BigQuery or PostgreSQL changes and require the matrix result",
+        ));
+    }
+    problems
+}
+
+fn linked_driver_runs_in_qa(root: &Path, qa: &str) -> bool {
+    let runner = std::fs::read_to_string(root.join("nix/ci-suite.sh")).unwrap_or_default();
+    crate::changes::ci_suites::linked_driver_is_enrolled(root)
+        && runner
+            .lines()
+            .any(|line| line == "bigquery-driver) bash nix/bigquery-driver-check.sh ;;")
+        && super::step::job(qa, "integration")
+            .is_some_and(|lines| lines.contains(&"      matrix: ${{ fromJSON(inputs.suite-plan).matrix }}"))
+        && super::step::named_step(qa, "integration", "Run suite").is_some_and(|lines| {
+            lines.contains(&"          SUITE: ${{ matrix.id }}")
+                && lines.contains(&r#"        run: bash nix/ci-suite.sh "$SUITE""#)
+        })
+        && super::step::job(qa, "integration-verdict").is_some_and(|lines| {
+            lines.contains(&"          MATRIX_COUNT: ${{ fromJSON(inputs.suite-plan || '{}').count }}")
+                && lines.contains(&"          MATRIX_RESULT: ${{ needs.integration.result }}")
+                && lines.contains(&r#"            *) require "integration matrix" "$MATRIX_RESULT" true ;;"#)
+        })
 }
 
 /// The release-skip rule itself, over the text, so a test can put a tree in front of it.
@@ -632,10 +628,10 @@ mod tests {
     // ---- release-skip (job-level `if:`) ----
 
     /// A `ci.yml` with the release-skip jobs carrying their real `if:` shape.
-    fn release_skip_tree(bigquery_if: Option<&str>, ci_if: Option<&str>) -> String {
+    fn release_skip_tree(qa_if: Option<&str>, ci_if: Option<&str>) -> String {
         let mut text = String::from("jobs:\n");
-        text.push_str("  bigquery-driver-check:\n");
-        if let Some(gate) = bigquery_if {
+        text.push_str("  qa:\n");
+        if let Some(gate) = qa_if {
             writeln!(text, "    if: ${{{{ {gate} }}}}").expect("writing into a String cannot fail");
         }
         text.push_str("    runs-on: ubuntu-latest\n    steps:\n      - run: true\n");
@@ -644,10 +640,7 @@ mod tests {
             writeln!(text, "    if: ${{{{ {gate} }}}}").expect("writing into a String cannot fail");
         }
         text.push_str("    runs-on: ubuntu-latest\n    steps:\n      - run: true\n");
-        for job in RELEASE_SKIP
-            .iter()
-            .filter(|&&job| !["ci", "bigquery-driver-check"].contains(&job))
-        {
+        for job in RELEASE_SKIP.iter().filter(|&&job| !["ci", "qa"].contains(&job)) {
             writeln!(text, "  {job}:").expect("writing into a String cannot fail");
             if ci_if.is_some() {
                 writeln!(text, "    if: {RELEASE_SKIP_CLAUSE}").expect("writing into a String cannot fail");
@@ -656,33 +649,26 @@ mod tests {
         text
     }
 
-    /// The real tree's shape: `bigquery-driver-check` carries the clause as a conjunct beside the
+    /// The real tree's shape: `qa` carries the clause as a conjunct beside the
     /// category test; `ci` carries it alone. Both pass.
     #[test]
     fn the_real_release_skip_shape_passes() {
         let text = release_skip_tree(
             Some(
-                "!startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true'",
+                "!startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.result == 'success'",
             ),
             Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
         );
         assert_eq!(release_skip_check(&text), Vec::<String>::new());
     }
 
-    /// Mutation (a): drop the release clause from `bigquery-driver-check`, leaving only the category
-    /// clause. Red against base (no refusal exists), green with the change - the rule names the line.
+    /// Dropping the QA caller's release guard would rerun the linked-driver suite on the bump.
     #[test]
     fn dropping_the_release_clause_from_bigquery_driver_check_is_refused() {
-        let text = release_skip_tree(
-            Some("needs.identity-classify.outputs.data_source_bigquery == 'true'"),
-            Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
-        );
+        let text = release_skip_tree(Some("needs.identity-classify.result == 'success'"), Some(RELEASE_SKIP_CLAUSE));
         let found = release_skip_check(&text);
-        assert_eq!(found.len(), 1, "only bigquery-driver-check is broken: {found:?}");
-        assert!(
-            found[0].contains("bigquery-driver-check"),
-            "the refusal names the job: {found:?}"
-        );
+        assert_eq!(found.len(), 1, "only qa is broken: {found:?}");
+        assert!(found[0].contains("qa"), "the refusal names the job: {found:?}");
         assert!(
             found[0].contains("does not carry the release-skip clause"),
             "the refusal names the missing clause: {found:?}"
@@ -711,10 +697,7 @@ mod tests {
         );
         let found = release_skip_check(&text);
         assert_eq!(found.len(), 1, "only the disjunctive job is broken: {found:?}");
-        assert!(
-            found[0].contains("bigquery-driver-check"),
-            "the refusal names the job: {found:?}"
-        );
+        assert!(found[0].contains("qa"), "the refusal names the job: {found:?}");
     }
 
     /// A clause that merely CONTAINS the pin - negated - must not pass. `!(CLAUSE)` contains the
@@ -735,7 +718,7 @@ mod tests {
         // Same semantics, different text: `head_commit.message` without the `|| ''` default.
         let text = release_skip_tree(
             Some(
-                "!startsWith(github.event.head_commit.message, 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true'",
+                "!startsWith(github.event.head_commit.message, 'chore(release):') && needs.identity-classify.result == 'success'",
             ),
             Some("!startsWith(github.event.head_commit.message || '', 'chore(release):')"),
         );
@@ -749,7 +732,7 @@ mod tests {
     fn ci_clause_alone_passes() {
         let text = release_skip_tree(
             Some(
-                "!startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.data_source_bigquery == 'true'",
+                "!startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.result == 'success'",
             ),
             Some(RELEASE_SKIP_CLAUSE),
         );
@@ -759,7 +742,10 @@ mod tests {
     // ---- pinned job conditions (job-level `if:`) ----
 
     fn bigquery_conformance_tree(gate: Option<&str>) -> String {
-        let mut text = String::from("jobs:\n  bigquery-conformance:\n");
+        let mut text = format!(
+            "jobs:\n  e2e-datahub-adbc:\n    if: {}\n  bigquery-conformance:\n",
+            PINNED_JOB_IF[1].1
+        );
         if let Some(gate) = gate {
             writeln!(text, "    if: {gate}").expect("writing into a String cannot fail");
         }
@@ -784,112 +770,78 @@ mod tests {
         );
     }
 
-    // ---- the push skip of a leg the merge queue ran green (#1696) ----
-
-    /// Each edit weakens the `queue-validated` skip: a kept leg reading or needing it, a job
-    /// reporting a leg's name, a dropped or loosened condition in the lookup, a leg or `*_SELECTED`
-    /// reading another leg's output or none. Red against base, which has no rule refusing a kept leg
-    /// that reads the output - the first edit applies there and nothing names the rule; green with
-    /// the change.
+    // An ordinary or release caller cannot bypass the receipt and full mode pins.
     #[test]
     fn every_weakening_of_the_queue_validated_skip_is_refused() {
-        /// What the edit weakens, the text it replaces, the text it writes.
-        type Edit = (&'static str, &'static str, &'static str);
-        const EDITS: &[Edit] = &[
-            (
-                "kind-smoke reads an output",
-                "  kind-smoke:\n    needs: [ci]\n    if: github.event_name == 'pull_request' || github.event_name == 'push'\n",
-                "  kind-smoke:\n    needs: [ci, queue-validated]\n    if: (github.event_name == 'pull_request' || github.event_name == 'push') && needs.queue-validated.outputs.multi_node != 'true'\n",
-            ),
-            (
-                "cross needs the job",
-                "  cross:\n    needs: [ci]\n",
-                "  cross:\n    needs: [ci, queue-validated]\n",
-            ),
-            (
-                "a job reports a leg's name",
-                "  kind-smoke:\n    needs: [ci]\n",
-                "  kind-smoke:\n    name: oracle-tier\n    needs: [ci]\n",
-            ),
-            (
-                "a job reports the Oracle acceptance lane's name",
-                "  kind-smoke:\n    needs: [ci]\n",
-                "  kind-smoke:\n    name: oracle-tier (acceptance)\n    needs: [ci]\n",
-            ),
-            (
-                "a job reports the Oracle native lane's name",
-                "  kind-smoke:\n    needs: [ci]\n",
-                "  kind-smoke:\n    name: oracle-tier (native)\n    needs: [ci]\n",
-            ),
-            (
-                "a job-level `if:`",
-                "  queue-validated:\n    runs-on: ubuntu-latest\n",
-                "  queue-validated:\n    if: github.event_name == 'push'\n    runs-on: ubuntu-latest\n",
-            ),
-            (
-                "a `needs`",
-                "  queue-validated:\n    runs-on: ubuntu-latest\n",
-                "  queue-validated:\n    needs: [ci]\n    runs-on: ubuntu-latest\n",
-            ),
-            (
-                "the push-to-main gate",
-                "        id: lookup\n        if: github.event_name == 'push' && github.ref == 'refs/heads/main'\n",
-                "        id: lookup\n",
-            ),
-            ("the run's event", r#"select(.event == "merge_group" and "#, "select("),
-            (
-                "the run's commit",
-                r#""merge_group" and .head_sha == $sha and "#,
-                r#""merge_group" and "#,
-            ),
-            (
-                "the run's status",
-                r#"and .status == "completed" and .conclusion == "success") | .id"#,
-                r#"and .conclusion == "success") | .id"#,
-            ),
-            (
-                "the run's conclusion",
-                r#"and .status == "completed" and .conclusion == "success") | .id"#,
-                r#"and .status == "completed") | .id"#,
-            ),
-            ("the latest attempt", "jobs?filter=latest&per_page=100", "jobs?per_page=100"),
-            ("the job's commit", "select(.head_sha == $sha and .status", "select(.status"),
-            (
-                "a skipped job counts",
-                r#".conclusion == "success") | .name"#,
-                r#".conclusion != "failure") | .name"#,
-            ),
-            (
-                "oracle-tier reads another leg's output",
-                "needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.oracle_tier != 'true' }}\n",
-                "needs.identity-classify.outputs.oracle_tier == 'true' && needs.queue-validated.outputs.multi_node != 'true' }}\n",
-            ),
-            (
-                "ci-cube-tier loses its conjunct",
-                "needs.identity-classify.outputs.catalog_cube == 'true' && needs.queue-validated.outputs.ci_cube_tier != 'true' }}\n",
-                "needs.identity-classify.outputs.catalog_cube == 'true' }}\n",
-            ),
-            (
-                "K3S_SELECTED loses its conjunct",
-                "K3S_SELECTED: ${{ needs.ci.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true' }}\n",
-                "K3S_SELECTED: ${{ needs.ci.outputs.chart }}\n",
-            ),
-        ];
         let root = crate::repo::root().expect("repository root");
+        let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read CI");
+        let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).expect("read release");
         let problems = super::super::aggregate_inputs::problems(&root);
-        assert!(problems.is_empty(), "the committed ci.yml: {problems:?}");
-        let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
-        for (n, (what, old, new)) in EDITS.iter().enumerate() {
-            assert_eq!(ci.matches(old).count(), 1, "{what}: the anchor is in ci.yml exactly once");
-            let edited = ci.replacen(old, new, 1);
+        assert!(problems.is_empty(), "the committed workflows: {problems:?}");
+        for (file, before, after) in [
+            (
+                "ci",
+                "id: pr-verdict\n        if: github.event_name == 'merge_group'",
+                "id: pr-verdict",
+            ),
+            (
+                "ci",
+                "      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}",
+                "      tested-commit: ${{ needs.identity-classify.outputs.green_jobs }}",
+            ),
+            (
+                "ci",
+                "      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}",
+                "      green-jobs: ${{ needs.identity-classify.outputs.tested_commit }}",
+            ),
+            (
+                "ci",
+                "name: QA checkout (${{ github.sha }})",
+                "name: QA checkout (${{ github.event.pull_request.head.sha }})",
+            ),
+            (
+                "ci",
+                "github.event_name == 'pull_request' && needs.causality.outputs.reusable == 'true'",
+                "github.event_name == 'pull_request'",
+            ),
+            (
+                "release",
+                "      plan-only: true\n      run-all-checks: true",
+                "      plan-only: true\n      run-all-checks: false",
+            ),
+            (
+                "release",
+                "      run-all-checks: true\n      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}",
+                "      run-all-checks: false\n      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}",
+            ),
+            (
+                "release",
+                "needs: [build, gates, qa-plan, qa, bigquery-conformance, e2e-datahub-adbc]",
+                "needs: [build, gates, qa-plan, qa]",
+            ),
+        ] {
+            let source = if file == "ci" { &ci } else { &release };
+            assert_eq!(
+                source.matches(before).count(),
+                1,
+                "{file}: ambiguous or missing mutation {before}"
+            );
+            let (ci, release) = if file == "ci" {
+                (ci.replacen(before, after, 1), release.clone())
+            } else {
+                (ci.clone(), release.replacen(before, after, 1))
+            };
             let tree = crate::scratch_tree::Tree::of(
-                &format!("queue-validated-{n}"),
-                &[(".github/workflows/ci.yml", edited.as_bytes())],
+                "queue-validity",
+                &[
+                    (".github/workflows/ci.yml", ci.as_bytes()),
+                    (".github/workflows/release.yml", release.as_bytes()),
+                ],
             );
             let found = super::super::aggregate_inputs::problems(tree.root());
             assert!(
                 found.iter().any(|p| p.contains("queue-validated rule")),
-                "{what} passed: {found:?}"
+                "{file} {before}: {found:?}"
             );
         }
     }

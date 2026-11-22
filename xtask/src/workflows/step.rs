@@ -123,12 +123,10 @@ pub(crate) fn app_step<'a>(text: &'a str, job_name: &str, app: &str) -> Option<V
     lines.get(start..end).map(<[&str]>::to_vec)
 }
 
-/// The step of `job` named `step_name`, as its own lines - [`app_step`]'s own boundary math,
-/// keyed on the step's `name:` value directly rather than on a flake reference it invokes.
+/// The step of `job` named `step_name`, as its own lines.
 ///
 /// For a step whose body is plain shell over `git`/`bash` rather than a `nix run`/`nix build` -
-/// `app_step`'s own `collect` pass finds nothing to key on there, which is the gap this closes.
-#[cfg(test)]
+/// The flake reference scan finds nothing to key on there, which is the gap this closes.
 pub(crate) fn named_step<'a>(text: &'a str, job_name: &str, step_name: &str) -> Option<Vec<&'a str>> {
     let lines = job(text, job_name)?;
     let at = lines
@@ -148,7 +146,6 @@ pub(crate) fn named_step<'a>(text: &'a str, job_name: &str, step_name: &str) -> 
 }
 
 /// How deep a line is indented.
-#[cfg(test)]
 fn indent(line: &str) -> usize {
     line.len().saturating_sub(line.trim_start().len())
 }
@@ -232,12 +229,17 @@ nix() {
   git rev-parse HEAD > seen-head
   printf '%s' "$5" > seen-base
   git diff --name-only "$5" HEAD > seen-paths
+  if [ "$GATE_EXIT" -eq 0 ]; then
+    printf '  measured:  1 of 1 added tests measured\n'
+  fi
   return "$GATE_EXIT"
 }
 export -f nix
 export EVENT PR_HEAD BASE GATE_EXIT
 GITHUB_STEP_SUMMARY="$PWD/summary"
-export GITHUB_STEP_SUMMARY
+GITHUB_OUTPUT="$PWD/output"
+RUNNER_TEMP="$PWD"
+export GITHUB_STEP_SUMMARY GITHUB_OUTPUT RUNNER_TEMP
 
 run_step() {
   local expected_exit=$1 expected_head=$2 expected_base=$3 expected_paths=$4
@@ -247,6 +249,7 @@ run_step() {
   : > seen-base
   : > seen-paths
   : > summary
+  : > output
   # A conditional around the shell would suppress its `set -e`; capture the status afterward.
   set +e
   bash --noprofile --norc -c "$CAUSALITY_STEP"
@@ -299,6 +302,11 @@ for EVENT in pull_request push merge_group; do
     expected_exit=$GATE_EXIT
     [ "$GATE_EXIT" -ne 3 ] || expected_exit=0
     run_step "$expected_exit" "$expected_head" "$expected_base" "$expected_paths"
+    if [ "$EVENT" = pull_request ] && [ "$GATE_EXIT" -eq 0 ]; then
+      grep -qxF 'reusable=true' output || { echo receipt-missing; exit 1; }
+    else
+      [ ! -s output ] || { echo invented-receipt; exit 1; }
+    fi
     if [ "$GATE_EXIT" -eq 3 ]; then
       [ -s summary ] || { echo inconclusive-was-hidden; exit 1; }
     else

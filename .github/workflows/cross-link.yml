@@ -19,12 +19,8 @@
 # `nix/lint-workflows.sh`'s header gives for the same split one level down: what moves is the BODY,
 # and the condition stays where the thing it gates is decided.
 #
-# WHAT IT COSTS: the legs are reported as `cross / link (<triple>)` rather than
-# `cross (<triple>)`. None of them is a required context - `ci` and `ci-aggregate` are the only
-# ones in the `main` ruleset - so no ruleset changes with this file. What makes a red leg block a
-# merge is `ci-aggregate`'s `needs: [cross]`: a leg that ran and is not green fails that job, on a
-# pull request and a push, and the merge queue never runs `cross` at all. The cost of that edge:
-# `ci-aggregate` waits for the whole link matrix, so a merge is no earlier than its slowest leg.
+# Reusable QA selects this matrix on pull requests and the merge queue. Its verdict reaches the
+# required `ci-aggregate` context. A release calls the same QA workflow in full mode.
 # `devco/required-contexts` is the record - the API response, the date, and the organisation-level scope that could not be
 # read - and `cargo xtask check-workflows` is what keeps it in step with the jobs, THIS FILE'S JOB
 # INCLUDED: a workflow a gating one calls is read for its jobs too, so adding a second job here
@@ -48,7 +44,7 @@
 # venue and the refusal has no meaning there. The REFERENCE scan above does read those scripts.
 #
 # ONE REDUCED SET, ON EVERY ORDINARY-CI EVENT. THE FULL FOUR ONLY WHERE A RELEASE IS BUILT.
-# A pull request and a push to `main` run the SAME two triples, `ci` profile, no image, so there
+# Every QA caller runs the same two triples, `ci` profile, no image, so there
 # is no event scoping in the matrix below - and its absence is the decision rather than an
 # omission: a ternary that cannot change what runs is worse than none, because a reader takes it
 # for a live restriction.

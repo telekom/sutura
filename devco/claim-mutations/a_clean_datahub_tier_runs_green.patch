@@ -1,8 +1,9 @@
---- a/.github/workflows/ci.yml
-+++ b/.github/workflows/ci.yml
-@@ -2154,4 +2154,4 @@
-           if [ "$DH_SELECTED" = "true" ]; then
--            if [ "$DH_RESULT" != "success" ]; then
-+            if [ "$DH_RESULT" = "success" ]; then
-               fail "ci-datahub-tier must run (catalog_datahub category selected) but reported '$DH_RESULT'"
-             fi
+--- a/.github/workflows/qa.yml
++++ b/.github/workflows/qa.yml
+@@ -360,5 +360,5 @@
+             0) require "integration matrix" "$MATRIX_RESULT" false ;;
+             ''|*[!0-9]*) echo "QA: missing or invalid matrix count" >&2; exit 1 ;;
+-            *) require "integration matrix" "$MATRIX_RESULT" true ;;
++            *) require "integration matrix" "${MATRIX_RESULT/#success/failure}" true ;;
+           esac
+           require demo-container "$DEMO_RESULT" "$DEMO_REQUIRED"

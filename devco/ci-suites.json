@@ -1,0 +1,149 @@
+[
+  {
+    "id": "keycloak-served",
+    "venue": "standard",
+    "timeout": 45,
+    "categories": ["identity"],
+    "paths": ["nix/keycloak-tier*"],
+    "crates": ["sutura-http"]
+  },
+  {
+    "id": "bigquery-driver",
+    "venue": "standard",
+    "timeout": 45,
+    "categories": ["data_source_bigquery", "data_source_postgres"],
+    "paths": ["nix/adbc*"],
+    "crates": ["sutura-exec-bigquery", "sutura-exec-postgres"]
+  },
+  {
+    "id": "bigquery-conformance",
+    "venue": "big-query",
+    "timeout": 75,
+    "categories": ["data_source_bigquery"],
+    "paths": ["examples/single-player/**"],
+    "crates": ["sutura-exec-bigquery"]
+  },
+  {
+    "id": "e2e-datahub-adbc",
+    "before_merge": true,
+    "venue": "big-query",
+    "timeout": 75,
+    "categories": ["identity", "data_source_bigquery", "catalog_datahub"],
+    "paths": ["examples/single-player/**", "compose.services.yaml"],
+    "crates": ["sutura-catalog-datahub", "sutura-exec-bigquery", "sutura-http"]
+  },
+  {
+    "id": "multi-node",
+    "venue": "kvm",
+    "timeout": 75,
+    "categories": ["identity", "data_source_node", "data_source_clickhouse"],
+    "paths": ["nix/multi-node.nix", "nix/multi-node-clickhouse.nix"],
+    "crates": ["sutura-exec-node", "sutura-exec-clickhouse"]
+  },
+  {
+    "id": "multi-node-postgres",
+    "venue": "kvm",
+    "timeout": 75,
+    "categories": ["identity", "data_source_postgres", "data_source_datafusion"],
+    "paths": ["nix/multi-node-postgres*"],
+    "crates": ["sutura-exec-postgres", "sutura-exec-datafusion"]
+  },
+  {
+    "id": "multi-node-oracle",
+    "venue": "kvm",
+    "timeout": 75,
+    "categories": ["identity", "data_source_oracle", "data_source_datafusion"],
+    "paths": ["nix/multi-node-oracle*"],
+    "crates": ["sutura-exec-oracle", "sutura-exec-datafusion"]
+  },
+  {
+    "id": "k3s-autoscaling",
+    "venue": "kvm",
+    "timeout": 60,
+    "categories": ["data_source_node", "data_source_datafusion"],
+    "paths": ["charts/**", "**/Dockerfile", "nix/k3s*"],
+    "crates": ["sutura-operator", "sutura-exec-datafusion"]
+  },
+  {
+    "id": "oracle-tier",
+    "venue": "standard",
+    "timeout": 50,
+    "categories": ["data_source_oracle", "catalog_rdbms"],
+    "paths": ["nix/oracle*", "compose.services.yaml", "examples/single-player/**"],
+    "crates": ["sutura-exec-oracle", "sutura-catalog-rdbms"]
+  },
+  {
+    "id": "oracle-native",
+    "venue": "standard",
+    "timeout": 50,
+    "categories": ["data_source_oracle", "catalog_rdbms"],
+    "paths": ["nix/oracle*", "vendor/rust-oracledb/**"],
+    "crates": ["sutura-exec-oracle", "sutura-catalog-rdbms"]
+  },
+  {
+    "id": "oracle-legacy",
+    "venue": "standard",
+    "timeout": 50,
+    "categories": ["data_source_oracle", "catalog_rdbms"],
+    "paths": ["nix/oracle*", "vendor/rust-oracledb/**"],
+    "crates": ["sutura-exec-oracle", "sutura-catalog-rdbms"]
+  },
+  {
+    "id": "datahub-tier",
+    "venue": "standard",
+    "timeout": 45,
+    "categories": ["catalog_datahub"],
+    "paths": ["compose.services.yaml", "nix/datahub*"],
+    "crates": ["sutura-catalog-datahub"]
+  },
+  {
+    "id": "openmetadata-tier",
+    "venue": "standard",
+    "timeout": 45,
+    "categories": ["catalog_openmetadata"],
+    "paths": ["compose.services.yaml", "nix/openmetadata*"],
+    "crates": ["sutura-catalog-openmetadata"]
+  },
+  {
+    "id": "ci-cube-tier",
+    "venue": "standard",
+    "timeout": 45,
+    "categories": ["catalog_cube"],
+    "paths": ["compose.services.yaml", "nix/cube*"],
+    "crates": ["sutura-catalog-cube", "sutura-exec-cube"]
+  },
+  {
+    "id": "kind-smoke",
+    "advisory_pr_check": "kind-smoke",
+    "before_merge": true,
+    "always": true,
+    "venue": "standard",
+    "timeout": 20,
+    "categories": [],
+    "paths": ["charts/**", "nix/kind-smoke*"],
+    "crates": ["sutura-operator"]
+  },
+  {
+    "id": "demo-container",
+    "advisory_pr_check": "demo-container / smoke-test",
+    "before_merge": true,
+    "always": true,
+    "venue": "caller",
+    "timeout": 30,
+    "categories": [],
+    "paths": ["examples/demo-chatinterface/**", "**/Dockerfile"],
+    "crates": ["sutura-cli"],
+    "checks": ["qa / demo / smoke-test"]
+  },
+  {
+    "id": "cross-link",
+    "before_merge": true,
+    "areas": ["build"],
+    "venue": "caller",
+    "timeout": 90,
+    "categories": [],
+    "paths": ["crates/**", "**/Cargo.toml", "**/Dockerfile", "nix/**"],
+    "crates": ["sutura-cli", "sutura-operator"],
+    "checks": ["qa / cross / link (x86_64-unknown-linux-musl)", "qa / cross / link (aarch64-unknown-linux-gnu)"]
+  }
+]

@@ -1,214 +1,105 @@
-//! `ci.yml`'s `queue-validated` job (#1696): on a push to `main`, a leg the merge queue already ran
-//! green on the same commit is skipped. This holds the job's text and every place its outputs are
-//! read.
-//!
-//! **What it holds.** The job is pinned to [`BODY`] exactly: no `if:` and no `needs`, so it is
-//! never skipped and never takes a dependent down with it; its step gated to a push to `main`;
-//! `filter=latest`; and every check its query makes - the run's `event`, `head_sha`, `status` and
-//! `conclusion`, and the job's `head_sha`, `status` and `conclusion`, `success` only. Each leg in
-//! [`LEGS`] ends its job `if:` and its `ci-aggregate` `*_SELECTED` input with the conjunct
-//! `needs.queue-validated.outputs.<its own output> != 'true'` and reads the job nowhere else in
-//! either. Any other non-comment line naming the job is refused, so a leg that keeps its push run
-//! (`e2e-datahub-adbc`, `cross`, `demo-container`, `kind-smoke`) cannot read it. No job may report
-//! a leg's id as its `name:`, because the query matches a job by the name it reported.
-//! Oracle reuse requires both `oracle-tier (acceptance)` and `oracle-tier (native)` successes;
-//! the matrix's aggregate result remains the `oracle-tier` input to `ci-aggregate`.
-//!
-//! **What it does NOT hold.** GitHub's run record is trusted: that a run listed for
-//! `event=merge_group` and this `head_sha` ran this commit's tree, and that its job reporting a
-//! leg's name with `success` is that leg. That run executed the leg under `merge_group`, not `push`;
-//! that no leg's steps behave differently between the two is review, not this rule. A `name:`
-//! built from an expression is not evaluated. And the text before the conjunct is not held to be
-//! the leg's selection - that stays review-only, as it was. A top-level `||` there only narrows the
-//! skip: whenever the output is not `'true'` the expression is the one it replaced.
+//! Keep PR verdict collection on the queue event and pin which callers consume it.
 
-use super::{AGGREGATE, env_inputs, job_ids};
+use std::path::Path;
+
+use super::job_needs;
 use crate::workflows::step;
 
-/// The job key.
-pub(super) const JOB: &str = "queue-validated";
-
-/// A leg a push to `main` may skip: its job id, the output naming it, its `ci-aggregate` input.
-type Leg = (&'static str, &'static str, &'static str);
-
-/// Every [`Leg`].
-const LEGS: &[Leg] = &[
-    ("keycloak-served-test", "keycloak_served_test", "KC_SELECTED"),
-    ("bigquery-driver-check", "bigquery_driver_check", "BQ_SELECTED"),
-    ("multi-node", "multi_node", "MN_SELECTED"),
-    ("multi-node-postgres", "multi_node_postgres", "MNPG_SELECTED"),
-    ("multi-node-oracle", "multi_node_oracle", "MNORA_SELECTED"),
-    ("k3s-autoscaling", "k3s_autoscaling", "K3S_SELECTED"),
-    ("oracle-tier", "oracle_tier", "ORACLE_SELECTED"),
-    ("ci-datahub-tier", "ci_datahub_tier", "DH_SELECTED"),
-    ("ci-openmetadata-tier", "ci_openmetadata_tier", "OM_SELECTED"),
-    ("ci-cube-tier", "ci_cube_tier", "CUBE_SELECTED"),
-];
-
-/// The job's body below its key, exact. An edit to the workflow is an edit here, in review.
-const BODY: &str = r#"    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      keycloak_served_test: ${{ steps.lookup.outputs.keycloak_served_test }}
-      bigquery_driver_check: ${{ steps.lookup.outputs.bigquery_driver_check }}
-      multi_node: ${{ steps.lookup.outputs.multi_node }}
-      multi_node_postgres: ${{ steps.lookup.outputs.multi_node_postgres }}
-      multi_node_oracle: ${{ steps.lookup.outputs.multi_node_oracle }}
-      k3s_autoscaling: ${{ steps.lookup.outputs.k3s_autoscaling }}
-      oracle_tier: ${{ steps.lookup.outputs.oracle_tier }}
-      ci_datahub_tier: ${{ steps.lookup.outputs.ci_datahub_tier }}
-      ci_openmetadata_tier: ${{ steps.lookup.outputs.ci_openmetadata_tier }}
-      ci_cube_tier: ${{ steps.lookup.outputs.ci_cube_tier }}
-    steps:
-      - name: Legs the merge queue ran green on this commit
-        id: lookup
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -u
-          runs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$GITHUB_SHA&per_page=100" \
-            | jq -r --arg sha "$GITHUB_SHA" '.workflow_runs[] | select(.event == "merge_group" and .head_sha == $sha and .status == "completed" and .conclusion == "success") | .id')" || runs=""
-          passed=""
-          for run in $runs; do
-            jobs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?filter=latest&per_page=100" \
-              | jq -r --arg sha "$GITHUB_SHA" '.jobs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success") | .name')" || jobs=""
-            passed="$passed"$'\n'"$jobs"
-          done
-          for leg in keycloak-served-test bigquery-driver-check multi-node multi-node-postgres multi-node-oracle k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
-            if [ "$leg" = oracle-tier ]; then
-              if printf '%s\n' "$passed" | grep -qxF -- 'oracle-tier (acceptance)' &&
-                printf '%s\n' "$passed" | grep -qxF -- 'oracle-tier (native)'; then hit=true; else hit=false; fi
-            else
-              if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
-            fi
-            echo "$leg: $hit"
-            echo "${leg//-/_}=$hit" >> "$GITHUB_OUTPUT"
-          done"#;
-
-/// Whether `key` is a `ci-aggregate` input allowed to read this job: one of the [`LEGS`].
-pub(super) fn reads(key: &str) -> bool {
-    LEGS.iter().any(|(_, _, selected)| *selected == key)
-}
-
-/// Every broken obligation of the job and its readers, empty when all hold. Fails closed on a
-/// missing job, leg or aggregate input.
-pub(super) fn check(text: &str) -> Vec<String> {
+pub(super) fn check(root: &Path, ci: &str) -> Vec<String> {
+    let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap_or_default();
     let mut out = Vec::new();
-    match step::job(text, JOB) {
-        None => out.push(format!("{JOB} rule: ci.yml declares no `{JOB}` job")),
-        Some(lines) if lines.join("\n").trim_end() != BODY => out.push(format!(
-            "{JOB} rule: ci.yml's `{JOB}` job differs from the text pinned in \
-             xtask/src/workflows/aggregate_inputs/queue_validated.rs - every check it makes is what \
-             lets a push skip a leg, so change both in one commit"
-        )),
-        Some(_) => {}
+    let lookup = step::named_step(ci, "identity-classify", "Find reusable PR verdicts");
+    let lookup_valid = lookup.is_some_and(|lines| {
+        lines.contains(&"        id: pr-verdict")
+            && lines.contains(&"        if: github.event_name == 'merge_group'")
+            && lines.contains(&"        continue-on-error: true")
+            && lines.contains(&"        run: bash nix/ci-pr-verdict.sh")
+    });
+    if !lookup_valid {
+        out.push(String::from(
+            "queue-validated rule: the lookup must use the checked queue event and fall back on failure",
+        ));
     }
-    let inputs = env_inputs(text);
-    for (leg, output, selected) in LEGS {
-        if !job_if(text, leg).is_some_and(|gate| gated(&gate, output)) {
-            out.push(format!(
-                "{JOB} rule: `{leg}`'s `if:` must end in `{}` and read `{JOB}` nowhere else",
-                conjunct(output)
-            ));
-        }
-        if !inputs
+    let ci_ready = ["identity-classify", "qa-plan"];
+    let release_ready = ["qa-plan"];
+    let qa_valid = job_needs(ci, "qa-plan") == ["identity-classify"]
+        && step::job(ci, "qa-plan").is_some_and(|lines| {
+            lines.contains(&"    uses: $/.github/workflows/qa.yml")
+                && lines.contains(&"      fast-checked: true")
+                && lines.contains(&"      plan-only: true")
+                && lines.contains(&"      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}")
+                && lines.contains(&"      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}")
+        })
+        && qa_uses_plan(ci, &ci_ready)
+        && live_jobs_use_plan(ci, &ci_ready);
+    if !qa_valid {
+        out.push(String::from(
+            "queue-validated rule: ordinary QA must wait for fast checks, use their evidence, and share the plan with the direct live jobs",
+        ));
+    }
+    let release_valid = job_needs(&release, "qa-plan") == ["gates"]
+        && step::job(&release, "qa-plan").is_some_and(|lines| {
+            lines.contains(&"    uses: $/.github/workflows/qa.yml")
+                && lines.contains(&"      plan-only: true")
+                && lines.contains(&"      run-all-checks: true")
+                && !lines
+                    .iter()
+                    .any(|line| line.contains("green-jobs:") || line.contains("tested-commit:"))
+        })
+        && qa_uses_plan(&release, &release_ready)
+        && step::job(&release, "qa").is_some_and(|lines| lines.contains(&"      run-all-checks: true"))
+        && live_jobs_use_plan(&release, &release_ready)
+        && ["qa-plan", "qa", "bigquery-conformance", "e2e-datahub-adbc"]
             .iter()
-            .any(|input| input.key == *selected && gated(&input.expression, output))
-        {
-            out.push(format!(
-                "{JOB} rule: {AGGREGATE} env `{selected}` must end in `{}` and read `{JOB}` nowhere \
-                 else, as `{leg}`'s `if:` does",
-                conjunct(output)
-            ));
-        }
+            .all(|required| job_needs(&release, "publish").iter().any(|need| need == *required));
+    if !release_valid {
+        out.push(String::from(
+            "queue-validated rule: release publication must require full QA and both direct live jobs without PR verdicts",
+        ));
     }
-    out.extend(stray(text));
-    out.extend(impostors(text));
+    if !step::job(ci, "qa-receipt").is_some_and(|lines| {
+        lines.contains(&"    name: QA checkout (${{ github.sha }})")
+            && lines.contains(
+                &"    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.ci-aggregate.result == 'success' }}",
+            )
+    }) || !job_needs(ci, "qa-receipt").iter().any(|need| need == "ci-aggregate")
+    {
+        out.push(String::from(
+            "queue-validated rule: checkout receipts must attest the PR checkout after the required checks",
+        ));
+    }
+    if !job_needs(ci, "causality-receipt").iter().any(|need| need == "causality")
+        || !step::job(ci, "causality-receipt").is_some_and(|lines| {
+            lines.contains(&"    if: github.event_name == 'pull_request' && needs.causality.outputs.reusable == 'true'")
+        })
+    {
+        out.push(String::from(
+            "queue-validated rule: a PR causality receipt requires the causality job's reusable verdict",
+        ));
+    }
     out
 }
 
-/// The conjunct a leg's `if:` and its `*_SELECTED` end in.
-fn conjunct(output: &str) -> String {
-    format!(" && needs.{JOB}.outputs.{output} != 'true'")
+fn qa_uses_plan(workflow: &str, ready: &[&str]) -> bool {
+    job_needs(workflow, "qa").iter().map(String::as_str).eq(ready.iter().copied())
+        && step::job(workflow, "qa").is_some_and(|lines| {
+            lines.contains(&"    uses: $/.github/workflows/qa.yml")
+                && lines.contains(&"      suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}")
+                && !lines
+                    .iter()
+                    .any(|line| line.contains("green-jobs:") || line.contains("tested-commit:"))
+        })
 }
 
-/// `expression` ends in `output`'s conjunct and names the job nowhere before it.
-fn gated(expression: &str, output: &str) -> bool {
-    expression
-        .strip_suffix(&conjunct(output))
-        .is_some_and(|before| !before.is_empty() && !before.contains(JOB))
-}
-
-/// A job's own `if:`, `${{ }}` stripped and whitespace collapsed. `None` when it has none on one line.
-fn job_if(text: &str, job: &str) -> Option<String> {
-    step::job(text, job)?.into_iter().find_map(|line| {
-        let value = line.strip_prefix("    if:")?.trim();
-        let inner = value
-            .strip_prefix("${{")
-            .and_then(|rest| rest.strip_suffix("}}"))
-            .unwrap_or(value);
-        Some(inner.split_whitespace().collect::<Vec<_>>().join(" "))
+fn live_jobs_use_plan(workflow: &str, ready: &[&str]) -> bool {
+    ["bigquery-conformance", "e2e-datahub-adbc"].iter().all(|job| {
+        job_needs(workflow, job).iter().map(String::as_str).eq(ready.iter().copied())
+            && step::job(workflow, job).is_some_and(|lines| lines.contains(&"    environment: bq-test"))
+            && step::named_step(workflow, job, "Run live suite").is_some_and(|lines| {
+                lines.contains(&"          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}")
+                    && lines
+                        .iter()
+                        .any(|line| *line == format!("        run: bash nix/ci-live-qa.sh {job}"))
+            })
     })
-}
-
-/// Every non-comment line naming the job outside the job itself, a leg's `needs:` or `if:`, and
-/// the aggregate's `needs` or a leg's `*_SELECTED`.
-fn stray(text: &str) -> Vec<String> {
-    let jobs = job_ids(text);
-    let mut out = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let at = index.saturating_add(1);
-        if line.trim_start().starts_with('#') || !line.contains(JOB) {
-            continue;
-        }
-        let owner = jobs.iter().rev().find(|(start, _)| *start <= at).map(|(_, id)| id.as_str());
-        if !allowed(owner, line) {
-            out.push(format!(
-                "ci.yml:{at}  {JOB} rule: `{JOB}` is named outside the job, the `needs:` and `if:` of \
-                 its legs and their `*_SELECTED` in {AGGREGATE} - a leg that keeps its push run may \
-                 not read it"
-            ));
-        }
-    }
-    out
-}
-
-/// Whether `line`, inside job `owner`, is a place the job may be named.
-fn allowed(owner: Option<&str>, line: &str) -> bool {
-    let trimmed = line.trim_start();
-    match owner {
-        Some(JOB) => true,
-        Some(AGGREGATE) => {
-            line.starts_with("    needs:")
-                || trimmed.trim_end_matches(',') == JOB
-                || trimmed.split_once(':').is_some_and(|(key, _)| reads(key))
-        }
-        Some(owner) => {
-            LEGS.iter().any(|(leg, ..)| *leg == owner) && (line.starts_with("    needs:") || line.starts_with("    if:"))
-        }
-        None => false,
-    }
-}
-
-/// Every literal job-level `name:` that impersonates a reusable leg or either Oracle matrix lane.
-fn impostors(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let Some(name) = line.strip_prefix("    name:") else {
-            continue;
-        };
-        let name = name.trim().trim_matches(['"', '\'']);
-        if LEGS.iter().any(|(leg, ..)| *leg == name) || matches!(name, "oracle-tier (acceptance)" | "oracle-tier (native)") {
-            out.push(format!(
-                "ci.yml:{}  {JOB} rule: a job reports the name `{name}`, and `{JOB}` would read its \
-                 result as that leg's",
-                index.saturating_add(1)
-            ));
-        }
-    }
-    out
 }
