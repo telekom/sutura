@@ -240,6 +240,7 @@ let
         };
         config.base = {
           server.request_timeout_seconds = 300;
+          telemetry.filter = "info,worker_pool_fixture=debug";
           catalogs = [
             {
               name = "model";
@@ -880,7 +881,6 @@ pkgs.testers.runNixOSTest {
                 ("serving", "SUTURA__OPERATOR__SERVING", "`operator.serving` is not set"),
             ]:
                 failed_process("operator-" + suffix, "sutura-operator", [variable], {}, None, sentence)
-            # The unmodified worker process still starts, and the original operator reconciles it.
             pool(min=1, max=2, warm=0)
             settled(1)
             assert gauge(worker_pods(1)[0], "sutura_worker_requests_in_flight") == 0
