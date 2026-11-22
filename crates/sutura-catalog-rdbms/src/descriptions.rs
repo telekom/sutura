@@ -3,7 +3,7 @@
 #[cfg(feature = "live")]
 mod mapping;
 #[cfg(feature = "live")]
-pub use mapping::MappedDescriptions;
+pub use mapping::{MappedDescriptions, MappedKeySource, MappedPredicate, MappedTable, MappedVia};
 
 use std::collections::{BTreeMap, BTreeSet};
 

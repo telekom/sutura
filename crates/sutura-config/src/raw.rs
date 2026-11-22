@@ -832,10 +832,14 @@ pub(crate) struct RawCatalogConnection {
 }
 
 /// An rdbms catalog's `live_row_predicate:`, as read: column, operator, optional value - there is
-/// no key a SQL fragment could be written under.
+/// no key a SQL fragment could be written under. `table` is only meaningful inside a description
+/// source's `live_row_predicates:` list, naming which physical table (the mapped table or its
+/// `key.via` parent) the predicate applies to; the top-level dictionary predicate never sets it.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawLiveRowPredicate {
+    #[serde(default)]
+    pub(crate) table: Option<String>,
     pub(crate) column: String,
     pub(crate) operator: String,
     #[serde(default)]

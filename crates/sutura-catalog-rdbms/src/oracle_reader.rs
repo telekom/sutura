@@ -52,7 +52,9 @@ use std::num::NonZeroU64;
 use sutura_domain::identity::Secret;
 use sutura_oracle_connect::{Channel, Dial, PrepareError, PreparedDial};
 
-use crate::documentation::{Assembly, DOCUMENTATION_VIEW, ReadQuery, Row as DocumentationRow, checked_bounds, default_bounds};
+use crate::documentation::{
+    Assembly, DOCUMENTATION_VIEW, ReadQuery, Row as DocumentationRow, checked_bounds, checked_mapping_bounds, default_bounds,
+};
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
@@ -228,7 +230,7 @@ impl OracleReader {
         row_cap: Option<NonZeroU64>,
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
-        self.bounds = checked_bounds("descriptions", mapping.predicate(), row_cap, byte_cap)?;
+        self.bounds = checked_mapping_bounds(mapping.predicate_columns(), row_cap, byte_cap)?;
         self.query = ReadQuery::Descriptions(mapping);
         Ok(self)
     }

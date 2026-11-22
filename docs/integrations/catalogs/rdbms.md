@@ -232,6 +232,33 @@ uppercase names for unquoted database columns. `key.catalog` is optional and req
 served dictionary carries that physical component. A mapping without it matches only addresses
 without a catalog component. Table comments can also come from referenced catalogs.
 
+A normalised documentation system often stores a row's schema and table name on a separate parent
+table rather than inline on the description row itself. `key.via` resolves the key through that
+parent table instead:
+
+```yaml
+descriptions_from:
+  - connection: { ... }
+    table: inventory.column_docs
+    key:
+      column: field_name
+      via:
+        table: inventory.object_catalog
+        on: { object_id: object_id }
+        schema: object_owner
+        table_name: object_name
+    description: description
+    live_row_predicates:
+      - { table: via, column: is_deleted, operator: equals, value: "N" }
+      - { table: main, column: is_hidden, operator: equals, value: "N" }
+```
+
+`key` sets either `schema` and `table` directly, or `via`, never both or neither. `via.on` is a
+nonempty mapping of the mapped table's join columns to the parent table's, joined with exact
+physical names on the same read-only connection and transaction. `live_row_predicates` is a closed
+conjunction of several predicates, each naming the physical table it filters (`main` or, only when
+`key.via` is set, `via`); it is mutually exclusive with the single-predicate `live_row_predicate`.
+
 Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
 accounting and the existing description byte, line and control-character checks. PostgreSQL's
 byte refusal runs after libpq has materialized its result; Oracle bills decoded cursor rows.
