@@ -298,13 +298,23 @@ impl SelectBuilder {
     /// Used when a derived table this SELECT wraps gets a synthetic alias: expressions
     /// already built against the wrapped plan's own qualifier(s) must now resolve
     /// through that alias, or the qualifier they still carry is out of scope one level up.
-    pub(super) fn rewrite_qualifiers(&mut self, from: &[Vec<String>], to: &str) {
-        if from.is_empty() {
+    ///
+    /// `mapping` carries one `(qualifier_prefix, original_column, output_column)` triple
+    /// per column the wrapped plan exposes under that qualifier - never just the
+    /// qualifier - so two columns sharing a name under different qualifiers (a
+    /// self-join) retarget onto two distinct output names instead of colliding into
+    /// one ambiguous column of the derived table.
+    pub(super) fn rewrite_qualifiers(
+        &mut self,
+        mapping: &[(Vec<String>, String, String)],
+        to: &str,
+    ) {
+        if mapping.is_empty() {
             return;
         }
 
         struct QualifierRewriter<'a> {
-            from: &'a [Vec<String>],
+            mapping: &'a [(Vec<String>, String, String)],
             to: &'a str,
             subqueries: usize,
         }
@@ -329,9 +339,16 @@ impl SelectBuilder {
                 {
                     let prefix: Vec<String> =
                         parts[..parts.len() - 1].iter().map(|p| p.value.clone()).collect();
-                    if self.from.iter().any(|f| f == &prefix) {
-                        let column = parts[parts.len() - 1].clone();
-                        *parts = vec![ast::Ident::new(self.to.to_string()), column];
+                    let column = &parts[parts.len() - 1].value;
+                    if let Some((_, _, output)) = self
+                        .mapping
+                        .iter()
+                        .find(|(p, c, _)| p == &prefix && c == column)
+                    {
+                        *parts = vec![
+                            ast::Ident::new(self.to.to_string()),
+                            ast::Ident::new(output.clone()),
+                        ];
                     }
                 }
                 ControlFlow::Continue(())
@@ -339,7 +356,7 @@ impl SelectBuilder {
         }
 
         let mut rewriter = QualifierRewriter {
-            from,
+            mapping,
             to,
             subqueries: 0,
         };
@@ -350,6 +367,19 @@ impl SelectBuilder {
         let _ = VisitMut::visit(&mut self.sort_by, &mut rewriter);
         let _ = VisitMut::visit(&mut self.cluster_by, &mut rewriter);
         let _ = VisitMut::visit(&mut self.distribute_by, &mut rewriter);
+    }
+
+    /// The alias (or bare table name) every relation already registered in this
+    /// SELECT's own `FROM`/`JOIN` list is exposed under. A qualifier text match
+    /// against the wrapped plan's own qualifiers is only safe once it excludes
+    /// names already claimed here - otherwise a reference that actually resolves
+    /// to a sibling relation sharing that same qualifier text gets retargeted
+    /// onto the wrong one.
+    pub(super) fn sibling_qualifiers(&self) -> Vec<String> {
+        self.from
+            .iter()
+            .flat_map(TableWithJoinsBuilder::exposed_names)
+            .collect()
     }
 
     pub fn into(&mut self, value: Option<ast::SelectInto>) -> &mut Self {
@@ -543,6 +573,23 @@ impl TableWithJoinsBuilder {
         self
     }
 
+    /// Every alias (or bare name) this `FROM` item exposes: its own relation
+    /// plus each joined relation, already built into `ast::Join`.
+    pub(super) fn exposed_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .relation
+            .as_ref()
+            .and_then(RelationBuilder::exposed_name)
+            .into_iter()
+            .collect();
+        names.extend(
+            self.joins
+                .iter()
+                .filter_map(|join| table_factor_exposed_name(&join.relation)),
+        );
+        names
+    }
+
     pub fn joins(&mut self, value: Vec<ast::Join>) -> &mut Self {
         self.joins = value;
         self
@@ -580,6 +627,30 @@ impl Default for TableWithJoinsBuilder {
 #[derive(Clone)]
 pub struct RelationBuilder {
     relation: Option<TableFactorBuilder>,
+}
+
+/// The alias (or, for a plain table, its bare name) `relation` builds into. An
+/// already-built `ast::Join`'s relation is read the same way via
+/// `table_factor_exposed_name` below; keep the two in sync.
+fn relation_alias_name(alias: Option<&ast::TableAlias>, fallback: Option<&str>) -> Option<String> {
+    alias
+        .map(|a| a.name.value.clone())
+        .or_else(|| fallback.map(str::to_string))
+}
+
+fn table_factor_exposed_name(tf: &ast::TableFactor) -> Option<String> {
+    match tf {
+        ast::TableFactor::Table { name, alias, .. } => relation_alias_name(
+            alias.as_ref(),
+            name.0.last().and_then(|p| p.as_ident()).map(|i| i.value.as_str()),
+        ),
+        ast::TableFactor::Derived { alias, .. }
+        | ast::TableFactor::TableFunction { alias, .. }
+        | ast::TableFactor::Function { alias, .. }
+        | ast::TableFactor::UNNEST { alias, .. } => relation_alias_name(alias.as_ref(), None),
+        ast::TableFactor::NestedJoin { alias, .. } => relation_alias_name(alias.as_ref(), None),
+        _ => None,
+    }
 }
 
 #[derive(Clone)]
@@ -653,6 +724,11 @@ impl RelationBuilder {
             None => (),
         }
         new
+    }
+    /// The alias (or bare name) this relation is exposed under, reusing `build`
+    /// rather than re-deriving each variant's naming rule a second time.
+    pub(super) fn exposed_name(&self) -> Option<String> {
+        self.build().ok().flatten().as_ref().and_then(table_factor_exposed_name)
     }
     pub fn build(&self) -> Result<Option<ast::TableFactor>, BuilderError> {
         Ok(match self.relation {

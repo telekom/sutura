@@ -35,6 +35,7 @@ mod registration;
 mod resolution;
 mod text;
 mod text_prefilter;
+mod text_self_join;
 
 fn explicit_source_projection(sql: &str) -> bool {
     use datafusion::sql::sqlparser::ast::{Select, SelectItem, Visit as _, Visitor};
@@ -322,6 +323,60 @@ fn as_datafusion(statement: &str) -> String {
         .fold(statement.to_owned(), |text, (plain, utf8)| {
             text.replace(&format!("{utf8}("), &format!("{plain}("))
         })
+}
+
+/// `statement` with every `FETCH ... ROWS ONLY` (any nesting depth, including inside a derived
+/// table) rewritten to `LIMIT`/`OFFSET`: the fake engine behind [`StatementLegs`] is `DataFusion`'s
+/// own SQL frontend, which does not implement `FETCH` - only a live Oracle venue executes Oracle's
+/// own `FETCH FIRST` spelling. `None` if a clause the rewrite can't carry over losslessly
+/// (`WITH TIES`/`PERCENT`, or a limit already set alongside the fetch) is found.
+pub(super) fn oracle_fetch_to_limit(statement: &str) -> Option<String> {
+    use datafusion::sql::sqlparser::ast::{LimitClause, Query, VisitMut as _, VisitorMut};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+    use std::ops::ControlFlow;
+
+    struct OracleLimits;
+
+    impl VisitorMut for OracleLimits {
+        type Break = ();
+
+        fn post_visit_query(&mut self, query: &mut Query) -> ControlFlow<Self::Break> {
+            let Some(fetch) = query.fetch.take() else {
+                return ControlFlow::Continue(());
+            };
+            if fetch.with_ties || fetch.percent {
+                return ControlFlow::Break(());
+            }
+            let Some(quantity) = fetch.quantity else {
+                return ControlFlow::Break(());
+            };
+            let offset = match query.limit_clause.take() {
+                None => None,
+                Some(LimitClause::LimitOffset {
+                    limit: None,
+                    offset,
+                    limit_by,
+                }) if limit_by.is_empty() => offset,
+                Some(_) => return ControlFlow::Break(()),
+            };
+            query.limit_clause = Some(LimitClause::LimitOffset {
+                limit: Some(quantity),
+                offset,
+                limit_by: Vec::new(),
+            });
+            ControlFlow::Continue(())
+        }
+    }
+
+    let mut parsed = Parser::parse_sql(&GenericDialect, statement).ok()?;
+    let [sql] = parsed.as_mut_slice() else {
+        return None;
+    };
+    if sql.visit(&mut OracleLimits).is_break() {
+        return None;
+    }
+    Some(sql.to_string())
 }
 
 fn rows_of(runtime: &Runtime, context: &SessionContext, statement: &str) -> RawRows {
