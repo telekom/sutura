@@ -591,7 +591,7 @@ def main(config, machines, start_all, subtest, out):
         )
         sql(
             host,
-            f"INSERT INTO {table} SELECT customer_key, customer_id, segment, region FROM dim_customer_seed CROSS JOIN numbers(60000){where}",
+            f"INSERT INTO {table} SELECT customer_key, customer_id, segment, region FROM dim_customer_seed CROSS JOIN numbers(60000) AS copies{where}",
         )
         expected_keys = sorted(customers) if host == "router" else ownership[host]
         actual = rows(
