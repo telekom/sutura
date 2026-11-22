@@ -190,6 +190,8 @@ pub enum AdbcError {
     Batch(#[source] ArrowError),
     #[error("the ClickHouse ADBC result stream was refused: {0}")]
     Unannounced(#[source] sutura_domain::warehouse::UnannouncedBatch),
+    #[error("the ClickHouse result exceeded the answer limit of {limit} rows")]
+    AnswerRows { limit: u32 },
     #[error("the query parameters could not be assembled: {0}")]
     Parameters(#[source] ArrowError),
     #[error("the ClickHouse ADBC result could not be read as domain values: {0}")]
@@ -765,7 +767,18 @@ impl Warehouse for AdbcClickHouseWarehouse {
     ) -> Result<ResultBatches, Self::Error> {
         let runs_as = self.deliverable(presented)?;
         let most_rows = executable.row_limit().unwrap_or(MOST_RESULT_ROWS);
+        let answer_limit = match executable {
+            Executable::Query(plan) => Some(plan.max_rows()),
+            Executable::Stacked(plan) => Some(plan.max_rows()),
+            Executable::Leg(_) => None,
+        };
         self.run(&Self::render(executable)?, deadline, most_rows, &runs_as)
+            .map_err(|error| match (answer_limit, error) {
+                (Some(limit), AdbcError::Unannounced(sutura_domain::warehouse::UnannouncedBatch::OverBound { .. })) => {
+                    AdbcError::AnswerRows { limit }
+                }
+                (_, cause) => cause,
+            })
     }
 
     fn accepts_planned_statements(&self) -> bool {
@@ -821,10 +834,10 @@ impl Warehouse for AdbcClickHouseWarehouse {
     }
 
     fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
-        if let AdbcError::Unannounced(cause) = error {
-            cause.result_limit()
-        } else {
-            None
+        match error {
+            AdbcError::AnswerRows { limit } => Some(sutura_domain::warehouse::ResultLimit::AnswerRows { limit: *limit }),
+            AdbcError::Unannounced(cause) => cause.result_limit(),
+            _ => None,
         }
     }
 }

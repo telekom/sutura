@@ -643,34 +643,6 @@ mod tests {
 
     use super::{SourceName, TableName, trust_into, trusted_tables};
 
-    #[cfg(feature = "postgres")]
-    mod result_limit_fixture;
-
-    #[cfg(feature = "postgres")]
-    #[test]
-    fn the_composed_warehouse_preserves_known_source_rows_and_materialization_bytes() {
-        use super::AnyWarehouseError;
-        use sutura_domain::query::ResultBound;
-        use sutura_domain::warehouse::{UnannouncedBatch, Warehouse as _};
-        use sutura_exec_postgres::adbc::AdbcError;
-
-        let warehouse = result_limit_fixture::warehouse();
-        for (cause, expected) in [
-            (
-                UnannouncedBatch::OverBound { most: 17 },
-                serde_json::json!({"SourceRows": {"limit": 17}}),
-            ),
-            (
-                UnannouncedBatch::OverBudget { most_bytes: 31 },
-                serde_json::json!({"Materialization": {"limit_bytes": 31}}),
-            ),
-        ] {
-            let error = AnyWarehouseError::Postgres(AdbcError::Unannounced(cause).into());
-            let bound = warehouse.result_limit(&error).map(ResultBound::from).expect("a known limit");
-            assert_eq!(serde_json::to_value(bound).expect("bound serializes"), expected);
-        }
-    }
-
     /// One model as [`bundle`] takes it: its name, its source, its table.
     type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
 

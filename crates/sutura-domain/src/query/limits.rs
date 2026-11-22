@@ -45,6 +45,7 @@ impl From<ResultLimit> for ResultBound {
     fn from(limit: ResultLimit) -> Self {
         match limit {
             ResultLimit::Unknown => Self::Volume,
+            ResultLimit::AnswerRows { limit } => Self::Rows { limit },
             ResultLimit::StreamRows { limit } => Self::SourceRows { limit },
             ResultLimit::MaterializationBytes { limit_bytes } => Self::Materialization { limit_bytes },
         }

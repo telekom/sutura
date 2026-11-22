@@ -1,10 +1,17 @@
-//! Facts about a rejected source stream, not the final answer or its complete rejected size.
+//! The threshold that refused a result while its adapter was reading it.
 
-/// The limit that refused a source result. An adapter may classify only these facts, never an
-/// arbitrary tool refusal. Unknown limits carry no invented number.
+/// Facts an adapter can report about a result refusal. A threshold gives no total rejected size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultLimit {
     Unknown,
-    StreamRows { limit: usize },
-    MaterializationBytes { limit_bytes: usize },
+    /// The query's final-answer limit, excluding its extra probe row.
+    AnswerRows {
+        limit: u32,
+    },
+    StreamRows {
+        limit: usize,
+    },
+    MaterializationBytes {
+        limit_bytes: usize,
+    },
 }
