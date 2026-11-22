@@ -300,7 +300,7 @@ def main(config, machines, start_all, subtest, out):
                     shard,
                     "dim_customer_local",
                     caller,
-                    ["router"],
+                    ["query"],
                     1,
                     forwarded=True,
                 )
@@ -328,9 +328,12 @@ def main(config, machines, start_all, subtest, out):
                     and event["user"] == "sutura"
                     and event["query"].startswith(f'EXECUTE AS "{caller}" ')
                 ), ("whole_service_identity", name, event)
-                assert (
-                    address(event) == addresses["query" if name == host else "router"]
-                ), ("whole_unexpected_address", name, event)
+                # ClickHouse forwards the original client address to the shards.
+                assert address(event) == addresses["query"], (
+                    "whole_unexpected_address",
+                    name,
+                    event,
+                )
         assert all(
             any(e["query"].startswith(r["sql"]) for e in selected[host])
             for r in records
