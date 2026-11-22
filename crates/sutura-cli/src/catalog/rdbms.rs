@@ -228,11 +228,16 @@ fn relationships(settings: &sutura_config::RdbmsSettings) -> Result<Vec<sutura_c
                     .collect(),
             )
             .map_err(|cause| cause.to_string())?;
-            Ok(DeclaredRelationship::new(
+            let on_missing_endpoint = match declaration.on_missing_endpoint() {
+                sutura_config::MissingEndpointPolicy::Refuse => sutura_catalog_rdbms::MissingEndpointPolicy::Refuse,
+                sutura_config::MissingEndpointPolicy::Omit => sutura_catalog_rdbms::MissingEndpointPolicy::Omit,
+            };
+            Ok(DeclaredRelationship::with_missing_endpoint_policy(
                 relationship,
                 declaration
                     .check()
                     .map(|check| DictionaryBounds::new(check.max_rows(), check.max_bytes())),
+                on_missing_endpoint,
             ))
         })
         .collect()

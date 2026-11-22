@@ -264,7 +264,28 @@ relationships:
 
 At most 64 declarations with at most 32 distinct pairs each are accepted. Exact physical names,
 visible endpoints and known compatible mapped types are required. Equal mapped types and integer
-widths are compatible; unknown or incompatible types refuse the load, naming the endpoint.
+widths are compatible; unknown or incompatible types always refuse the load, naming the endpoint.
+An endpoint absent or excluded from the reading identity's dictionary instead follows
+`on_missing_endpoint`, default `refuse` (the behaviour above, unchanged). `on_missing_endpoint: omit`
+drops that one declaration with a `WARN` log instead of refusing the whole catalog - the same
+declaration can then serve several environments whose service users hold different grants. An
+omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
+never joins, and `describe_catalog` never lists it. A misspelled table name in a visible schema
+cannot be told apart from a hidden table under `shared-service-user` - either way the selected
+dictionary simply has no such table - so under `omit` a typo there is silently dropped with the
+same `WARN` log as a real missing grant, never refused. A misspelled *column* on a table the
+dictionary did select is still refused under either policy: that table's own columns are visible,
+so an absent one is a wrong declaration, not a missing grant.
+
+```yaml
+relationships:
+  - name: events_apps
+    from: { table: inventory.events, columns: [tenant, app_id] }
+    to: { table: inventory.apps, columns: [tenant, id] }
+    cardinality: many_to_one
+    on_missing_endpoint: omit
+```
+
 `many_to_one` is the only supported written cardinality. Without the optional check, uniqueness is
 an operator assertion. With it, the catalog's own connection checks nonnull full target keys on its
 first successful dictionary read. A duplicate or a row/key-byte cap overflow refuses the load: a truncated
@@ -285,7 +306,11 @@ the existing consistency and fan-out checks; these declarations change none of t
 In `documentation_schema` mode, `relationships_view: relationships` opts into a second view in
 `dictionary_schema`. Absence makes no second-view query. Its rows are authored many-to-one
 assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
-Configuration declarations can also be used with documentation catalogs.
+Configuration declarations can also be used with documentation catalogs. **`on_missing_endpoint`
+is a configuration-declaration setting only: a view row with an endpoint the reading identity
+cannot see still refuses the whole load** - the view has no column to opt a row out, so an
+operator who needs `omit` for a view-sourced relationship keeps it as a configuration declaration
+instead.
 
 | Column                                           | Contract                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------- |

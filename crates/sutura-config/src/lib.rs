@@ -128,7 +128,8 @@ pub use crate::audience::{AudienceMapping, InvalidAudienceMapping};
 pub use crate::catalog::{
     CatalogConnection, CatalogEnvironment, CatalogKind, CatalogSettings, Catalogs, Dialect, DictionarySource,
     DocumentationSchema, InvalidCatalogSettings, InvalidConnection, InvalidDocumentationSchema, InvalidRdbmsCatalog,
-    LiveRowPredicate, OracleCatalogConnection, PostgresCatalogConnection, PredicateOperator, RdbmsSettings, UnknownCatalogKind,
+    LiveRowPredicate, MissingEndpointPolicy, OracleCatalogConnection, PostgresCatalogConnection, PredicateOperator,
+    RdbmsSettings, UnknownCatalogKind,
 };
 pub use crate::credentials::declared::{DeclaredPrincipalBroker, DeclaredPrincipalsUnusable};
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};

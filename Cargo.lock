@@ -4604,6 +4604,7 @@ dependencies = [
  "adbc_core",
  "arrow-array",
  "oracledb",
+ "parking_lot 0.13.0",
  "rcgen",
  "rustls",
  "sutura-adbc",
@@ -4613,6 +4614,7 @@ dependencies = [
  "sutura-oracle-connect",
  "sutura-semantic",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]

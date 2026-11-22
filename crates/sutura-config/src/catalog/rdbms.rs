@@ -28,7 +28,7 @@ pub use descriptions::{DescriptionMapping, DescriptionSource, InvalidDescription
 mod relationships;
 mod selection;
 pub(crate) use relationships::RawRelationship;
-pub use relationships::{DeclaredRelationship, RelationshipEndpoint, UniquenessCheck};
+pub use relationships::{DeclaredRelationship, MissingEndpointPolicy, RelationshipEndpoint, UniquenessCheck};
 pub(crate) use selection::RawColumnRule;
 use selection::native_selection;
 
