@@ -187,10 +187,6 @@ security-audit.yml:audit
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
 
-# Manual-only finishing; skipped on pull requests, with both task receipts audited separately.
-# Advisory here does not grant merge readiness or replace required CI.
-format.yml:finishing-tasks
-format.yml:finishing
 
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
 # partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it
