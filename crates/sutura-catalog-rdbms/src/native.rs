@@ -105,9 +105,12 @@ pub(crate) fn select(
             if selection.excludes_column(column) || selection.excludes_type(native) {
                 continue;
             }
+            // Rules are authored as `schema.table.column` globs, the same shape `include` uses -
+            // matching the bare column name would make a qualified rule unreachable.
+            let address = format!("{}.{}.{}", table.address.schema(), table.address.table(), column);
             let mut policy = None;
             for (pattern, rule) in selection.text_rules() {
-                if pattern.matches(column) {
+                if pattern.matches(&address) {
                     if policy.is_some_and(|previous| previous != rule) {
                         return Err(NativeSelectionError::ConflictingTextPolicy { column: column.clone() }.into());
                     }
