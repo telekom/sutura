@@ -41,7 +41,7 @@ PINNED = {
     "timeout_overflow_mode": "throw",
 }
 CUSTOMER = re.compile(r"\bdim_customer_(?:local|all|ref|seed)\b", re.IGNORECASE)
-BUCKET = re.compile(r"cityHash64\(COALESCE\([^;]+?\)\)\s*%\s*2\s*=\s*([01])\b")
+BUCKET = re.compile(r"cityHash64\(COALESCE\([^;]+?\)\)\s*%\s*2\)?\s*=\s*([01])\b")
 
 
 def main(config, machines, start_all, subtest, out):
@@ -158,7 +158,7 @@ def main(config, machines, start_all, subtest, out):
                 "SELECT toString(type) AS type, query_id, initial_query_id, "
                 "is_initial_query, user, initial_user, toString(address) AS address, "
                 "toString(initial_address) AS initial_address, query_kind, query, "
-                "read_rows, result_rows, Settings, exception_code, exception "
+                "read_rows, read_bytes, result_rows, ProfileEvents, Settings, exception_code, exception "
                 "FROM system.query_log "
                 f"WHERE toUnixTimestamp64Micro(event_time_microseconds) >= {since} "
                 "AND type IN ('QueryStart', 'QueryFinish', 'ExceptionBeforeStart', 'ExceptionWhileProcessing') "
@@ -228,6 +228,10 @@ def main(config, machines, start_all, subtest, out):
             ), ("literal_receipt", record)
         return records
 
+    def bucket(event):
+        match = BUCKET.search(event["query"])
+        return match[1] if match else None
+
     def positive(events, host, table, caller, source, count, forwarded=False):
         candidates = data(events)[host]
         inner = [
@@ -240,18 +244,44 @@ def main(config, machines, start_all, subtest, out):
             assert (
                 event["user"] == event["initial_user"] == caller
                 and address(event) in {addresses[name] for name in source}
-                and int(event["read_rows"]) > 0
                 and int(event["result_rows"]) > 0
                 and table in event["query"]
                 and event["query_id"]
                 and event["initial_query_id"]
             ), ("effective_caller_positive", host, event)
-            if not forwarded:
+            if forwarded:
+                assert int(event["read_rows"]) > 0 and int(event["read_bytes"]) > 0, (
+                    "forwarded_physical_read",
+                    host,
+                    event,
+                )
+            else:
                 assert address(event, "initial_address") == address(event), (
                     "direct_initial_address",
                     host,
                     event,
                 )
+                # The wrapper reports read_rows/read_bytes while the inner SELECT owns the caller.
+                wrappers = [
+                    wrapper
+                    for wrapper in candidates
+                    if wrapper["type"] == "QueryFinish"
+                    and wrapper["user"] == "sutura"
+                    and wrapper["query"].startswith(f'EXECUTE AS "{caller}" ')
+                    and address(wrapper) == address(event)
+                    and bucket(wrapper) == bucket(event)
+                    and int(wrapper["result_rows"]) == int(event["result_rows"])
+                ]
+                assert (
+                    len(wrappers) == 1
+                    and int(wrappers[0]["read_rows"]) > 0
+                    and int(wrappers[0]["read_bytes"]) > 0
+                ), ("wrapper_physical_read", host, event, wrappers)
+                if table != "dim_customer_all":
+                    assert (
+                        int(event["ProfileEvents"].get("SelectedRows", 0)) > 0
+                        and int(event["ProfileEvents"].get("SelectedBytes", 0)) > 0
+                    ), ("local_physical_read", host, event)
             check_settings(host, event, own_clause=not forwarded)
         return inner
 
@@ -262,18 +292,6 @@ def main(config, machines, start_all, subtest, out):
             chain = {e["initial_query_id"] for e in router_reads}
             assert len(chain) == 1 and "" not in chain, (
                 "router_query_chain",
-                router_reads,
-            )
-            wrappers = [
-                e
-                for e in selected["router"]
-                if e["type"] == "QueryFinish"
-                and e["user"] == "sutura"
-                and e["query"].startswith(f'EXECUTE AS "{caller}" ')
-            ]
-            assert len(wrappers) == 1 and wrappers[0]["query_id"] in chain, (
-                "wrapper_query_chain",
-                wrappers,
                 router_reads,
             )
             for shard in ("shard1", "shard2"):
@@ -586,17 +604,19 @@ def main(config, machines, start_all, subtest, out):
         )
         table = "dim_customer_ref" if host == "router" else "dim_customer_local"
         sql(host, f"CREATE TABLE {table} AS dim_customer_seed")
+        sql(host, f"ALTER TABLE {table} ADD COLUMN copy_number UInt64")
         where = (
             "" if host == "router" else f" WHERE customer_key % 2 = {int(host[-1]) % 2}"
         )
         sql(
             host,
-            f"INSERT INTO {table} SELECT customer_key, customer_id, segment, region FROM dim_customer_seed CROSS JOIN numbers(60000) AS copies{where}",
+            f"INSERT INTO {table} SELECT customer_key, customer_id, segment, region, copies.number FROM dim_customer_seed CROSS JOIN numbers(60000) AS copies{where}",
         )
         expected_keys = sorted(customers) if host == "router" else ownership[host]
         actual = rows(
             host,
             f"SELECT customer_key, customer_id, segment, region, count() FROM {table} GROUP BY customer_key, customer_id, segment, region ORDER BY customer_key",
+            "fixture_census",
         )
         expected = [
             [
@@ -614,10 +634,28 @@ def main(config, machines, start_all, subtest, out):
         ]
         assert actual == expected, ("physical_per_key_fixture", host, actual, expected)
         count = 2400000 if host == "router" else 1200000
-        assert int(rows(host, f"SELECT count() FROM {table}")[0][0]) == count, (
+        assert (
+            int(rows(host, f"SELECT count() FROM {table}", "fixture_census")[0][0])
+            == count
+        ), (
             "physical_count",
             host,
         )
+        for caller in ("sutura", *GOLDEN):
+            visible = sum(
+                caller != "analyst_b" or customers[key]["region"] == "north"
+                for key in expected_keys
+            )
+            assert list(
+                map(
+                    int,
+                    rows(
+                        host,
+                        f"SELECT count(), uniqExact(customer_key) FROM {table}",
+                        caller,
+                    )[0],
+                )
+            ) == [visible, visible], ("visible_unique_keys", host, caller)
         parts = rows(
             host,
             f"SELECT sum(rows), sum(bytes_on_disk), count() FROM system.parts WHERE active AND database = 'default' AND table = '{table}'",

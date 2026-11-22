@@ -58,7 +58,7 @@ let
         if re.fullmatch(r"[0-9a-f]{32}", password) is None:
             raise ValueError("fixture password must be 32 lowercase hexadecimal characters")
         hashes = {}
-        for user in ("sutura", "analyst_a", "analyst_b"):
+        for user in ("sutura", "analyst_a", "analyst_b", "fixture_census"):
             credential = password if user == "sutura" else f"{user}-{password}"
             hashes[user] = hashlib.sha256(credential.encode()).hexdigest()
             material.joinpath(f"curl-{user}.netrc").write_text(
@@ -241,6 +241,7 @@ let
   databaseConfig =
     own: broken:
     let
+      fixtureTable = if own == "router" then "dim_customer_ref" else "dim_customer_local";
       template = pkgs.writeText "clickhouse-cluster-${own}-${broken}-template.json" (
         builtins.toJSON {
           logger = {
@@ -295,6 +296,13 @@ let
                 "GRANT IMPERSONATE ON analyst_a"
                 "GRANT IMPERSONATE ON analyst_b"
               ];
+              databases.default.${fixtureTable}.filter = "copy_number = 0";
+            };
+            fixture_census = {
+              networks.ip = "127.0.0.1";
+              profile = "default";
+              quota = "default";
+              grants.query = [ "GRANT SELECT ON default.${fixtureTable}" ];
             };
           }
           //
@@ -308,8 +316,7 @@ let
                   "GRANT SELECT(rows, data_uncompressed_bytes, active, database, table) ON system.parts"
                 ];
                 # Never put a policy on Distributed: it could mask a shard running as the service.
-                databases.default.${if own == "router" then "dim_customer_ref" else "dim_customer_local"}.filter =
-                  filter;
+                databases.default.${fixtureTable}.filter = "copy_number = 0 AND (${filter})";
               })
               {
                 analyst_a = "1";
