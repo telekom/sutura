@@ -2899,6 +2899,11 @@ empty. Other kinds of data system refuse the key, and so does an entry with <cod
 bucket of a delegated source is not read with the token of the caller. A serving deployment does not start
 when the source with the key is its only source, or when no <code>server.nodes</code> peer lists the source in
 its <code>sources</code>.</p>
+<p>The estimate that decides the split reads <code>system.parts</code> as the caller, so every caller of such a
+source needs <code>GRANT SELECT(rows, data_uncompressed_bytes, active, database, table) ON system.parts</code>.
+A caller without it gets the denial from the source for that lookup leg: the leg is refused, and
+not read whole. The estimate counts the table, not the rows the leg's filter and your row policy
+keep. A table that the ready nodes cannot split is read whole, as without this key.</p>
 <p>Each bucket is a separate read, so the buckets do not share one snapshot. All the rows of one key
 are read in the same bucket. Under concurrent writes, a key that changes can be read in one bucket,
 in two buckets, or in none. With fewer than two nodes that read the source, the buckets cannot be
