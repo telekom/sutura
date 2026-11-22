@@ -225,7 +225,13 @@ let
     );
   reader = own: { nodes, ... }: {
     virtualisation.memorySize = 2048;
-    networking.firewall.extraCommands = ingress nodes 8443 [ "query" ];
+    networking.firewall.extraCommands = ingress nodes 8443 (
+      builtins.filter (node: node != own) [
+        "query"
+        "reader1"
+        "reader2"
+      ]
+    );
     systemd.services = builtins.listToAttrs (
       map
         (phase: {
@@ -417,7 +423,11 @@ pkgs.testers.runNixOSTest {
         memorySize = 2048;
         cores = 2;
       };
-      networking.firewall.extraCommands = ingress nodes 8443 [ "idp" ];
+      networking.firewall.extraCommands = ingress nodes 8443 [
+        "idp"
+        "reader1"
+        "reader2"
+      ];
       systemd.services = {
         sutura-ref = service "query" "ref" false;
         sutura-all = service "query" "all" false;

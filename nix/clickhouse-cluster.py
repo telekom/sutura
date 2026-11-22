@@ -440,7 +440,12 @@ def main(config, machines, start_all, subtest, out):
     def network_matrix():
         ports = {name: 9443 if name == "idp" else 8443 for name in machines}
         allowed = {("idp", "query"), ("query", "idp"), ("query", "router")}
-        allowed.update(("query", name) for name in ("reader1", "reader2"))
+        allowed.update(
+            (source, target)
+            for source in ("query", "reader1", "reader2")
+            for target in ("query", "reader1", "reader2")
+            if source != target
+        )
         allowed.update(
             (source, shard)
             for source in ("query", "reader1", "reader2")
@@ -457,7 +462,7 @@ def main(config, machines, start_all, subtest, out):
                         "primary_network_pair",
                         entry,
                     )
-        assert len(matrix) == 42 and sum(row[3] == 0 for row in matrix) == 11, matrix
+        assert len(matrix) == 42 and sum(row[3] == 0 for row in matrix) == 15, matrix
         save("network-primary", matrix)
         native = []
         for source, machine in machines.items():
