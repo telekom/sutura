@@ -249,15 +249,18 @@ descriptions_from:
         table_name: object_name
     description: description
     live_row_predicates:
-      - { table: via, column: is_deleted, operator: equals, value: "N" }
-      - { table: main, column: is_hidden, operator: equals, value: "N" }
+      - { table: inventory.object_catalog, column: is_deleted, operator: equals, value: "N" }
+      - { table: inventory.column_docs, column: is_hidden, operator: equals, value: "N" }
 ```
 
 `key` sets either `schema` and `table` directly, or `via`, never both or neither. `via.on` is a
 nonempty mapping of the mapped table's join columns to the parent table's, joined with exact
 physical names on the same read-only connection and transaction. `live_row_predicates` is a closed
-conjunction of several predicates, each naming the physical table it filters (`main` or, only when
-`key.via` is set, `via`); it is mutually exclusive with the single-predicate `live_row_predicate`.
+conjunction of several predicates, each naming the exact physical table it filters - the mapping's
+own `table` or, only when `key.via` is set, `via.table` - never a literal `main`/`via` token; it is
+mutually exclusive with the single-predicate `live_row_predicate`. A `key.via` join that resolves to
+more than one parent row for the same key is refused as a duplicate physical column
+(`DescriptionError::Duplicate`), the same way a flat mapping refuses two rows for one key.
 
 Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
 accounting and the existing description byte, line and control-character checks. PostgreSQL's

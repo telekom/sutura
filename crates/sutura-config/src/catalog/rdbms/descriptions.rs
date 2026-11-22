@@ -3,7 +3,7 @@
 use sutura_domain::model::{ColumnName, QualifiedTable, SourceName};
 
 use super::{CatalogConnection, InvalidRdbmsCatalog, LiveRowPredicate, non_zero};
-use crate::raw::{RawCatalogConnection, RawLiveRowPredicate};
+use crate::raw::{RawCatalogConnection, RawLiveRowPredicate, RawTablePredicate};
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
@@ -17,7 +17,7 @@ pub(crate) struct RawDescriptionSource {
     pub(crate) description: Option<String>,
     pub(crate) live_row_predicate: Option<RawLiveRowPredicate>,
     #[serde(default)]
-    pub(crate) live_row_predicates: Option<Vec<RawLiveRowPredicate>>,
+    pub(crate) live_row_predicates: Option<Vec<RawTablePredicate>>,
     pub(crate) max_dictionary_rows: Option<u64>,
     pub(crate) max_dictionary_bytes: Option<u64>,
 }
@@ -119,7 +119,9 @@ pub enum InvalidDescriptionSource {
     ViaJoin,
     #[error("a description source may set live_row_predicate OR live_row_predicates, not both")]
     PredicateShape,
-    #[error("live_row_predicates entries require table, and it must name the mapped table or its key.via table")]
+    #[error("live_row_predicates must be nonempty when set")]
+    PredicateListEmpty,
+    #[error("live_row_predicates entries' table must name the mapped table or its key.via table")]
     PredicateTable,
 }
 
@@ -236,27 +238,27 @@ fn predicates(
             table: PredicateTable::Main,
             predicate: LiveRowPredicate::parse(single)?,
         }]),
-        (None, Some(list)) => list
-            .iter()
-            .map(|raw| {
-                let named = raw
-                    .table
-                    .as_deref()
-                    .ok_or_else(|| invalid(InvalidDescriptionSource::PredicateTable))?;
-                let named = physical_table(named)?;
-                let target = if &named == table {
-                    PredicateTable::Main
-                } else if Some(&named) == via_table {
-                    PredicateTable::Via
-                } else {
-                    return Err(invalid(InvalidDescriptionSource::PredicateTable));
-                };
-                Ok(DescriptionPredicate {
-                    table: target,
-                    predicate: LiveRowPredicate::parse(raw)?,
+        (None, Some(list)) => {
+            if list.is_empty() {
+                return Err(invalid(InvalidDescriptionSource::PredicateListEmpty));
+            }
+            list.iter()
+                .map(|raw: &RawTablePredicate| {
+                    let named = physical_table(&raw.table)?;
+                    let target = if &named == table {
+                        PredicateTable::Main
+                    } else if Some(&named) == via_table {
+                        PredicateTable::Via
+                    } else {
+                        return Err(invalid(InvalidDescriptionSource::PredicateTable));
+                    };
+                    Ok(DescriptionPredicate {
+                        table: target,
+                        predicate: LiveRowPredicate::parse_fields(&raw.column, &raw.operator, raw.value.as_deref())?,
+                    })
                 })
-            })
-            .collect(),
+                .collect()
+        }
         (None, None) => Ok(Vec::new()),
     }
 }

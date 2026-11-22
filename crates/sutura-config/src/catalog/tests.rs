@@ -4,7 +4,26 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
 use super::{CatalogKind, CatalogSettings, Catalogs, InvalidCatalogSettings};
+use crate::catalog::rdbms::{InvalidDescriptionSource, InvalidRdbmsCatalog};
+use crate::settings::SettingsError;
 use crate::{Environment, Settings, Sources};
+
+/// Unwraps a `load` failure down to the typed `InvalidDescriptionSource`, so a cell can assert the
+/// specific refusal rather than only that loading failed - the same `expect_err` would also pass on
+/// an unrelated error, including one base already produces today.
+fn assert_description_error(result: Result<Settings, crate::settings::SettingsLoadError>, expected: &InvalidDescriptionSource) {
+    let error = result.expect_err("a refused description source");
+    let SettingsError::Catalog {
+        cause: InvalidCatalogSettings::Rdbms { cause, .. },
+    } = error.reason()
+    else {
+        panic!("expected SettingsError::Catalog(InvalidCatalogSettings::Rdbms), got {error:?}");
+    };
+    let InvalidRdbmsCatalog::Descriptions { cause } = cause else {
+        panic!("expected InvalidRdbmsCatalog::Descriptions, got {cause:?}");
+    };
+    assert_eq!(cause, expected, "{error:?}");
+}
 
 fn version() -> DefinitionVersion {
     DefinitionVersion::parse("test-1").expect("a test version is a version")
@@ -374,12 +393,12 @@ fn description_key_rejects_both_direct_and_via_or_neither() {
     let both = format!(
         "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, via: {{table: inventory.object_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n"
     );
-    load(&both).expect_err("a key naming both schema/table and via is ambiguous");
+    assert_description_error(load(&both), &InvalidDescriptionSource::KeyShape);
 
     let neither = format!(
         "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{column: field_name}}\n        description: prose\n"
     );
-    load(&neither).expect_err("a key naming neither schema/table nor via is incomplete");
+    assert_description_error(load(&neither), &InvalidDescriptionSource::KeyShape);
 }
 
 #[test]
@@ -388,7 +407,7 @@ fn description_key_via_requires_a_nonempty_on_mapping() {
     let text = format!(
         "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.object_docs, on: {{}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n"
     );
-    load(&text).expect_err("an empty key.via.on join is not a join");
+    assert_description_error(load(&text), &InvalidDescriptionSource::ViaJoin);
 }
 
 #[test]
@@ -415,7 +434,7 @@ fn live_row_predicates_entries_must_name_the_mapped_table_or_its_via_table() {
     let text = format!(
         "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.object_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n        live_row_predicates:\n          - {{table: inventory.unrelated, column: deleted, operator: equals, value: 'N'}}\n"
     );
-    load(&text).expect_err("a predicate naming a third table is refused");
+    assert_description_error(load(&text), &InvalidDescriptionSource::PredicateTable);
 }
 
 #[test]
@@ -424,7 +443,7 @@ fn live_row_predicate_and_live_row_predicates_are_mutually_exclusive() {
     let text = format!(
         "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: deleted, operator: equals, value: 'N'}}\n        live_row_predicates:\n          - {{table: inventory.column_docs, column: retired_at, operator: is_null}}\n"
     );
-    load(&text).expect_err("singular and plural predicate forms together are ambiguous");
+    assert_description_error(load(&text), &InvalidDescriptionSource::PredicateShape);
 }
 
 #[test]
@@ -440,4 +459,35 @@ fn referenced_catalogs_are_prose_only_and_unrelated_contributors_are_retained() 
         structural.each().map(|entry| entry.name().as_str()).collect::<Vec<_>>(),
         ["dict", "third"]
     );
+}
+
+/// `table` is only meaningful inside `live_row_predicates:`'s list form - on the singular
+/// `live_row_predicate:` it has no effect, so `deny_unknown_fields` refuses it rather than
+/// silently ignoring it (`RawLiveRowPredicate` carries no `table` field at all).
+#[test]
+fn live_row_predicate_table_field_is_refused_as_unknown() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{table: inventory.column_docs, column: deleted, operator: equals, value: 'N'}}\n"
+    );
+    let error = load(&text).expect_err("table on the singular predicate is an unknown field");
+    assert!(matches!(error.reason(), SettingsError::Source { .. }), "{error:?}");
+
+    let dictionary = format!(
+        "{}\n    live_row_predicate: {{table: inventory.column_docs, column: deleted_at, operator: is_null}}\n",
+        overlay("rdbms", &["environment: prod", "source_alias: warehouse"], Some(CONNECTION))
+    );
+    let error = load(&dictionary).expect_err("table on the dictionary-level predicate is an unknown field");
+    assert!(matches!(error.reason(), SettingsError::Source { .. }), "{error:?}");
+}
+
+/// `live_row_predicates: []` is a declared-but-empty conjunction, which is never what an operator
+/// means - either omit the key for "no predicate", or name at least one.
+#[test]
+fn live_row_predicates_empty_list_is_refused() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicates: []\n"
+    );
+    assert_description_error(load(&text), &InvalidDescriptionSource::PredicateListEmpty);
 }

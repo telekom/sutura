@@ -832,14 +832,26 @@ pub(crate) struct RawCatalogConnection {
 }
 
 /// An rdbms catalog's `live_row_predicate:`, as read: column, operator, optional value - there is
-/// no key a SQL fragment could be written under. `table` is only meaningful inside a description
-/// source's `live_row_predicates:` list, naming which physical table (the mapped table or its
-/// `key.via` parent) the predicate applies to; the top-level dictionary predicate never sets it.
+/// no key a SQL fragment could be written under. Used for the dictionary-level predicate and for
+/// a description source's singular `live_row_predicate:`; neither names a table, so `table` here
+/// is an unknown field and `deny_unknown_fields` refuses it rather than silently ignoring it.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawLiveRowPredicate {
+    pub(crate) column: String,
+    pub(crate) operator: String,
     #[serde(default)]
-    pub(crate) table: Option<String>,
+    pub(crate) value: Option<String>,
+}
+
+/// One entry of a description source's `live_row_predicates:` list - the same closed predicate as
+/// [`RawLiveRowPredicate`], plus the `table` naming which physical table (the mapped table or its
+/// `key.via` parent) it applies to. A list entry without `table` is refused by this type having no
+/// `#[serde(default)]` on the field, not by a downstream check.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawTablePredicate {
+    pub(crate) table: String,
     pub(crate) column: String,
     pub(crate) operator: String,
     #[serde(default)]
