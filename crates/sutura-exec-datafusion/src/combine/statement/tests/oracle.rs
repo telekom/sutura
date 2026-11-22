@@ -32,9 +32,12 @@ fn oracle_temporal_constants_use_ansi_literals_without_session_format_casts() {
     );
 }
 
-struct OracleLegs {
-    engines: Engines,
-    statements: Vec<String>,
+/// Normalizes a generated Oracle leg's `FETCH` back to `LIMIT` before running it against the
+/// shared fake engine, so an Oracle dialect cell can be executed, not just captured as text.
+/// `pub(super)` so a sibling test module can run a self-join cell through a real Oracle leg too.
+pub(super) struct OracleLegs {
+    pub(super) engines: Engines,
+    pub(super) statements: Vec<String>,
 }
 
 impl StatementLegs for OracleLegs {
