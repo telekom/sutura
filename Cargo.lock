@@ -4604,6 +4604,7 @@ dependencies = [
  "adbc_core",
  "arrow-array",
  "oracledb",
+ "parking_lot 0.13.0",
  "rcgen",
  "rustls",
  "sutura-adbc",

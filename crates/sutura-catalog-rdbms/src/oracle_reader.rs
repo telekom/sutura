@@ -315,7 +315,7 @@ impl DictionaryReader for OracleReader {
         }
         let mut dictionary = assembly.finish();
         let documented_declarations = constraints.apply(&mut dictionary)?;
-        let dictionary = self
+        let (dictionary, resolved_relationships) = self
             .query
             .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Oracle)?
             .apply_relationship_declarations(
@@ -323,12 +323,12 @@ impl DictionaryReader for OracleReader {
                 sutura_domain::warehouse::schema::TypeDialect::Oracle,
                 self.query.unbounded_number(),
             )?;
-        let dictionary = dictionary.apply_relationship_declarations(
+        let (dictionary, _) = dictionary.apply_relationship_declarations(
             &documented_declarations,
             sutura_domain::warehouse::schema::TypeDialect::Oracle,
             self.query.unbounded_number(),
         )?;
-        for declaration in &self.relationships {
+        for declaration in &resolved_relationships {
             if let Some((sql, bounds)) = declaration.probe_statement(true).zip(declaration.check()) {
                 let mut probe = crate::relationships::declared::Probe::new(bounds);
                 for row in connection.query(&sql, &[]).map_err(read_err)? {

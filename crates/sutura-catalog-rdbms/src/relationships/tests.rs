@@ -116,14 +116,15 @@ fn declared_links_require_visible_columns_and_compatible_known_types() {
             None,
         )
     };
-    let accepted = dictionary()
+    let (accepted, resolved) = dictionary()
         .apply_relationship_declarations(&[declaration("app_id")], TypeDialect::Postgres, None)
         .unwrap();
     assert_eq!(accepted.relationships().len(), 1);
+    assert_eq!(resolved.len(), 1);
     assert!(matches!(
         dictionary().apply_relationship_declarations(&[declaration("missing")], TypeDialect::Postgres, None),
         Err(RdbmsError::Declaration {
-            cause: DeclarationError::Endpoint { .. }
+            cause: DeclarationError::ColumnMissing { .. }
         })
     ));
     let mut incompatible = dictionary();
@@ -145,23 +146,111 @@ fn declared_links_require_visible_columns_and_compatible_known_types() {
 }
 
 #[test]
-fn omit_policy_drops_a_declaration_whose_endpoint_is_invisible_instead_of_refusing_the_load() {
+fn omit_policy_drops_a_declaration_whose_endpoint_table_is_invisible_instead_of_refusing_the_load() {
+    use crate::MissingEndpointPolicy;
+    let declaration = DeclaredRelationship::with_missing_endpoint_policy(
+        Relationship::declared(
+            None,
+            address("events"),
+            address("hidden_table"),
+            vec![(String::from("app_id"), String::from("id"))],
+        )
+        .unwrap(),
+        None,
+        MissingEndpointPolicy::Omit,
+    );
+    let (loaded, resolved) = dictionary()
+        .apply_relationship_declarations(&[declaration], TypeDialect::Postgres, None)
+        .expect("an omit-policy declaration never refuses the whole load");
+    assert_eq!(loaded.relationships(), []);
+    assert_eq!(
+        resolved.len(),
+        0,
+        "an omitted declaration must not be returned for a uniqueness probe"
+    );
+}
+
+#[test]
+fn omit_policy_still_refuses_a_typo_d_column_on_a_visible_table() {
     use crate::MissingEndpointPolicy;
     let declaration = DeclaredRelationship::with_missing_endpoint_policy(
         Relationship::declared(
             None,
             address("events"),
             address("apps"),
-            vec![(String::from("missing"), String::from("id"))],
+            vec![(String::from("app_id"), String::from("typo_d_column"))],
         )
         .unwrap(),
         None,
         MissingEndpointPolicy::Omit,
     );
-    let loaded = dictionary()
-        .apply_relationship_declarations(&[declaration], TypeDialect::Postgres, None)
-        .expect("an omit-policy declaration never refuses the whole load");
-    assert_eq!(loaded.relationships(), []);
+    assert!(matches!(
+        dictionary().apply_relationship_declarations(&[declaration], TypeDialect::Postgres, None),
+        Err(RdbmsError::Declaration {
+            cause: DeclarationError::ColumnMissing { .. }
+        })
+    ));
+}
+
+/// A minimal capturing fake for [`tracing::Subscriber`]: records each event's fields as one
+/// `key=debug` string per field, joined per event, so a test can assert on warning content
+/// without a mocked HTTP sink or an external test-capture crate.
+#[derive(Clone, Default)]
+struct CapturedEvents(std::sync::Arc<parking_lot::Mutex<Vec<String>>>);
+
+impl CapturedEvents {
+    fn joined(&self) -> String {
+        self.0.lock().join("\n")
+    }
+}
+
+impl tracing::Subscriber for CapturedEvents {
+    fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+    fn event(&self, event: &tracing::Event<'_>) {
+        struct Fields(Vec<String>);
+        impl tracing::field::Visit for Fields {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                self.0.push(format!("{}={value:?}", field.name()));
+            }
+        }
+        let mut fields = Fields(Vec::new());
+        event.record(&mut fields);
+        self.0.lock().push(fields.0.join(" "));
+    }
+    fn enter(&self, _span: &tracing::span::Id) {}
+    fn exit(&self, _span: &tracing::span::Id) {}
+}
+
+#[test]
+fn omitting_a_declaration_logs_the_relationship_name_and_the_missing_endpoint() {
+    use crate::MissingEndpointPolicy;
+    let declaration = DeclaredRelationship::with_missing_endpoint_policy(
+        Relationship::declared(
+            Some(String::from("events_hidden")),
+            address("events"),
+            address("hidden_table"),
+            vec![(String::from("app_id"), String::from("id"))],
+        )
+        .unwrap(),
+        None,
+        MissingEndpointPolicy::Omit,
+    );
+    let captured = CapturedEvents::default();
+    tracing::subscriber::with_default(captured.clone(), || {
+        dictionary()
+            .apply_relationship_declarations(&[declaration], TypeDialect::Postgres, None)
+            .expect("an omit-policy declaration never refuses the whole load")
+    });
+    let logs = captured.joined();
+    assert!(logs.contains("events_hidden"), "{logs}");
+    assert!(logs.contains("hidden_table"), "{logs}");
 }
 
 #[cfg(feature = "live")]

@@ -668,13 +668,16 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
-    /// Checks every declared pair against selected endpoints and compatible known types.
+    /// Checks every declared pair against selected endpoints and compatible known types. Returns
+    /// the declarations that actually resolved - an `Omit`-dropped endpoint is not among them, so
+    /// a caller probing target uniqueness afterward does not select from what resolution just
+    /// decided this reading identity cannot see.
     pub fn apply_relationship_declarations(
         self,
         declarations: &[DeclaredRelationship],
         dialect: sutura_domain::warehouse::schema::TypeDialect,
         unbounded_number: Option<sutura_domain::warehouse::schema::UnboundedNumber>,
-    ) -> Result<Self, RdbmsError> {
+    ) -> Result<relationships::declared::AppliedDeclarations, RdbmsError> {
         relationships::declared::apply(self, declarations, dialect, unbounded_number)
     }
 

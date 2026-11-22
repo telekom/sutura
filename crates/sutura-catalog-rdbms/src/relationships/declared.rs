@@ -3,6 +3,11 @@ use crate::{Dictionary, DictionaryBounds, RdbmsError, Relationship, TableAddress
 use sutura_domain::catalog::ColumnType;
 use sutura_domain::warehouse::schema::{TypeDialect, UnboundedNumber};
 
+/// The dictionary plus the declarations that actually resolved - an endpoint `Omit` dropped is
+/// not among them, so a caller probing target uniqueness afterward never selects from what
+/// resolution just decided this reading identity cannot see.
+pub(crate) type AppliedDeclarations = (Dictionary, Vec<DeclaredRelationship>);
+
 /// What a declared relationship's endpoint not being visible to the reading identity does.
 ///
 /// The database grants decide visibility under `shared-service-user`, so a missing grant and a
@@ -27,8 +32,10 @@ pub struct DeclaredRelationship {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum DeclarationError {
-    #[error("declared relationship endpoint {table}.{column} is absent or excluded")]
-    Endpoint { table: TableAddress, column: String },
+    #[error("declared relationship endpoint table {table} is absent or excluded")]
+    TableMissing { table: TableAddress },
+    #[error("declared relationship endpoint column {table}.{column} is absent on a visible table")]
+    ColumnMissing { table: TableAddress, column: String },
     #[error("declared relationship columns {origin}.{origin_column} and {target}.{target_column} lack compatible known types")]
     Types {
         origin: Box<TableAddress>,
@@ -114,18 +121,23 @@ impl DeclaredRelationship {
     }
 }
 
+/// Applies every declaration, returning the dictionary and the declarations that actually
+/// resolved - an endpoint `Omit` dropped might still be in the input slice, but a probe over it
+/// would select from the very table resolution just decided this reading identity cannot see.
 pub(crate) fn apply(
     mut dictionary: Dictionary,
     declarations: &[DeclaredRelationship],
     dialect: TypeDialect,
     unbounded_number: Option<UnboundedNumber>,
-) -> Result<Dictionary, RdbmsError> {
+) -> Result<AppliedDeclarations, RdbmsError> {
+    let mut resolved = Vec::new();
     for declaration in declarations {
         if let Some(relationship) = resolve(&dictionary, declaration, dialect, unbounded_number)? {
             dictionary.relationships.push(relationship);
+            resolved.push(declaration.clone());
         }
     }
-    Ok(dictionary)
+    Ok((dictionary, resolved))
 }
 
 /// Checks one declaration against the already-selected dictionary. `Ok(None)` is the `Omit`
@@ -141,15 +153,19 @@ fn resolve(
     let relationship = &declaration.relationship;
     for (origin_column, target_column) in relationship.pairs() {
         let find = |address: &TableAddress, column: &str| {
-            dictionary
+            let table = dictionary
                 .tables
                 .iter()
                 .find(|table| table.address() == address)
-                .filter(|table| table.columns().iter().any(|name| name == column))
-                .ok_or_else(|| DeclarationError::Endpoint {
+                .ok_or_else(|| DeclarationError::TableMissing { table: address.clone() })?;
+            if table.columns().iter().any(|name| name == column) {
+                Ok(table)
+            } else {
+                Err(DeclarationError::ColumnMissing {
                     table: address.clone(),
                     column: column.to_owned(),
                 })
+            }
         };
         let origin = match find(relationship.origin_table(), origin_column) {
             Ok(table) => table,
@@ -185,13 +201,18 @@ fn resolve(
 }
 
 fn omit_or_refuse(declaration: &DeclaredRelationship, cause: DeclarationError) -> Result<Option<Relationship>, RdbmsError> {
+    // A visible table with no such column is a wrong declaration (a typo), never a missing grant -
+    // it stays a refusal under either policy, the same way a type mismatch does.
+    if matches!(cause, DeclarationError::ColumnMissing { .. }) {
+        return Err(cause.into());
+    }
     match declaration.on_missing_endpoint {
         MissingEndpointPolicy::Refuse => Err(cause.into()),
         MissingEndpointPolicy::Omit => {
             tracing::warn!(
                 relationship = declaration.relationship.name().unwrap_or("<unnamed>"),
                 cause = %cause,
-                "omitting declared relationship: endpoint is absent or excluded from this reading identity's dictionary"
+                "omitting declared relationship: endpoint table is absent or excluded from this reading identity's dictionary"
             );
             Ok(None)
         }

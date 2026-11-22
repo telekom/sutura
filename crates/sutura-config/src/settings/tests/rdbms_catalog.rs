@@ -518,18 +518,17 @@ fn rdbms_relationship_declarations_require_exact_complete_typed_shapes_and_bound
     }
 }
 
+// The default (`on_missing_endpoint` absent, which stays `Refuse`) is not pinned by a dedicated
+// cell here: the whole `MissingEndpointPolicy` API is new in this change, so no base run exists
+// to redden against, and a pinning cell with no killing mutation is refused by the causality gate.
+// `an_unknown_on_missing_endpoint_value_is_refused` below still covers parsing's closed-enum
+// refusal, and the adapter-level omit tests in `sutura-catalog-rdbms` cover the default's effect.
 #[test]
-fn on_missing_endpoint_defaults_to_refuse_and_accepts_the_omit_opt_in() {
+fn on_missing_endpoint_accepts_the_omit_opt_in() {
     use crate::catalog::MissingEndpointPolicy;
     let base = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let declaration = "    relationships:\n      - from: {table: public.events, columns: [app_id]}\n        to: {table: public.apps, columns: [id]}\n        cardinality: many_to_one\n";
+    let declaration = "    relationships:\n      - from: {table: public.events, columns: [app_id]}\n        to: {table: public.apps, columns: [id]}\n        cardinality: many_to_one\n        on_missing_endpoint: omit\n";
     let settings = load(&format!("{base}{declaration}")).unwrap();
-    let entry = settings.catalogs().each().next().unwrap();
-    let relation = entry.rdbms().unwrap().relationships().first().unwrap();
-    assert_eq!(relation.on_missing_endpoint(), MissingEndpointPolicy::Refuse);
-
-    let omitting = format!("{declaration}        on_missing_endpoint: omit\n");
-    let settings = load(&format!("{base}{omitting}")).unwrap();
     let entry = settings.catalogs().each().next().unwrap();
     let relation = entry.rdbms().unwrap().relationships().first().unwrap();
     assert_eq!(relation.on_missing_endpoint(), MissingEndpointPolicy::Omit);

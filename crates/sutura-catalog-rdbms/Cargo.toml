@@ -58,6 +58,9 @@ sutura-dev = { workspace = true }
 # `oracle_reader`'s unit cells: an `rcgen`-issued leaf as the verified login's anchors, behind a real
 # `rustls` server for the redirect cell. Both are already in `Cargo.lock`.
 rcgen = { workspace = true }
+# A fake capturing `tracing::Subscriber` for the omit-policy WARN-content cell: `std::sync::Mutex`
+# is `disallowed-types` workspace-wide (async deadlock hazard), so the fake uses this instead.
+parking_lot = { workspace = true }
 rustls = { workspace = true }
 # `tests/provisioned.rs` exercises the live reader against a real Postgres tier, so it only builds
 # (and only the `--all-features` gates reach it) with the `live` feature that links the reader.

@@ -301,7 +301,11 @@ the existing consistency and fan-out checks; these declarations change none of t
 In `documentation_schema` mode, `relationships_view: relationships` opts into a second view in
 `dictionary_schema`. Absence makes no second-view query. Its rows are authored many-to-one
 assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
-Configuration declarations can also be used with documentation catalogs.
+Configuration declarations can also be used with documentation catalogs. **`on_missing_endpoint`
+is a configuration-declaration setting only: a view row with an endpoint the reading identity
+cannot see still refuses the whole load** - the view has no column to opt a row out, so an
+operator who needs `omit` for a view-sourced relationship keeps it as a configuration declaration
+instead.
 
 | Column                                           | Contract                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------- |
