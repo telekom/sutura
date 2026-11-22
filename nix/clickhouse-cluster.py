@@ -493,7 +493,8 @@ def main(config, machines, start_all, subtest, out):
             status != "200" and reply.get("outcome") != "answer" and "rows" not in reply
         ), ("no_partial_answer", status, reply)
         if code is not None:
-            assert status == "503" and reply.get("reason", {}).get("code") == code, (
+            refusal = reply if code == "unavailable" else reply.get("reason", {})
+            assert status == "503" and refusal.get("code") == code, (
                 "unavailable_refusal",
                 status,
                 reply,
@@ -780,7 +781,7 @@ def main(config, machines, start_all, subtest, out):
     ):
         network_matrix()
     for label, host, broken, code in (
-        ("lost-shard", "shard2", None, "source_unavailable"),
+        ("lost-shard", "shard2", None, "unavailable"),
         ("bad-native-ca", "router", "clickhouse-bad-ca", None),
         ("bad-cluster-secret", "shard2", "clickhouse-bad-secret", None),
     ):
