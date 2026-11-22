@@ -1763,7 +1763,8 @@ jobs:
   qa-receipt:
     name: QA checkout (${{ github.sha }})
     needs: [ci-aggregate, identity-classify]
-    if: github.event_name == 'pull_request'
+    # The aggregate can pass with skipped ancestors, which suppress the implicit success().
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.ci-aggregate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

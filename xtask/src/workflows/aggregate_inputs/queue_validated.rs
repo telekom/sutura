@@ -59,7 +59,9 @@ pub(super) fn check(root: &Path, ci: &str) -> Vec<String> {
     }
     if !step::job(ci, "qa-receipt").is_some_and(|lines| {
         lines.contains(&"    name: QA checkout (${{ github.sha }})")
-            && lines.contains(&"    if: github.event_name == 'pull_request'")
+            && lines.contains(
+                &"    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.ci-aggregate.result == 'success' }}",
+            )
     }) || !job_needs(ci, "qa-receipt").iter().any(|need| need == "ci-aggregate")
     {
         out.push(String::from(
