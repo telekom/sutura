@@ -32,7 +32,6 @@ use super::metrics::{self, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet};
 use super::{
     DisplayAs, ExecutionPlanProperties, RecordBatchStream, SendableRecordBatchStream,
 };
-use crate::coalesce::LimitedBatchCoalescer;
 use crate::execution_plan::{CardinalityEffect, EvaluationType, SchedulingType};
 use crate::hash_utils::create_hashes;
 use crate::metrics::{BaselineMetrics, SpillMetrics};
@@ -48,7 +47,7 @@ use crate::{
 };
 
 use arrow::array::{Array, PrimitiveArray, RecordBatch, RecordBatchOptions, UInt64Array};
-use arrow::compute::take_arrays;
+use arrow::compute::{BatchCoalescer, take_arrays};
 use arrow::datatypes::{DataType, Schema, SchemaRef, UInt32Type};
 use arrow_schema::SortOptions;
 use datafusion_common::config::ConfigOptions;
@@ -265,7 +264,7 @@ impl OutputChannel {
 /// A producer-side coalescer shared across all input tasks targeting a
 /// single output partition.
 ///
-/// Bundles the [`LimitedBatchCoalescer`] (behind a [`Mutex`]) with the
+/// Bundles the [`BatchCoalescer`] (behind a [`Mutex`]) with the
 /// active-sender counter that tracks how many input tasks may still push
 /// into it. The last task to call [`Self::finalize`] is the one that
 /// finalizes the coalescer and ships the residual batch.
@@ -273,18 +272,16 @@ impl OutputChannel {
 /// Cheap to [`Clone`]: both fields are [`Arc`]s.
 #[derive(Clone)]
 struct SharedCoalescer {
-    inner: Arc<Mutex<LimitedBatchCoalescer>>,
+    inner: Arc<Mutex<BatchCoalescer>>,
     active_senders: Arc<AtomicUsize>,
 }
 
 impl SharedCoalescer {
     fn new(schema: SchemaRef, target_batch_size: usize, num_senders: usize) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(LimitedBatchCoalescer::new(
-                schema,
-                target_batch_size,
-                None,
-            ))),
+            // Keep Arrow's large-batch bypass disabled so the configured row limit
+            // applies before each output reserves memory on the shuffle channel.
+            inner: Arc::new(Mutex::new(BatchCoalescer::new(schema, target_batch_size))),
             active_senders: Arc::new(AtomicUsize::new(num_senders)),
         }
     }
@@ -311,7 +308,7 @@ impl SharedCoalescer {
         }
         let mut acc = Vec::new();
         let mut c = self.inner.lock();
-        c.finish()?;
+        c.finish_buffered_batch()?;
         while let Some(b) = c.next_completed_batch() {
             acc.push(b);
         }
@@ -1347,7 +1344,7 @@ impl BatchPartitioner {
 /// and for that, it will automatically coalesce batches right after repartitioning for bounded
 /// inputs. Coalescing is skipped for unbounded inputs so partial batches are emitted promptly.
 ///
-/// For this, one shared [`LimitedBatchCoalescer`] per output partition is used:
+/// For this, one shared [`BatchCoalescer`] per output partition is used:
 ///
 /// ```text
 ///                         ┌───┐                           ┌───┐

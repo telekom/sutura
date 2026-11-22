@@ -15,7 +15,9 @@ use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
 use datafusion::error::DataFusionError;
 use datafusion::functions_aggregate::expr_fn::sum;
 use datafusion::logical_expr::col;
-use datafusion::prelude::{CsvReadOptions, SessionContext};
+use datafusion::physical_plan::repartition::RepartitionExec;
+use datafusion::physical_plan::{Partitioning, collect_partitioned};
+use datafusion::prelude::{CsvReadOptions, SessionConfig, SessionContext};
 use datafusion_distributed::{DistributedConfig, DistributedLeafExec, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
@@ -517,6 +519,36 @@ fn a_single_lookup_batch_is_shared_by_rows_across_three_tasks() {
 }
 
 #[test]
+fn repartition_caps_a_large_input_batch_and_keeps_every_row() {
+    let rows =
+        RecordBatch::try_from_iter([("k", Arc::new(Int64Array::from_iter_values(0..9)) as ArrayRef)]).expect("the batch builds");
+    let schema = rows.schema();
+    let source = MemorySourceConfig::try_new_exec(&[vec![rows]], schema, None).expect("the scan builds");
+    let exchange = RepartitionExec::try_new(source, Partitioning::RoundRobinBatch(2)).expect("the exchange builds");
+    let session = SessionContext::new_with_config(SessionConfig::new().with_batch_size(4));
+    let partitions = servers()
+        .block_on(collect_partitioned(Arc::new(exchange), session.task_ctx()))
+        .expect("the exchange runs");
+    let sizes = partitions.iter().flatten().map(RecordBatch::num_rows).collect::<Vec<_>>();
+    assert_eq!(sizes, [4, 4, 1]);
+    let keys = partitions
+        .iter()
+        .flatten()
+        .flat_map(|batch| {
+            batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .expect("the output keeps its integer type")
+                .values()
+                .iter()
+                .copied()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(keys, (0..9).collect::<Vec<_>>());
+}
+
+#[test]
 fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set() {
     let authority = Authority::generate();
     let node = authority.sign();
@@ -534,7 +566,13 @@ fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_se
         1 << 20,
         "each link holds a quarter of the working set shared by three nodes"
     );
+    assert_eq!(links.shuffle_batch_size, 1024, "tight pools use smaller shuffle batches");
     assert_eq!(state.config().target_partitions(), 3, "a task plans one partition per node");
+
+    let session = nodes.session(roomy()).expect("a roomy session builds");
+    let state = session.state();
+    let links = DistributedConfig::from_session_config(state.config()).expect("the session plans across nodes");
+    assert_eq!(links.shuffle_batch_size, 0, "roomy pools use DataFusion's default");
 }
 
 /// A peer's own declared frame length over the cap is refused before any of its body is read, rather
