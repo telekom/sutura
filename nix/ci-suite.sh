@@ -6,6 +6,7 @@ keycloak-served) nix run .#keycloak-served-test -- --no-capture ;;
 bigquery-driver) bash nix/bigquery-driver-check.sh ;;
 multi-node) nix build .#checks.x86_64-linux.multi-node -L ;;
 multi-node-postgres) nix build .#checks.x86_64-linux.multi-node-postgres -L ;;
+multi-node-clickhouse) nix build .#checks.x86_64-linux.multi-node-clickhouse -L ;;
 multi-node-oracle) nix build .#checks.x86_64-linux.multi-node-oracle -L ;;
 k3s-autoscaling) nix build .#checks.x86_64-linux.k3s-autoscaling .#checks.x86_64-linux.k3s-worker-pool -L ;;
 oracle-tier) nix run .#oracle-acceptance -- --no-capture ;;
