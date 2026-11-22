@@ -20,7 +20,7 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::helpers::attached_token::AttachedToken;
 use sqlparser::ast::{
-    self, LimitClause, OrderByKind, SelectFlavor, Visit, visit_expressions_mut,
+    self, LimitClause, OrderByKind, SelectFlavor, Visit, VisitMut, visit_expressions_mut,
 };
 
 #[derive(Clone)]
@@ -287,6 +287,69 @@ impl SelectBuilder {
                 subqueries: 0,
             })
             .is_break()
+    }
+
+    /// Retargets every compound column reference naming one of `from`'s qualifiers to
+    /// `to` instead, across the projection, selection, `GROUP BY`, `HAVING` and the sort
+    /// clauses - everywhere this SELECT can itself hold a qualified column. A nested
+    /// query (a subquery expression, `EXISTS`, `IN (SELECT ...)`) resolves its own
+    /// columns in its own scope and is left alone, matching `projects_qualifier` above.
+    ///
+    /// Used when a derived table this SELECT wraps gets a synthetic alias: expressions
+    /// already built against the wrapped plan's own qualifier(s) must now resolve
+    /// through that alias, or the qualifier they still carry is out of scope one level up.
+    pub(super) fn rewrite_qualifiers(&mut self, from: &[Vec<String>], to: &str) {
+        if from.is_empty() {
+            return;
+        }
+
+        struct QualifierRewriter<'a> {
+            from: &'a [Vec<String>],
+            to: &'a str,
+            subqueries: usize,
+        }
+
+        impl ast::VisitorMut for QualifierRewriter<'_> {
+            type Break = ();
+
+            fn pre_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<()> {
+                self.subqueries += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<()> {
+                self.subqueries -= 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_expr(&mut self, expr: &mut ast::Expr) -> ControlFlow<()> {
+                if self.subqueries == 0
+                    && let ast::Expr::CompoundIdentifier(parts) = expr
+                    && parts.len() > 1
+                {
+                    let prefix: Vec<String> =
+                        parts[..parts.len() - 1].iter().map(|p| p.value.clone()).collect();
+                    if self.from.iter().any(|f| f == &prefix) {
+                        let column = parts[parts.len() - 1].clone();
+                        *parts = vec![ast::Ident::new(self.to.to_string()), column];
+                    }
+                }
+                ControlFlow::Continue(())
+            }
+        }
+
+        let mut rewriter = QualifierRewriter {
+            from,
+            to,
+            subqueries: 0,
+        };
+        let _ = VisitMut::visit(&mut self.projection, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.selection, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.group_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.having, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.sort_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.cluster_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.distribute_by, &mut rewriter);
     }
 
     pub fn into(&mut self, value: Option<ast::SelectInto>) -> &mut Self {

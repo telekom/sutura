@@ -525,7 +525,7 @@ impl Unparser<'_> {
         &self,
         alias: &str,
         plan: &LogicalPlan,
-        select: &SelectBuilder,
+        select: &mut SelectBuilder,
         relation: &mut RelationBuilder,
         lateral: bool,
         columns: Vec<Ident>,
@@ -547,20 +547,43 @@ impl Unparser<'_> {
                 lateral,
             );
         }
-        // Every derived table this unparser emits gets an alias, regardless of
-        // what `requires_derived_table_alias` says: an omitted alias leaves a
-        // qualifier a parent expression still carries (one this plan's own
-        // input relation used) out of scope at THIS level and every level
-        // above it, which is how a qualified reference the planner built
-        // before this wrapper existed turns into an invalid-identifier error
-        // on the rendered statement. One generic alias here replaces the
-        // per-rewrite alias-or-not decision for count-distinct's extra
-        // GROUP BY level, common-subexpression hoisting, limit/sort
-        // pushdown, and any wrapper this crate adds over one of those.
+        // A mixed schema (some columns qualified by one relation, some by
+        // another, or some unqualified) can't be satisfied by the trick above:
+        // no single alias equals every qualifier the parent already rendered.
+        // Give the wrapper a synthetic alias instead - unique per statement, so
+        // two unrelated wrappers never share a base name a rewrite could then
+        // retarget ambiguously - and retarget every reference the parent
+        // already built against one of the wrapped plan's own qualifiers onto
+        // that alias. Left unaliased or aliased without this rewrite, such a
+        // qualifier is out of scope the moment this wrapper exists: that is
+        // how length/substr/instr over a qualified text-policy column, and
+        // count(DISTINCT)+GROUP BY+LIMIT's extra grouping level, produced
+        // Oracle ORA-00904 (sutura#1972, sutura#2041).
+        let from_qualifiers: Vec<Vec<String>> = {
+            let mut seen = Vec::new();
+            for (name, _) in plan.schema().iter() {
+                let Some(table_ref) = name else { continue };
+                let prefix = if self.dialect.full_qualified_col() {
+                    table_ref.to_vec()
+                } else {
+                    vec![table_ref.table().to_string()]
+                };
+                if !seen.contains(&prefix) {
+                    seen.push(prefix);
+                }
+            }
+            seen
+        };
+        let synthetic_alias = {
+            let n = self.derived_alias_counter.get();
+            self.derived_alias_counter.set(n + 1);
+            format!("{alias}_{n}")
+        };
+        select.rewrite_qualifiers(&from_qualifiers, &synthetic_alias);
         self.derive(
             plan,
             relation,
-            Some(self.new_table_alias(alias.to_string(), columns)),
+            Some(self.new_table_alias(synthetic_alias, columns)),
             lateral,
         )
     }

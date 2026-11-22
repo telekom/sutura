@@ -600,6 +600,11 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             // #2041: a repeated expression inside OR is hoisted into a common-subexpression
             // wrapper; the wrapper's own output and every sibling column must stay in scope above it.
             r#"select "region", "sales_area" from "dim_region" where upper("region") like '%no%' or upper("region") like '%st%' limit 100"#,
+            // #1972's own shape: a self-join makes the wrapped plan's schema MIXED (qualifiers
+            // "r" and "x" both present), so the single-uniform-qualifier branch can't apply and
+            // the parent's own qualified `r."region"` must be rewritten onto the wrapper's alias.
+            r#"select r."region", count(distinct x."sales_area") as n from "dim_region" r join "dim_region" x on r."region" = x."region" where r."region" <> 'missing' group by r."region" limit 50"#,
+            r#"select r."region", r."sales_area" from "dim_region" r join "dim_region" x on r."region" = x."region" where upper(r."region") like '%no%' or upper(r."region") like '%st%' limit 100"#,
         ] {
             let mut legs = OracleLegs {
                 engines: Engines::new(None),

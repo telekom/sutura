@@ -63,6 +63,10 @@ pub struct Unparser<'a> {
     /// Set once a name holds a backslash or a quote character, which `sqlparser` does
     /// not quote exactly in every dialect. Every later unparse with this `Unparser` fails.
     unquotable: Cell<bool>,
+    /// Counts synthetic derived-table aliases handed out by `derive_with_dialect_alias`'s
+    /// fallback branch, so two unrelated derived tables in the same statement never share
+    /// a base name a qualifier rewrite could then retarget ambiguously.
+    derived_alias_counter: Cell<usize>,
 }
 
 impl<'a> Unparser<'a> {
@@ -72,6 +76,7 @@ impl<'a> Unparser<'a> {
             pretty: false,
             extension_unparsers: vec![],
             unquotable: Cell::new(false),
+            derived_alias_counter: Cell::new(0),
         }
     }
 
@@ -170,6 +175,7 @@ impl Default for Unparser<'_> {
             pretty: false,
             extension_unparsers: vec![],
             unquotable: Cell::new(false),
+            derived_alias_counter: Cell::new(0),
         }
     }
 }
