@@ -192,13 +192,19 @@ mod tests {
     fn release_qa_plan_without_fast_checked_is_red() {
         let release = release_fixture("\x20     plan-only: true\n\x20     run-all-checks: true\n");
         let problems = release_problems(&release);
-        assert!(problems.iter().any(|p| p == RELEASE_RULE), "{problems:?}");
+        assert!(
+            problems.iter().any(|p| p == RELEASE_RULE),
+            "missing fast-checked must redden the release rule: {problems:?}"
+        );
     }
 
     #[test]
     fn release_qa_plan_with_fast_checked_is_green() {
         let release = release_fixture("\x20     plan-only: true\n\x20     fast-checked: true\n\x20     run-all-checks: true\n");
         let problems = release_problems(&release);
-        assert!(!problems.iter().any(|p| p == RELEASE_RULE), "{problems:?}");
+        assert!(
+            !problems.iter().any(|p| p == RELEASE_RULE),
+            "a compliant release fixture must not trip the release rule: {problems:?}"
+        );
     }
 }
