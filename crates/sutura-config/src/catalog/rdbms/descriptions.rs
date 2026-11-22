@@ -173,6 +173,13 @@ fn parse_one(name: &SourceName, raw: &RawDescriptionSource) -> Result<Descriptio
         DescriptionKeySource::Via(via) => Some(&via.table),
         DescriptionKeySource::Direct { .. } => None,
     };
+    if via_table == Some(&table) {
+        // A `key.via` naming the mapped table itself gives every predicate exactly one physical
+        // table to resolve to, so `PredicateTable::Via` could never be produced - a join declared
+        // only to immediately collapse back onto its own starting table is always a mistake, not a
+        // no-op worth accepting silently.
+        return Err(invalid(InvalidDescriptionSource::ViaJoin));
+    }
     let predicates = predicates(raw, &table, via_table)?;
     Ok(DescriptionSource::Table(Box::new(DescriptionMapping {
         connection: CatalogConnection::parse(name, connection).map_err(|cause| InvalidRdbmsCatalog::Connection { cause })?,

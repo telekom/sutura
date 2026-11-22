@@ -410,6 +410,18 @@ fn description_key_via_requires_a_nonempty_on_mapping() {
     assert_description_error(load(&text), &InvalidDescriptionSource::ViaJoin);
 }
 
+/// A `key.via` naming the mapped table itself collapses the join back onto its own starting
+/// table, so every predicate would resolve to `PredicateTable::Main` and `PredicateTable::Via`
+/// could never be produced - refused rather than silently accepted as a no-op join.
+#[test]
+fn description_key_via_naming_the_mapped_table_itself_is_refused() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.column_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n"
+    );
+    assert_description_error(load(&text), &InvalidDescriptionSource::ViaJoin);
+}
+
 #[test]
 fn live_row_predicates_is_a_closed_conjunction_naming_main_or_via_tables() {
     let text = overlay("rdbms", ENTRY, Some(CONNECTION));
@@ -472,6 +484,11 @@ fn live_row_predicate_table_field_is_refused_as_unknown() {
     );
     let error = load(&text).expect_err("table on the singular predicate is an unknown field");
     assert!(matches!(error.reason(), SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{:?}", core::error::Error::source(&error));
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("table"),
+        "the refusal names the key: {rendered}"
+    );
 
     let dictionary = format!(
         "{}\n    live_row_predicate: {{table: inventory.column_docs, column: deleted_at, operator: is_null}}\n",
@@ -479,6 +496,11 @@ fn live_row_predicate_table_field_is_refused_as_unknown() {
     );
     let error = load(&dictionary).expect_err("table on the dictionary-level predicate is an unknown field");
     assert!(matches!(error.reason(), SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{:?}", core::error::Error::source(&error));
+    assert!(
+        rendered.contains("unknown field") && rendered.contains("table"),
+        "the refusal names the key: {rendered}"
+    );
 }
 
 /// `live_row_predicates: []` is a declared-but-empty conjunction, which is never what an operator
