@@ -27,9 +27,19 @@ impl Worker {
 
         // Other request is responsible for writing the plan that belongs to this TaskKey, so
         // we'll resolve immediately if it was already there, or wait until it's ready.
-        let task_data = entry
-            .read(Duration::from_secs(WAIT_PLAN_TIMEOUT_SECS))
-            .await
+        let waited = std::time::Instant::now();
+        let read = entry.read(Duration::from_secs(WAIT_PLAN_TIMEOUT_SECS)).await;
+        if let Some(plan_wait_ms) = crate::common::noted_ms(waited.elapsed()) {
+            tracing::info!(
+                query = %request.task_key.query_id,
+                stage = request.task_key.stage_id,
+                task = request.task_key.task_number,
+                plan_wait_ms,
+                planned = read.is_ok(),
+                "execute_task waited for its plan"
+            );
+        }
+        let task_data = read
             .map_err(|e| exec_datafusion_err!("Worker::execute_task timed-out while waiting for the plan to be set by the coordinator. ({e})"))?
             .map_err(DataFusionError::Shared)?;
         task_data.task_data_metrics.mark_execution_started_once();

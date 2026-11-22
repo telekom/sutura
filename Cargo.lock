@@ -1419,6 +1419,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tower",
+ "tracing",
  "url",
  "uuid",
 ]

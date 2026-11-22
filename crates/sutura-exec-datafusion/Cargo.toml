@@ -119,6 +119,7 @@ measurement = []
 # to the other nodes need, and `tokio/sync` for the lock their question keys are kept under.
 distributed = [
   "dep:datafusion-distributed",
+  "dep:tracing",
   "dep:url",
   "dep:async-trait",
   "dep:hyper-util",

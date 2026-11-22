@@ -60,6 +60,8 @@ const INSTALLS: &str = "/worker.WorkerService/CoordinatorChannel";
 const AWAITED: Duration = Duration::from_secs(10);
 const POLLED: Duration = Duration::from_millis(20);
 const IDLE: Duration = Duration::from_secs(600);
+/// How long a call waits for its question's key before the wait is logged.
+const KEY_WAIT_NOTED: Duration = Duration::from_millis(250);
 const KEPT: usize = 1 << 16;
 
 /// A key's bytes and the encoded grant signed under it.
@@ -349,7 +351,22 @@ impl WorkerCallAuthorizer for TaskGrant {
                     .ok_or_else(refused)?;
                 key.verifies(&grant) && self.0.installed(asked, key, &grant).await
             }
-            WorkerCall::ExecuteTask { .. } => self.0.verified(asked, &grant).await,
+            WorkerCall::ExecuteTask { task_key, .. } => {
+                let waited = Instant::now();
+                let verified = self.0.verified(asked, &grant).await;
+                let waited = waited.elapsed();
+                if waited >= KEY_WAIT_NOTED {
+                    tracing::info!(
+                        query = %task_key.query_id,
+                        stage = task_key.stage_id,
+                        task = task_key.task_number,
+                        key_wait_ms = u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),
+                        keyed = verified,
+                        "execute_task waited for its question's key"
+                    );
+                }
+                verified
+            }
             _ => false,
         };
         admitted.then_some(()).ok_or_else(refused)
