@@ -8,6 +8,8 @@
 #[cfg(feature = "agent")]
 #[path = "native_oracle_dictionary/descriptions.rs"]
 mod descriptions;
+#[path = "native_oracle_dictionary/raw_prefilter.rs"]
+mod raw_prefilter;
 #[cfg(feature = "agent")]
 #[path = "native_oracle_dictionary/relationships.rs"]
 mod relationships;
@@ -342,4 +344,5 @@ fn a_served_native_oracle_dictionary_keeps_exact_metadata_and_limits_planned_col
     drop(served);
     types::alias_scope(&fixture);
     types::number_and_zone_types(&fixture);
+    raw_prefilter::applies_on_a_native_dictionary_clob(&fixture);
 }
