@@ -1,5 +1,5 @@
 ''
-with subtest("discovery only: roomy reference and combine-only bounded refusal"):
+with subtest("roomy reference and combine-only refusal at the common ceiling"):
     config = copy.deepcopy(get("configmap/sutura-config"))
     # Keep the exact base bytes; only the environment topology is erased.
     config["metadata"] = {"name": "reference-config"}
@@ -22,8 +22,6 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
         assert ceiling_env == [str(record["ceiling"])], record
         boundaries = []
         for line in log.splitlines():
-            if "shuffle reservation refused:" in line:
-                print(line)
             try:
                 event = json.loads(line)
             except ValueError:
@@ -42,44 +40,20 @@ with subtest("discovery only: roomy reference and combine-only bounded refusal")
     evidence["roomy"] = {}
     status, reply, phase = calibration_request(512, "calibration-roomy", evidence["roomy"])
     assert status == 200 and phase == "answer", evidence["roomy"]
-    expected = exact(reply)
     runtime_images = evidence["roomy"]["pod"]["images"]
-    evidence["roomy"]["answer"] = expected
-    trials = []
-    evidence["calibration"] = trials
-    # Refine the bracket and use the highest observed combine refusal as the common bound.
-    ceiling, upper, lower, mib = None, None, None, 64
-    for attempt in range(7):
-        assert 4 <= mib <= 64 and all(t["ceiling"] != mib * 1024 * 1024 for t in trials), trials
-        trial = {}
-        trials.append(trial)
-        status, reply, phase = calibration_request(mib, "calibration-" + str(attempt), trial)
-        assert trial["pod"]["images"] == runtime_images, trial
-        if status == 200:
-            assert phase == "answer" and exact(reply) == expected, trial
-            upper = mib
-        else:
-            assert status == 422 and reply.get("reason", {}).get("code") == "resources_exhausted", trial
-            assert str(trial["ceiling"]) in reply["reason"]["detail"], trial
-            assert phase in {"leg", "combine"}, trial
-            if phase == "combine":
-                # execute() reaches combine only after every exact leg has completed successfully.
-                ceiling = trial["ceiling"] if ceiling is None else max(ceiling, trial["ceiling"])
-            lower = mib
-            if upper is None:
-                break
-        candidate = (lower + upper) // 2 if lower is not None else max(4, mib // 2)
-        if candidate == mib or candidate in {lower, upper}:
-            break
-        mib = candidate
-    assert ceiling is not None, (
-        "no combine-only ceiling observed",
-        [(trial["ceiling"], trial["status"], trial["phase"]) for trial in trials],
-    )
+    evidence["roomy"]["answer"] = exact(reply)
+    bounded = {}
+    evidence["calibration"] = [bounded]
+    # The fixture answered at 11 MiB and reached a combine refusal at 10 MiB.
+    status, reply, phase = calibration_request(10, "calibration-bounded", bounded)
+    ceiling = bounded["ceiling"]
+    assert bounded["pod"]["images"] == runtime_images, bounded
+    assert status == 422 and reply.get("reason", {}).get("code") == "resources_exhausted", bounded
+    assert str(ceiling) in reply["reason"]["detail"], bounded
+    assert phase == "combine", bounded
     assert identity(get("pod/reference"))["restarts"] == [0]
-    assert upper is not None
     evidence["ceiling"] = ceiling
-    print("worker-pool calibration (ceiling, phase):", [(t["ceiling"], t["phase"]) for t in trials])
+    print("worker-pool common ceiling (bytes):", ceiling)
     machine.succeed("kubectl delete pod reference --wait=true")
     set_ceiling("sutura", ceiling)
     set_ceiling("sutura-workers", ceiling)

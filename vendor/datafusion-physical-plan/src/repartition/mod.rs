@@ -238,21 +238,9 @@ impl OutputChannel {
         let (payload, is_memory_batch) = {
             match self.reservation.try_grow(size) {
                 Ok(_) => (Ok(RepartitionBatch::Memory(batch)), true),
-                Err(reservation_error) => match self.spill_writer.push_batch(&batch) {
+                Err(_) => match self.spill_writer.push_batch(&batch) {
                     Ok(()) => (Ok(RepartitionBatch::Spilled), false),
-                    Err(err) => {
-                        log::debug!(
-                            target: "worker_pool_fixture",
-                            "shuffle reservation refused: {reservation_error}; rows={}, bytes={size}, coalesced={}, columns (bytes, view)={:?}",
-                            batch.num_rows(),
-                            self.shared_coalescer.is_some(),
-                            batch.columns().iter().map(|array| (
-                                array.get_array_memory_size(),
-                                matches!(array.data_type(), DataType::Utf8View | DataType::BinaryView),
-                            )).collect::<Vec<_>>(),
-                        );
-                        (Err(err), false)
-                    }
+                    Err(err) => (Err(err), false),
                 },
             }
         };
