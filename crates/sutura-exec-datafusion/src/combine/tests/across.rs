@@ -7,11 +7,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
-use datafusion::arrow::array::{ArrayRef, StringArray};
+use datafusion::arrow::array::{ArrayRef, Int64Array, StringArray};
 use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
+use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
 use datafusion::error::DataFusionError;
+use datafusion::functions_aggregate::expr_fn::sum;
+use datafusion::logical_expr::col;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
-use datafusion_distributed::{DistributedConfig, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
+use datafusion_distributed::{DistributedConfig, DistributedLeafExec, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use sutura_domain::plan::{FederatedPlan, FederationCombiner as _, LegResult};
@@ -455,6 +460,60 @@ fn a_question_planned_onto_a_node_nothing_listens_on_is_refused_as_that_node_los
     assert!(!matches!(refused, CombineError::Execute { .. }), "{refused:?}");
     assert_eq!(across.working_set_exhausted(&refused), None, "{refused:?}");
     assert_eq!(across.workers_not_ready(&refused), None, "{refused:?}");
+}
+
+#[test]
+fn a_single_lookup_batch_is_shared_by_rows_across_three_tasks() {
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let at = |port: u16| Url::parse(&format!("https://127.0.0.1:{port}")).expect("a node is a URL");
+    let session = Nodes::declared(own, at(1), [at(2), at(3)], authority.identity(&node))
+        .session(roomy())
+        .expect("a session builds");
+    let rows = RecordBatch::try_from_iter([
+        ("k", Arc::new(Int64Array::from_iter_values(0..7)) as ArrayRef),
+        ("n", Arc::new(Int64Array::from_iter_values(10..17)) as ArrayRef),
+    ])
+    .expect("the source returned one batch");
+    let grouped = session
+        .read_batch(rows)
+        .expect("the lookup reads")
+        .aggregate(vec![col("k")], vec![sum(col("n"))])
+        .expect("the grouping builds");
+    let plan = servers()
+        .block_on(grouped.create_physical_plan())
+        .expect("the grouping plans across the nodes");
+    let mut shares = Vec::new();
+    plan.apply(|plan| {
+        if let Some(leaf) = plan.downcast_ref::<DistributedLeafExec>() {
+            for variant in leaf.variants() {
+                let scan = variant.downcast_ref::<DataSourceExec>().expect("a variant scans memory");
+                let memory = scan
+                    .data_source()
+                    .downcast_ref::<MemorySourceConfig>()
+                    .expect("the data is in memory");
+                let keys = memory
+                    .partitions()
+                    .iter()
+                    .flatten()
+                    .flat_map(|batch| {
+                        let index = batch.schema().index_of("k").expect("the grouping key is present");
+                        let key = batch
+                            .column(index)
+                            .as_any()
+                            .downcast_ref::<Int64Array>()
+                            .expect("the key is an integer");
+                        key.values().iter().copied()
+                    })
+                    .collect::<Vec<_>>();
+                shares.push(keys);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .expect("the plan is traversed");
+    assert_eq!(shares, vec![vec![0, 1, 2], vec![3, 4], vec![5, 6]]);
 }
 
 #[test]

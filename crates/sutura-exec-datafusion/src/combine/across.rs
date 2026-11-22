@@ -2,9 +2,9 @@
 //! `docs/adr/20261030182759-shuffle-across-nodes.md`.
 //!
 //! **A leg's rows are dealt across the nodes.** A leg is a `MemTable`, and its scan, like every node
-//! above it, asks for one task per declared node; `dealt` splits the scan batch by batch, one share
-//! per task. Each node scans and repartitions a share of the rows, where a leg planned as one task
-//! would run on this node alone, and this node's own worker would then refuse a question one node
+//! above it, asks for one task per declared node; `dealt` assigns a row range to each task, including
+//! when an adapter emits one batch. Each node scans and repartitions its share. A leg planned as one
+//! task would run on this node alone, and its worker would then refuse a question one node
 //! refuses for its working set. A stage above a hash repartition - the join's or the aggregate's -
 //! is spread across the nodes too. What crosses a link is a leg's share, inside the stage sent to a
 //! node, and each stage's input, as Arrow batches.
@@ -125,6 +125,7 @@ use std::collections::hash_map::Entry;
 use std::net::{IpAddr, ToSocketAddrs as _};
 use std::sync::{Arc, Weak};
 
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
 use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
 use datafusion::datasource::source::DataSource as _;
@@ -589,18 +590,40 @@ fn unresolved(node: &Url) -> Url {
     declared
 }
 
-/// `event`'s leg scan as one variant per task, each with every `task_count`th batch of each
-/// partition, so the tasks read the leg's rows between them and none twice.
+/// `event`'s leg scan as one contiguous row range per task. Slice the input batches without
+/// copying their buffers. The task counts differ by at most one row, regardless of batch size.
 fn dealt(event: ScaleUpLeafNodeEvent<'_>) -> Option<Result<ScaleUpLeafNodeEventResponse, DataFusionError>> {
     let rows = dealable(event.plan)?;
     let tasks = event.task_count;
     (tasks > 1).then(|| {
+        let row_count = rows
+            .partitions()
+            .iter()
+            .flatten()
+            .map(RecordBatch::num_rows)
+            .try_fold(0_usize, usize::checked_add)
+            .ok_or_else(|| DataFusionError::Plan(String::from("the leg has too many rows to assign to workers")))?;
+        let share = row_count.checked_div(tasks).unwrap_or_default();
+        let extra = row_count.checked_rem(tasks).unwrap_or_default();
         let variants = (0..tasks)
             .map(|task| {
+                let mut skip = task * share + task.min(extra);
+                let mut remaining = share + usize::from(task < extra);
                 let partitions: Vec<Vec<_>> = rows
                     .partitions()
                     .iter()
-                    .map(|batches| batches.iter().skip(task).step_by(tasks).cloned().collect())
+                    .map(|batches| {
+                        batches
+                            .iter()
+                            .filter_map(|batch| {
+                                let start = skip.min(batch.num_rows());
+                                skip -= start;
+                                let count = remaining.min(batch.num_rows() - start);
+                                remaining -= count;
+                                (count > 0).then(|| batch.slice(start, count))
+                            })
+                            .collect()
+                    })
                     .collect();
                 MemorySourceConfig::try_new_exec(&partitions, rows.original_schema(), rows.projection().clone())
                     .map(|scan| scan as Arc<dyn ExecutionPlan>)
