@@ -22,11 +22,13 @@ use tokio::runtime::Runtime;
 
 use crate::combine::DataFusionCombiner;
 
+mod cube_pushdown;
 #[cfg(test)]
 pub(super) mod literals;
 #[cfg(test)]
 mod names;
 mod oracle;
+mod policy_search;
 mod raw_condition;
 #[cfg(test)]
 mod registration;

@@ -11,9 +11,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+#[cfg(feature = "fixtures")]
+use adbc_core::Optionable as _;
 use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement};
-use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
+use adbc_core::{Connection as _, Database as _, Driver as _, Statement as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
 use arrow_array::{Array, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
 use arrow_schema::{ArrowError, Field, Schema, SchemaRef};
@@ -37,7 +39,13 @@ use crate::execute_as::{ClickHouseUser, NotAClickHouseUser};
 use crate::settings;
 use crate::sum::{self, SlotScale, SumType};
 
-const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
+const QUERY_TIMEOUT_SECONDS: &str = "clickhouse.client.timeout_seconds.query";
+/// What the vendored driver's error text ends with when a read of the result stream outran
+/// `QUERY_TIMEOUT_SECONDS` (`vendor/adbc_clickhouse/src/reader.rs`, `STREAM_TIMED_OUT`). Only text
+/// crosses the driver's C interface: a typed signal needs upstream support (`adbc_ffi`'s
+/// `ErrorFromArrayStream` carries none). The tier cell `a_stream_that_outruns_the_deadline_is_a_deadline`
+/// ties this text to the driver the tier mounts.
+const STREAM_TIMED_OUT: &str = "query result stream timed out";
 const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
 const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
 const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
@@ -200,10 +208,18 @@ pub enum AdbcError {
     PresentedDisagreesWithPosture(#[source] PresentedDisagreesWithPosture),
     #[error("the key probe did not return two counts")]
     KeyCounts(#[source] CountsNotRead),
-    /// The `ClickHouse` bucket-split path is not built yet: a partition read is refused until the
-    /// behaviour PR fills in [`buckets::split_by_estimate`] and [`buckets::read_partition`].
-    #[error("ClickHouse bucket reads are not built yet")]
-    BucketsUnbuilt,
+    #[error("ClickHouse hash buckets were not declared for this source")]
+    HashBucketsNotDeclared,
+    #[error("the ClickHouse root estimate did not return two non-negative integer counts")]
+    EstimateNotCounts,
+    #[error("the ClickHouse bucket descriptor is malformed: {0}")]
+    BucketDescriptor(#[source] InvalidBucketDescriptor),
+    #[error("the ClickHouse bucket could not be rendered: {0}")]
+    BucketRender(#[source] sutura_sql::generate::BucketsRefused),
+    #[error("the ClickHouse partition's schema differs from the granted schema")]
+    PartitionSchemaChanged,
+    #[error("the ClickHouse partition identity disagrees with this source's posture")]
+    PartitionIdentityDisagrees,
 }
 
 /// A `ClickHouse` warehouse over its ADBC driver.
@@ -216,6 +232,7 @@ pub struct AdbcClickHouseWarehouse {
     password: Secret,
     tls: Option<TlsOptions>,
     result_budget: ResultBudget,
+    hash_buckets: bool,
 }
 
 impl core::fmt::Debug for AdbcClickHouseWarehouse {
@@ -250,7 +267,15 @@ impl AdbcClickHouseWarehouse {
             password,
             tls,
             result_budget,
+            hash_buckets: false,
         }
+    }
+
+    /// Enables the per-key-consistent split this source explicitly acknowledged.
+    #[must_use]
+    pub const fn with_hash_buckets(mut self, _declared: &sutura_domain::source::HashBucketsDeclared) -> Self {
+        self.hash_buckets = true;
+        self
     }
 
     fn deliverable<'p>(&self, presented: &'p Presented) -> Result<RunsAs<'p>, AdbcError> {
@@ -434,6 +459,17 @@ impl AdbcClickHouseWarehouse {
         most_rows: usize,
         runs_as: &RunsAs<'_>,
     ) -> Result<ResultBatches, AdbcError> {
+        self.run_sql(query.sql(), query.params(), deadline, most_rows, runs_as)
+    }
+
+    fn run_sql(
+        &self,
+        sql: &str,
+        params: &[sutura_domain::warehouse::ParamValue],
+        deadline: Deadline,
+        most_rows: usize,
+        runs_as: &RunsAs<'_>,
+    ) -> Result<ResultBatches, AdbcError> {
         if deadline::refuse_if_spent(deadline).is_err() {
             return Err(AdbcError::DeadlineSpent);
         }
@@ -445,17 +481,8 @@ impl AdbcClickHouseWarehouse {
         let mut statement = connection
             .new_statement()
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let seconds = deadline::max_execution_time_seconds(deadline, Instant::now()).ok_or(AdbcError::DeadlineSpent)?;
-        statement
-            .set_option(OptionStatement::Other(QUERY_TIMEOUT.to_owned()), seconds.to_string().into())
-            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        statement
-            .set_option(
-                OptionStatement::Other(MAX_EXECUTION_TIME.to_owned()),
-                seconds.to_string().into(),
-            )
-            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let sql = settings::with_clause(&rewrite_placeholders(query.sql(), query.params())?, seconds)
+        let seconds = bound_by(&mut statement, deadline, Instant::now())?;
+        let sql = settings::with_clause(&rewrite_placeholders(sql, params)?, seconds)
             .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;
         let sql = match *runs_as {
             RunsAs::Switched(ref user) => user.execute_as(&sql),
@@ -465,26 +492,24 @@ impl AdbcClickHouseWarehouse {
             self.source.clone(),
             TypeDialect::ClickHouse,
             sql.clone(),
-            query.params(),
+            params,
         );
         statement
             .set_sql_query(sql)
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        if let Some(batch) = sutura_adbc::parameter_batch(query.params()).map_err(AdbcError::Parameters)? {
+        if let Some(batch) = sutura_adbc::parameter_batch(params).map_err(AdbcError::Parameters)? {
             statement
                 .bind(batch)
                 .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
         }
         execute_to_completion(&mut statement, most_rows, self.result_budget).map(|rows| rows.with_execution(execution))
     }
-    /// [`AdbcClickHouseWarehouse::split_by_estimate`]: the `ClickHouse` bucket split's API parent,
-    /// stubbed to the whole read. The behaviour PR estimates and cuts the leg, and answers
-    /// [`Planned::Split`] for one a reader can hold.
+    /// Estimates and cuts an opted-in lookup leg under its whole-read identity.
     ///
     /// # Errors
     ///
-    /// Nothing in the parent: this answers [`Planned::Whole`] for every leg.
-    pub const fn split_by_estimate(
+    /// The source's failure to estimate or describe the leg, or to render its buckets.
+    pub fn split_by_estimate(
         &self,
         leg: &LegPlan,
         presented: &Presented,
@@ -496,13 +521,11 @@ impl AdbcClickHouseWarehouse {
         buckets::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
     }
 
-    /// [`AdbcClickHouseWarehouse::read_partition`]: the `ClickHouse` bucket split's API parent,
-    /// stubbed to a refusal. The behaviour PR reads `descriptor`'s bucket of `leg` as `identity`,
-    /// after the worker admitted the task's grant and re-certified the leg.
+    /// Reads the granted bucket under the declared identity after caller-side grant admission.
     ///
     /// # Errors
     ///
-    /// [`AdbcError::BucketsUnbuilt`] always, in the parent.
+    /// An undeclared split, malformed descriptor, mismatched identity or schema, and source failures.
     pub fn read_partition(
         &self,
         leg: &LegPlan,
@@ -517,7 +540,7 @@ impl AdbcClickHouseWarehouse {
 
 mod buckets;
 
-pub use buckets::{BucketDescriptor, InvalidBucketDescriptor, PartitionIdentity, Planned};
+pub use buckets::{BucketDescriptor, BucketSplit, InvalidBucketDescriptor, PartitionIdentity, Planned};
 #[cfg(test)]
 mod sum_slot;
 #[cfg(test)]
@@ -572,6 +595,34 @@ fn rewrite_placeholders(statement: &str, params: &[sutura_domain::warehouse::Par
     }
     out.push_str(tail);
     Ok(out)
+}
+
+/// Bounds `statement` by `deadline` twice: the server stops its work at `max_execution_time`, and
+/// the driver ends its own wait - for the first response and for every later batch of the result
+/// stream - at the exact remainder. Answers the whole seconds the server was given.
+fn bound_by<S>(statement: &mut S, deadline: Deadline, now: Instant) -> Result<u64, AdbcError>
+where
+    S: adbc_core::Optionable<Option = OptionStatement>,
+{
+    let seconds = deadline::max_execution_time_seconds(deadline, now).ok_or(AdbcError::DeadlineSpent)?;
+    let client = deadline::client_timeout_seconds(deadline, now).ok_or(AdbcError::DeadlineSpent)?;
+    for (key, value) in [(QUERY_TIMEOUT_SECONDS, client), (MAX_EXECUTION_TIME, seconds.to_string())] {
+        statement
+            .set_option(OptionStatement::Other(key.to_owned()), value.into())
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+    }
+    Ok(seconds)
+}
+
+/// Whether a read of the result stream ended in the deadline: the server's `TIMEOUT_EXCEEDED`
+/// arriving in the stream, or - with no server code in the text - the driver's own client-side
+/// bound. A text that carries another server code is not a deadline, whatever else it says.
+fn stream_timed_out(error: &ArrowError) -> bool {
+    let text = error.to_string();
+    ServerCode::parse(&text).map_or_else(
+        || text.ends_with(STREAM_TIMED_OUT),
+        |code| code == ServerCode::TIMEOUT_EXCEEDED,
+    )
 }
 
 /// Runs the statement for its effect. The fixture loader's only call of the method the workspace
@@ -760,7 +811,9 @@ impl Warehouse for AdbcClickHouseWarehouse {
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
-        matches!(error, AdbcError::DeadlineSpent) || matches!(error, AdbcError::Driver(message) if message.timed_out())
+        matches!(error, AdbcError::DeadlineSpent)
+            || matches!(error, AdbcError::Driver(message) if message.timed_out())
+            || matches!(error, AdbcError::Batch(error) if stream_timed_out(error))
     }
 
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {

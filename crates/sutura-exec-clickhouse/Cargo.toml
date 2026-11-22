@@ -61,6 +61,10 @@ name = "adbc_execute_as_legs"
 required-features = ["fixtures"]
 
 [[test]]
+name = "adbc_stream_deadline"
+required-features = ["fixtures"]
+
+[[test]]
 name = "reload"
 required-features = ["fixtures"]
 

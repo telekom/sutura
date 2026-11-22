@@ -96,6 +96,7 @@
 //! set option [`options::OUTPUT_STRING_AS_STRING`] to `"false"` to make ClickHouse report
 //! all strings as binary strings instead. This may be set at the connection or statement level.
 use crate::options::{OptionValueExt, ProductInfo};
+use crate::timeout::Timeouts;
 use adbc_core::error::{Error, Status};
 use adbc_core::options::{InfoCode, ObjectDepth, OptionConnection, OptionDatabase, OptionValue};
 use adbc_core::{Connection, Database, Driver, Optionable, schemas};
@@ -106,7 +107,6 @@ use rand::distr::{Alphanumeric, SampleString};
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::runtime::{Handle, Runtime, RuntimeFlavor};
 use url::Url;
 
@@ -125,10 +125,13 @@ macro_rules! err_unimplemented {
     };
 }
 
+#[cfg(test)]
+mod fake_server;
 pub mod options;
 mod reader;
 mod schema;
 mod statement;
+mod timeout;
 mod tls;
 mod writer;
 
@@ -410,6 +413,8 @@ impl Database for ClickhouseDatabase {
                     let http = hyper_util::client::legacy::Client::builder(
                         hyper_util::rt::TokioExecutor::new(),
                     )
+                    .pool_timer(hyper_util::rt::TokioTimer::new())
+                    .pool_idle_timeout(std::time::Duration::from_secs(2))
                     .build(connector);
                     Client::with_http_client(http)
                 }
@@ -901,9 +906,8 @@ impl ClickhouseConnection {
                     value.try_string(key)?,
                 );
             }
-            options::QUERY_TIMEOUT => {
-                self.client
-                    .set_query_timeout(options::parse_timeout(key, &value.try_string(key)?)?);
+            options::QUERY_TIMEOUT_SECONDS | options::UPDATE_TIMEOUT_SECONDS => {
+                self.client.set_timeout(key, &value.try_string(key)?)?;
             }
             other => {
                 return Err(Error::with_message_and_status(
@@ -931,13 +935,9 @@ impl ClickhouseConnection {
                 .get_option(options::as_setting::SESSION_ID)
                 .unwrap_or("")
                 .into()),
-            options::QUERY_TIMEOUT => self
-                .client
-                .query_timeout()
-                .map(|timeout| timeout.as_secs().to_string())
-                .ok_or_else(|| {
-                    Error::with_message_and_status("no query timeout configured", Status::NotFound)
-                }),
+            options::QUERY_TIMEOUT_SECONDS | options::UPDATE_TIMEOUT_SECONDS => {
+                self.client.timeout(key)
+            }
             other if tls::is_tls_option(other) => self.tls.read_back(other),
             other => Err(Error::with_message_and_status(
                 format!("unknown connection option {other:?}"),
@@ -956,8 +956,8 @@ struct AugmentedClient {
     original_client: Arc<Client>,
     // `Client` implements `Clone`, but it's a deep copy
     modified_client: Option<Arc<Client>>,
-    /// Client-side bound on how long a query may wait for the server.
-    query_timeout: Option<Duration>,
+    /// Client-side time bounds; none by default.
+    timeouts: Timeouts,
 }
 
 impl AugmentedClient {
@@ -965,16 +965,20 @@ impl AugmentedClient {
         Self {
             original_client: Arc::new(client),
             modified_client: None,
-            query_timeout: None,
+            timeouts: Timeouts::default(),
         }
     }
 
-    fn set_query_timeout(&mut self, timeout: Duration) {
-        self.query_timeout = Some(timeout);
+    fn set_timeout(&mut self, key: &str, value: &str) -> Result<()> {
+        self.timeouts.set(key, value)
     }
 
-    fn query_timeout(&self) -> Option<Duration> {
-        self.query_timeout
+    fn timeout(&self, key: &str) -> Result<String> {
+        self.timeouts.get(key)
+    }
+
+    fn timeouts(&self) -> Timeouts {
+        self.timeouts
     }
 
     fn set_product_info(&mut self, product_info: &ProductInfo) {
@@ -1139,6 +1143,101 @@ mod tests {
     use adbc_core::options::{OptionConnection, OptionDatabase, OptionValue};
     use adbc_core::{Connection, Database, Driver, Optionable};
     use url::Url;
+
+    #[cfg(feature = "tls-mtls")]
+    #[test]
+    fn a_custom_tls_connection_answers_and_retires_its_idle_socket() {
+        use adbc_core::Statement as _;
+        use std::io::{self, Read, Write};
+        use std::net::TcpListener;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let pair = rcgen::generate_simple_self_signed([String::from("127.0.0.1")]).unwrap();
+        let root = pair.cert.pem();
+        #[cfg(feature = "rustls-tls-aws-lc")]
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+        #[cfg(all(feature = "rustls-tls-ring", not(feature = "rustls-tls-aws-lc")))]
+        let provider = rustls::crypto::ring::default_provider();
+        let server = rustls::ServerConfig::builder_with_provider(Arc::new(provider))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![pair.cert.der().clone()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(pair.signing_key.serialize_der())
+                    .into(),
+            )
+            .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let peer = std::thread::spawn(move || -> io::Result<()> {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let socket = loop {
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            return Err(io::ErrorKind::TimedOut.into());
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => return Err(error),
+                }
+            };
+            socket.set_read_timeout(Some(Duration::from_secs(8)))?;
+            socket.set_write_timeout(Some(Duration::from_secs(6)))?;
+            let connection = rustls::ServerConnection::new(Arc::new(server)).unwrap();
+            let mut tls = rustls::StreamOwned::new(connection, socket);
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                tls.read_exact(&mut byte)?;
+                headers.push(byte[0]);
+                if headers.len() > 16 * 1024 {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+            }
+            let mut query = [0; 8];
+            tls.read_exact(&mut query)?;
+            if &query != b"SELECT 1" {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            tls.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")?;
+            tls.flush()?;
+            // The 8s read deadline leaves room for the client's 2s idle eviction.
+            match tls.read(&mut [0]) {
+                Ok(0) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Ok(()),
+                Err(error) => Err(error),
+                Ok(_) => Err(io::ErrorKind::InvalidData.into()),
+            }
+        });
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .unwrap(),
+        );
+        let database = ClickhouseDriver::init_with(runtime)
+            .new_database_with_opts([
+                (OptionDatabase::Uri, format!("https://{address}").into()),
+                (options::TLS_ROOT_CERTS.into(), root.into()),
+            ])
+            .unwrap();
+        let mut connection = database.new_connection().unwrap();
+        let mut statement = connection.new_statement().unwrap();
+        statement.set_sql_query("SELECT 1").unwrap();
+        let result = statement.execute_update();
+        let closed = peer.join().unwrap();
+        assert!(result.is_ok(), "custom TLS request failed: {result:?}");
+        assert!(
+            closed.is_ok(),
+            "idle TLS socket was not retired: {closed:?}"
+        );
+    }
 
     #[test]
     fn test_set_product_info() {

@@ -107,11 +107,22 @@ the original redacted-only path. Each nonempty replacement must contain no whole
 both boundary overlaps; the proof composes over ordered replacements and the truncation marker
 where it is searched. No inference about arbitrary regex languages is required.
 
-DataFusion binary comparison and guarded Oracle CLOB/NCLOB comparison are the initial eligible
-venues. Oracle `UPPER` uses its binary character-set mapping; its runtime binary sort check
-retains every row on any other or NULL value. No session setting is changed, and unknown
-data-bound collations on other source columns remain ineligible. Cube's local policy work is not
-an eligible venue and keeps the redacted-only path. The exact transformed predicate still decides
+DataFusion binary comparison, guarded Oracle CLOB/NCLOB comparison, ClickHouse comparison for the
+admitted ASCII-alphanumeric needle, DuckDB and BigQuery text pinned `binary`, and PostgreSQL
+columns pinned binary (read from the dictionary, or authored in a local catalog document) are the
+eligible venues.
+A wrong authored `binary` is the operator's error and exposes what the acknowledgement already
+accepts, plus a wrong answer where the raw test is stricter than the real comparison. Beside it, a
+PostgreSQL policy column in any other conjunct must be pinned binary too, because the view reads it
+through a regex that a nondeterministic collation refuses. Oracle `UPPER` uses its binary
+character-set mapping; its runtime binary sort check retains every row on any other or NULL value. No session setting is changed, and unknown
+data-bound collations on other source columns remain ineligible. DuckDB's replacement barrier
+folds ASCII case, so an authored binary pin over a case-insensitive column cannot make a
+replacement create a match. DuckDB and BigQuery pins are authored claims, not checked against the
+engine. The BigQuery native venue refused redaction over stored `und:ci` with the opt-in off and
+on; that fixture does not prove the outcome of a different expression or collation. DataFusion
+and ClickHouse have no native collated-column case: their engine pin overrides an authored
+collation with binary. Cube's local policy work is not an eligible venue and keeps the redacted-only path. The exact transformed predicate still decides
 the answer. A hidden raw term may incur extra redaction work and reveal information through
 timing; the acknowledgement records acceptance rather than preventing that disclosure.
 

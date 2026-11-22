@@ -209,6 +209,17 @@ pub enum RawRefusalReason {
     /// Refused before any leg exists, so nothing reached a data system. Carries no source name: the
     /// caller already holds its own tool's source list.
     PlanSpansMoreThanOneSource,
+    /// A statement part reading a text-policy column exceeded its deadline, or its Cube source
+    /// answer exceeded a size or row bound before local masking and filtering.
+    ///
+    /// A supported filter on a column without a policy narrows the rows needing masking. This is a
+    /// backstop, not acceleration: it preserves the request's deadline and source bounds. Cube only
+    /// accepts the policy-free comparison shapes in `docs/raw-text-search.md`; other predicates
+    /// stay local. A projection over a policy column is classified the same way as a search.
+    /// Planning, pre-leg and local-part deadlines retain [`Self::DeadlineExceeded`].
+    /// **What it discloses:** a column the caller can already read carries a text policy, and
+    /// nothing about that policy.
+    PolicySearchNeedsNarrowing,
 }
 
 impl RawRefusalReason {
@@ -231,6 +242,7 @@ impl RawRefusalReason {
             Self::SourceRefused => "source_refused",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::PlanSpansMoreThanOneSource => "plan_spans_more_than_one_source",
+            Self::PolicySearchNeedsNarrowing => "policy_search_needs_narrowing",
         }
     }
 }
@@ -259,6 +271,10 @@ impl fmt::Display for RawRefusalReason {
             Self::PlanSpansMoreThanOneSource => write!(
                 f,
                 "the statement reads from more than one data system, and this deployment runs a statement against one"
+            ),
+            Self::PolicySearchNeedsNarrowing => write!(
+                f,
+                "a statement over a column under a text policy reached a time or source result bound; add a filter on a column without a policy"
             ),
         }
     }
@@ -458,6 +474,7 @@ mod tests {
             RawRefusalReason::SourceRefused,
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
             RawRefusalReason::PlanSpansMoreThanOneSource,
+            RawRefusalReason::PolicySearchNeedsNarrowing,
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -483,6 +500,10 @@ mod tests {
         assert_eq!(
             RawRefusalReason::PlanSpansMoreThanOneSource.code(),
             "plan_spans_more_than_one_source"
+        );
+        assert_eq!(
+            RawRefusalReason::PolicySearchNeedsNarrowing.code(),
+            "policy_search_needs_narrowing"
         );
     }
 }

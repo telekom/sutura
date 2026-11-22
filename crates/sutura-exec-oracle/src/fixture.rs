@@ -44,6 +44,12 @@ pub enum FixtureError {
     /// The administrator's dial was refused before a statement ran.
     #[error("the tier could not be dialled as its administrator")]
     Admin(#[source] OracleError),
+    /// The snapshot probe needs a fresh session under the declared shared user.
+    #[error("the fixture snapshot probe requires a shared-service-user source")]
+    SnapshotNeedsSharedUser,
+    /// A fresh snapshot-probe connection could not be opened.
+    #[error("the fixture snapshot probe could not open its connection")]
+    SnapshotConnect(#[source] OracleError),
     /// The server refused a fixture statement.
     #[error("the tier refused the fixture statement for {subject} (Oracle code {:?})", cause.ora_code())]
     Statement {

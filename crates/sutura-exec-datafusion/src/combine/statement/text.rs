@@ -23,7 +23,7 @@ use sutura_domain::warehouse::schema::TypeDialect;
 use super::literal::{literal, quotable_table, spelled};
 use super::text_prefilter::Prefilter;
 
-const KEY: &str = "sutura:text_policy";
+pub(super) const KEY: &str = "sutura:text_policy";
 const LOB_KEY: &str = "sutura:oracle_lob";
 /// On a field that derives from no LOB; written by `oracle_lob_outputs` alone, and read back only
 /// where `derived` has already dropped every `sutura:` key a function computed.
@@ -414,6 +414,11 @@ fn bounded_lob(value: &str, bytes: u32) -> String {
     format!(
         "CASE WHEN {value} IS NULL THEN NULL ELSE DBMS_LOB.\"SUBSTR\"({value}, {chars}, 1) || CASE WHEN LENGTH({value}) > {chars} THEN '...[truncated]' END END"
     )
+}
+
+/// Whether `schema` holds a column under a text policy.
+pub(super) fn reads_policy(schema: &Schema) -> bool {
+    schema.fields().iter().any(|field| field.metadata().contains_key(KEY))
 }
 
 pub(super) fn protected(table: &StatementTable) -> bool {

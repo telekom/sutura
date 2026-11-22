@@ -137,12 +137,13 @@ const STARTUP: Subject = Subject {
 /// its variants was whether an author happened to look. Every variant is named by a test or excused
 /// in the allow file, so a new one cannot arrive unnamed. 8: `FederatedModelUntyped`, the schema
 /// set's untyped-model refusal; 9 adds unsupported or conflicting text policies;
-/// 10 names a certified metric reading a protected column.
+/// 10 names a certified metric reading a protected column; 11 two models over one physical column
+/// pinning different known collations.
 const VALIDATION: Subject = Subject {
     name: "NotValidated",
-    declared_in: "crates/sutura-domain/src/pinned.rs",
+    declared_in: "crates/sutura-domain/src/pinned/not_validated.rs",
     allow_file: "devco/validation-refusals-unprovoked-allow",
-    variants: variants(10),
+    variants: variants(11),
 };
 
 /// One refused raw statement: `docs/adr/0013`'s tool, off by default, with its own narrower
@@ -156,7 +157,7 @@ const RAW: Subject = Subject {
     name: "RawRefusalReason",
     declared_in: "crates/sutura-domain/src/raw.rs",
     allow_file: "devco/raw-refusals-unprovoked-allow",
-    variants: variants(10),
+    variants: variants(11),
 };
 
 /// One refused TLS configuration: the certificate and key `sutura_config::TlsMaterial` parsed are

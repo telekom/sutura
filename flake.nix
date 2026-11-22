@@ -1013,6 +1013,24 @@
             else
               pkgs.runCommand "multi-node-oracle-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
 
+          # A fixed local ClickHouse shard, two granted readers and two fixture callers. The venue
+          # records source-side identity and address evidence; it measures neither clusters nor load.
+          multi-node-clickhouse =
+            if system == "x86_64-linux" then
+              import ./nix/multi-node-clickhouse.nix {
+                inherit pkgs;
+                sutura = shipped.nativeFor {
+                  binary = builtins.head shipped.binaries;
+                  profile = "ci";
+                  features = [ "clickhouse" "tls" "distributed" ];
+                };
+                clickhouse = clickhouseTier.package;
+                clickhouseDriver = clickhouseAdbcHostDriver;
+                example = ./examples/single-player;
+              }
+            else
+              pkgs.runCommand "multi-node-clickhouse-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
+
           # This chart in a k3s cluster inside a NixOS VM, scaled up by its CPU autoscaler under load
           # and back down (`telekom/sutura#828`) - `nix/k3s-autoscaling.nix` says what it observes and
           # what it does not. A stub on any other system, for `multi-node`'s reason.
@@ -1053,6 +1071,13 @@
             inherit craneLib;
             inherit (commonArgs) buildInputs;
             cargoVendorDir = craneLib.vendorCargoDeps ciArgs;
+            noArtifacts = inheritedArtifacts null;
+          };
+
+          # The vendored ClickHouse driver's own unit tests, on this host. `nix/vendored-clickhouse-adbc.nix`
+          # says why `nix/clickhouse-adbc.nix` does not run them, and it goes away with the vendored copy.
+          vendored-clickhouse-adbc = import ./nix/vendored-clickhouse-adbc.nix {
+            inherit pkgs crane;
             noArtifacts = inheritedArtifacts null;
           };
 
@@ -1504,8 +1529,17 @@
             if [ "''${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
               exec bash nix/oracle-native-probe.sh
             fi
-            bash nix/oracle-native-probe.sh
-            bash nix/oracle-legacy-probe.sh
+            shard="''${SUTURA_ORACLE_ACCEPTANCE_SHARD:-all}"
+            case "$shard" in
+              all|native|legacy) ;;
+              *) printf 'Unknown Oracle acceptance shard: %s\n' "$shard" >&2; exit 2 ;;
+            esac
+            if [ "$shard" != legacy ]; then
+              bash nix/oracle-native-probe.sh
+            fi
+            if [ "$shard" != native ]; then
+              bash nix/oracle-legacy-probe.sh
+            fi
           '');
         };
 

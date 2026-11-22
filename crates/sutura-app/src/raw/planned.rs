@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{AnchorPlan, Executable, StatementLegs as _};
+use sutura_domain::plan::{AnchorPlan, Executable, PolicyRead, StatementLegs as _};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, RawExecution, ResultBatches, Warehouse};
 
@@ -74,7 +74,7 @@ fn a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_te
     legs.open(&BTreeSet::from([source()])).expect("the broker answers");
     let tables = BTreeSet::from([QualifiedTable::parse("orders").expect("a table")]);
     assert_eq!(
-        legs.run_planned(&source(), &text, &tables)
+        legs.run_planned(&source(), &text, &tables, PolicyRead::Unread)
             .expect("planned path answers")
             .rows()
             .len(),

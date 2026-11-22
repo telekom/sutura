@@ -27,7 +27,7 @@ use sutura_exec_oracle::{MOST_PARTITION_ROWS, OracleError, Planned, SplitLeg};
 use super::super::super::OracleSource;
 use super::super::AnyWarehouseError;
 use super::super::grant::{self, Described, HeldSplit, Read};
-use super::{PartitionReads, SplitKind};
+use super::{PartitionReads, SplitKind, refuse_switched};
 
 impl SplitKind for OracleSource {
     /// Through `split_by_estimate`. A split of two or more buckets offered a `grantee`, whose
@@ -60,7 +60,7 @@ impl SplitKind for OracleSource {
         grant::granted_or_read(held, grantee, deadline, rows, SystemTime::now)
     }
 
-    /// Runs as this node's own declared service user for the source, whatever `_reads` names, and
+    /// Runs as this node's own declared service user for the source, refusing a switched principal, and
     /// answers the partition's declared columns rather than `_granted`, as the planning node's
     /// describe read them. Nothing here compares the reader's schema with the planning node's.
     #[expect(
@@ -72,9 +72,10 @@ impl SplitKind for OracleSource {
         leg: &LegPlan,
         partition: &[u8],
         _granted: &SchemaRef,
-        _reads: &PartitionReads,
+        reads: &PartitionReads,
         deadline: Deadline,
     ) -> Result<ResultBatches, Unread> {
+        refuse_switched(leg, reads)?;
         self.read_partition(leg, partition, deadline)
             .map_err(|cause| unread(leg.source(), cause))
     }

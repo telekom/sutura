@@ -27,7 +27,7 @@ use datafusion::prelude::SessionConfig;
 use futures::{Stream, StreamExt, TryStreamExt};
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -141,6 +141,7 @@ impl<'a> StageCoordinator<'a> {
     ) -> Result<(
         UnboundedSender<CoordinatorToWorkerMsg>,
         UnboundedReceiver<WorkerToCoordinatorMsg>,
+        oneshot::Receiver<Result<()>>,
     )> {
         let session_config = self.task_ctx.session_config();
 
@@ -168,6 +169,7 @@ impl<'a> StageCoordinator<'a> {
             tokio::sync::mpsc::unbounded_channel();
         let (worker_to_coordinator_tx, worker_to_coordinator_rx) =
             tokio::sync::mpsc::unbounded_channel();
+        let (prepared_tx, prepared_rx) = oneshot::channel();
 
         let mut headers = get_config_extension_propagation_headers(session_config)?;
         headers.extend(get_passthrough_headers(session_config));
@@ -186,32 +188,56 @@ impl<'a> StageCoordinator<'a> {
         self.join_set.lock().unwrap().spawn(async move {
             let start = Instant::now();
 
-            let mut client = match LocalWorkerContext::from_ctx(&task_ctx) {
-                Some(lw) if lw.self_url == url => {
-                    metrics.local_coordinator_channels.add(1);
-                    Ok(lw.to_worker_channel())
+            let prepared = async {
+                let mut client = match LocalWorkerContext::from_ctx(&task_ctx) {
+                    Some(lw) if lw.self_url == url => {
+                        metrics.local_coordinator_channels.add(1);
+                        Ok(lw.to_worker_channel())
+                    }
+                    _ => {
+                        metrics.remote_coordinator_channels.add(1);
+                        let ch_resolver = get_distributed_channel_resolver(task_ctx.as_ref());
+                        ch_resolver.get_worker_client_for_url(&url).await
+                    }
+                }?;
+                client
+                    .coordinator_channel(
+                        headers,
+                        set_plan_request,
+                        coordinator_to_worker_stream,
+                        metrics_set,
+                        &task_ctx,
+                    )
+                    .await
+            }
+            .await;
+            let worker_to_coordinator_stream = match prepared {
+                Ok(stream) => {
+                    // Both native channels return only after the worker writes its task data.
+                    let _ = prepared_tx.send(Ok(()));
+                    stream
                 }
-                _ => {
-                    metrics.remote_coordinator_channels.add(1);
-                    let ch_resolver = get_distributed_channel_resolver(task_ctx.as_ref());
-                    ch_resolver.get_worker_client_for_url(&url).await
+                Err(cause) => {
+                    let cause = Arc::new(cause);
+                    let _ = prepared_tx.send(Err(DataFusionError::Shared(Arc::clone(&cause))));
+                    return Err(DataFusionError::Shared(cause));
                 }
-            }?;
-            let worker_to_coordinator_stream = client
-                .coordinator_channel(
-                    headers,
-                    set_plan_request,
-                    coordinator_to_worker_stream,
-                    metrics_set,
-                    &task_ctx,
-                )
-                .await?;
+            };
             metrics.plan_send_latency.record(&start);
+            if let Some(plan_send_ms) = crate::common::noted_ms(start.elapsed()) {
+                tracing::info!(
+                    query = %task_key.query_id,
+                    stage = task_key.stage_id,
+                    task = task_key.task_number,
+                    plan_send_ms,
+                    "a plan took long to send"
+                );
+            }
             receive_worker_messages(worker_to_coordinator_stream, worker_to_coordinator_tx,
                 task_key, completion, completion_request).await
         });
 
-        Ok((coordinator_to_worker_tx, worker_to_coordinator_rx))
+        Ok((coordinator_to_worker_tx, worker_to_coordinator_rx, prepared_rx))
     }
 
     /// Spawns a background task in charge of collecting messages sent by a worker. Some things that

@@ -871,6 +871,65 @@ lint:
     }
 
     #[test]
+    fn ci_builds_one_bounded_graph_and_reports_its_actual_exit_status() {
+        let root = super::repo::root().expect("the repo root");
+        let body = super::recipe_body(&root, "ci").expect("the CI recipe").join("\n");
+        for (cpus, pages, jobs, cores, status) in [
+            (16, 0x0080_0000, 2, 8, 0),
+            (16, 0x0080_0000, 2, 8, 23),
+            (4, 0x0040_0000, 1, 4, 0),
+        ] {
+            let script = format!(
+                r#"
+getconf() {{
+    case "$1" in
+        _NPROCESSORS_ONLN) printf {cpus} ;;
+        _PHYS_PAGES) printf {pages} ;;
+        PAGESIZE) printf 4096 ;;
+        *) return 1 ;;
+    esac
+}}
+nix() {{
+    printf 'nix-call:%s\n' "$*"
+    for arg; do
+        case "$arg" in .#checks.fixture.*) printf 'installable:%s\n' "$arg" ;; esac
+    done
+    return {status}
+}}
+{body}
+"#
+            );
+            let output = std::process::Command::new("bash")
+                .args(["--noprofile", "--norc", "-c", &script])
+                .env_remove("BASH_ENV")
+                .env("SUTURA_NIX_SYSTEM", "fixture")
+                .current_dir(&root)
+                .output()
+                .expect("the recipe executes without a real build");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert_eq!(output.status.code(), Some(status), "{stdout}");
+            assert_eq!(
+                stdout.lines().filter(|line| line.starts_with("nix-call:")).count(),
+                1,
+                "{stdout}"
+            );
+            assert_eq!(
+                stdout.lines().filter(|line| line.starts_with("installable:")).count(),
+                26,
+                "{stdout}"
+            );
+            assert!(
+                stdout.contains(&format!("--no-link --max-jobs {jobs} --cores {cores}")),
+                "{stdout}"
+            );
+            assert!(
+                stdout.contains("ci graph: duration=") && stdout.contains(&format!("status={status}")),
+                "{stdout}"
+            );
+        }
+    }
+
+    #[test]
     fn has_unescaped_backtick_distinguishes_the_three_shapes() {
         assert!(has_unescaped_backtick("echo `date`"), "a bare backtick runs the command");
         assert!(!has_unescaped_backtick("echo \\`date\\`"), "an escaped pair only prints");

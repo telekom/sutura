@@ -1,144 +1,80 @@
-//! Which job each `ci-aggregate` env input reads, pinned against a committed table.
-//!
-//! **The finding this exists for.** `ci-aggregate`'s `BQ_SELECTED` env reads
-//! `needs.ci.outputs.data_source_bigquery`, and nothing held that the source job was `ci`.
-//! `identity-classify` publishes the same output, so rewiring `BQ_SELECTED` to
-//! `needs.identity-classify.outputs.data_source_bigquery` resolves to the same value and every
-//! gate stayed green - the aggregate still saw `'true'` or `''` and ruled correctly on a leg
-//! whose selection was now being read from a DIFFERENT job's classification. The two classifications
-//! can disagree (#983), so the source job is not a cosmetic detail.
-//!
-//! The rule: a committed table names, for each env var the `ci-aggregate` step declares, the job
-//! whose output or result it MUST read. A different job name, or an expression that is not a
-//! `needs.<job>.` reference at all, is refused. The table is the mechanism - a comment saying "read
-//! from `ci`" is one edit from gone, and this is the same argument `obligations` made for the
-//! step-level `if:` conditions it pins.
-//!
-//! **What it does NOT reach.** It reads the `env:` block of the single step in `ci-aggregate`,
-//! not every `${{ }}` expression in the file. A `needs.<job>` reference inside the `run:` shell is
-//! invisible - the shell runs on a runner, not in this gate, and a reference inside it is a
-//! variable the shell reads rather than one GitHub expands. And it cannot tell whether the job it
-//! names actually PUBLISHES the output - that is `affected`'s
-//! `every_emitted_category_is_republished_as_a_ci_job_output`, which holds the two lists together
-//! and is the property that makes a wrong source job dangerous: the replacement publishes the same
-//! name, so the expression resolves and only this table notices the change.
-//!
-//! **The second rule: every `ci.yml` job is in the aggregate's `needs` or on [`UNAGGREGATED`].**
-//! `cross` ran red on a pull request while `ci-aggregate` stayed green, because it was in no
-//! `needs` and nothing compared the job list with that list. A job outside `needs` can fail
-//! without failing a required context, so being outside it is a decision with a reason written
-//! down, not an omission. What it does NOT reach: a job in a called workflow (it reads `ci.yml`'s
-//! own keys, so `cross` counts and `cross-link.yml`'s `link` does not - the caller's result carries
-//! it), and whether the `run:` shell reads a needed job's result at all - a `needs:` entry with no
-//! `*_RESULT` env is only half a gate, and the env table above is what holds the other half.
-//!
-//! Its own module rather than a row in `obligations`, which holds STEP `if:` conditions by step
-//! name: this holds ENV INPUT source jobs by env var name, over a different block of the same file.
-//!
-//! Five env inputs are pinned to their exact normalised condition, not only their source job: an
-//! equivalent rewrite is refused until the table is edited, which fails closed. That pin holds
-//! the TEXT, not that the condition is the right one - and it does not hold that
-//! `CAUS_REQUIRED`/`PGD_REQUIRED`/`SHIP_REQUIRED`/`BQC_REQUIRED` agree with their job's own `if:`
-//! (those read `identity-classify`, these read `ci`; a disagreement fails closed in one direction
-//! and runs an unrequested gate in the other). `E2E_REQUIRED` and every `*_SELECTED` input predate
-//! this and stay review-only, except that a `*_SELECTED` of a leg a push to `main` may skip also
-//! reads `queue-validated` and must end in that job's conjunct - [`queue_validated`] holds it.
+//! The required aggregate reads the exact results of CI, QA, and their prerequisite checks.
+//! Pin those inputs and require the fast gate as a prerequisite for the slow jobs.
 
 mod queue_validated;
 
 use std::path::Path;
 
-/// The committed table: for each `ci-aggregate` env var, the job whose output/result it must read.
-///
-/// `E2E_REQUIRED` is a compound expression, but every `needs.<job>.` reference in it names `ci`
-/// (it reads `needs.ci.outputs.data_source_bigquery`, `needs.ci.outputs.catalog_datahub` and
-/// `needs.ci.outputs.identity`). The table entry is the single job all of its `needs.` references
-/// must name; a reference to any other job is refused.
+/// Required inputs and the primary job each reads. The release event selector reads no job.
 const REQUIRED: &[(&str, &str)] = &[
     ("CI_RESULT", "ci"),
+    ("FAST_RESULT", "identity-classify"),
+    ("PLAN_RESULT", "qa-plan"),
+    ("QA_RESULT", "qa"),
+    ("BQ_REQUIRED", "qa-plan"),
+    ("BQ_RESULT", "bigquery-conformance"),
+    ("DATAHUB_REQUIRED", "qa-plan"),
+    ("DATAHUB_RESULT", "e2e-datahub-adbc"),
+    ("RELEASE_PUSH", ""),
     ("RELEASE_RESULT", "release-status"),
-    ("KC_RESULT", "keycloak-served-test"),
-    ("KC_SELECTED", "ci"),
-    ("BQ_RESULT", "bigquery-driver-check"),
-    ("BQ_SELECTED", "ci"),
-    ("E2E_RESULT", "e2e-datahub-adbc"),
-    ("E2E_REQUIRED", "ci"),
-    ("ORACLE_RESULT", "oracle-tier"),
-    ("ORACLE_SELECTED", "ci"),
-    ("MN_RESULT", "multi-node"),
-    ("MN_SELECTED", "ci"),
-    ("MNPG_RESULT", "multi-node-postgres"),
-    ("MNPG_SELECTED", "ci"),
-    ("MNORA_RESULT", "multi-node-oracle"),
-    ("MNORA_SELECTED", "ci"),
-    ("K3S_RESULT", "k3s-autoscaling"),
-    ("K3S_SELECTED", "ci"),
-    ("DH_RESULT", "ci-datahub-tier"),
-    ("DH_SELECTED", "ci"),
-    ("OM_RESULT", "ci-openmetadata-tier"),
-    ("OM_SELECTED", "ci"),
-    ("CUBE_RESULT", "ci-cube-tier"),
-    ("CUBE_SELECTED", "ci"),
-    ("BQC_RESULT", "bigquery-conformance"),
-    ("BQC_REQUIRED", "ci"),
     ("CAUS_RESULT", "causality"),
     ("CAUS_REQUIRED", "ci"),
     ("PGD_RESULT", "postgres-linked-driver"),
     ("PGD_REQUIRED", "ci"),
     ("SHIP_RESULT", "shipped-features"),
     ("SHIP_REQUIRED", "ci"),
-    ("CROSS_RESULT", "cross"),
 ];
 
-/// Env inputs whose whole condition is pinned, not only the job it reads: the selection the jobs
-/// that start off `identity-classify` (#1280, #1696) are required under. Exact text, so a
-/// neutralised copy (`false && ..`) is refused.
+/// The exact conditions for the aggregate's inputs.
 const EXPRESSIONS: &[(&str, &str)] = &[
+    ("CI_RESULT", "needs.ci.result"),
+    ("FAST_RESULT", "needs.identity-classify.result"),
+    ("PLAN_RESULT", "needs.qa-plan.result"),
+    ("QA_RESULT", "needs.qa.result"),
     (
-        "RELEASE_RESULT",
-        "(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) && needs.release-status.result || 'success'",
+        "BQ_REQUIRED",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
     ),
+    ("BQ_RESULT", "needs.bigquery-conformance.result"),
+    (
+        "DATAHUB_REQUIRED",
+        "contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')",
+    ),
+    ("DATAHUB_RESULT", "needs.e2e-datahub-adbc.result"),
+    (
+        "RELEASE_PUSH",
+        "github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')",
+    ),
+    ("RELEASE_RESULT", "needs.release-status.result"),
+    ("CAUS_RESULT", "needs.causality.result"),
     (
         "CAUS_REQUIRED",
-        "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
+        "needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.identity-classify.outputs.causality_reused != 'true'",
     ),
+    ("PGD_RESULT", "needs.postgres-linked-driver.result"),
     (
         "PGD_REQUIRED",
         "(needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push'",
     ),
+    ("SHIP_RESULT", "needs.shipped-features.result"),
     (
         "SHIP_REQUIRED",
         "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
     ),
-    (
-        "BQC_REQUIRED",
-        "(github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'",
-    ),
 ];
 
-/// The `ci.yml` jobs `ci-aggregate` deliberately does NOT `need`, each with why. A job in neither
-/// this list nor `needs` is refused: its result reaches no required context, so a red run of it
-/// blocks nothing - the state `cross` was in, and nothing noticed.
 const UNAGGREGATED: &[(&str, &str)] = &[
-    (
-        "pr-cache",
-        "warms the next push; a fork cannot see its environment, so a required result would never arrive",
-    ),
-    (
-        "crap-comment",
-        "posts the CRAP delta as a comment; `check-crap` inside `ci` gates the policy",
-    ),
-    (
-        "identity-classify",
-        "a classifier: its consumers are in `needs`, and the aggregate reads their selection from `ci`",
-    ),
+    ("pr-cache", "warms a future run"),
+    ("crap-comment", "posts the CRAP delta already gated by CI"),
     (
         "demo-container",
-        "a red demo must never block unrelated work; it is required at the release boundary instead",
+        "ordinary PR advisory; QA requires it in queue and full runs",
     ),
+    ("kind-smoke", "ordinary PR advisory; QA requires it in queue and full runs"),
+    ("qa-receipt", "records the checked-out PR commit after this aggregate"),
     (
-        "kind-smoke",
-        "needs a container runtime; advisory on `demo-container`'s reasoning until its flake rate is known",
+        "causality-receipt",
+        "records a reusable causality verdict after the causality job",
     ),
 ];
 
@@ -181,7 +117,8 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     };
     let mut out = check(&text);
     out.extend(unaggregated(&text));
-    out.extend(queue_validated::check(&text));
+    out.extend(fast_dependencies(&text));
+    out.extend(queue_validated::check(root, &text));
     out
 }
 
@@ -190,7 +127,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
 /// Fails closed when it finds no jobs or no `needs`: a scan that read nothing is broken, not clean.
 fn unaggregated(text: &str) -> Vec<String> {
     let jobs = job_ids(text);
-    let needs = aggregate_needs(text);
+    let needs = job_needs(text, AGGREGATE);
     if jobs.is_empty() || needs.is_empty() {
         return vec![format!(
             "ci-aggregate needs rule: found {} job(s) and {} `needs` entr(ies) - the scan is broken, \
@@ -246,22 +183,39 @@ fn job_ids(text: &str) -> Vec<(usize, String)> {
     out
 }
 
-/// The names in the aggregate's `needs:`, flow list (possibly over several lines) or block list.
-fn aggregate_needs(text: &str) -> Vec<String> {
-    let lines: Vec<&str> = text.lines().collect();
-    let Some(job_at) = lines.iter().position(|line| *line == format!("  {AGGREGATE}:")) else {
+/// Jobs doing slow work wait for the fast verdict, directly or through `ci`.
+fn fast_dependencies(text: &str) -> Vec<String> {
+    if !job_needs(text, "ci").iter().any(|need| need == "identity-classify") {
+        return vec![String::from(
+            "ci.yml: `ci` must need `identity-classify` before running the core checks",
+        )];
+    }
+    job_ids(text)
+        .into_iter()
+        .filter(|(_, job)| {
+            // The aggregate must report a failure. The lookup and release observer run no checks.
+            !matches!(job.as_str(), AGGREGATE | "ci" | "identity-classify" | "release-status")
+        })
+        .filter(|(_, job)| {
+            !job_needs(text, job)
+                .iter()
+                .any(|need| matches!(need.as_str(), "ci" | "identity-classify"))
+        })
+        .map(|(line, job)| format!("ci.yml:{line}  job `{job}` must need `identity-classify` or `ci`"))
+        .collect()
+}
+
+/// The names in a job's `needs:`, flow list (possibly over several lines) or block list.
+fn job_needs(text: &str, job: &str) -> Vec<String> {
+    let Some(body) = super::step::job(text, job) else {
         return Vec::new();
     };
     let indent = |line: &str| line.len().saturating_sub(line.trim_start().len());
-    let body = lines
-        .iter()
-        .skip(job_at.saturating_add(1))
-        .take_while(|line| line.trim().is_empty() || line.trim_start().starts_with('#') || indent(line) > 2);
     let mut raw = String::new();
     let mut open = false;
     for line in body {
         let code = line.split('#').next().unwrap_or_default().trim();
-        if let Some(rest) = code.strip_prefix("needs:") {
+        if let Some(rest) = line.strip_prefix("    needs:").and_then(|_| code.strip_prefix("needs:")) {
             open = true;
             raw.push_str(rest);
         } else if open && (indent(line) > 4 || (raw.contains('[') && !raw.contains(']'))) {
@@ -298,7 +252,7 @@ fn check(text: &str) -> Vec<String> {
             continue;
         };
         let expected = required.1;
-        if input.jobs.is_empty() {
+        if input.jobs.is_empty() && !expected.is_empty() {
             out.push(format!(
                 "ci.yml:{}  {AGGREGATE} env `{}` reads no `needs.<job>` reference - \
                  expected `needs.{expected}`",
@@ -307,7 +261,7 @@ fn check(text: &str) -> Vec<String> {
             continue;
         }
         for job in &input.jobs {
-            if job != expected && !(job == queue_validated::JOB && queue_validated::reads(&input.key)) {
+            if job != expected && !(input.key == "CAUS_REQUIRED" && job == "identity-classify") {
                 out.push(format!(
                     "ci.yml:{}  {AGGREGATE} env `{}` reads `needs.{job}` - \
                      the committed table requires `needs.{expected}`",
@@ -475,10 +429,12 @@ mod tests {
         out.push('\n');
         writeln!(out, "  {AGGREGATE}:").expect("writing into a String cannot fail");
         out.push_str("    runs-on: ubuntu-latest\n");
-        out.push_str("    needs: [ci, keycloak-served-test, bigquery-driver-check, e2e-datahub-adbc, oracle-tier]\n");
+        out.push_str(
+            "    needs: [ci, identity-classify, qa, release-status, causality, postgres-linked-driver, shipped-features]\n",
+        );
         out.push_str("    if: ${{ !cancelled() }}\n");
         out.push_str("    steps:\n");
-        out.push_str("      - name: Aggregate the category-gated legs\n");
+        out.push_str("      - name: Aggregate the required checks\n");
         out.push_str("        env:\n");
         out.push_str(env);
         out.push('\n');
@@ -492,38 +448,21 @@ mod tests {
     fn real_env() -> String {
         [
             "          CI_RESULT: ${{ needs.ci.result }}",
-            "          RELEASE_RESULT: ${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) && needs.release-status.result || 'success' }}",
-            "          KC_RESULT: ${{ needs.keycloak-served-test.result }}",
-            "          KC_SELECTED: ${{ needs.ci.outputs.identity }}",
-            "          BQ_RESULT: ${{ needs.bigquery-driver-check.result }}",
-            "          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}",
-            "          E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}",
-            "          E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}",
-            "          ORACLE_RESULT: ${{ needs.oracle-tier.result }}",
-            "          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}",
-            "          MN_RESULT: ${{ needs.multi-node.result }}",
-            "          MN_SELECTED: ${{ needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true' }}",
-            "          MNPG_RESULT: ${{ needs.multi-node-postgres.result }}",
-            "          MNPG_SELECTED: ${{ needs.ci.outputs.data_source_postgres == 'true' || needs.ci.outputs.identity == 'true' }}",
-            "          MNORA_RESULT: ${{ needs.multi-node-oracle.result }}",
-            "          MNORA_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.identity == 'true' }}",
-            "          K3S_RESULT: ${{ needs.k3s-autoscaling.result }}",
-            "          K3S_SELECTED: ${{ needs.ci.outputs.chart }}",
-            "          DH_RESULT: ${{ needs.ci-datahub-tier.result }}",
-            "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
-            "          OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}",
-            "          OM_SELECTED: ${{ needs.ci.outputs.catalog_openmetadata }}",
-            "          CUBE_RESULT: ${{ needs.ci-cube-tier.result }}",
-            "          CUBE_SELECTED: ${{ needs.ci.outputs.catalog_cube }}",
-            "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
-            "          BQC_REQUIRED: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true' }}",
+            "          FAST_RESULT: ${{ needs.identity-classify.result }}",
+            "          PLAN_RESULT: ${{ needs.qa-plan.result }}",
+            "          QA_RESULT: ${{ needs.qa.result }}",
+            "          BQ_REQUIRED: ${{ contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}",
+            "          BQ_RESULT: ${{ needs.bigquery-conformance.result }}",
+            "          DATAHUB_REQUIRED: ${{ contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}",
+            "          DATAHUB_RESULT: ${{ needs.e2e-datahub-adbc.result }}",
+            "          RELEASE_PUSH: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):') }}",
+            "          RELEASE_RESULT: ${{ needs.release-status.result }}",
             "          CAUS_RESULT: ${{ needs.causality.result }}",
-            "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
+            "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.identity-classify.outputs.causality_reused != 'true' }}",
             "          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}",
             "          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}",
             "          SHIP_RESULT: ${{ needs.shipped-features.result }}",
             "          SHIP_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
-            "          CROSS_RESULT: ${{ needs.cross.result }}",
         ]
         .join("\n")
     }
@@ -537,31 +476,31 @@ mod tests {
     #[test]
     fn bq_selected_rewired_to_identity_classify_fails() {
         let env = real_env().replace(
-            "BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery }}",
-            "BQ_SELECTED: ${{ needs.identity-classify.outputs.data_source_bigquery }}",
+            "QA_RESULT: ${{ needs.qa.result }}",
+            "QA_RESULT: ${{ needs.identity-classify.result }}",
         );
         let workflow = aggregate_workflow(&env);
         let problems = check(&workflow);
         let bq = problems
             .iter()
-            .find(|p| p.contains("BQ_SELECTED"))
-            .expect("BQ_SELECTED violation");
+            .find(|p| p.contains("QA_RESULT"))
+            .expect("QA_RESULT violation");
         assert!(bq.contains("reads `needs.identity-classify`"), "{bq}");
-        assert!(bq.contains("requires `needs.ci`"), "{bq}");
+        assert!(bq.contains("requires `needs.qa`"), "{bq}");
     }
 
     #[test]
     fn kc_selected_rewired_to_identity_classify_fails() {
         let env = real_env().replace(
-            "KC_SELECTED: ${{ needs.ci.outputs.identity }}",
-            "KC_SELECTED: ${{ needs.identity-classify.outputs.identity }}",
+            "SHIP_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
+            "SHIP_REQUIRED: ${{ needs.identity-classify.outputs.rust == 'true' && github.event_name != 'push' }}",
         );
         let workflow = aggregate_workflow(&env);
         let problems = check(&workflow);
         let kc = problems
             .iter()
-            .find(|p| p.contains("KC_SELECTED"))
-            .expect("KC_SELECTED violation");
+            .find(|p| p.contains("SHIP_REQUIRED"))
+            .expect("SHIP_REQUIRED violation");
         assert!(kc.contains("reads `needs.identity-classify`"), "{kc}");
         assert!(kc.contains("requires `needs.ci`"), "{kc}");
     }
@@ -585,13 +524,13 @@ mod tests {
     fn a_table_entry_the_aggregate_dropped_fails() {
         let env = real_env()
             .lines()
-            .filter(|line| !line.contains("E2E_RESULT"))
+            .filter(|line| !line.contains("QA_RESULT"))
             .collect::<Vec<_>>()
             .join("\n");
         let workflow = aggregate_workflow(&env);
         let problems = check(&workflow);
         assert!(
-            problems.iter().any(|p| p.contains("E2E_RESULT") && p.contains("stale")),
+            problems.iter().any(|p| p.contains("QA_RESULT") && p.contains("stale")),
             "{problems:?}"
         );
     }
@@ -640,7 +579,7 @@ mod tests {
 
     #[test]
     fn a_neutralised_moved_job_condition_fails() {
-        for key in ["CAUS_REQUIRED", "PGD_REQUIRED", "SHIP_REQUIRED", "BQC_REQUIRED"] {
+        for key in ["CAUS_REQUIRED", "PGD_REQUIRED", "SHIP_REQUIRED", "RELEASE_PUSH"] {
             let env = real_env().replace(&format!("{key}: ${{{{"), &format!("{key}: ${{{{ false &&"));
             let workflow = aggregate_workflow(&env);
             let problems = check(&workflow);
@@ -659,7 +598,7 @@ mod tests {
             .lines()
             .map(|line| {
                 if line.starts_with("          CAUS_REQUIRED:") {
-                    line.replace(" && github.event_name != 'push' }}", " }}")
+                    line.replace(" && github.event_name != 'push'", "")
                 } else {
                     String::from(line)
                 }
@@ -716,18 +655,34 @@ mod tests {
     }
 
     #[test]
+    fn a_slow_job_without_the_fast_dependency_is_refused() {
+        let workflow = "jobs:
+  identity-classify:
+    runs-on: ubuntu-latest
+  ci:
+    needs: [identity-classify]
+  cross:
+    needs: [ci]
+";
+        assert_eq!(fast_dependencies(workflow), Vec::<String>::new());
+        let problems = fast_dependencies(&workflow.replace("    needs: [ci]\n", ""));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("job `cross`"), "{problems:?}");
+    }
+
+    #[test]
     fn an_exemption_that_contradicts_or_outlives_its_job_is_refused() {
-        let contradicted = unaggregated(&jobs_fixture(&[], "[ci, kind-smoke]"));
+        let contradicted = unaggregated(&jobs_fixture(&[], "[ci, pr-cache]"));
         assert!(
             contradicted
                 .iter()
-                .any(|p| p.contains("`kind-smoke`") && p.contains("drop the exemption")),
+                .any(|p| p.contains("`pr-cache`") && p.contains("drop the exemption")),
             "{contradicted:?}"
         );
-        let gone = jobs_fixture(&[], "[ci]").replace("  kind-smoke:\n", "  smoke-renamed:\n");
+        let gone = jobs_fixture(&[], "[ci]").replace("  pr-cache:\n", "  cache-renamed:\n");
         let stale = unaggregated(&gone);
         assert!(
-            stale.iter().any(|p| p.contains("`kind-smoke`") && p.contains("stale")),
+            stale.iter().any(|p| p.contains("`pr-cache`") && p.contains("stale")),
             "{stale:?}"
         );
     }

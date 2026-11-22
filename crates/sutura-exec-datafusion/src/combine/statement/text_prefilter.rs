@@ -10,7 +10,7 @@ use datafusion::sql::sqlparser::ast::{
     BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
     ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
 };
-use sutura_domain::catalog::{PrefilterCapability, TextPolicy};
+use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
@@ -161,7 +161,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     if terms
         .iter()
         .enumerate()
-        .any(|(index, term)| index != chosen && !cannot_raise(term, table, alias, &aliases))
+        .any(|(index, term)| index != chosen && !cannot_raise(term, table, alias, &aliases, capability))
     {
         return Ok(None);
     }
@@ -188,9 +188,25 @@ fn conjuncts<'a>(expression: &'a Expr, terms: &mut Vec<&'a Expr>) {
 
 /// Only a plain column compared with literals of its own type: no function, cast, arithmetic,
 /// subquery or column on both sides, so no row can make the source raise.
-fn cannot_raise(term: &Expr, table: &StatementTable, alias: Option<&Ident>, aliases: &[&str]) -> bool {
-    let against =
-        |column: &Expr, literal: &Expr| plain(column, table, alias, aliases).is_some_and(|field| literal_of(literal, field));
+///
+/// On PostgreSQL a policy column is read through the view's regex, which a nondeterministic
+/// collation refuses. Such a sibling can raise on one row, so it counts only where its column is
+/// pinned binary too.
+fn cannot_raise(
+    term: &Expr,
+    table: &StatementTable,
+    alias: Option<&Ident>,
+    aliases: &[&str],
+    capability: PrefilterCapability,
+) -> bool {
+    let column = |expression: &Expr| {
+        plain(expression, table, alias, aliases).filter(|field| {
+            capability != PrefilterCapability::Postgres
+                || !field.metadata().contains_key("sutura:text_policy")
+                || Collation::of_field(field).is_binary()
+        })
+    };
+    let against = |expression: &Expr, literal: &Expr| column(expression).is_some_and(|field| literal_of(literal, field));
     match term {
         Expr::BinaryOp {
             left,
@@ -203,7 +219,7 @@ fn cannot_raise(term: &Expr, table: &StatementTable, alias: Option<&Ident>, alia
                 | BinaryOperator::GtEq,
             right,
         } => against(left, right) || against(right, left),
-        Expr::IsNull(column) | Expr::IsNotNull(column) => plain(column, table, alias, aliases).is_some(),
+        Expr::IsNull(expression) | Expr::IsNotNull(expression) => column(expression).is_some(),
         Expr::InList { expr, list, .. } => list.iter().all(|literal| against(expr, literal)),
         Expr::Between { expr, low, high, .. } => against(expr, low) && against(expr, high),
         _ => false,
@@ -222,8 +238,8 @@ fn plain<'a>(expression: &Expr, table: &'a StatementTable, alias: Option<&Ident>
 ///
 /// An Arrow `Utf8` field alone proves nothing: a type the dialect does not list falls back to
 /// `Utf8`, and an unbounded Oracle `NUMBER` is `Utf8` too, so a string literal could make the source
-/// convert stored values and raise on one row. Only a column carrying a text policy is proven
-/// declared text, because pinning refuses a policy on a fallback or unbounded-number column.
+/// convert stored values and raise on one row. Pinning marks declared scalar text explicitly;
+/// a text policy also proves declared text. Neither proof admits an Oracle LOB comparison.
 fn literal_of(expression: &Expr, field: &Field) -> bool {
     let kind = field.data_type();
     let unsigned = matches!(kind, DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64);
@@ -242,7 +258,8 @@ fn literal_of(expression: &Expr, field: &Field) -> bool {
         );
     let metadata = field.metadata();
     let text = matches!(kind, DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
-        && metadata.contains_key("sutura:text_policy")
+        && (metadata.contains_key("sutura:text_policy")
+            || metadata.get("sutura:scalar_text").is_some_and(|value| value == "true"))
         && !metadata.contains_key("sutura:unbounded_number")
         && !metadata.contains_key("sutura:oracle_lob");
     match expression {
@@ -350,6 +367,9 @@ fn condition(
     let Ok(field) = table.schema().field_with_name(&column.value) else {
         return Ok(None);
     };
+    if !capability.admits(&Collation::of_field(field)) {
+        return Ok(None);
+    }
     let Some(encoded) = field.metadata().get("sutura:text_policy") else {
         return Ok(None);
     };
@@ -365,11 +385,13 @@ fn condition(
     if capability == PrefilterCapability::Oracle && !lob {
         return Ok(None);
     }
+    // A wrong authored binary pin must not let case folding create a replacement match.
+    let folded = capability == PrefilterCapability::DuckDb;
     if !policy
         .redactions()
         .iter()
-        .all(|rule| preserves(needle, rule.replacement(), upper))
-        || (!lob && policy.max_text_bytes().is_some() && !preserves(needle, "...[truncated]", upper))
+        .all(|rule| preserves(needle, rule.replacement(), upper, folded))
+        || (!lob && policy.max_text_bytes().is_some() && !preserves(needle, "...[truncated]", upper, folded))
     {
         return Ok(None);
     }
@@ -409,7 +431,11 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
         escape_char: None,
     };
     match capability {
-        PrefilterCapability::DataFusion => Expr::Nested(Box::new(raw)),
+        PrefilterCapability::DataFusion
+        | PrefilterCapability::Postgres
+        | PrefilterCapability::DuckDb
+        | PrefilterCapability::BigQuery
+        | PrefilterCapability::ClickHouse => Expr::Nested(Box::new(raw)),
         PrefilterCapability::Oracle => {
             let sort = Expr::Function(Function {
                 name: ObjectName::from(vec![Ident::new("SYS_CONTEXT")]),
@@ -454,7 +480,9 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
 }
 
 /// No occurrence may live inside a replacement or cross either of its nonempty boundaries.
-fn preserves(needle: &str, replacement: &str, upper: bool) -> bool {
+///
+/// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
+fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
     if replacement.is_empty() || !replacement.is_ascii() {
         return false;
     }
@@ -463,10 +491,15 @@ fn preserves(needle: &str, replacement: &str, upper: bool) -> bool {
     } else {
         String::from(replacement)
     };
+    let (needle, normalized) = if folded {
+        (needle.to_ascii_lowercase(), normalized.to_ascii_lowercase())
+    } else {
+        (String::from(needle), normalized)
+    };
     let mut bytes = normalized.bytes();
     let Some(first) = bytes.next() else {
         return false;
     };
     let last = bytes.next_back().unwrap_or(first);
-    !needle.as_bytes().contains(&first) && !needle.as_bytes().contains(&last) && !normalized.contains(needle)
+    !needle.as_bytes().contains(&first) && !needle.as_bytes().contains(&last) && !normalized.contains(&needle)
 }

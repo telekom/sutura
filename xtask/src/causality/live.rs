@@ -4,7 +4,7 @@
 //! permission that replaces it.
 //!
 //! TWO CHECKS. `<system>` must have a `from: Exempt::Unavailable` entry in [`EXEMPTIONS`] whose
-//! `runs_in` is `<ci-job>`, and `<ci-job>` must be a job key under `jobs:` in [`CI`]. The coupling
+//! `runs_in` is `<ci-job>`, and CI must declare the named job or QA suite. The coupling
 //! is that [`EXEMPTIONS`] names the `runs_in` as a `just` task, the trailer names a ci.yml job,
 //! and for bigquery both are `bigquery-conformance`. Only a test under [`MATRIX`] may leave the
 //! scope, and a name `Claim-Cell:` also declares is refused. A malformed trailer - not exactly
@@ -108,7 +108,7 @@ impl std::fmt::Display for LiveError {
             ),
             Self::NoJob { cell, job } => write!(
                 f,
-                "`Live-Cell: {cell}` names {job}, which is no job in {CI} - name the live job whose \
+                "`Live-Cell: {cell}` names {job}, which is no job or QA suite in {CI} - name the live job whose \
                  runs measure the cell"
             ),
             Self::AlsoClaimed { cell } => write!(
@@ -131,9 +131,8 @@ impl Live {
     /// exactly as [`worktree::commit_logs`] does - see `super::weakens::Waived::of` for why), refused
     /// on the first trailer whose system or job fails its check, or whose name `Claim-Cell:` also
     /// declares.
-    pub(super) fn parse(log: &str, exemptions: &str, ci: &str) -> Result<Self, LiveError> {
+    fn parse_with_jobs(log: &str, exemptions: &str, jobs: &[String]) -> Result<Self, LiveError> {
         let entries: Vec<&str> = exemptions.lines().map(str::trim).collect();
-        let jobs = block_keys(ci, "jobs:");
         let mut cells = Vec::new();
         for (_, message) in worktree::commit_logs(log) {
             for line in message.lines() {
@@ -183,12 +182,22 @@ impl Live {
         Ok(Self(cells))
     }
 
-    /// [`EXEMPTIONS`] and [`CI`] under `root`, then [`Self::parse`]. A file that cannot be read is
+    /// [`EXEMPTIONS`] and [`CI`] under `root`, then [`Self::parse_with_jobs`]. A file that cannot be read is
     /// empty - an absent exemptions file makes every trailer refuse, the fail-closed direction.
     pub(super) fn read(root: &std::path::Path, log: &str) -> Option<Self> {
         let exemptions = std::fs::read_to_string(root.join(EXEMPTIONS)).unwrap_or_default();
         let ci = std::fs::read_to_string(root.join(CI)).unwrap_or_default();
-        match Self::parse(log, &exemptions, &ci).and_then(|live| live.witnessed(|cell| head_output(root, cell))) {
+        let mut jobs = block_keys(&ci, "jobs:");
+        if let Some(qa) = crate::workflows::step::job(&ci, "qa")
+            && qa.contains(&"    uses: $/.github/workflows/qa.yml")
+            && let Ok(workflow) = std::fs::read_to_string(root.join(".github/workflows/qa.yml"))
+        {
+            jobs.extend(block_keys(&workflow, "jobs:"));
+            if crate::workflows::step::job(&workflow, "integration").is_some() {
+                jobs.extend(crate::changes::ci_suites::ids(root).unwrap_or_default());
+            }
+        }
+        match Self::parse_with_jobs(log, &exemptions, &jobs).and_then(|live| live.witnessed(|cell| head_output(root, cell))) {
             Err(e) => {
                 eprintln!("xtask test-causality: FAILED - {e}");
                 None
@@ -197,7 +206,7 @@ impl Live {
                 for cell in &live.0 {
                     println!(
                         "  live cell: {} - declared for {}; under {MATRIX} it leaves the offline scope, \
-                         and ci.yml:{}'s runs are its only evidence",
+                         and CI suite {} is its live evidence",
                         cell.name, cell.system, cell.job
                     );
                 }
@@ -369,6 +378,12 @@ mod tests {
         "  oracle-tier:\n",
         "    runs-on: x\n",
     );
+
+    impl Live {
+        fn parse(log: &str, exemptions: &str, ci: &str) -> Result<Self, LiveError> {
+            Self::parse_with_jobs(log, exemptions, &super::block_keys(ci, "jobs:"))
+        }
+    }
 
     /// The names a runnable scan scopes.
     fn runnable_names(scan: &Scan) -> Vec<String> {

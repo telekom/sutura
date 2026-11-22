@@ -31,6 +31,7 @@ use crate::repo;
 /// `changes/`: it is a peer of the classification code, not a step of it.
 #[path = "affected.rs"]
 mod affected;
+pub(crate) mod ci_suites;
 
 /// Every input `nix-store-cache`'s `primary-key` must hash for the dependency generation,
 /// because each one moves `.#deps` (`ciArtifacts`, `flake.nix`) without moving `Cargo.lock`.

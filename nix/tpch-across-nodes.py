@@ -120,6 +120,8 @@ class Corpus:
         self.controls = accepted["controls"]
         self.questions = everything
 
+        if "revenue-by-segment-yearly" not in self.listed:
+            refuse("the required stream-width witness must stay listed")
         if data["scale"] != self.scale:
             refuse(f"the data is SF{data['scale']}, the plan SF{self.scale}")
         names = self.listed + self.observed + self.skipped + self.controls
@@ -497,6 +499,12 @@ def run(venue: Venue, corpus: Corpus, subtest) -> dict:
                 problems.append(f"MANY did not answer: {cell(many)}")
             if one["outcome"] == "refusal" and one["code"] != "result_too_large":
                 problems.append(f"ONE refused `{one['code']}`, not result_too_large")
+            if name == "revenue-by-segment-yearly" and (
+                one["outcome"] != "refusal" or one["code"] != "result_too_large"
+            ):
+                problems.append(
+                    "ONE must refuse the stream-width witness as result_too_large"
+                )
             if many["outcome"] == "answer":
                 problems += range_problems
         for other, label in ((many, "MANY"), (one, "ONE")):

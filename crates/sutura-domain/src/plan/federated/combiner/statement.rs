@@ -125,6 +125,34 @@ impl<'a> StatementQuestion<'a> {
     }
 }
 
+/// Whether a source part reads a column under a text policy, and where that policy runs.
+///
+/// Decides what a leg that ran past the deadline means: one that never read masked text is a slow
+/// statement, and a filter on another column can narrow masking at its source ([`Self::AtSource`])
+/// or the rows entering a local policy at Cube ([`Self::Locally`]). **The limit:** the engine reads it off the planned scans' projected
+/// columns, so a column the planner pruned is not read, and a part that reads a policy column only to
+/// project it is read all the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyRead {
+    /// No column under a text policy is read.
+    Unread,
+    /// A column under a text policy is read and the source applies the policy, so the rows it
+    /// answers are already masked and filtered.
+    AtSource,
+    /// A column under a text policy is read and the engine applies the policy to the rows after the
+    /// leg answers, as at a Cube source. Supported conjuncts on columns without a policy reach Cube;
+    /// the row cap counts the rows entering local masking and filtering.
+    Locally,
+}
+
+impl PolicyRead {
+    /// Whether the part reads a column under a text policy, wherever the policy runs.
+    #[must_use]
+    pub const fn is_read(self) -> bool {
+        !matches!(self, Self::Unread)
+    }
+}
+
 /// Runs the part of a statement one source answers, under the caller, through the raw port.
 pub trait StatementLegs {
     /// Why a leg did not answer. The runner's own, and opaque to the combiner.
@@ -144,7 +172,8 @@ pub trait StatementLegs {
     /// [`Self::Stop`], which ends the answer.
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop>;
 
-    /// Runs one query-only plan's unparsed statement and its actual scan tables.
+    /// Runs one query-only plan's unparsed statement and its actual scan tables, with whether it
+    /// reads a column under a text policy.
     ///
     /// The planner must have resolved every table and column against the request's scoped pinned
     /// schemas, with DDL, DML, other statements and table functions unavailable. This is a library
@@ -158,6 +187,7 @@ pub trait StatementLegs {
         source: &SourceName,
         statement: &RawStatement,
         _tables: &BTreeSet<QualifiedTable>,
+        _policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
         self.run(source, statement)
     }

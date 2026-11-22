@@ -233,6 +233,13 @@ pub(crate) const TASKS: &[Task] = &[
         run: changes::run_classify,
     },
     Task {
+        name: "ci-suites",
+        description: "select integration suites for the QA matrix; --since <ref> or --all",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: changes::ci_suites::run,
+    },
+    Task {
         name: "changed-packages",
         description: "the cargo packages owning the given .rs paths",
         kind: Kind::Standalone,

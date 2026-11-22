@@ -422,6 +422,9 @@ fn decode(
         column_type: text(7)?,
         column_description: text(8)?,
         is_primary_key: flag(number_at(9).map_err(read_err)?),
+        // Oracle compares under the session's `NLS_SORT`, which no dictionary view records; the
+        // search path checks it at run time.
+        column_collation: sutura_domain::catalog::Collation::Unknown,
     })
 }
 

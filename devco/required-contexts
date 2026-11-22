@@ -121,195 +121,35 @@ ci.yml:release-status
 # context and cannot spell `cross / link (<triple>)` - or one aggregating job to add, whose plain
 # context it can check like any other.
 
-# The cross link matrix. It calls `cross-link.yml`, so its legs report `cross / link (<triple>)`
-# and the required set contains none of them - a context nobody can require, because `cargo xtask
-# check-workflows` cannot spell a matrix-expanded one. GATED INSTEAD through `ci-aggregate`, which
-# `needs: [cross]` and fails when a leg that ran is not green (skipped stays fine: the merge queue
-# never runs it). A pull request that breaks the cross link for a published triple therefore cannot
-# merge. Which cells run is `cross-link.yml`'s matrix and `cargo xtask check-workflows` holds it; the
-# full four survive only in `release.yml`.
-ci.yml:cross
-
-# The called workflow's own job - the one that reports those legs. NOT A REQUIRED CONTEXT
-# DELIBERATELY, and this is the entry where that decision is written down rather than left to the reader:
-#
-#   * REQUIRING THE LEGS DIRECTLY was weighed and refused. One context string per cell,
-#     maintained by hand, each carrying a matrix value and the caller's job name, and `cargo xtask
-#     check-workflows` cannot derive any of them - so the gate would be blind exactly where the
-#     cost is. Note what does NOT discriminate here, because the first draft of this bullet leaned
-#     on it: *a required context that stops reporting is a permanently pending merge* is equally
-#     true of `ci`, which is required. What decides it is only that these contexts are
-#     matrix-expanded.
-#   * MOVING THE CHECK INSIDE `ci` would make it required, since `ci` is the required context and a
-#     STEP inside it is gated. It is refused on what the matrix buys: four runners build four
-#     dependency closures in parallel, so a branch waits for one target instead of four. Inside
-#     `ci` the same work is sequential, on the job every pull request waits for, and `needs: [ci]`
-#     exists so a tree that fails clippy does not spend four runners proving it also links.
-#   * MAKING `ci` DEPEND ON THE LEGS is not available: `cross` has `needs: [ci]`, so that edge
-#     cannot be inverted without a cycle.
-#   * AN AGGREGATING JOB WAS THE REMEDY, AND `ci-aggregate` IS IT: it `needs: [cross]` and reports one
-#     plain context the ruleset already requires, so a red leg fails it and a rename of the legs
-#     behind it fails `aggregate_inputs`' needs rule instead of the merge box. That rule refuses a
-#     `ci.yml` job that is neither in the aggregate's `needs` nor on its reasoned exemption list.
-#
-# So the legs stay uncontextualised and the coverage is gated through the aggregate. What
-# `cargo xtask check-workflows` still needs from this entry is that the classification is complete:
-# it is what fails when a job is added to the called workflow.
-cross-link.yml:link
-
-# Posts the CRAP delta as a pull-request comment. Advisory by design: it reports, and `check-crap`
-# inside `ci` is what gates the policy.
-ci.yml:crap-comment
-
-# Publishes this pull request's own realised store paths to the additive PR cache. Advisory by
-# design: it warms the next push of the same PR, so a red or missing publish costs a rebuild and
-# never blocks a merge - a fork's pull request cannot see its environment either, which alone
-# would leave it permanently pending.
-ci.yml:pr-cache
-
-# `keycloak-served-test`'s and `bigquery-driver-check`'s own classification (#983), so neither
-# leg's START waits for the full `ci` job to finish. It carries no `if:` at all - it reports on every pull request, push and
-# merge-group entry - and it reads no secret, so there is nothing here for a fork's pull request
-# to be denied. Advisory for the same reason `pr-cache` above is: nothing downstream needs its
-# result to be `[required]` for the leg it gates to stay covered - `ci-aggregate` (unchanged)
-# still decides what it demands of `keycloak-served-test` from `needs.ci.outputs.identity`, its
-# OWN read, never from this job's. This job's own `identity` output only ever WIDENS which pull
-# requests boot the JVM (`keycloak-served-test` reads it directly, see that entry below), never
-# narrows what `ci-aggregate` requires. Its `data_source_bigquery` output is the same shape: read
-# by `bigquery-driver-check`, never by `ci-aggregate`.
-ci.yml:identity-classify
-
-# On a push to `main`, which legs the merge queue already ran green on the same commit (#1696).
-# It carries no `if:` and reports on every event `ci.yml` runs on; its one step does work only on
-# a push to `main` and reads no secret beyond the run's own `actions: read` token. Not required
-# itself: a red run skips the legs it feeds while their `*_SELECTED` stays `true`, so
-# `ci-aggregate` goes red whenever one of them is selected; with none selected it decides nothing.
-ci.yml:queue-validated
-
-# The provisioned-Keycloak leg-1 venue: `if: needs.identity-classify.outputs.identity == 'true'`
-# (#983 moved it off `needs.ci.outputs.identity`, see `ci.yml:identity-classify` above), so it
-# reports nothing at all on a pull request whose diff does not touch the `identity` category - the
-# same reason `format.yml:format` below is advisory rather than the reason the since-removed
-# `bigquery-acceptance` leg was - that entry is gone from this file with the job. Unlike it this one
-# reads no secret and needs no environment, so a fork's pull request can run
-# it when the paths select it; what still rules out `[required]` is that most pull requests do not
-# touch those paths at all, and a required context that does not report on most runs is exactly the
-# permanently-pending merge this file's header warns about.
-ci.yml:keycloak-served-test
-
-# The ADBC driver, executed rather than built: `if:` on
-# `needs.identity-classify.outputs.data_source_bigquery` (moved off `ci`'s copy of the flag the
-# way #983 moved `keycloak-served-test`; `ci-aggregate` still reads `ci`'s), so it reports nothing
-# on a pull request whose diff does not touch that category - the
-# same reason `keycloak-served-test` above is advisory rather than required, and the same reason it
-# is nonetheless GATED: `ci-aggregate` holds run-or-fail for it, and `ci-aggregate` is a required
-# context. It reads no secret and needs no environment, so a fork's pull request can run it when
-# the paths select it.
-#
-# What it buys over the `ADBC driver` step inside `ci`: that step builds the four `.so` files, this
-# one LOADS one into both release binaries and runs the driver's Go runtime beside tokio and the
-# allocator. The owner asked for a run rather than a link, and a link-success check would have
-# passed over a driver that cannot initialise.
-ci.yml:bigquery-driver-check
-
-# The red-before-green gate for changed tests, out of `ci` (#1280) so it runs beside it. Advisory for
-# `bigquery-driver-check`'s reason, and the one that matters more here: it was a step of the
-# required `ci` context, so its gating now rests on `ci-aggregate` holding run-or-fail for it -
-# `needs.ci.outputs.rust` selected and this job not `success` is a red aggregate, off a push. It
-# reports nothing on a push, where it never ran.
-ci.yml:causality
-
-# The adapter's tier-backed cells through the LINKED static musl PostgreSQL driver, out of `ci`
-# (#1280) on `ci.yml:causality`'s terms. Selected by `run_all`, `nix` or `data_source_postgres`; held
-# run-or-fail by `ci-aggregate` against `ci`'s own copy of those three flags.
-ci.yml:postgres-linked-driver
-
-# The shipped feature set - cargo's default features compiled, linted and tested - out of `ci`
-# (#1696) on `ci.yml:causality`'s terms. Selected by `rust`; held run-or-fail by `ci-aggregate`
-# against `ci`'s own `rust`, off a push.
-ci.yml:shipped-features
-
-# The hosted DataHub/ADBC acceptance runs when a BigQuery, DataHub or identity change selects it
-# and the event can receive the bq-test credential. The required ci-aggregate job refuses a skip
-# on a selected same-repository pull request or push.
+# The reusable integration workflow and its called jobs are gated by ci-aggregate.
+ci.yml:qa-plan
+ci.yml:qa
+qa.yml:plan
+qa.yml:core-graph
+qa.yml:integration
+qa.yml:demo
+qa.yml:cross
 ci.yml:e2e-datahub-adbc
-
-# The golden matrix's `bigquery` row against a real dataset. Advisory here, and run-or-fail through
-# `ci-aggregate` on a selected same-repository pull request or merge group. It reports nothing on a
-# push, where it no longer runs (#1696). One run's corpus cell timed out undiagnosed (37152629712),
-# so how it behaves under load is unproven.
 ci.yml:bigquery-conformance
+qa.yml:integration-verdict
+cross-link.yml:link
+demo-container.yml:smoke-test
 
-# The Oracle docker tier, advisory for `bigquery-driver-check`'s reason: category-gated on
-# `data_source_oracle` or `catalog_rdbms`, so it reports nothing on most pull requests, and a required context that
-# does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
-ci.yml:oracle-tier
-
-# Two NixOS VMs federating a leg, advisory for `oracle-tier`'s reason: category-gated on
-# `data_source_node`, `data_source_clickhouse` or `identity`. `ci-aggregate` holds run-or-fail for it.
-ci.yml:multi-node
-
-# Four NixOS VMs granting a split PostgreSQL lookup leg to reading workers, advisory for `oracle-tier`'s
-# reason: gated on `run_all`, `nix`, `data_source_postgres`, `data_source_datafusion` or `identity`. `ci-aggregate` holds run-or-fail for it.
-ci.yml:multi-node-postgres
-
-# Five NixOS VMs granting a split Oracle lookup leg to reading workers, advisory for `oracle-tier`'s
-# reason: gated on `run_all`, `nix`, `data_source_oracle`, `data_source_datafusion` or `identity`.
-# `ci-aggregate` holds run-or-fail for the selected venue.
-ci.yml:multi-node-oracle
-
-# The chart scaled by its autoscaler in a k3s VM, advisory for `oracle-tier`'s reason: gated on the
-# `chart` area. `ci-aggregate` holds run-or-fail for it.
-ci.yml:k3s-autoscaling
-
-# The DataHub docker tier, advisory for `oracle-tier`'s reason above: category-gated on
-# `catalog_datahub` (derived from `crates/sutura-catalog-datahub`; a docker-tier
-# `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on
-# a diff confined to other adapters (e.g. one limited to `crates/sutura-exec-oracle/`), and a
-# required context that does not report is a permanently pending merge.
-# `ci-aggregate` holds run-or-fail for it.
-ci.yml:ci-datahub-tier
-
-# The OpenMetadata docker tier, advisory for `ci-datahub-tier`'s reason above: category-gated on
-# `catalog_openmetadata` (derived from `crates/sutura-catalog-openmetadata`; a docker-tier
-# `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on a
-# diff confined to other adapters, and a required context that does not report is a permanently
-# pending merge. `ci-aggregate` holds run-or-fail for it.
-ci.yml:ci-openmetadata-tier
-
-# The Cube docker tier, advisory for `ci-openmetadata-tier`'s reason above: category-gated on
-# `catalog_cube` (derived from `crates/sutura-catalog-cube`). `ci-aggregate` holds run-or-fail for it.
-ci.yml:ci-cube-tier
-
-# #149 branch 5's smoke test, advisory on `ci.yml:demo-container`'s own reasoning one entry
-# down: it needs a container runtime and a real network namespace, which is what makes it
-# unsuited to a nix check, and a red kind cluster must not block unrelated work on a pull
-# request the way a red demo must not. Unlike `demo-container` this is a plain job in `ci.yml`
-# itself rather than a caller into a reusable workflow, so its context IS spellable and this
-# could become `[required]` later without a platform question attached - it stays advisory
-# because nothing yet has run it enough times to know its own flake rate.
+# Ordinary pull-request smoke results stay advisory. Reusable QA gates these suites on the queue.
+ci.yml:demo-container
 ci.yml:kind-smoke
 
-# The demo's container tier, the caller's job. It calls `demo-container.yml`, so its one job
-# reports `demo-container / smoke-test`, the same caller-prefixed shape `cross-link.yml:link`
-# carries and for the same reason: `cargo xtask check-workflows` derives a plain job's context
-# and cannot spell a caller-prefixed one, so this record cannot name it as a `[required]` entry.
-# Whether GitHub itself can hold a caller-prefixed context as a required check is a platform
-# claim nobody here has reproduced. ADVISORY ALSO BY
-# DECISION, not only by that mechanical limit - the owner call recorded in `demo-container.yml`'s
-# own header (2026-09-19, `github.com/telekom/sutura#639`) is that a red demo must never block
-# unrelated work on a pull request. It becomes required at the release boundary instead:
-# `release.yml`'s own call into the same file sits in `publish`'s `needs:`, and `release.yml` is
-# not `on:` a gating event, so nothing here classifies that job at all.
-ci.yml:demo-container
+# These report advisory metadata after the associated required gate.
+ci.yml:qa-receipt
+ci.yml:causality-receipt
+ci.yml:crap-comment
+ci.yml:pr-cache
 
-# The called workflow's own job - the one that reports the context above. Advisory for the same
-# reason as `ci.yml:demo-container` above: `cargo xtask check-workflows` derives a plain job's
-# context and cannot spell a caller-prefixed one, so this record cannot name it as a `[required]`
-# entry. Whether GitHub itself can hold a caller-prefixed context as a required check is a
-# platform claim nobody here has reproduced. Advisory also by decision, not only by that
-# mechanical limit.
-demo-container.yml:smoke-test
+# Fast checks precede core CI, reusable QA and the independently gated Rust checks.
+ci.yml:identity-classify
+ci.yml:causality
+ci.yml:postgres-linked-driver
+ci.yml:shipped-features
 
 # The documentation site. `verify` proves the site builds under `--strict` on a pull request;
 # `publish` runs on everything else and reports no context on one. Neither is required, and
@@ -347,10 +187,6 @@ security-audit.yml:audit
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
 
-# Manual-only finishing; skipped on pull requests, with both task receipts audited separately.
-# Advisory here does not grant merge readiness or replace required CI.
-format.yml:finishing-tasks
-format.yml:finishing
 
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
 # partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it

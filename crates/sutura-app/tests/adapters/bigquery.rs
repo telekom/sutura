@@ -10,7 +10,7 @@ use sutura_exec_bigquery::BigQueryWarehouse;
 use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation};
 use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
 
-use super::{DIM_CALENDAR, DataSystemUnderTest, FCT_TICKET_MONTHLY, local_bundle, posture, schema_counter, set};
+use super::{DIM_CALENDAR, DataSystemUnderTest, FCT_TICKET_MONTHLY, local_bundle, posture, schema_counter, set, source};
 
 /// One table the `bigquery` dataset holds, and what the provisioning cell loads into it: `None` for an
 /// example-corpus table, which loads its committed CSV, and the rows of a two-fact table the corpus
@@ -31,12 +31,10 @@ pub(crate) const BIGQUERY_TABLES: [DatasetTable; 7] = [
 
 /// `BigQuery`: cloud-only, so its venue is the dataset the `bigquery-conformance` CI job loads
 /// [`BIGQUERY_TABLES`] into before this axis runs. Every cell READS those tables and none writes, so
-/// an open over any other table is refused rather than loaded: it would replace a table other cells
-/// are reading, and one dataset has no per-open schema to give it. **Its limit:** a table is matched
-/// by NAME, so a derived corpus's edit to an example table is not what runs here - the two-fact
-/// differential's appended `fct_subscription_monthly` rows fall outside its question's range, which
-/// is what lets that cell compare. It executes as the job's one CI identity under the matrix's
-/// `shared-service-user` posture, so it says nothing about impersonation.
+/// an open over any other table is refused rather than loaded. Each CI run adds its GitHub run id to
+/// the physical table names, which lets merge-group jobs share one dataset without replacing each
+/// other's fixtures. It executes as the job's one CI identity under the matrix's `shared-service-user`
+/// posture, so it says nothing about impersonation.
 impl DataSystemUnderTest for BigQueryWarehouse<AdbcBigQuery> {
     const NAME: &'static str = "bigquery";
 
@@ -47,12 +45,16 @@ impl DataSystemUnderTest for BigQueryWarehouse<AdbcBigQuery> {
     fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
         for (table, _) in &tables {
             assert!(
-                BIGQUERY_TABLES.iter().any(|&(held, _)| held == table.as_str()),
+                BIGQUERY_TABLES.iter().any(|&(held, _)| physical_table(held) == *table),
                 "{table} is not a table the bigquery dataset holds, and loading it would replace a table \
                  the other cells are reading"
             );
         }
         bigquery_warehouse(name)
+    }
+
+    fn open(_pinned: &PinnedDefinitions) -> Self {
+        bigquery_warehouse(source())
     }
 
     fn bundle_over(catalog: &Path) -> PinnedDefinitions {
@@ -103,13 +105,29 @@ fn qualify_tree(from: &Path, to: &Path, qualifier: &TableQualifier) {
                     |bare| {
                         let table = TableName::parse(bare.trim_end())
                             .unwrap_or_else(|e| panic!("{}: {bare:?} is not a bare table: {e}", entry.path().display()));
-                        format!("table: {}\n", QualifiedTable::new(Some(qualifier.clone()), table))
+                        format!(
+                            "table: {}\n",
+                            QualifiedTable::new(Some(qualifier.clone()), physical_table(table.as_str()))
+                        )
                     },
                 )
             })
             .collect();
         std::fs::write(&target, rewritten).unwrap_or_else(|e| panic!("could not write {}: {e}", target.display()));
     }
+}
+
+/// Give every live CI run and retry private physical tables while keeping the committed fixture
+/// names in the catalog and logs readable. Local runs retain ordinary names.
+pub(crate) fn physical_table(name: &str) -> TableName {
+    let suffix = set("SUTURA_BQ_DATASET")
+        .filter(|_| set("GITHUB_ACTIONS").is_some_and(|ci| ci == "true"))
+        .and_then(|_| set("GITHUB_RUN_ID"))
+        .map(|id| format!("{id}_{}", set("GITHUB_RUN_ATTEMPT").unwrap_or_else(|| String::from("1"))));
+    suffix.map_or_else(
+        || TableName::parse(name).expect("the committed fixture table name parses"),
+        |suffix| TableName::parse(format!("{name}_{suffix}")).expect("the run-suffixed table name parses"),
+    )
 }
 
 /// The provisioned dataset as a warehouse on source `name` - one address for the provisioning cell

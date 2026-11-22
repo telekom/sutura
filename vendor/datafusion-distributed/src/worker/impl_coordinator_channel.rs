@@ -28,6 +28,12 @@ impl Worker {
         stream: BoxStream<'static, Result<CoordinatorToWorkerMsg>>,
     ) -> Result<BoxStream<'static, Result<WorkerToCoordinatorMsg>>> {
         let key = request.task_key;
+        // Absent for a plan that arrived decoded, in process: it was never encoded, so it has no size.
+        let plan_bytes = match &request.plan {
+            crate::MaybeEncoded::Encoded(bytes) => Some(bytes.len()),
+            crate::MaybeEncoded::Decoded(_) => None,
+        };
+        let building = std::time::Instant::now();
         let completion_request = request.completion;
         let completion_deadline = completion_request.map(|v| tokio::time::Instant::now().checked_add(v.timeout)
             .ok_or_else(|| exec_datafusion_err!("invalid completion deadline"))).transpose()?;
@@ -116,6 +122,17 @@ impl Worker {
                 .map_err(|cause| exec_datafusion_err!("task preparation deadline: {cause}"))?,
             None => task_data().await,
         }.map_err(Arc::new);
+        if let Some(plan_build_ms) = crate::common::noted_ms(building.elapsed()) {
+            tracing::info!(
+                query = %key.query_id,
+                stage = key.stage_id,
+                task = key.task_number,
+                plan_build_ms,
+                plan_bytes,
+                built = task_data_result.is_ok(),
+                "a plan took long to build on its worker"
+            );
+        }
 
         entry
             .write(task_data_result.clone())

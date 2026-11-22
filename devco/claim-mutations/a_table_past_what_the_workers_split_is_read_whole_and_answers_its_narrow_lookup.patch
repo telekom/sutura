@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-clickhouse/src/adbc/buckets.rs b/crates/sutura-exec-clickhouse/src/adbc/buckets.rs
+index e73836b84..0c11244c7 100644
+--- a/crates/sutura-exec-clickhouse/src/adbc/buckets.rs
++++ b/crates/sutura-exec-clickhouse/src/adbc/buckets.rs
+@@ -204,7 +204,8 @@ fn partitions_for(
+     ready_workers: NonZeroUsize,
+ ) -> Option<u32> {
+     match decide(bytes, rows, above_bytes, per_stream_bound, ready_workers) {
+-        SplitDecision::Whole | SplitDecision::Refused(_) => None,
++        SplitDecision::Whole => None,
++        SplitDecision::Refused(_) => Some(2),
+         SplitDecision::Split(partitions) if partitions.get() < 2 => None,
+         SplitDecision::Split(partitions) => Some(u32::try_from(partitions.get()).unwrap_or(u32::MAX)),
+     }

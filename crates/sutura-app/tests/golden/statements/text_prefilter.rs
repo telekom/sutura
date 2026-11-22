@@ -5,12 +5,77 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use sutura_domain::catalog::{COLLATION_METADATA_KEY, Collation};
 use sutura_domain::model::TableName;
-use sutura_domain::plan::StatementStopped;
+use sutura_domain::plan::{PolicyRead, StatementStopped};
 use sutura_domain::raw::InvalidRawStatement;
 use sutura_exec_datafusion::CombineError;
 
 use super::*;
+
+// The causality base run restores the adapter before this test file is compiled. Keep the
+// declaration buildable there; on the branch the inherent loader below takes precedence.
+trait PostgresFixtureStatements {
+    fn load_statements(&self, table: &TableName, statements: &str) -> Result<(), &'static str>;
+}
+
+impl PostgresFixtureStatements for sutura_exec_postgres::adbc::AdbcPostgres {
+    fn load_statements(&self, _table: &TableName, _statements: &str) -> Result<(), &'static str> {
+        Err("inline fixture loading is introduced with the Postgres collation change")
+    }
+}
+
+// The base adapter has no collated fixture loader; its fallback keeps the held tests buildable.
+trait BigQueryCollatedFixture {
+    fn load_collated_fixture(
+        &self,
+        table: &QualifiedTable,
+        csv: &std::path::Path,
+        column: &sutura_domain::model::ColumnName,
+    ) -> Result<usize, &'static str>;
+}
+
+impl BigQueryCollatedFixture for sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {
+    fn load_collated_fixture(
+        &self,
+        _table: &QualifiedTable,
+        _csv: &std::path::Path,
+        _column: &sutura_domain::model::ColumnName,
+    ) -> Result<usize, &'static str> {
+        Err("collated fixture loading is introduced with the BigQuery change")
+    }
+}
+
+#[path = "text_prefilter/bigquery_collation.rs"]
+mod bigquery_collation;
+#[path = "text_prefilter/collation.rs"]
+mod collation;
+#[path = "text_prefilter/cube.rs"]
+mod cube_native;
+#[path = "text_prefilter/declared_text.rs"]
+mod declared_text;
+
+// The causality base run restores the domain before this test file is compiled. Keep the fixture
+// helper buildable there; branch-provided inherent methods take precedence on the real run.
+#[expect(dead_code, reason = "only the causality base compilation uses this fallback")]
+trait EngineCollationFixture {
+    fn engine_collation(self) -> Option<&'static sutura_domain::catalog::Collation>;
+}
+
+impl EngineCollationFixture for TypeDialect {
+    fn engine_collation(self) -> Option<&'static sutura_domain::catalog::Collation> {
+        None
+    }
+}
+
+#[expect(dead_code, reason = "only the causality base compilation uses this fallback")]
+trait PinCollationFixture {
+    fn pin_onto(&self, field: &mut Field);
+}
+
+impl PinCollationFixture for sutura_domain::catalog::Collation {
+    fn pin_onto(&self, _field: &mut Field) {}
+}
 
 /// Fixture setup belongs only to the golden target that exercises it.
 pub(super) trait TextFixture: DataSystemUnderTest {
@@ -25,6 +90,18 @@ pub(super) trait TextFixture: DataSystemUnderTest {
 
     /// Cloud fixtures expire independently, and are dropped here on a completed cell.
     fn close_text_fixture(&self, _table: &QualifiedTable) {}
+
+    /// A table whose columns differ only in how the engine compares their text, for an engine that
+    /// binds a collation to a column. Elsewhere there is nothing to compare.
+    fn open_collated_table(&self) -> Option<QualifiedTable> {
+        None
+    }
+
+    /// The same rows beside `binary`, with `body` stored case-insensitively, where the engine can
+    /// declare a column collation. Closed through [`Self::close_text_fixture`].
+    fn open_collated_fixture(&self, _csv: &std::path::Path, _binary: &QualifiedTable) -> Option<QualifiedTable> {
+        None
+    }
 }
 
 macro_rules! text_fixture {
@@ -52,6 +129,24 @@ macro_rules! text_fixture {
             fn close_text_fixture(&self, table: &QualifiedTable) {
                 self.drop_table(table).expect("the private fixture is removed");
             }
+
+            fn open_collated_fixture(&self, csv: &std::path::Path, binary: &QualifiedTable) -> Option<QualifiedTable> {
+                let _: fn(
+                    &Self,
+                    &QualifiedTable,
+                    &std::path::Path,
+                    &sutura_domain::model::ColumnName,
+                ) -> Result<usize, &'static str> = <Self as BigQueryCollatedFixture>::load_collated_fixture;
+                let name = TableName::parse(format!("{}_ci", binary.name())).expect("a collated fixture table name");
+                let table = QualifiedTable::new(binary.qualifier().cloned(), name);
+                let column = sutura_domain::model::ColumnName::parse("body").expect("a column name");
+                assert_eq!(
+                    self.load_collated_fixture(&table, csv, &column)
+                        .expect("the atomic collated fixture job succeeds"),
+                    1_000_000
+                );
+                Some(table)
+            }
         }
     };
     (clickhouse, $adapter:ty) => {
@@ -62,6 +157,20 @@ macro_rules! text_fixture {
                     crate::adapters::clickhouse_on(source(), vec![(table.clone(), csv)], <$adapter>::load_federated_csv),
                     QualifiedTable::new(None, table),
                 )
+            }
+        }
+    };
+    (postgres, $adapter:ty) => {
+        impl TextFixture for $adapter {
+            fn open_collated_table(&self) -> Option<QualifiedTable> {
+                // Keep the fallback trait method part of the base compile while the adapter's
+                // inherent loader is selected for the actual branch run.
+                let _: fn(&Self, &TableName, &str) -> Result<(), &'static str> =
+                    <Self as PostgresFixtureStatements>::load_statements;
+                let table = TableName::parse(collation::TABLE).expect("a fixture name");
+                self.load_statements(&table, collation::FIXTURE)
+                    .expect("the collated fixture loads");
+                Some(QualifiedTable::new(None, table))
             }
         }
     };
@@ -112,7 +221,27 @@ fn fixture_csv() -> std::path::PathBuf {
     path
 }
 
+/// The field as a pin leaves it: `collation` is the pinned text, absent for unknown.
+fn pinned(field: Field, collation: Option<&str>) -> Field {
+    let Some(collation) = collation else {
+        return field;
+    };
+    let mut metadata = field.metadata().clone();
+    metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation));
+    field.with_metadata(metadata)
+}
+
+/// The fixture table as every engine here stores it: byte-wise, which a `BigQuery` catalog must say.
 fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_json::Value>) -> StatementTable {
+    admitted_as(path, dialect, policy, &Collation::Binary)
+}
+
+fn admitted_as(
+    path: &QualifiedTable,
+    dialect: TypeDialect,
+    policy: Option<&serde_json::Value>,
+    collation: &Collation,
+) -> StatementTable {
     let mut metadata = HashMap::new();
     if let Some(policy) = policy {
         metadata.insert(String::from("sutura:text_policy"), policy.to_string());
@@ -120,14 +249,17 @@ fn admitted(path: &QualifiedTable, dialect: TypeDialect, policy: Option<&serde_j
     if dialect == TypeDialect::Oracle {
         metadata.insert(String::from("sutura:oracle_lob"), String::from("clob"));
     }
+    let mut body = Field::new("body", DataType::Utf8, true).with_metadata(metadata);
+    collation.pin_onto(&mut body);
+    // What pinning records for an engine that fixes the collation itself; ClickHouse is admitted by it alone.
+    if let Some(engine_collation) = dialect.engine_collation() {
+        engine_collation.pin_onto(&mut body);
+    }
     StatementTable::new(
         source(),
         path.clone(),
         dialect,
-        Arc::new(Schema::new(vec![
-            Field::new("body", DataType::Utf8, true).with_metadata(metadata),
-            Field::new("cohort", DataType::Utf8, true),
-        ])),
+        Arc::new(Schema::new(vec![body, Field::new("cohort", DataType::Utf8, true)])),
     )
 }
 
@@ -176,9 +308,10 @@ impl<W: DataSystemUnderTest> StatementLegs for Recorded<'_, W> {
         source: &SourceName,
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
+        policy: PolicyRead,
     ) -> Result<RawRows, Self::Stop> {
         self.statements.push(String::from(statement.as_str()));
-        self.inner.run_planned(source, statement, tables)
+        self.inner.run_planned(source, statement, tables, policy)
     }
 }
 
@@ -192,13 +325,31 @@ where
 
 type Answered = (RawRows, Vec<String>);
 
+/// What the source received, and how it answered, whether or not it answered.
+type Outcome = (Result<RawRows, FixtureQueryError>, Vec<String>);
+
 fn execute_recorded<W>(warehouse: &W, table: StatementTable, sql: &str) -> Result<Answered, FixtureQueryError>
 where
     W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    let combiner = DataFusionCombiner::new().map_err(|cause| FixtureQueryError::Combiner { cause })?;
-    let question = RawStatement::parse(sql).map_err(|cause| FixtureQueryError::Query { cause })?;
+    let (answer, planned) = execute_outcome(warehouse, table, sql);
+    answer.map(|rows| (rows, planned))
+}
+
+fn execute_outcome<W>(warehouse: &W, table: StatementTable, sql: &str) -> Outcome
+where
+    W: DataSystemUnderTest + Sync,
+    W::Error: Send,
+{
+    let combiner = match DataFusionCombiner::new() {
+        Ok(combiner) => combiner,
+        Err(cause) => return (Err(FixtureQueryError::Combiner { cause }), Vec::new()),
+    };
+    let question = match RawStatement::parse(sql) {
+        Ok(question) => question,
+        Err(cause) => return (Err(FixtureQueryError::Query { cause }), Vec::new()),
+    };
     let mut executing = Recorded {
         inner: Executing {
             warehouse,
@@ -207,21 +358,20 @@ where
         },
         statements: Vec::new(),
     };
-    let answer = combiner
-        .answer_statement(
-            StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
-            &mut executing,
-        )
-        .ok_or(FixtureQueryError::Unsupported)?;
-    if executing.inner.observed_scans != executing.inner.expected_scans {
-        return Err(FixtureQueryError::Scans {
+    let answer = combiner.answer_statement(
+        StatementQuestion::new(&question, &[table], false, WORKING_SET, deadline()),
+        &mut executing,
+    );
+    let answer = match answer {
+        None => Err(FixtureQueryError::Unsupported),
+        Some(Err(cause)) => Err(FixtureQueryError::Stopped { cause }),
+        Some(Ok(_)) if executing.inner.observed_scans != executing.inner.expected_scans => Err(FixtureQueryError::Scans {
             observed: executing.inner.observed_scans,
             expected: executing.inner.expected_scans,
-        });
-    }
-    answer
-        .map(|rows| (rows, executing.statements))
-        .map_err(|cause| FixtureQueryError::Stopped { cause })
+        }),
+        Some(Ok(rows)) => Ok(rows),
+    };
+    (answer, executing.statements)
 }
 
 type OrderedRows = (Vec<String>, Vec<Vec<Value>>);
@@ -303,8 +453,23 @@ where
 }
 
 /// Only these arms have comparison evidence; every other dialect keeps the redacted-only path.
+///
+/// One arm per dialect and no wildcard, so a new dialect must be decided here, and the expectation is
+/// never read from the capability it checks.
+#[expect(
+    clippy::match_same_arms,
+    reason = "one arm per line, so each engine PR flips only its own line and merges cleanly"
+)]
 const fn prefilter_capable(dialect: TypeDialect) -> bool {
-    matches!(dialect, TypeDialect::DataFusion | TypeDialect::Oracle)
+    match dialect {
+        TypeDialect::DuckDb => true,
+        TypeDialect::DataFusion => true,
+        TypeDialect::Cube => false,
+        TypeDialect::Postgres => true,
+        TypeDialect::ClickHouse => true,
+        TypeDialect::BigQuery => true,
+        TypeDialect::Oracle => true,
+    }
 }
 
 /// How many times the statements the source received search for `term`.
@@ -314,6 +479,23 @@ fn searches_in(planned: &[String], term: &str) -> usize {
         .iter()
         .map(|statement| statement.to_ascii_uppercase().matches(&needle).count())
         .sum()
+}
+
+/// How many times the statements the source received search the stored column, named through its table.
+///
+/// `ClickHouse` resolves a bare name to the projection alias beside it unless `prefer_column_name_to_alias`
+/// is set, so an unqualified raw test reads the redacted value: every answer stays equal and no row is
+/// ever skipped. Only the text of the statement tells the two apart here, and no other engine is read.
+/// The view is aliased with the table's own name, so the caller's predicate in the outer `WHERE`
+/// reads the same qualified column; only the view's own condition, which the view's closing alias
+/// follows, counts.
+fn stored_searches_in(planned: &[String], dialect: TypeDialect, path: &QualifiedTable, term: &str) -> usize {
+    if dialect != TypeDialect::ClickHouse {
+        return 0;
+    }
+    let table = path.name().as_str();
+    let needle = format!("WHERE (`{table}`.`body` LIKE '%{term}%')) AS `{table}`");
+    planned.iter().map(|statement| statement.matches(&needle).count()).sum()
 }
 
 /// Only an eligible arm may add one raw search, and exactly where the shape qualifies. The `UPPER`
@@ -338,24 +520,43 @@ fn assert_raw_condition(dialect: TypeDialect, profile: &str, upper: bool, (basel
     }
 }
 
-pub(super) fn native<W>()
+/// `BigQuery` reads a double-quoted token as a string literal, so a statement it received carries none.
+/// Its raw condition names the stored column through backticks, qualified by the table, and appears
+/// exactly once more than in the redacted-only statement, exactly where the shape qualifies.
+fn assert_backticked(planned: [&[String]; 2], path: &QualifiedTable, term: &str, raw_expected: bool) {
+    let condition = format!("(`{}`.`body` LIKE '%{term}%')", path.name());
+    let [baseline, opted] = planned.map(|statements| {
+        for statement in statements {
+            assert!(
+                !statement.contains("\"body\""),
+                "a double-quoted identifier is a string literal in BigQuery: {statement}"
+            );
+        }
+        statements
+            .iter()
+            .map(|statement| statement.matches(&condition).count())
+            .sum::<usize>()
+    });
+    assert_eq!(
+        opted - baseline,
+        usize::from(raw_expected),
+        "the raw condition is backtick-quoted and qualified exactly where it applies: {condition}"
+    );
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum Coverage {
+    Profiles,
+    HiddenValues,
+    Collation,
+    All,
+}
+
+fn verify_profiles<W>(warehouse: &W, path: &QualifiedTable, dialect: TypeDialect, base: &serde_json::Value)
 where
-    W: TextFixture + Sync,
+    W: DataSystemUnderTest + Sync,
     W::Error: Send,
 {
-    let base = serde_json::json!({"max_text_bytes":128,"redact":[{"pattern":"secret_[^ ]+","replace":"[masked]"}]});
-    let mut enabled = base.clone();
-    enabled["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
-    // This runs before availability: base must refuse the new opt-in rather than silently skip it.
-    let _: sutura_domain::catalog::TextPolicy = serde_json::from_value(enabled).expect("the acknowledged opt-in parses");
-    if !runs_here::<W>() {
-        return;
-    }
-    let setup = Instant::now();
-    let csv = fixture_csv();
-    let (warehouse, path) = W::open_text_fixture(csv.clone());
-    let dialect = warehouse.type_dialect().expect("a registered native dialect");
-    observe_population(&warehouse, &path, dialect, setup);
     let profiles = [
         ("barrier", "TERM", vec![("secret_[^ ]+", "[masked]")]),
         ("replacement-creates", "TERM", vec![("secret_[^ ]+", "[TERM]")]),
@@ -385,15 +586,19 @@ where
             let narrowed = if full_table { "" } else { " AND \"cohort\" <> 'filler'" };
             let sql = format!(
                 "SELECT \"body\" FROM {} WHERE {expression} LIKE '%{term}%'{narrowed}",
-                quoted(&path)
+                quoted(path)
             );
             let mut answers = Vec::new();
             let mut searches = Vec::new();
+            let mut statements = Vec::new();
+            let mut stored = Vec::new();
             for (mode, policy) in [("baseline", &disabled), ("opted-in", &enabled)] {
                 let start = Instant::now();
-                let (rows, planned) = execute_recorded(&warehouse, admitted(&path, dialect, Some(policy)), &sql)
+                let (rows, planned) = execute_recorded(warehouse, admitted(path, dialect, Some(policy)), &sql)
                     .unwrap_or_else(|cause| panic!("{} {profile}/{mode} upper={upper}: {cause}", W::NAME));
                 searches.push(searches_in(&planned, term));
+                stored.push(stored_searches_in(&planned, dialect, path, term));
+                statements.push(planned);
                 println!(
                     "raw-prefilter-query: engine={} profile={profile} upper={upper} mode={mode} scope={} elapsed_ms={} returned_rows={}",
                     W::NAME,
@@ -410,6 +615,17 @@ where
                 W::NAME
             );
             assert_raw_condition(dialect, profile, upper, (searches[0], searches[1]));
+            if dialect == TypeDialect::BigQuery {
+                assert_backticked([&statements[0], &statements[1]], path, term, profile == "barrier" && !upper);
+            }
+
+            if dialect == TypeDialect::ClickHouse {
+                assert_eq!(
+                    stored,
+                    [0, usize::from(full_table)],
+                    "the view's own raw search names the stored column, never the alias: {profile} upper={upper}"
+                );
+            }
             if profile == "barrier" && !upper {
                 assert_eq!(
                     answers[0]
@@ -434,72 +650,206 @@ where
             }
         }
     }
-    for enabled in [false, true] {
-        let mut policy = base.clone();
-        if enabled {
-            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
-        }
-        let sql = format!(
-            "SELECT \"body\" FROM {} WHERE \"body\" IS NULL AND \"cohort\" = 'rare'",
-            quoted(&path)
-        );
-        assert_eq!(
-            execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
-                .expect("a native NULL query executes")
-                .rows(),
-            &[vec![Value::Null]],
-            "the typed NULL survives at {}",
-            W::NAME
-        );
+}
+
+pub(super) fn native<W>(coverage: Coverage)
+where
+    W: TextFixture + Sync,
+    W::Error: Send,
+{
+    let base = serde_json::json!({"max_text_bytes":128,"redact":[{"pattern":"secret_[^ ]+","replace":"[masked]"}]});
+    let mut enabled = base.clone();
+    enabled["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
+    // This runs before availability: base must refuse the new opt-in rather than silently skip it.
+    let _: sutura_domain::catalog::TextPolicy = serde_json::from_value(enabled).expect("the acknowledged opt-in parses");
+    if !runs_here::<W>() {
+        return;
     }
-    for term in [
-        "TERM",
-        "SECRET",
-        "SECRET_",
-        "SECRET_T",
-        "SECRET_TE",
-        "SECRET_TER",
-        "SECRET_TERM",
-    ] {
-        let mut policy = base.clone();
-        policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
-        let raw = format!(
-            "SELECT count(*) FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
-            quoted(&path)
-        );
-        assert_eq!(
-            execute(&warehouse, admitted(&path, dialect, None), &raw)
-                .expect("the raw hidden rows really contain the probe")
-                .rows(),
-            &[vec![Value::Integer(if matches!(term, "SECRET" | "SECRET_") { 4 } else { 3 })]],
-            "a probe must search actual hidden values at {}",
-            W::NAME
-        );
-        let sql = format!(
-            "SELECT \"body\" FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
-            quoted(&path)
-        );
-        assert!(
-            execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
-                .expect("a hidden-secret probe executes")
-                .rows()
-                .is_empty(),
-            "{} hidden probe {term}",
-            W::NAME
-        );
+    let setup = Instant::now();
+    let csv = fixture_csv();
+    let (warehouse, path) = W::open_text_fixture(csv.clone());
+    let dialect = warehouse.type_dialect().expect("a registered native dialect");
+    observe_population(&warehouse, &path, dialect, setup);
+    if matches!(coverage, Coverage::Profiles | Coverage::All) {
+        verify_profiles(&warehouse, &path, dialect, &base);
+    }
+    if matches!(coverage, Coverage::HiddenValues | Coverage::All) {
+        for enabled in [false, true] {
+            let mut policy = base.clone();
+            if enabled {
+                policy["raw_prefilter"] =
+                    serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
+            }
+            let sql = format!(
+                "SELECT \"body\" FROM {} WHERE \"body\" IS NULL AND \"cohort\" = 'rare'",
+                quoted(&path)
+            );
+            assert_eq!(
+                execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
+                    .expect("a native NULL query executes")
+                    .rows(),
+                &[vec![Value::Null]],
+                "the typed NULL survives at {}",
+                W::NAME
+            );
+        }
+        for term in [
+            "TERM",
+            "SECRET",
+            "SECRET_",
+            "SECRET_T",
+            "SECRET_TE",
+            "SECRET_TER",
+            "SECRET_TERM",
+        ] {
+            let mut policy = base.clone();
+            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"this fixture accepts secret-dependent timing"});
+            let raw = format!(
+                "SELECT count(*) FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
+                quoted(&path)
+            );
+            assert_eq!(
+                execute(&warehouse, admitted(&path, dialect, None), &raw)
+                    .expect("the raw hidden rows really contain the probe")
+                    .rows(),
+                &[vec![Value::Integer(if matches!(term, "SECRET" | "SECRET_") { 4 } else { 3 })]],
+                "a probe must search actual hidden values at {}",
+                W::NAME
+            );
+            let sql = format!(
+                "SELECT \"body\" FROM {} WHERE \"cohort\" = 'hidden' AND UPPER(\"body\") LIKE '%{term}%'",
+                quoted(&path)
+            );
+            assert!(
+                execute(&warehouse, admitted(&path, dialect, Some(&policy)), &sql)
+                    .expect("a hidden-secret probe executes")
+                    .rows()
+                    .is_empty(),
+                "{} hidden probe {term}",
+                W::NAME
+            );
+        }
+    }
+    if matches!(coverage, Coverage::Collation | Coverage::All)
+        && let Some(collated) = warehouse.open_collated_fixture(&csv, &path)
+    {
+        bigquery_collation::trap(&warehouse, &path, &collated, dialect);
+        warehouse.close_text_fixture(&collated);
+    }
+    if matches!(coverage, Coverage::Collation | Coverage::All)
+        && let Some(table) = warehouse.open_collated_table()
+    {
+        collation::cells(&warehouse, &table, dialect);
     }
     warehouse.close_text_fixture(&path);
     std::fs::remove_dir_all(csv.parent().expect("a private directory")).expect("remove the generated CSV");
 }
 
 macro_rules! system {
-    // Cube reads every raw row before any operator and never takes the prefilter: nothing to compare.
-    (cube, $warehouse:ty) => {};
+    (cube, $warehouse:ty) => {
+        mod cube {
+            #[test]
+            fn a_native_million_row_cube_search_is_narrowed_before_local_redaction() {
+                if !super::runs_here::<$warehouse>() {
+                    return;
+                }
+                super::cube_native::native();
+            }
+        }
+    };
+    (duckdb, $warehouse:ty) => {
+        mod duckdb {
+            #[test]
+            fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
+                super::native::<$warehouse>(super::Coverage::All);
+                super::declared_text::native::<$warehouse>();
+            }
+
+            #[test]
+            fn a_case_insensitive_column_never_takes_the_raw_condition() {
+                use super::*;
+                let file = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+                    "duckdb-collation-{}-{:?}.duckdb", std::process::id(), std::thread::current().id()
+                ));
+                let writer = <$warehouse>::in_memory(source(), crate::adapters::posture(), crate::adapters::result_budget())
+                    .expect("a writable fixture database");
+                let literal = file.display().to_string().replace('\'', "''");
+                for sql in [
+                    format!("ATTACH '{literal}' AS fixture"),
+                    String::from("CREATE TABLE fixture.binary_notes AS SELECT * FROM (VALUES ('secret_other', 'hidden'), ('secret_TERM', 'hidden'), ('visible TERM', 'rare'), ('term', 'rare')) AS rows(body, cohort)"),
+                    String::from("CREATE TABLE fixture.folded_notes AS SELECT body COLLATE NOCASE AS body, cohort FROM fixture.binary_notes"),
+                    String::from("DETACH fixture"),
+                ] {
+                    writer.execute_unscreened(&RawStatement::parse(sql).expect("one fixture statement"), deadline())
+                        .expect("the collation fixture is written");
+                }
+                drop(writer);
+                let warehouse = <$warehouse>::open(source(), crate::adapters::posture(), &file, crate::adapters::result_budget())
+                    .expect("the fixture opens through the read-only production path");
+                std::fs::remove_file(&file).expect("the opened fixture is unlinked");
+                let query = |name| format!("SELECT \"body\" FROM \"{name}\" WHERE \"body\" LIKE '%TERM%'");
+                let path = |name| QualifiedTable::parse(name).expect("a fixture table");
+                let raw = warehouse.execute_unscreened(&RawStatement::parse(query("folded_notes")).expect("one read"), deadline())
+                    .expect("a native collated LIKE");
+                assert_eq!(raw.rows().len(), 3, "NOCASE also matches the differently cased raw term");
+                for (name, collation, replacement, expected, extra) in [
+                    ("binary_notes", Some("binary"), "[masked]", 1, 1),
+                    ("folded_notes", Some("named:NOCASE"), "term", 4, 0),
+                    ("folded_notes", None, "term", 4, 0),
+                    ("folded_notes", Some("binary"), "term", 4, 0),
+                ] {
+                    let mut answers = Vec::new();
+                    let mut searches = Vec::new();
+                    for enabled in [false, true] {
+                        let mut policy = serde_json::json!({"max_text_bytes":128,"redact":[{"pattern":"secret_[^ ]+","replace":replacement}]});
+                        if enabled {
+                            policy["raw_prefilter"] = serde_json::json!({"acknowledged_because":"accepted fixture timing"});
+                        }
+                        let mut metadata = HashMap::from([(String::from("sutura:text_policy"), policy.to_string())]);
+                        if let Some(collation) = collation {
+                            metadata.insert(String::from(COLLATION_METADATA_KEY), String::from(collation));
+                        }
+                        let table = StatementTable::new(source(), path(name), TypeDialect::DuckDb, Arc::new(Schema::new(vec![
+                            Field::new("body", DataType::Utf8, true).with_metadata(metadata),
+                            Field::new("cohort", DataType::Utf8, true),
+                        ])));
+                        let (rows, planned) = execute_recorded(&warehouse, table, &query(name)).expect("the protected search answers");
+                        answers.push(sorted(rows));
+                        searches.push(searches_in(&planned, "TERM"));
+                    }
+                    assert_eq!(answers[0], answers[1], "{name} {collation:?} {replacement}");
+                    assert_eq!(answers[0].1.len(), expected, "the independent redacted row count");
+                    assert!(searches[0] > 0, "the statement reached DuckDB");
+                    assert_eq!(searches[1] - searches[0], extra, "{name} {collation:?} {replacement}");
+                }
+            }
+        }
+    };
+    (bigquery, $warehouse:ty) => {
+        mod bigquery {
+            #[test]
+            fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
+                super::native::<$warehouse>(super::Coverage::Profiles);
+                super::declared_text::native::<$warehouse>();
+            }
+
+            #[test]
+            fn bigquery_hidden_values_remain_redacted_with_the_raw_prefilter() {
+                super::native::<$warehouse>(super::Coverage::HiddenValues);
+            }
+
+            #[test]
+            fn bigquery_collation_prevents_the_raw_prefilter() {
+                super::native::<$warehouse>(super::Coverage::Collation);
+            }
+        }
+    };
     ($name:ident, $warehouse:ty) => {
         mod $name {
             #[test]
             fn raw_prefilter_matches_the_baseline_over_one_million_actual_native_rows() {
-                super::native::<$warehouse>();
+                super::native::<$warehouse>(super::Coverage::All);
+                super::declared_text::native::<$warehouse>();
             }
         }
     };

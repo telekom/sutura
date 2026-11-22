@@ -1,0 +1,257 @@
+name: QA
+
+on:
+  workflow_call:
+    outputs:
+      suite-plan:
+        description: Selected suite IDs, uncredentialed matrix, and its count
+        value: ${{ jobs.plan.outputs.suite-plan }}
+    inputs:
+      plan-only:
+        description: Select suites and export the plan
+        type: boolean
+        default: false
+      suite-plan:
+        description: The validated JSON plan returned by plan-only mode
+        type: string
+      run-all-checks:
+        description: Run every suite without selection or verdict reuse
+        type: boolean
+        default: false
+      fast-checked:
+        description: The caller requires the fast checks before calling QA
+        type: boolean
+        default: false
+      tested-commit:
+        description: Accepted PR merge checkout for queue verdict reuse
+        type: string
+      green-jobs:
+        description: Exact successful job names from the accepted PR run
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: inputs.plan-only
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    outputs:
+      suite-plan: ${{ steps.select.outputs.suite-plan }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Secrets
+        if: always()
+        run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
+
+      - name: Format
+        if: "!inputs.fast-checked"
+        run: nix build .#checks.x86_64-linux.fmt -L
+
+      - name: Text format
+        if: "!inputs.fast-checked"
+        run: bash nix/format-text.sh check
+
+      - name: Workflow static analysis
+        if: "!inputs.fast-checked"
+        run: bash nix/lint-workflows.sh
+
+      - name: Select integration suites
+        id: select
+        env:
+          ALL_CHECKS: ${{ inputs.run-all-checks }}
+          LIVE_ELIGIBLE: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
+          TESTED_COMMIT: ${{ inputs.tested-commit }}
+          GREEN_JOBS: ${{ inputs.green-jobs }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          if [ "$ALL_CHECKS" = "true" ]; then
+            if [ "$LIVE_ELIGIBLE" != "true" ]; then
+              echo "Full QA requires an event that can run the live suites" >&2
+              exit 1
+            fi
+            nix run .#xtask -- ci-suites --all
+          elif [ "$EVENT" = "push" ]; then
+            nix run .#xtask -- ci-suites --main
+          elif [ "$EVENT" = merge_group ]; then
+            if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$BASE" HEAD &&
+              [[ "$TESTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] &&
+              { git cat-file -e "$TESTED_COMMIT^{commit}" || git fetch --no-tags origin "$TESTED_COMMIT"; }; then
+              nix run .#xtask -- ci-suites --queue "$BASE" "$TESTED_COMMIT"
+            else
+              nix run .#xtask -- ci-suites --all
+            fi
+          elif [ "$EVENT" = "pull_request" ]; then
+            if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$BASE" HEAD; then
+              nix run .#xtask -- ci-suites --pr "$BASE"
+            else
+              nix run .#xtask -- ci-suites --pr
+            fi
+          else
+            nix run .#xtask -- ci-suites --all
+          fi
+
+      - name: Validate suite plan
+        env:
+          SUITE_PLAN: ${{ steps.select.outputs.suite-plan }}
+        run: |
+          jq -e '
+            (.selected | type == "array" and all(.[]; type == "string")) and
+            (.matrix.include | type == "array") and
+            (.matrix.include | length) == .count and
+            all(.matrix.include[]; .id | type == "string") and
+            ([.matrix.include[].id] - .selected | length) == 0
+          ' <<< "$SUITE_PLAN" >/dev/null
+
+      - name: Structural gates
+        if: "!inputs.fast-checked"
+        run: nix build .#checks.x86_64-linux.hygiene -L
+
+      - name: Clippy
+        if: "!inputs.fast-checked"
+        run: nix build .#checks.x86_64-linux.clippy -L
+
+  core-graph:
+    if: "!inputs.plan-only && inputs.run-all-checks && !inputs.fast-checked"
+    runs-on: rust-mcp-32core
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Full core graph
+        run: bash nix/ci-core-graph.sh --full
+
+      - name: Default feature check and tests
+        run: |
+          set -euo pipefail
+          nix run .#default-features
+          nix run .#default-feature-tests
+
+  integration:
+    name: suite (${{ matrix.id }})
+    if: ${{ !inputs.plan-only && fromJSON(inputs.suite-plan || '{}').count > 0 }}
+    runs-on: rust-mcp-16core
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.suite-plan).matrix }}
+    env:
+      SUTURA_DOCKER_PROBE_TIMEOUT_SECS: "60"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Open KVM
+        if: matrix.venue == 'kvm'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+        with:
+          extra_nix_config: |
+            fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Run suite
+        env:
+          SUITE: ${{ matrix.id }}
+        run: bash nix/ci-suite.sh "$SUITE"
+
+      - name: Keep Oracle fixture evidence
+        if: always() && (matrix.id == 'oracle-native' || matrix.id == 'oracle-legacy')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.id }}-acceptance
+          path: |
+            target/oracle-native-probe
+            target/oracle-legacy-probe
+
+      - name: Cube tier container logs
+        if: failure() && matrix.id == 'ci-cube-tier'
+        run: |
+          for service in cube cube-text-search cube-metrics cube-keycloak cube-clickhouse; do
+            name=$(docker ps -a --format '{{.Names}}' | grep -E -- "-${service}-1\$") || { echo "::warning::no container for ${service}"; continue; }
+            echo "::group::docker logs $name"
+            docker logs --tail 500 "$name" 2>&1 || true
+            echo "::endgroup::"
+          done
+
+  demo:
+    if: ${{ !inputs.plan-only && contains(fromJSON(inputs.suite-plan || '{}').selected, 'demo-container') }}
+    uses: $/.github/workflows/demo-container.yml
+
+  cross:
+    if: ${{ !inputs.plan-only && contains(fromJSON(inputs.suite-plan || '{}').selected, 'cross-link') }}
+    uses: $/.github/workflows/cross-link.yml
+
+  integration-verdict:
+    needs: [core-graph, integration, demo, cross]
+    if: ${{ !inputs.plan-only && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected suite
+        env:
+          PLAN_PRESENT: ${{ inputs.suite-plan != '' }}
+          CORE_RESULT: ${{ needs.core-graph.result }}
+          CORE_REQUIRED: ${{ inputs.run-all-checks && !inputs.fast-checked }}
+          MATRIX_COUNT: ${{ fromJSON(inputs.suite-plan || '{}').count }}
+          MATRIX_RESULT: ${{ needs.integration.result }}
+          DEMO_REQUIRED: ${{ contains(fromJSON(inputs.suite-plan || '{}').selected, 'demo-container') }}
+          CROSS_REQUIRED: ${{ contains(fromJSON(inputs.suite-plan || '{}').selected, 'cross-link') }}
+          DEMO_RESULT: ${{ needs.demo.result }}
+          CROSS_RESULT: ${{ needs.cross.result }}
+        run: |
+          set -euo pipefail
+          require() {
+            if [ "$2" = success ]; then return; fi
+            if [ "$3" = true ]; then
+              printf 'QA: %s must run but reported %s\n' "$1" "$2" >&2
+              exit 1
+            fi
+            if [ "$2" != skipped ]; then
+              printf 'QA: %s reported %s\n' "$1" "$2" >&2
+              exit 1
+            fi
+          }
+          if [ "$PLAN_PRESENT" != true ]; then
+            echo "QA: missing suite plan" >&2
+            exit 1
+          fi
+          require "core graph" "$CORE_RESULT" "$CORE_REQUIRED"
+          case "$MATRIX_COUNT" in
+            0) require "integration matrix" "$MATRIX_RESULT" false ;;
+            ''|*[!0-9]*) echo "QA: missing or invalid matrix count" >&2; exit 1 ;;
+            *) require "integration matrix" "$MATRIX_RESULT" true ;;
+          esac
+          require demo-container "$DEMO_RESULT" "$DEMO_REQUIRED"
+          require cross-link "$CROSS_RESULT" "$CROSS_REQUIRED"
