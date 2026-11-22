@@ -358,7 +358,15 @@ fn a_separate_description_mapping_is_parsed_as_prose_only_with_a_closed_predicat
         panic!("a mapping")
     };
     assert_eq!(mapping.table().to_string(), "inventory.column_docs");
-    assert_eq!(mapping.predicates().first().unwrap().predicate().value(), Some("N"));
+    assert_eq!(
+        mapping.predicates().len(),
+        1,
+        "a singular live_row_predicate is exactly one entry"
+    );
+    let predicate = mapping.predicates().first().unwrap().predicate();
+    assert_eq!(predicate.column().to_string(), "deleted");
+    assert_eq!(predicate.operator(), crate::catalog::rdbms::PredicateOperator::Equals);
+    assert_eq!(predicate.value(), Some("N"));
     load(&text.replace(
         "live_row_predicate: {column: deleted, operator: equals, value: 'N'}",
         "live_row: \"deleted = 'N'\"",
