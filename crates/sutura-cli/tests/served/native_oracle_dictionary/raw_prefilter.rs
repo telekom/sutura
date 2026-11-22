@@ -38,7 +38,7 @@ pub(super) fn applies_on_a_native_dictionary_clob(fixture: &Fixture) {
     }
     let rule = concat!(
         "    column_rules:\n",
-        "      - column: '*.EVENTS.SCRIPT'\n",
+        "      - column: SCRIPT\n",
         "        max_text_bytes: 4000\n",
         "        redact:\n",
         "          - pattern: \"(?i)IDENTIFIED BY \\\\S+\"\n",
