@@ -495,9 +495,13 @@ impl Nodes {
         let config = SessionConfig::new().with_target_partitions(count);
         // Size shuffle batches at one KiB per row under tight pools. The pool still accounts in bytes.
         let shuffle_rows = (links.worker_connection_buffer_budget_bytes >> 10).clamp(1, config.batch_size());
-        if shuffle_rows < config.batch_size() {
+        let config = if shuffle_rows < config.batch_size() {
             links.shuffle_batch_size = shuffle_rows;
-        }
+            // DistributedExec runs its final stage with the coordinator's task context.
+            config.with_batch_size(shuffle_rows)
+        } else {
+            config
+        };
         let planned = SessionStateBuilder::new()
             .with_config(config.with_extension(Arc::new(receipts::CaptureDistributed)))
             .with_distributed_option_extension(links)

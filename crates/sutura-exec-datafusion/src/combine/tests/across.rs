@@ -569,12 +569,14 @@ fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_se
         "each link holds a quarter of the working set shared by three nodes"
     );
     assert_eq!(links.shuffle_batch_size, 1024, "tight pools use smaller shuffle batches");
+    assert_eq!(state.config().batch_size(), 1024, "the coordinator uses the same batch size");
     assert_eq!(state.config().target_partitions(), 3, "a task plans one partition per node");
 
     let session = nodes.session(roomy()).expect("a roomy session builds");
     let state = session.state();
     let links = DistributedConfig::from_session_config(state.config()).expect("the session plans across nodes");
     assert_eq!(links.shuffle_batch_size, 0, "roomy pools use DataFusion's default");
+    assert_eq!(state.config().batch_size(), SessionConfig::new().batch_size());
 }
 
 /// A peer's own declared frame length over the cap is refused before any of its body is read, rather
