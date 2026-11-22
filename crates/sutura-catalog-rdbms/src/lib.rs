@@ -566,13 +566,6 @@ impl ColumnMetadata {
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
-
-    /// The text policy, including any raw-prefilter acknowledgement, a reader or native selection
-    /// attached to this column.
-    #[inline]
-    pub const fn text(&self) -> &sutura_domain::catalog::TextPolicy {
-        &self.text
-    }
 }
 
 /// One semantic model, the physical table it selects, and the prose written against it.
