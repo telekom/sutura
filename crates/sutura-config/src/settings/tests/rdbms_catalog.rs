@@ -518,11 +518,12 @@ fn rdbms_relationship_declarations_require_exact_complete_typed_shapes_and_bound
     }
 }
 
-// The default (`on_missing_endpoint` absent, which stays `Refuse`) is not pinned by a dedicated
-// cell here: the whole `MissingEndpointPolicy` API is new in this change, so no base run exists
-// to redden against, and a pinning cell with no killing mutation is refused by the causality gate.
-// `an_unknown_on_missing_endpoint_value_is_refused` below still covers parsing's closed-enum
-// refusal, and the adapter-level omit tests in `sutura-catalog-rdbms` cover the default's effect.
+// Parsing's default value (`on_missing_endpoint` absent stays `Refuse`) is not pinned by a
+// dedicated cell here: the whole `MissingEndpointPolicy` enum is new in this change, so no base
+// run exists for a parsing-level pin to redden against. The security default itself - a reading
+// identity gets no relationship it cannot resolve unless it opts into `omit` - IS pinned, by
+// `default_policy_still_refuses_a_hidden_endpoint_table` in `sutura-catalog-rdbms`'s
+// `relationships/tests.rs`, which compiles unchanged on base and carries its own `Claim-Cell`.
 #[test]
 fn on_missing_endpoint_accepts_the_omit_opt_in() {
     use crate::catalog::MissingEndpointPolicy;

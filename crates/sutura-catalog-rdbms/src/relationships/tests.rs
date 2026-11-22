@@ -145,6 +145,29 @@ fn declared_links_require_visible_columns_and_compatible_known_types() {
     ));
 }
 
+/// Pins the security default: `DeclaredRelationship::new` (no explicit policy) still refuses the
+/// whole load when a declared endpoint table is hidden from this reading identity's dictionary -
+/// the exact behaviour this crate had before `MissingEndpointPolicy` existed. The killing mutation
+/// at `devco/claim-mutations/default_policy_still_refuses_a_hidden_endpoint_table.patch` turns
+/// `omit_or_refuse`'s `Refuse` arm into `Ok(None)`, which this test then catches.
+#[test]
+fn default_policy_still_refuses_a_hidden_endpoint_table() {
+    let declaration = DeclaredRelationship::new(
+        Relationship::declared(
+            None,
+            address("events"),
+            address("hidden_table"),
+            vec![(String::from("app_id"), String::from("id"))],
+        )
+        .unwrap(),
+        None,
+    );
+    assert!(matches!(
+        dictionary().apply_relationship_declarations(&[declaration], TypeDialect::Postgres, None),
+        Err(RdbmsError::Declaration { .. })
+    ));
+}
+
 #[test]
 fn omit_policy_drops_a_declaration_whose_endpoint_table_is_invisible_instead_of_refusing_the_load() {
     use crate::MissingEndpointPolicy;

@@ -270,7 +270,12 @@ An endpoint absent or excluded from the reading identity's dictionary instead fo
 drops that one declaration with a `WARN` log instead of refusing the whole catalog - the same
 declaration can then serve several environments whose service users hold different grants. An
 omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
-never joins, and `describe_catalog` never lists it.
+never joins, and `describe_catalog` never lists it. A misspelled table name in a visible schema
+cannot be told apart from a hidden table under `shared-service-user` - either way the selected
+dictionary simply has no such table - so under `omit` a typo there is silently dropped with the
+same `WARN` log as a real missing grant, never refused. A misspelled *column* on a table the
+dictionary did select is still refused under either policy: that table's own columns are visible,
+so an absent one is a wrong declaration, not a missing grant.
 
 ```yaml
 relationships:
