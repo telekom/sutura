@@ -504,8 +504,17 @@ def main(config, query, reader1, reader2, db, idp, start_all, subtest, out):
                 if stimulus == "expired"
                 else "this reading task carries no grant naming this read"
             )
-            journal = query.succeed(f"journalctl -u {service} -o cat")
-            output.joinpath(f"clickhouse-{stimulus}-journal.log").write_text(journal)
+            journal_command = f"journalctl -u {service} -o cat"
+            try:
+                query.wait_until_succeeds(
+                    f"{journal_command} | grep -F -- {shlex.quote(diagnostic)}",
+                    timeout=10,
+                )
+            finally:
+                journal = query.succeed(journal_command)
+                output.joinpath(f"clickhouse-{stimulus}-journal.log").write_text(
+                    journal
+                )
             assert diagnostic in journal, (stimulus, journal)
             no_data(stimulus, since)
         query.succeed(f"systemctl stop {service}")
