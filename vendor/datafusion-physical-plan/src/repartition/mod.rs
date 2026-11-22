@@ -233,7 +233,13 @@ impl OutputChannel {
                     Err(err) => {
                         log::debug!(
                             target: "worker_pool_fixture",
-                            "shuffle reservation refused: {reservation_error}"
+                            "shuffle reservation refused: {reservation_error}; rows={}, bytes={size}, coalesced={}, columns (bytes, view)={:?}",
+                            batch.num_rows(),
+                            self.shared_coalescer.is_some(),
+                            batch.columns().iter().map(|array| (
+                                array.get_array_memory_size(),
+                                matches!(array.data_type(), DataType::Utf8View | DataType::BinaryView),
+                            )).collect::<Vec<_>>(),
                         );
                         (Err(err), false)
                     }
