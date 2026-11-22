@@ -853,8 +853,8 @@ mod tests {
                 ".github/workflows/cross-link.yml:267 -> env.BINARIES",
                 ".github/workflows/release-performance.yml:224 -> env.BINARIES",
                 ".github/workflows/release-performance.yml:326 -> env.BINARIES",
-                ".github/workflows/release.yml:332 -> env.BINARIES",
-                ".github/workflows/release.yml:526 -> env.BINARIES",
+                ".github/workflows/release.yml:337 -> env.BINARIES",
+                ".github/workflows/release.yml:531 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"
         );
