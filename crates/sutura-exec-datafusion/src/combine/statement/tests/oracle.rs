@@ -689,3 +689,68 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
         assert_eq!(legs.statements.len(), 1);
     }
 }
+
+/// #2038: a native Oracle dictionary reports UPPERCASE table and column names. A text-policy CLOB
+/// with a bare `column: SCRIPT` raw-prefilter rule must still have its raw predicate pushed down for
+/// every client spelling Oracle itself accepts, not only the one the dictionary happens to echo back.
+#[test]
+fn raw_prefilter_reaches_the_oracle_source_for_every_case_spelling_of_a_native_dictionary_clob() {
+    let policy = serde_json::json!({
+        "max_text_bytes": 128,
+        "redact": [{"pattern": "secret_[^ ]+", "replace": "[masked]"}],
+        "raw_prefilter": {"acknowledged_because": "#2038 reproduction: a native dictionary CLOB, bare column rule"},
+    });
+    let metadata = std::collections::HashMap::from([
+        (String::from("sutura:text_policy"), policy.to_string()),
+        (String::from("sutura:oracle_lob"), String::from("clob")),
+    ]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("SCRIPT", DataType::Utf8, true).with_metadata(metadata),
+        Field::new("OBJECT_NAME", DataType::Utf8, true),
+    ]));
+    let tables = vec![StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("DOCS").expect("a fixture table"),
+        TypeDialect::Oracle,
+        Arc::clone(&schema),
+    )];
+    let physical = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(datafusion::arrow::array::StringArray::from(vec![Some("has_mrc")])),
+            Arc::new(datafusion::arrow::array::StringArray::from(vec![Some("obj")])),
+        ],
+    )
+    .expect("the fixture row is rectangular");
+    for sql in [
+        "SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%'",
+        "SELECT count(OBJECT_NAME) FROM DOCS WHERE UPPER(SCRIPT) LIKE '%MRC%'",
+        "SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%' LIMIT 5",
+        "select count(object_name) from docs where script like '%mrc%'",
+    ] {
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        drop(legs.engines.at.insert(named("geo"), holding(&[("DOCS", physical.clone())])));
+        let statement = RawStatement::parse(sql).expect("an admitted native dictionary query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                false,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(_rows)) = answer else {
+            panic!("#2038's statement must plan and run: {sql} -> {answer:?}");
+        };
+        let reached = legs.statements.first().expect("one native Oracle source statement");
+        assert!(
+            reached.to_uppercase().contains("LIKE '%MRC%'") && !reached.to_uppercase().contains("REGEXP_REPLACE"),
+            "the raw condition must reach the source before any masking is applied: {sql} -> {reached}"
+        );
+    }
+}
