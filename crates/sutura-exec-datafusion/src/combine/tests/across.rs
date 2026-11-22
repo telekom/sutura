@@ -7,14 +7,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
-use datafusion::arrow::array::{ArrayRef, Int64Array, StringArray};
+use datafusion::arrow::array::{ArrayRef, StringArray};
 use datafusion::arrow::datatypes::DataType;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
 use datafusion::error::DataFusionError;
-use datafusion::functions_aggregate::expr_fn::sum;
-use datafusion::logical_expr::col;
-use datafusion::physical_plan::ExecutionPlan as _;
 use datafusion::prelude::{CsvReadOptions, SessionConfig, SessionContext};
 use datafusion_distributed::{DistributedConfig, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
@@ -38,7 +33,6 @@ use url::Url;
 
 use super::{UNBOUNDED, assigned, combiner, fact, fact_linked, fact_row, lookup, lookup_linked, sum_plan, text};
 use crate::combine::across::StageReadsASource;
-use crate::combine::across::fed::FedRowsExec;
 use crate::combine::{CombineError, DataFusionCombiner, NodeIdentity, Nodes};
 use crate::pool::WorkingSet;
 
@@ -582,47 +576,6 @@ fn a_question_planned_onto_a_node_nothing_listens_on_is_refused_as_that_node_los
     assert_eq!(across.workers_not_ready(&refused), None, "{refused:?}");
 }
 
-/// A single lookup batch plans as one `FedRowsExec` naming a feed, a task's rows are fed to it
-/// off the stream its plan was set over - `fed::dealt`'s own split of that feed by task is
-/// covered at `combine::across::fed::tests::each_task_is_fed_every_nth_batch_of_each_partition_and_the_shares_are_the_leg`.
-#[test]
-fn a_single_lookup_batch_plans_as_one_fed_leaf_naming_a_feed() {
-    let authority = Authority::generate();
-    let node = authority.sign();
-    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
-    let at = |port: u16| Url::parse(&format!("https://127.0.0.1:{port}")).expect("a node is a URL");
-    let session = Nodes::declared(own, at(1), [at(2), at(3)], authority.identity(&node))
-        .session(roomy())
-        .expect("a session builds");
-    let rows = RecordBatch::try_from_iter([
-        ("k", Arc::new(Int64Array::from_iter_values(0..7)) as ArrayRef),
-        ("n", Arc::new(Int64Array::from_iter_values(10..17)) as ArrayRef),
-    ])
-    .expect("the source returned one batch");
-    let grouped = session
-        .read_batch(rows)
-        .expect("the lookup reads")
-        .aggregate(vec![col("k")], vec![sum(col("n"))])
-        .expect("the grouping builds");
-    let plan = servers()
-        .block_on(grouped.create_physical_plan())
-        .expect("the grouping plans across the nodes");
-    let mut fed_leaves = Vec::new();
-    plan.apply(|plan| {
-        if let Some(leaf) = plan.downcast_ref::<FedRowsExec>() {
-            fed_leaves.push(leaf.schema());
-        }
-        Ok(TreeNodeRecursion::Continue)
-    })
-    .expect("the plan is traversed");
-    assert_eq!(fed_leaves.len(), 1, "one feed names the lookup's single batch");
-    let schema = &fed_leaves[0];
-    assert!(
-        schema.index_of("k").is_ok(),
-        "the grouping key is still the fed leaf's own schema"
-    );
-}
-
 #[test]
 fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set() {
     let authority = Authority::generate();
@@ -967,3 +920,7 @@ mod fed_cut;
 /// A repartition exchange caps an oversized input batch and drops rows a smaller output batch does
 /// not keep.
 mod repartition_sizing;
+
+/// A single lookup batch plans as one `FedRowsExec` naming a feed, and dealt across three tasks
+/// gives each task a contiguous row range rather than a whole-batch share.
+mod fed;

@@ -141,6 +141,9 @@ impl Unfed {
 pub(super) struct Dealt {
     rows: Arc<[Vec<RecordBatch>]>,
     tasks: NonZeroUsize,
+    /// Every task's row count, `row_count / tasks`, the first `extra` tasks getting one more.
+    share: usize,
+    extra: usize,
 }
 
 impl WorkUnitFeedProvider for Dealt {
@@ -160,11 +163,22 @@ impl WorkUnitFeedProvider for Dealt {
         let (Some(task), Some(partition)) = (global.checked_div(width), global.checked_rem(width)) else {
             return Ok(stream::empty().boxed());
         };
+        let Some(batches) = self.rows.get(partition) else {
+            return Ok(stream::empty().boxed());
+        };
+        let partition_start: usize = self
+            .rows
+            .get(..partition)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(RecordBatch::num_rows)
+            .sum();
+        let task_start = task * self.share + task.min(self.extra);
+        let task_end = task_start + self.share + usize::from(task < self.extra);
         let share = Share {
-            rows: Arc::clone(&self.rows),
-            partition,
-            next: task,
-            step: self.tasks.get(),
+            slices: sliced(batches, partition_start, task_start, task_end),
+            at: 0,
             sent: 0,
             ended: false,
         };
@@ -174,12 +188,26 @@ impl WorkUnitFeedProvider for Dealt {
 
 type Result<T, E = DataFusionError> = core::result::Result<T, E>;
 
-/// One partition's share for one task: every `step`th batch from `next`, then its end.
+/// `batches`' rows in `[start, end)` of the leg's whole row sequence, `batches` itself starting at
+/// `offset` in that sequence - sliced without copying their buffers, empty where the range does not
+/// reach this partition.
+fn sliced(batches: &[RecordBatch], mut offset: usize, start: usize, end: usize) -> Vec<RecordBatch> {
+    batches
+        .iter()
+        .filter_map(|batch| {
+            let rows = batch.num_rows();
+            let overlap_start = start.max(offset) - offset;
+            let overlap_end = end.min(offset + rows).saturating_sub(offset);
+            offset += rows;
+            (overlap_end > overlap_start).then(|| batch.slice(overlap_start, overlap_end - overlap_start))
+        })
+        .collect()
+}
+
+/// One partition's share for one task: its row-range slices, in order, then its end.
 struct Share {
-    rows: Arc<[Vec<RecordBatch>]>,
-    partition: usize,
-    next: usize,
-    step: usize,
+    slices: Vec<RecordBatch>,
+    at: usize,
     sent: u64,
     ended: bool,
 }
@@ -191,10 +219,10 @@ impl Share {
         if self.ended {
             return None;
         }
-        let batch = self.rows.get(self.partition).and_then(|batches| batches.get(self.next));
+        let batch = self.slices.get(self.at);
         let body = if let Some(batch) = batch {
             let written = write(batch);
-            self.next = self.next.saturating_add(self.step);
+            self.at = self.at.saturating_add(1);
             self.sent = self.sent.saturating_add(1);
             tokio::task::yield_now().await;
             if let Ok(bytes) = written {
@@ -299,9 +327,19 @@ impl FedRowsExec {
         };
         let held: Vec<Vec<RecordBatch>> = rows.partitions().iter().map(projected).collect::<Result<_>>()?;
         let partitions = held.len();
+        let row_count = held
+            .iter()
+            .flatten()
+            .map(RecordBatch::num_rows)
+            .try_fold(0_usize, usize::checked_add)
+            .ok_or_else(|| DataFusionError::Plan(String::from("the leg has too many rows to assign to workers")))?;
+        let share = row_count.checked_div(tasks.get()).unwrap_or_default();
+        let extra = row_count.checked_rem(tasks.get()).unwrap_or_default();
         let provider = Dealt {
             rows: held.into(),
             tasks,
+            share,
+            extra,
         };
         Ok(Self::new(WorkUnitFeed::new(provider), scan.schema(), partitions))
     }
@@ -418,6 +456,37 @@ pub(super) fn decode(buf: &[u8], inputs: &[Arc<dyn ExecutionPlan>]) -> Result<Ar
     let partitions = usize::try_from(declared.partitions).map_err(|_width| malformed())?;
     let feed = WorkUnitFeed::from_proto(declared.feed.ok_or_else(malformed)?)?;
     Ok(Arc::new(FedRowsExec::new(feed, Arc::new(schema), partitions)))
+}
+
+/// `leaf`'s feed, driven as `tasks` tasks each read their own share end to end - every batch each
+/// task's share yields, decoded, in the order the feed sent them. Test-only: an integration test
+/// outside this module asserting on a dealt leg's actual row split reaches the feed through this,
+/// rather than the engine's own distributed fan-out.
+#[cfg(test)]
+pub(in crate::combine) fn shares_for_test(
+    leaf: &FedRowsExec,
+    tasks: usize,
+    runtime: &tokio::runtime::Runtime,
+) -> Vec<Vec<RecordBatch>> {
+    use datafusion::prelude::SessionConfig;
+
+    let provider = leaf.feed.inner().expect("a leaf planned for a test holds its own feed");
+    let config = SessionConfig::new().with_extension(Arc::new(DistributedWorkUnitFeedContext { fan_out_tasks: tasks }));
+    let ctx = Arc::new(TaskContext::default().with_session_config(config));
+    let width = leaf.properties.partitioning.partition_count();
+    (0..tasks)
+        .map(|task| {
+            (0..width)
+                .flat_map(|partition| {
+                    let global = task * width + partition;
+                    let units = provider.feed(global, Arc::clone(&ctx)).expect("a task's share streams");
+                    runtime
+                        .block_on(received(leaf.schema(), units).try_collect::<Vec<_>>())
+                        .expect("a task's share decodes")
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// A fed leaf's declaration of itself, in the shape a stage carries it.

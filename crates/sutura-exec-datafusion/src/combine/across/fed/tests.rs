@@ -158,28 +158,60 @@ fn a_dealt_legs_declaration_has_the_same_size_for_ten_rows_and_a_hundred_thousan
     );
 }
 
+/// `leg`'s own measures run from 0 without a gap across partitions in order (`leg`'s `first` is
+/// `(partition * batches + index) * rows`), so a share's measures are exactly its contiguous range
+/// of the leg's whole row sequence.
+fn measures(batches: &[RecordBatch]) -> Vec<i64> {
+    batches
+        .iter()
+        .flat_map(|batch| {
+            let index = batch.schema().index_of("v").expect("the measure column is present");
+            batch
+                .column(index)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .expect("the measure is an integer")
+                .values()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 #[test]
-fn each_task_is_fed_every_nth_batch_of_each_partition_and_the_shares_are_the_leg() {
+fn each_task_is_fed_a_contiguous_row_range_of_the_leg_across_its_partitions() {
     let rows = leg(2, 7, 3);
     let leaf = leaf(&rows, 3);
     let provider = dealt_feed(&leaf);
-    let mut shares: Vec<Vec<RecordBatch>> = Vec::new();
-    for global in 0..6 {
-        let fed = provider
-            .feed(global, context(3))
-            .expect("the stage runs the tasks the leg was dealt across");
-        let batches = runtime()
-            .block_on(received(schema(), fed).try_collect::<Vec<_>>())
-            .expect("a complete share arrives");
-        shares.push(batches);
+    let total: usize = 2 * 7 * 3;
+    let mut fed: Vec<i64> = Vec::new();
+    for task in 0..3 {
+        let mut share = Vec::new();
+        for partition in 0..2 {
+            let global = task * 2 + partition;
+            let unit = provider
+                .feed(global, context(3))
+                .expect("the stage runs the tasks the leg was dealt across");
+            let batches = runtime()
+                .block_on(received(schema(), unit).try_collect::<Vec<_>>())
+                .expect("a complete share arrives");
+            share.extend(measures(&batches));
+        }
+        let share_size = total.checked_div(3).expect("three tasks");
+        let extra = total.checked_rem(3).expect("three tasks");
+        let start = task * share_size + task.min(extra);
+        let end = start + share_size + usize::from(task < extra);
+        let expected: Vec<i64> = (start..end)
+            .map(|measure| i64::try_from(measure).expect("a small measure"))
+            .collect();
+        assert_eq!(share, expected, "task {task} was not fed its contiguous row range");
+        fed.extend(share);
     }
-    for (global, share) in shares.iter().enumerate() {
-        let (task, partition) = (global.div_euclid(2), global.rem_euclid(2));
-        let expected: Vec<RecordBatch> = rows[partition].iter().skip(task).step_by(3).cloned().collect();
-        assert_eq!(share, &expected, "task {task} was not fed its share of partition {partition}");
-    }
-    let fed: usize = shares.iter().flatten().map(RecordBatch::num_rows).sum();
-    assert_eq!(fed, 2 * 7 * 3, "the shares are not the leg's rows");
+    let whole: Vec<i64> = (0..total)
+        .map(|measure| i64::try_from(measure).expect("a small measure"))
+        .collect();
+    assert_eq!(fed, whole, "the shares are not the leg's rows, in order");
 }
 
 #[test]
