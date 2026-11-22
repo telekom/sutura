@@ -34,7 +34,7 @@ pub struct DeclaredRelationship {
 pub enum DeclarationError {
     #[error("declared relationship endpoint table {table} is absent or excluded")]
     TableMissing { table: TableAddress },
-    #[error("declared relationship endpoint column {table}.{column} is absent on a visible table")]
+    #[error("declared relationship endpoint {table}.{column} is absent or excluded")]
     ColumnMissing { table: TableAddress, column: String },
     #[error("declared relationship columns {origin}.{origin_column} and {target}.{target_column} lack compatible known types")]
     Types {
