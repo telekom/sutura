@@ -256,9 +256,17 @@ mod view_missing_endpoint_tests {
     //! Pins `Constraints::apply`'s `on_missing_endpoint` parameter: a documentation-schema
     //! `relationships_view` row whose declared target table the reading identity's dictionary does
     //! not carry follows the same `MissingEndpointPolicy` a configuration declaration does.
+    //!
+    //! `Constraints::apply` itself only attaches the policy to the `DeclaredRelationship` it
+    //! returns - it never probes the dictionary for that row's endpoint. The probe, and the
+    //! refuse-or-omit decision, happen one step later in `relationships::declared::apply`. A test
+    //! that stops at `Constraints::apply` alone therefore never exercises the policy at all; the
+    //! two tests below run the full two-stage pipeline a reader actually calls.
 
     use super::Constraints;
+    use crate::relationships::declared;
     use crate::{Dictionary, MissingEndpointPolicy, RdbmsError, Table, TableAddress};
+    use sutura_domain::warehouse::schema::TypeDialect;
 
     fn declared_row(target_table: &str) -> [Option<String>; 13] {
         [
@@ -299,8 +307,11 @@ mod view_missing_endpoint_tests {
         let mut constraints = Constraints::default();
         constraints.push(declared_row("apps")).unwrap();
         let mut dictionary = dictionary_with_events_only();
+        let declared = constraints
+            .apply(&mut dictionary, MissingEndpointPolicy::Refuse)
+            .expect("Constraints::apply only attaches the policy; it does not itself probe the endpoint");
         assert!(matches!(
-            constraints.apply(&mut dictionary, MissingEndpointPolicy::Refuse),
+            declared::apply(dictionary, &declared, TypeDialect::Postgres, None),
             Err(RdbmsError::Declaration { .. })
         ));
     }
@@ -312,8 +323,11 @@ mod view_missing_endpoint_tests {
         let mut constraints = Constraints::default();
         constraints.push(declared_row("apps")).unwrap();
         let mut dictionary = dictionary_with_events_only();
+        let declared = constraints
+            .apply(&mut dictionary, MissingEndpointPolicy::default())
+            .expect("Constraints::apply only attaches the policy; it does not itself probe the endpoint");
         assert!(matches!(
-            constraints.apply(&mut dictionary, MissingEndpointPolicy::default()),
+            declared::apply(dictionary, &declared, TypeDialect::Postgres, None),
             Err(RdbmsError::Declaration { .. })
         ));
     }
@@ -323,8 +337,10 @@ mod view_missing_endpoint_tests {
         let mut constraints = Constraints::default();
         constraints.push(declared_row("apps")).unwrap();
         let mut dictionary = dictionary_with_events_only();
-        let resolved = constraints
+        let declared = constraints
             .apply(&mut dictionary, MissingEndpointPolicy::Omit)
+            .expect("Constraints::apply only attaches the policy; it does not itself probe the endpoint");
+        let (dictionary, resolved) = declared::apply(dictionary, &declared, TypeDialect::Postgres, None)
             .expect("an omit-policy view row never refuses the whole load");
         assert_eq!(
             resolved.len(),
