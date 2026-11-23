@@ -57,10 +57,10 @@ fn raw_prefilter_never_reaches_the_source_through_a_row_changing_or_renaming_lev
     for sql in [
         // A derived table between the owner and the base carries its own LIMIT.
         "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS LIMIT 5) d WHERE SCRIPT LIKE '%MRC%'",
-        // ... a GROUP BY/aggregate.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, count(*) AS n FROM DOCS GROUP BY OBJECT_NAME, SCRIPT) d WHERE SCRIPT LIKE '%MRC%'",
-        // ... DISTINCT.
-        "SELECT count(OBJECT_NAME) FROM (SELECT DISTINCT OBJECT_NAME, SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+        // ... an aggregate that computes SCRIPT rather than passing it through - unlike grouping
+        // or filtering BY SCRIPT itself, this does not commute with a filter above it, so the
+        // planner cannot legitimately flatten it into the plain base case.
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, max(SCRIPT) AS SCRIPT FROM DOCS GROUP BY OBJECT_NAME) d WHERE SCRIPT LIKE '%MRC%'",
         // ... a window function in its projection.
         "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, row_number() OVER (ORDER BY OBJECT_NAME) AS r FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
         // A level renames the predicate's own column instead of passing it through bare.
@@ -86,11 +86,13 @@ fn raw_prefilter_never_reaches_the_source_through_a_row_changing_or_renaming_lev
     }
 }
 
-/// #2038 Opus re-review (VACUITY): the planner may rewrite a rename, a transform or a doubly
-/// filtered derived level away before `discover` ever sees the dangerous shape, so the cases above
-/// alone do not prove the guard - not the optimizer - is what rejects them. These mirror three of
-/// those cases, plus the two new HIGH/LOW wildcard shapes, directly against
-/// [`super::super::text_prefilter::discover`] with no `DataFusion` planning in between.
+/// #2038 Opus re-review (VACUITY): the planner may rewrite a rename, a transform, a doubly
+/// filtered derived level, or a filter over a `GROUP BY`/`DISTINCT` key away before `discover`
+/// ever sees the dangerous shape - a filter on a grouping key or a `DISTINCT` column commutes
+/// below it, so the planner can legitimately flatten it into the safe, plain case before
+/// `discover` ever runs. These mirror those cases, plus the two new HIGH/LOW wildcard shapes,
+/// directly against [`super::super::text_prefilter::discover`] with no `DataFusion` planning in
+/// between, so the guard - not the optimizer - is what rejects them.
 #[test]
 fn raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_directly() {
     let enabled = || super::text_prefilter::table(TypeDialect::DataFusion, &["[masked]"], true, false, true);
@@ -101,6 +103,11 @@ fn raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_d
         "SELECT count(id) FROM (SELECT id, UPPER(id) AS \"BODY\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
         // Two levels each carry their own WHERE.
         "SELECT count(id) FROM (SELECT id, \"BODY\" FROM \"notes\" WHERE id IS NOT NULL) d WHERE \"BODY\" LIKE '%TERM%'",
+        // A WHERE sits above a GROUP BY level, filtering on the grouping key itself - a shape a
+        // planner may flatten away, so it must be rejected at this unvarnished textual level too.
+        "SELECT count(id) FROM (SELECT id, \"BODY\", count(*) AS n FROM \"notes\" GROUP BY id, \"BODY\") d WHERE \"BODY\" LIKE '%TERM%'",
+        // A WHERE sits above a DISTINCT level, filtering on a column DISTINCT already dedups.
+        "SELECT count(id) FROM (SELECT DISTINCT id, \"BODY\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
         // HIGH: a wildcard carrying REPLACE or RENAME is not a bare passthrough.
         "SELECT count(id) FROM (SELECT * REPLACE (id AS id) FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
         "SELECT count(id) FROM (SELECT * RENAME (id AS renamed_id) FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
