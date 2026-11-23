@@ -4,9 +4,8 @@ use std::ops::ControlFlow;
 
 use datafusion::arrow::array::ArrayRef;
 
-use datafusion::sql::sqlparser::ast::{
-    LimitClause, Query, Select, SelectItem, TableFactor, Visit as _, VisitMut as _, Visitor, VisitorMut,
-};
+use datafusion::sql::sqlparser::ast::{LimitClause, Query, VisitMut as _, VisitorMut};
+use datafusion::sql::sqlparser::ast::{Select, SelectItem, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 

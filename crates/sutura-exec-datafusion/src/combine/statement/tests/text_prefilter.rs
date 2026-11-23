@@ -13,7 +13,7 @@ use sutura_domain::catalog::Collation;
 
 use super::*;
 
-pub(super) fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, enabled: bool) -> StatementTable {
+fn table(dialect: TypeDialect, replacements: &[&str], bound: bool, lob: bool, enabled: bool) -> StatementTable {
     let mut policy = serde_json::json!({"redact": replacements.iter().map(|replacement|
         serde_json::json!({"pattern": "secret[^ ]*", "replace": replacement})).collect::<Vec<_>>()});
     if enabled {
@@ -96,7 +96,7 @@ impl Visitor for RawPredicates {
     }
 }
 
-pub(super) fn raw_predicates(sql: &str, table: StatementTable) -> Vec<Option<Expr>> {
+fn raw_predicates(sql: &str, table: StatementTable) -> Vec<Option<Expr>> {
     let fields = table
         .schema()
         .fields()

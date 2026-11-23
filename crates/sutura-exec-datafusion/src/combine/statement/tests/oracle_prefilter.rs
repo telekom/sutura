@@ -1,12 +1,91 @@
 //! #2038 Opus re-review Round B: the raw prefilter's wildcard, rename and quoted-identifier
 //! guards, isolated from the rest of the Oracle leg so neither file crosses the line-count gate.
 
+use std::collections::HashMap;
 use std::ops::ControlFlow;
 
-use datafusion::sql::sqlparser::ast::{Expr, Visit as _, Visitor};
+use datafusion::sql::sqlparser::ast::{Expr, Query, SetExpr, Statement, TableFactor, Visit as _, Visitor};
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::parser::Parser;
 
 use super::oracle::{CapturedLegs, base_table_selects, docs_table, reaches_oracle};
 use super::*;
+
+/// A duplicate of `tests/text_prefilter.rs`'s own `table`, kept private to this file rather than
+/// shared, so neither file's pre-existing helper has to change visibility for the other's sake.
+fn notes_table(enabled: bool) -> StatementTable {
+    let mut policy = serde_json::json!({"redact": [{"pattern": "secret[^ ]*", "replace": "[masked]"}]});
+    if enabled {
+        policy["raw_prefilter"] = serde_json::json!({"acknowledged_because": "accepted secret-dependent timing"});
+    }
+    policy["max_text_bytes"] = serde_json::json!(128);
+    let metadata = HashMap::from([(String::from("sutura:text_policy"), policy.to_string())]);
+    StatementTable::new(
+        named("data"),
+        QualifiedTable::parse("notes").expect("a table"),
+        TypeDialect::DataFusion,
+        Arc::new(Schema::new(vec![
+            Field::new("BODY", DataType::Utf8, true).with_metadata(metadata),
+            Field::new("id", DataType::Int64, true),
+        ])),
+    )
+}
+
+#[derive(Default)]
+struct NotesPredicates(Vec<Option<Expr>>);
+
+impl Visitor for NotesPredicates {
+    type Break = ();
+
+    fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Self::Break> {
+        if let SetExpr::Select(select) = query.body.as_ref()
+            && let [from] = select.from.as_slice()
+            && matches!(&from.relation, TableFactor::Table { name, .. } if name.0.last().and_then(|part| part.as_ident()).is_some_and(|part| part.value == "notes"))
+        {
+            self.0.push(select.selection.clone());
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+fn parsed(sql: &str) -> Statement {
+    Parser::parse_sql(&GenericDialect, sql)
+        .expect("generated SQL parses")
+        .pop()
+        .expect("one statement")
+}
+
+/// A duplicate of `tests/text_prefilter.rs`'s own `raw_predicates`, over the fixed `notes_table`
+/// shape this file needs rather than its full parameterization.
+fn raw_predicates(sql: &str) -> Vec<Option<Expr>> {
+    let table = notes_table(true);
+    let dialect = table.dialect();
+    let baseline = notes_table(false);
+    let baseline = super::super::text::apply(String::from(sql), &[baseline], dialect)
+        .expect("the disabled policy must rewrite successfully");
+    let rewritten = super::super::text::apply(String::from(sql), &[table], dialect)
+        .expect("an acknowledged policy must rewrite successfully");
+    let original = parsed(&baseline);
+    let rewritten = parsed(&rewritten);
+    let outer = |statement: Statement| {
+        let Statement::Query(query) = statement else {
+            panic!("a query");
+        };
+        let SetExpr::Select(select) = *query.body else {
+            panic!("a select");
+        };
+        select.selection
+    };
+    assert_eq!(
+        outer(original),
+        outer(rewritten.clone()),
+        "the exact redacted predicate must remain decisive"
+    );
+    let mut raw = NotesPredicates::default();
+    assert!(rewritten.visit(&mut raw).is_continue());
+    assert!(!raw.0.is_empty(), "the source table must still be read");
+    raw.0
+}
 
 /// A `LIKE` anywhere in an expression tree whose left side mentions `SCRIPT` - including under an
 /// `UPPER(...)` wrapper - the shape [`text_prefilter::raw_condition`] builds. A base-table `WHERE`
@@ -100,7 +179,6 @@ fn raw_prefilter_never_reaches_the_source_through_a_row_changing_or_renaming_lev
 /// between, so the guard - not the optimizer - is what rejects them.
 #[test]
 fn raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_directly() {
-    let enabled = || super::text_prefilter::table(TypeDialect::DataFusion, &["[masked]"], true, false, true);
     for sql in [
         // A level renames the predicate's own column instead of passing it through bare.
         "SELECT count(id) FROM (SELECT id, id AS \"BODY\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
@@ -131,17 +209,12 @@ fn raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_d
         // the wrong one.
         "SELECT count(id) FROM (SELECT id, \"body\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
     ] {
-        assert!(
-            super::text_prefilter::raw_predicates(sql, enabled())
-                .iter()
-                .all(Option::is_none),
-            "{sql}"
-        );
+        assert!(raw_predicates(sql).iter().all(Option::is_none), "{sql}");
     }
     // A bare wildcard with no shadowing alias is still a passthrough.
     let passthrough = "SELECT count(id) FROM (SELECT * FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'";
     assert!(
-        super::text_prefilter::raw_predicates(passthrough, enabled())[0].is_some(),
+        raw_predicates(passthrough)[0].is_some(),
         "a bare wildcard must still pass the predicate's own column through unchanged"
     );
 }
