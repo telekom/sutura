@@ -17,9 +17,12 @@
 //! **What this does not show.** Every node runs on one host, presents one self-signed pair and
 //! accepts it as its node authority, and reads the tier as its one fixture role, so nothing here
 //! tells the serving node's statements from a reader's: that the serving node reads none of the
-//! leg's rows is shown only by a refusal when no reader resolves. The serving node's port is
-//! taken from a socket closed before it binds. The caller is a mock issuer's token; nobody signs
-//! in.
+//! leg's rows is shown only by a refusal when no reader resolves. The serving node, like every
+//! reader, is given `port: 0` and its real bound port is read back off its own `listening` line -
+//! never guessed from a socket closed before the node binds, which a concurrent `nextest` run
+//! could rebind first. `nodes.own` names a port nothing here ever dials, so it is written once,
+//! before the node starts, and never has to match. The caller is a mock issuer's token; nobody
+//! signs in.
 
 #[cfg(test)]
 mod tests {
@@ -93,8 +96,21 @@ mod tests {
 
     /// The serving node, and the port it listens on.
     struct Serving {
-        _served: Served,
-        port: u16,
+        served: Served,
+    }
+
+    impl Serving {
+        /// The port the kernel bound it to, read back off its own `listening` line - the same
+        /// fact [`url`] reads for a reader, and for the same reason: nothing pre-guesses it.
+        fn port(&self) -> u16 {
+            self.served
+                .startup
+                .iter()
+                .find_map(|line| bound_address(line))
+                .and_then(|bound| bound.rsplit(':').next().map(String::from))
+                .and_then(|port| port.parse().ok())
+                .expect("a started serving node reported its bound port")
+        }
     }
 
     /// The example catalog with `customers` and `regions` on `geo` and `customers` reading
@@ -206,10 +222,6 @@ mod tests {
         /// The serving node over `sources`, declaring a reading worker of `geo` at each of `readers`
         /// and planning every federated question across them.
         fn serving(&self, readers: &[String], sources: &str) -> Serving {
-            let port = std::net::TcpListener::bind(("127.0.0.1", 0))
-                .and_then(|socket| socket.local_addr())
-                .expect("a loopback port is free")
-                .port();
             let others = readers
                 .iter()
                 .map(|url| {
@@ -217,8 +229,11 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
                 .concat();
+            // `own` is how OTHER nodes would reach this one, and nothing in this suite ever dials
+            // it - the serving node is the caller of every reader, not their callee - so a port no
+            // reader can ever bind (`0`) names it without needing the real, kernel-assigned one.
             let server = format!(
-                "  host: \"127.0.0.1\"\n  port: {port}\n{}  nodes:\n    own: \"https://127.0.0.1:{port}\"\n    \
+                "  host: \"127.0.0.1\"\n  port: 0\n{}  nodes:\n    own: \"https://127.0.0.1:0\"\n    \
                  others:\n{others}    across_above_bytes: 1\n",
                 self.pair(),
             );
@@ -231,8 +246,7 @@ mod tests {
             );
             let settings = settings_over(&self.catalog, &example_root().join("data"), &server, &security, sources);
             Serving {
-                _served: start_configured(self.case, &settings),
-                port,
+                served: start_configured(self.case, &settings),
             }
         }
 
@@ -250,16 +264,16 @@ mod tests {
                 .expect("an address is a server name")
                 .to_owned();
             let connection = rustls::ClientConnection::new(Arc::new(config), name).expect("a client connection builds");
-            let tcp = TcpStream::connect(("127.0.0.1", serving.port)).expect("the serving node accepts a connection");
+            let port = serving.port();
+            let tcp = TcpStream::connect(("127.0.0.1", port)).expect("the serving node accepts a connection");
             tcp.set_read_timeout(Some(Duration::from_secs(120)))
                 .expect("a read timeout is settable");
             let mut tls = rustls::StreamOwned::new(connection, tcp);
             let question = recurring_revenue_by_region();
             let request = format!(
-                "POST {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\n\
+                "POST {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\n\
                  Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{question}",
                 v1(sutura_http::constants::base_paths::QUERY),
-                serving.port,
                 question.len(),
             );
             tls.write_all(request.as_bytes()).expect("the question is writable");
