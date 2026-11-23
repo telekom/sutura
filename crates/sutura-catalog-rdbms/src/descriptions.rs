@@ -12,6 +12,9 @@ use sutura_domain::model::{ColumnName, DatasetName, ProjectName, QualifiedTable,
 
 use crate::{Dictionary, DictionaryBounds, RdbmsError, TableAddress};
 
+/// The colliding table, and the two column identifiers that fold to the same identity under it.
+type AmbiguousColumn = (QualifiedTable, ColumnName, ColumnName);
+
 #[derive(Debug, thiserror::Error)]
 pub enum DescriptionError {
     #[error("description source exceeds its row bound of {limit}")]
@@ -22,6 +25,10 @@ pub enum DescriptionError {
     Duplicate { table: QualifiedTable, column: ColumnName },
     #[error("description source repeats physical table {table}")]
     DuplicateTable { table: QualifiedTable },
+    #[error("case-insensitive matching is ambiguous: {} and {} fold to the same table identity", .0.0, .0.1)]
+    AmbiguousTableCaseFold(Box<(QualifiedTable, QualifiedTable)>),
+    #[error("case-insensitive matching is ambiguous: {}.{} and {}.{} fold to the same column identity", .0.0, .0.1, .0.0, .0.2)]
+    AmbiguousColumnCaseFold(Box<AmbiguousColumn>),
     #[error("description source has an invalid physical identifier")]
     Identifier {
         #[source]
@@ -202,47 +209,85 @@ impl DescriptionOverlay {
 /// Applies only prose after dictionary selection. Returns the number of ignored column rows,
 /// including empty rows and repeated unknown columns from different ordered sources.
 pub(crate) fn apply(mut dictionary: Dictionary, sources: &[DescriptionOverlay]) -> Result<OverlaidDictionary, RdbmsError> {
+    // Folding runs only when some source actually asked for it: with none, this must be
+    // byte-identical to the exact-only path, and a served identifier whose lower case does not
+    // parse must never newly refuse a dictionary that loads today.
+    let fold_active = sources.iter().any(|source| source.case_insensitive);
     let mut visible = BTreeSet::new();
+    let mut folded_tables: BTreeMap<QualifiedTable, QualifiedTable> = BTreeMap::new();
     for table in &mut dictionary.tables {
         let address = physical(&table.address).map_err(|cause| RdbmsError::Read(Box::new(cause)))?;
-        let folded_address = physical_folded(&table.address, true).map_err(|cause| RdbmsError::Read(Box::new(cause)))?;
+        let folded_address = if fold_active {
+            let folded = physical_folded(&table.address, true).map_err(|cause| RdbmsError::Read(Box::new(cause)))?;
+            if let Some(first) = folded_tables.insert(folded.clone(), address.clone())
+                && first != address
+            {
+                return Err(RdbmsError::Read(Box::new(DescriptionError::AmbiguousTableCaseFold(
+                    Box::new((first, address)),
+                ))));
+            }
+            Some(folded)
+        } else {
+            None
+        };
         if let Some(prose) = sources
             .iter()
             .filter_map(|source| {
-                let probe = if source.case_insensitive { &folded_address } else { &address };
+                let probe = match (source.case_insensitive, &folded_address) {
+                    (true, Some(folded)) => folded,
+                    _ => &address,
+                };
                 source.tables.get(probe)
             })
             .find(|prose| !prose.is_empty())
         {
             table.description = Some(prose.as_str().to_owned());
         }
+        let mut folded_columns: BTreeMap<ColumnName, ColumnName> = BTreeMap::new();
         for column in &table.columns {
             let column_key = ColumnName::parse(column).map_err(|cause| RdbmsError::ColumnName {
                 table: address.to_string(),
                 column: column.clone(),
                 cause,
             })?;
-            let folded_column_key = ColumnName::parse(column.to_lowercase()).map_err(|cause| RdbmsError::ColumnName {
-                table: address.to_string(),
-                column: column.clone(),
-                cause,
-            })?;
+            let folded_key = if fold_active {
+                let folded_column = ColumnName::parse(column.to_lowercase()).map_err(|cause| RdbmsError::ColumnName {
+                    table: address.to_string(),
+                    column: column.clone(),
+                    cause,
+                })?;
+                if let Some(first) = folded_columns.insert(folded_column.clone(), column_key.clone())
+                    && first != column_key
+                {
+                    return Err(RdbmsError::Read(Box::new(DescriptionError::AmbiguousColumnCaseFold(
+                        Box::new((address, first, column_key)),
+                    ))));
+                }
+                Some((folded_address.clone().unwrap_or_else(|| address.clone()), folded_column))
+            } else {
+                None
+            };
             let key = (address.clone(), column_key);
-            let folded_key = (folded_address.clone(), folded_column_key);
             if let Some(prose) = sources
                 .iter()
                 .filter_map(|source| {
-                    let probe = if source.case_insensitive { &folded_key } else { &key };
+                    let probe = match (source.case_insensitive, &folded_key) {
+                        (true, Some(folded)) => folded,
+                        _ => &key,
+                    };
                     source.columns.get(probe)
                 })
                 .find(|prose| !prose.is_empty())
             {
                 table.column_metadata.entry(column.clone()).or_default().description = Some(prose.as_str().to_owned());
             }
-            // Visible under both its exact and folded identity, so a case-insensitive source's
-            // already-matched key is never miscounted as an ignored, unmatched row below.
             visible.insert(key);
-            visible.insert(folded_key);
+            // Visible under its folded identity too, so a case-insensitive source's already-
+            // matched key is never miscounted as an ignored, unmatched row below - never done
+            // when `fold_active` is false, which keeps the exact-only count unchanged.
+            if let Some(folded) = folded_key {
+                visible.insert(folded);
+            }
         }
     }
     let ignored = sources
@@ -362,6 +407,113 @@ mod tests {
                 .and_then(|table| table.column_metadata("id"))
                 .and_then(crate::ColumnMetadata::description),
             Some("Folded match")
+        );
+    }
+
+    /// Folding only ever runs when some source asked for it (`fold_active` in `apply`): with every
+    /// source exact, an exact-only source row that merely shares a folded identity with the served
+    /// column must stay ignored, not newly match - byte-identical to pre-fold-feature behaviour.
+    /// Red at `671af707e`, which folded unconditionally and miscounted this row as matched.
+    #[test]
+    fn exact_mode_counts_a_source_row_matching_only_by_fold_as_ignored() {
+        let served = dictionary("PUBLIC", &[("ID", "Served")]);
+        let source = dictionary("public", &[("id", "Should not attach")]);
+        let overlay = DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), false).expect("exact records");
+        let (actual, ignored) = served.overlay_descriptions(&[overlay]).expect("overlaid");
+        assert_eq!(ignored, 1, "an exact-only source must never match by a folded identity");
+        assert_eq!(
+            actual
+                .tables()
+                .first()
+                .and_then(|table| table.column_metadata("ID"))
+                .and_then(crate::ColumnMetadata::description),
+            Some("Served")
+        );
+    }
+
+    /// An exact source and a case-insensitive source are independent: each is probed by its own
+    /// comparison, and one source opting in never relaxes the other.
+    #[test]
+    fn an_exact_source_and_a_case_insensitive_source_are_probed_independently() {
+        let exact_docs = dictionary("public", &[("id", "Exact match")]);
+        let folded_docs = dictionary("PUBLIC", &[("AMOUNT", "Folded match")]);
+        let exact_overlay = DescriptionOverlay::from_dictionary(&exact_docs, bounds(100, 10000), false).expect("exact records");
+        let folded_overlay = DescriptionOverlay::from_dictionary(&folded_docs, bounds(100, 10000), true).expect("folded records");
+        let served = dictionary("public", &[("id", "Native id"), ("amount", "Native amount")]);
+        let (actual, ignored) = served
+            .overlay_descriptions(&[exact_overlay, folded_overlay])
+            .expect("overlaid");
+        assert_eq!(ignored, 0);
+        let table = actual.tables().first().expect("table");
+        assert_eq!(
+            table.column_metadata("id").and_then(crate::ColumnMetadata::description),
+            Some("Exact match")
+        );
+        assert_eq!(
+            table.column_metadata("amount").and_then(crate::ColumnMetadata::description),
+            Some("Folded match")
+        );
+    }
+
+    /// Two source rows for the same table that differ only by case are a `Duplicate`/`DuplicateTable`
+    /// under case-insensitive matching, exactly as two byte-identical rows already are - never a
+    /// silent last-write-wins.
+    #[test]
+    fn two_case_insensitive_source_tables_differing_only_by_case_are_refused_as_duplicates() {
+        let mut source = dictionary("public", &[("id", "One")]);
+        source.tables.extend(dictionary("PUBLIC", &[("id", "Two")]).tables);
+        assert!(matches!(
+            DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true),
+            Err(DescriptionError::DuplicateTable { .. })
+        ));
+    }
+
+    #[test]
+    fn two_case_insensitive_source_columns_differing_only_by_case_are_refused_as_duplicates() {
+        let source = dictionary("public", &[("id", "One"), ("ID", "Two")]);
+        assert!(matches!(
+            DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true),
+            Err(DescriptionError::Duplicate { .. })
+        ));
+    }
+
+    /// Blocking defect: a served dictionary with both `ID` and `id` columns (or `Orders`/`orders`
+    /// tables) must never let a case-insensitive source write its one description onto both -
+    /// that is silent wrong attachment. Refuse instead, naming the colliding identifiers.
+    #[test]
+    fn a_dictionary_with_two_columns_differing_only_by_case_refuses_a_case_insensitive_source() {
+        let served = dictionary("public", &[("ID", "Upper"), ("id", "Lower")]);
+        let source = dictionary("public", &[("whatever", "Prose")]);
+        let overlay = DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true).expect("folded records");
+        let error = served
+            .overlay_descriptions(&[overlay])
+            .expect_err("colliding columns must refuse, not silently attach to both");
+        let RdbmsError::Read(cause) = error else {
+            panic!("expected RdbmsError::Read, got {error:?}");
+        };
+        assert!(
+            cause
+                .downcast_ref::<DescriptionError>()
+                .is_some_and(|cause| matches!(cause, DescriptionError::AmbiguousColumnCaseFold(..)))
+        );
+    }
+
+    #[test]
+    fn two_tables_differing_only_by_case_refuse_a_case_insensitive_source() {
+        let mut served = dictionary("public", &[("id", "Lower table")]);
+        served.tables.extend(dictionary("PUBLIC", &[("id", "Upper table")]).tables);
+        let source = dictionary("public", &[("whatever", "Prose")]);
+        let overlay = DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true).expect("folded records");
+        let error = served
+            .overlay_descriptions(&[overlay])
+            .expect_err("colliding tables must refuse, not silently attach to both");
+        let RdbmsError::Read(cause) = error else {
+            panic!("expected RdbmsError::Read, got {error:?}");
+        };
+        assert!(
+            cause
+                .downcast_ref::<DescriptionError>()
+                .is_some_and(|cause| matches!(cause, DescriptionError::AmbiguousTableCaseFold(..)))
         );
     }
 

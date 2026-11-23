@@ -280,6 +280,13 @@ Use it for a documentation system whose own convention does not preserve the ser
 case, such as one that stores every identifier upper-cased regardless of how the source database
 spells it.
 
+The fold is Rust's `str::to_lowercase` - full Unicode case folding, not Oracle's `NLS_UPPER` or
+PostgreSQL's locale-aware comparison. An identifier that differs between those and Rust's fold
+(Turkish dotless `ı`/`i`, German `ß`) may not match under a mixed-locale deployment; it never
+silently mismatches two distinct served identifiers onto one description - a served dictionary
+whose own identifiers collide under this fold (for example both `ID` and `id`) refuses the whole
+load instead, naming the colliding identifiers.
+
 Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
 accounting and the existing description byte, line and control-character checks. PostgreSQL's
 byte refusal runs after libpq has materialized its result; Oracle bills decoded cursor rows.
