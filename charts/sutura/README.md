@@ -147,7 +147,7 @@ operator pods (github.com/telekom/sutura#1680 finding 6). Workers accept their p
 release's nodes and the operator's scrapes. A combining worker connects only to this release's nodes
 on the service port and to DNS, so it reaches no data source (breaking: a combining worker had no
 egress limit before). Each reading worker group connects to the release's nodes, DNS and its declared
-`egress` addresses only. The operator's egress is limited to this release's pods, DNS and the
+`egress` addresses for network-backed sources and catalogs only. The operator's egress is limited to this release's pods, DNS and the
 Kubernetes API's common ports, and serving pods get an additive policy that keeps their port
 reachable even if the namespace later adds a default-deny policy.
 The metrics token authorizes scrapes and TLS verifies the node.

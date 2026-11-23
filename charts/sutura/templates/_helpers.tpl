@@ -244,7 +244,8 @@ setting beside the pool's would be dropped without a word, as the pool's node ce
 The nodes of this release that dial one another on the service port: the serving pods, the combining
 workers and, once groups are declared, every group's reading workers. A stage's join input is read
 from another node, so a policy that limited one group's readers to their own group would break a
-question; the isolation between groups is on egress to a source, not on the node links.
+question; the isolation between groups is on egress to network-backed sources and catalogs, not on
+the node links.
 */}}
 {{- define "sutura.nodePeers" -}}
 {{- $name := include "sutura.name" . -}}
