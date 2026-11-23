@@ -3925,6 +3925,22 @@ other build refuses the key at startup rather than combining on one node.</p>
 <code>server.tls_node_authority</code>. The pair is this node's identity twice: the listener presents it, and so does every link
 this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
 node serves its worker on the same listener, to clients whose certificate the authority signed.</p>
+<p><code>own</code>'s port may be the literal <code>0</code>, the same shorthand <code>server.port: 0</code> already is for the listener itself: the
+process resolves it to the port it actually bound, before planning across the declared nodes - which avoids a port
+picked in advance only for a node no peer dials (see the Limit below; a dialed node's peers still have to be told
+the real port, restart or not). Any other port, including the scheme's default when none is written, is read exactly
+as declared. Only the port is substituted: <code>own</code>'s host is read exactly as written and never replaced by whatever
+host the listener happened to bind to, even when the two differ.</p>
+<p><strong>Trade-off:</strong> resolving <code>own: 0</code> needs a real port before the combiner above runs, so for this case alone the
+listener is bound synchronously at the very start of boot, before every later startup refusal - node identity,
+telemetry, the outbound anchor set, an adapter. The socket is in <code>LISTEN</code> (a handshake completes into its backlog,
+a probe sees "up") for the span of boot that follows, even though one of those later refusals can still fail it. A
+deployment whose <code>own</code> names a real port, including the scheme's default, keeps the original late bind instead -
+this exposure is only the price of asking the process to resolve its own address.</p>
+<p><strong>Limit:</strong> resolving <code>own: 0</code> is this node naming itself correctly, not telling a peer what that port turned out to
+be. A peer under <code>others</code> must still name this node's real, actually-bound port in its own <code>others</code> entry that
+dials back here - <code>own: 0</code> only fits a node no peer ever dials (one with no reader, or the planning root of a
+deployment where every link runs the other way), never a reading worker another node reaches.</p>
 <p>Each peer under <code>others</code> names its <code>role</code> (<code>worker</code> or <code>reading-worker</code>, never <code>serving</code>) and, for a <code>reading-worker</code>,
 the source aliases it reads - a <code>worker</code> naming any is refused, and a <code>reading-worker</code> naming none is. Every address is
 a bare origin, or one with a <code>#&lt;ip&gt;</code> fragment naming the address to dial it at: a path, query, userinfo or any other
