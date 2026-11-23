@@ -31,10 +31,30 @@ impl Prefilter {
     }
 }
 
-/// A scope with more than one query, a collation override or negative/disjunctive logic is unknown.
-#[derive(Default)]
+/// The single level, among a chain of unparser-introduced derived-table wrapping, that carries a
+/// `WHERE` - borrowed in place rather than re-matched once the chain walk has found it.
+struct Owner<'a> {
+    selection: &'a Expr,
+    projection: &'a [SelectItem],
+    alias: Option<&'a Ident>,
+}
+
+/// A query beyond `allowed`, a collation override or negative/disjunctive logic is unknown.
+///
+/// `allowed` is the depth of derived-table wrapping `discover` has already walked and approved
+/// structurally (one `Query` node per plan node the unparser could not flatten into a single
+/// `SELECT` - a redaction projection below a filter, an aggregate above it, ...); it carries no
+/// predicate of its own, so it is not the "more than one query" this guard exists to reject. Any
+/// `Query` node beyond that depth - a correlated subquery, a UNION, a CTE - still is.
 struct Scope {
     queries: usize,
+    allowed: usize,
+}
+
+impl Scope {
+    const fn within(allowed: usize) -> Self {
+        Self { queries: 0, allowed }
+    }
 }
 
 impl Visitor for Scope {
@@ -42,7 +62,7 @@ impl Visitor for Scope {
 
     fn pre_visit_query(&mut self, _query: &Query) -> ControlFlow<Self::Break> {
         self.queries += 1;
-        if self.queries > 1 {
+        if self.queries > self.allowed {
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
@@ -75,56 +95,94 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     let Statement::Query(query) = statement else {
         return Ok(None);
     };
-    let SetExpr::Select(select) = query.body.as_ref() else {
-        return Ok(None);
+
+    // The unparser wraps one derived table per plan node it cannot flatten into a single `SELECT`
+    // - a redaction projection below a filter, an aggregate above it, the per-row LOB bound - none
+    // of which carries a predicate of its own. Walk down through that wrapping to the physical
+    // table at the bottom, remembering the single level, if any, that does carry one.
+    let mut current = query.as_ref();
+    let mut levels: usize = 0;
+    let mut owner: Option<Owner<'_>> = None;
+    let address = loop {
+        levels += 1;
+        let SetExpr::Select(select) = current.body.as_ref() else {
+            return Ok(None);
+        };
+        if current.with.is_some()
+            || !current.pipe_operators.is_empty()
+            || current.settings.is_some()
+            || !select.lateral_views.is_empty()
+            || select.prewhere.is_some()
+            || !select.connect_by.is_empty()
+        {
+            return Ok(None);
+        }
+        let [from] = select.from.as_slice() else {
+            return Ok(None);
+        };
+        if !from.joins.is_empty() {
+            return Ok(None);
+        }
+        let (TableFactor::Table {
+            alias: relation_alias, ..
+        }
+        | TableFactor::Derived {
+            alias: relation_alias, ..
+        }) = &from.relation
+        else {
+            return Ok(None);
+        };
+        if relation_alias.as_ref().is_some_and(|alias| !alias.columns.is_empty()) {
+            return Ok(None);
+        }
+        if let Some(selection) = &select.selection {
+            if owner.is_some() {
+                // More than one level filters: not the benign unparser-wrapping shape this walk
+                // recognizes, and scope across two independent predicates is unknown.
+                return Ok(None);
+            }
+            owner = Some(Owner {
+                selection,
+                projection: &select.projection,
+                alias: relation_alias.as_ref().map(|alias| &alias.name),
+            });
+        }
+        match &from.relation {
+            TableFactor::Table {
+                name,
+                args: None,
+                with_hints,
+                version: None,
+                with_ordinality: false,
+                partitions,
+                json_path: None,
+                sample: None,
+                index_hints,
+                ..
+            } => {
+                if !with_hints.is_empty() || !partitions.is_empty() || !index_hints.is_empty() {
+                    return Ok(None);
+                }
+                let Some(path) = name
+                    .0
+                    .iter()
+                    .map(|part| part.as_ident().map(|part| part.value.as_str()))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Ok(None);
+                };
+                break path.join(".");
+            }
+            TableFactor::Derived {
+                lateral: false,
+                subquery,
+                sample: None,
+                ..
+            } => current = subquery.as_ref(),
+            _ => return Ok(None),
+        }
     };
-    if query.with.is_some()
-        || !query.pipe_operators.is_empty()
-        || query.settings.is_some()
-        || !select.lateral_views.is_empty()
-        || select.prewhere.is_some()
-        || !select.connect_by.is_empty()
-        || statement.visit(&mut Scope::default()).is_break()
-    {
-        return Ok(None);
-    }
-    let [from] = select.from.as_slice() else {
-        return Ok(None);
-    };
-    if !from.joins.is_empty() {
-        return Ok(None);
-    }
-    let TableFactor::Table {
-        name,
-        alias,
-        args: None,
-        with_hints,
-        version: None,
-        with_ordinality: false,
-        partitions,
-        json_path: None,
-        sample: None,
-        index_hints,
-    } = &from.relation
-    else {
-        return Ok(None);
-    };
-    if !with_hints.is_empty()
-        || !partitions.is_empty()
-        || !index_hints.is_empty()
-        || alias.as_ref().is_some_and(|alias| !alias.columns.is_empty())
-    {
-        return Ok(None);
-    }
-    let Some(path) = name
-        .0
-        .iter()
-        .map(|part| part.as_ident().map(|part| part.value.as_str()))
-        .collect::<Option<Vec<_>>>()
-    else {
-        return Ok(None);
-    };
-    let address = path.join(".");
+
     let mut matching = tables.iter().filter(|table| table.table().to_string() == address);
     let Some(table) = matching.next() else {
         return Ok(None);
@@ -132,18 +190,27 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     if matching.next().is_some() {
         return Ok(None);
     }
-    let Some(selection) = &select.selection else {
+    let Some(Owner {
+        selection,
+        projection,
+        alias,
+    }) = owner
+    else {
         return Ok(None);
     };
-    let aliases = select
-        .projection
+    // Any `Query` node beyond the wrapping already walked and approved above - a correlated
+    // subquery, a UNION, a CTE - is unknown, as is a collation override or negative/disjunctive
+    // logic anywhere in the statement.
+    if statement.visit(&mut Scope::within(levels)).is_break() {
+        return Ok(None);
+    }
+    let aliases = projection
         .iter()
         .filter_map(|item| match item {
             SelectItem::ExprWithAlias { alias, .. } => Some(alias.value.as_str()),
             _ => None,
         })
         .collect::<Vec<_>>();
-    let alias = alias.as_ref().map(|alias| &alias.name);
     let mut terms = Vec::new();
     conjuncts(selection, &mut terms);
     let mut chosen = None;
