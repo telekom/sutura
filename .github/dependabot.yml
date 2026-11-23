@@ -12,11 +12,10 @@ updates:
     commit-message:
       # The commit-msg gate requires a conventional subject, including on a bot's commits.
       prefix: "ci"
-    # No default ecosystem label: each one is its own `labeled` event. A PR opened and labeled in
-    # the same second produces simultaneous `pull_request` deliveries for one head, and `ci`'s
-    # concurrency group cancelled the extras - a stray `cancelled` check-run for the required `ci`
-    # context then outlived a later green run of the same name (#2061, #2062). Nothing here reads
-    # `dependencies`/`rust`/`github-actions` (checked: no workflow, no xtask rule, no automation).
+    # No default ecosystem label: each one is its own `labeled` event, so a PR opened and labeled in
+    # the same second gets simultaneous `pull_request` runs for one head, and `ci`'s concurrency
+    # group cancels the extras - noise, not a block: the rollup keeps the latest run per context.
+    # Nothing reads `dependencies`/`rust`/`github-actions` (no workflow, xtask rule or automation).
     labels: []
     groups:
       # Every bump moves its pin, and `check-workflows` refuses a pin `devco/action-inputs` does not
