@@ -38,9 +38,9 @@ fn oracle_temporal_constants_use_ansi_literals_without_session_format_casts() {
     );
 }
 
-struct OracleLegs {
-    engines: Engines,
-    statements: Vec<String>,
+pub(super) struct OracleLegs {
+    pub(super) engines: Engines,
+    pub(super) statements: Vec<String>,
 }
 
 impl StatementLegs for OracleLegs {
@@ -687,5 +687,223 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
         assert_eq!(rows.rows(), expected);
         assert_eq!(legs.engines.opened, [BTreeSet::from([named("geo")])]);
         assert_eq!(legs.statements.len(), 1);
+    }
+}
+
+/// Every `qualifier.column` in `sql` whose qualifier names no relation in the FROM clause of the
+/// SELECT level it is written in. Oracle refuses such a reference with ORA-00904; the fake engine
+/// behind [`OracleLegs`] executes the text through `DataFusion` instead and does not.
+fn qualifiers_out_of_scope(sql: &str) -> Vec<String> {
+    use datafusion::sql::sqlparser::ast::{Expr, Select, SetExpr, Statement, TableFactor, TableWithJoins, Visit as _, Visitor};
+
+    struct Qualified<'a> {
+        scope: &'a [String],
+        depth: usize,
+        out: &'a mut Vec<String>,
+    }
+
+    impl Visitor for Qualified<'_> {
+        type Break = ();
+
+        fn pre_visit_query(&mut self, _query: &Query) -> ControlFlow<()> {
+            self.depth += 1;
+            ControlFlow::Continue(())
+        }
+
+        fn post_visit_query(&mut self, _query: &Query) -> ControlFlow<()> {
+            self.depth -= 1;
+            ControlFlow::Continue(())
+        }
+
+        fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
+            if self.depth == 0
+                && let Expr::CompoundIdentifier(parts) = expr
+                && let [.., qualifier, column] = parts.as_slice()
+                && !self.scope.contains(&qualifier.value)
+            {
+                self.out.push(format!("{}.{}", qualifier.value, column.value));
+            }
+            ControlFlow::Continue(())
+        }
+    }
+
+    fn relations(factor: &TableFactor, scope: &mut Vec<String>, out: &mut Vec<String>) {
+        match factor {
+            TableFactor::Table { name, alias, .. } => scope.push(alias.as_ref().map_or_else(
+                || {
+                    name.to_string()
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or_default()
+                        .trim_matches('"')
+                        .to_owned()
+                },
+                |alias| alias.name.value.clone(),
+            )),
+            TableFactor::Derived { subquery, alias, .. } => {
+                query(subquery, out);
+                if let Some(alias) = alias {
+                    scope.push(alias.name.value.clone());
+                }
+            }
+            TableFactor::NestedJoin { table_with_joins, .. } => joined(table_with_joins, scope, out),
+            _ => {}
+        }
+    }
+
+    fn joined(from: &TableWithJoins, scope: &mut Vec<String>, out: &mut Vec<String>) {
+        relations(&from.relation, scope, out);
+        for join in &from.joins {
+            relations(&join.relation, scope, out);
+        }
+    }
+
+    fn select(select: &Select, out: &mut Vec<String>) {
+        let mut scope = Vec::new();
+        for from in &select.from {
+            joined(from, &mut scope, out);
+        }
+        let mut visitor = Qualified {
+            scope: &scope,
+            depth: 0,
+            out,
+        };
+        assert!(
+            select.projection.visit(&mut visitor).is_continue(),
+            "the scope walk never breaks"
+        );
+        assert!(
+            select.selection.visit(&mut visitor).is_continue(),
+            "the scope walk never breaks"
+        );
+        assert!(
+            select.group_by.visit(&mut visitor).is_continue(),
+            "the scope walk never breaks"
+        );
+        assert!(select.having.visit(&mut visitor).is_continue(), "the scope walk never breaks");
+    }
+
+    fn body(set: &SetExpr, out: &mut Vec<String>) {
+        match set {
+            SetExpr::Select(one) => select(one, out),
+            SetExpr::Query(inner) => query(inner, out),
+            SetExpr::SetOperation { left, right, .. } => {
+                body(left, out);
+                body(right, out);
+            }
+            _ => {}
+        }
+    }
+
+    fn query(query: &Query, out: &mut Vec<String>) {
+        body(&query.body, out);
+    }
+
+    let mut out = Vec::new();
+    for statement in Parser::parse_sql(&GenericDialect, sql).expect("the leg's statement parses") {
+        if let Statement::Query(one) = statement {
+            query(&one, &mut out);
+        }
+    }
+    out
+}
+
+#[test]
+fn mixed_qualifier_derived_tables_still_answer_every_shape_in_every_dialect() {
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        for sql in [
+            // github.com/telekom/sutura#2041: count(DISTINCT) expands into an extra GROUP BY
+            // level, and the outer level's qualifier must resolve through the inner one's alias.
+            r#"select "region", count(distinct "sales_area") as n from "dim_region" where "region" <> 'missing' group by "region" limit 50"#,
+            // #2041: a repeated expression inside OR is hoisted into a common-subexpression
+            // wrapper; the wrapper's own output and every sibling column must stay in scope above it.
+            r#"select "region", "sales_area" from "dim_region" where upper("region") like '%no%' or upper("region") like '%st%' limit 100"#,
+            // #1972's own shape: a self-join makes the wrapped plan's schema MIXED (qualifiers
+            // "r" and "x" both present), so the single-uniform-qualifier branch can't apply and
+            // the parent's own qualified `r."region"` must be rewritten onto the wrapper's alias.
+            r#"select r."region", count(distinct x."sales_area") as n from "dim_region" r join "dim_region" x on r."region" = x."region" where r."region" <> 'missing' group by r."region" limit 50"#,
+            r#"select r."region", r."sales_area" from "dim_region" r join "dim_region" x on r."region" = x."region" where upper(r."region") like '%no%' or upper(r."region") like '%st%' limit 100"#,
+            // The mixed-schema fallback must not collapse
+            // two differently-qualified SAME-NAMED columns onto one output name - `r."region"`
+            // and `x."region"` projected together must stay two distinct, correctly-paired
+            // columns of the derived table, not one ambiguous `region` an engine could silently
+            // resolve to the wrong side.
+            r#"select r."region" as r_region, x."region" as x_region from "dim_region" r join "dim_region" x on r."region" <> x."region" order by r_region, x_region limit 5"#,
+        ] {
+            let mut legs = OracleLegs {
+                engines: Engines::new(None),
+                statements: Vec::new(),
+            };
+            let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    false,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut legs,
+            );
+            if dialect == TypeDialect::Oracle {
+                for sent in &legs.statements {
+                    let out_of_scope = qualifiers_out_of_scope(sent);
+                    assert!(
+                        out_of_scope.is_empty(),
+                        "{sql}: Oracle rejects a qualifier its own SELECT level does not expose \
+                         (ORA-00904): {out_of_scope:?} in {sent}"
+                    );
+                }
+            }
+            let Some(Ok(rows)) = answer else {
+                panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
+            };
+            // A `sql` with no `order by` of its own makes no promise about row order - a bare
+            // `GROUP BY`'s row order is the engine's own hash-aggregation order, not a property of
+            // the plan this test holds the unparser to - so compare as a sorted multiset there, or
+            // this would flake on row order rather than on anything this fix changes.
+            if sql.contains("order by") {
+                assert_eq!(
+                    rows,
+                    legs.engines.as_one(sql),
+                    "{dialect:?}: {sql}; source SQL: {:?}",
+                    legs.statements
+                );
+            } else {
+                let sort_by_text = |raw: &RawRows| {
+                    let mut rows: Vec<String> = raw.rows().iter().map(|row| format!("{row:?}")).collect();
+                    rows.sort();
+                    (raw.columns().to_vec(), rows)
+                };
+                assert_eq!(
+                    sort_by_text(&rows),
+                    sort_by_text(&legs.engines.as_one(sql)),
+                    "{dialect:?}: {sql}; source SQL: {:?}",
+                    legs.statements
+                );
+            }
+            // Cube cannot push a join: a self-join over "dim_region" reaches it as two legs, one
+            // per relation, same as an EXISTS/IN subquery's own separate leg.
+            let parts = if dialect == TypeDialect::Cube && sql.contains("join") {
+                2
+            } else {
+                1
+            };
+            assert_eq!(legs.statements.len(), parts, "{dialect:?}: {sql}");
+        }
     }
 }

@@ -36,6 +36,7 @@ mod registration;
 mod resolution;
 mod text;
 mod text_prefilter;
+mod text_self_join;
 
 fn explicit_source_projection(sql: &str) -> bool {
     use datafusion::sql::sqlparser::ast::{Select, SelectItem, Visit as _, Visitor};

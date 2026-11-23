@@ -3,10 +3,12 @@
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 
+use datafusion::common::DataFusionError;
 use datafusion::sql::sqlparser::ast::{
     Expr, Ident, JoinConstraint, JoinOperator, ObjectName, ObjectNamePart, Query, SelectItem, SelectItemQualifiedWildcardKind,
     SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, VisitMut as _, VisitorMut,
 };
+use datafusion::sql::unparser::{AmbiguousDerivedColumn, UnquotableName};
 use sutura_domain::model::QualifiedTable;
 use sutura_domain::plan::StatementTable;
 use sutura_domain::raw::SqlConstruct;
@@ -19,6 +21,30 @@ pub(super) enum Refused {
     Unsupported(SqlConstruct),
     /// A name holds a backslash or a quote character, which no source statement carries.
     UnquotableName,
+    /// The unparser refused a self-join (or two relations collapsed into one derived table)
+    /// whose own columns collide under more than one qualifier, read as a bare reference.
+    AmbiguousSelfJoinColumn,
+}
+
+/// Whether `cause` is the unparser's or a text-policy view's refusal of a name it could not quote.
+pub(super) fn unquotable(cause: &DataFusionError) -> bool {
+    match cause {
+        DataFusionError::External(cause) => cause.downcast_ref::<UnquotableName>().is_some(),
+        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unquotable(cause),
+        DataFusionError::Shared(cause) => unquotable(cause),
+        _ => false,
+    }
+}
+
+/// Whether `cause` is the unparser's refusal of a self-join (or two relations collapsed into one
+/// derived table) whose own columns collide under more than one qualifier and are read bare.
+pub(super) fn ambiguous_self_join_column(cause: &DataFusionError) -> bool {
+    match cause {
+        DataFusionError::External(cause) => cause.downcast_ref::<AmbiguousDerivedColumn>().is_some(),
+        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => ambiguous_self_join_column(cause),
+        DataFusionError::Shared(cause) => ambiguous_self_join_column(cause),
+        _ => false,
+    }
 }
 
 type Resolved<T> = Result<T, Refused>;

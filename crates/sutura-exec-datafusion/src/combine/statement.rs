@@ -59,11 +59,11 @@ use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::parser::Parser;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
+use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{
     BigQueryDialect, CharacterLengthStyle, CustomDialectBuilder, DateFieldExtractStyle, DefaultDialect, Dialect, DuckDBDialect,
     PostgreSqlDialect,
 };
-use datafusion::sql::unparser::{Unparser, UnquotableName};
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
     FederationPlanner, FederationProvider, get_table_source,
@@ -104,7 +104,10 @@ where
             .ok_or(StatementStopped::DeadlineExceeded)?
             .map_err(|cause| match cause {
                 PlanningStopped::Refused(refused) => stopped(refused),
-                PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
+                PlanningStopped::Engine(cause) if resolve::unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
+                PlanningStopped::Engine(cause) if resolve::ambiguous_self_join_column(&cause) => {
+                    stopped(resolve::Refused::AmbiguousSelfJoinColumn)
+                }
                 PlanningStopped::Engine(cause) => {
                     let fallback = unplanned("the statement did not plan", &cause);
                     if field_not_found(&cause) {
@@ -805,6 +808,7 @@ const fn stopped<S>(refused: resolve::Refused) -> StatementStopped<S> {
         resolve::Refused::UnknownColumn => StatementStopped::UnknownColumn,
         resolve::Refused::Unsupported(construct) => StatementStopped::UnsupportedSyntax(construct),
         resolve::Refused::UnquotableName => StatementStopped::UnsupportedSyntax(SqlConstruct::Query),
+        resolve::Refused::AmbiguousSelfJoinColumn => StatementStopped::UnsupportedSyntax(SqlConstruct::AmbiguousSelfJoinColumn),
     }
 }
 
@@ -816,22 +820,15 @@ enum PlanningStopped {
     Refused(resolve::Refused),
 }
 
-/// Why a source statement was not written: a name it could not quote, or else `why`.
+/// Why a source statement was not written: a name it could not quote, an ambiguous self-join
+/// column the unparser refused, or else `why`.
 fn unwritten<S>(why: &str, cause: &DataFusionError) -> StatementStopped<S> {
-    if unquotable(cause) {
+    if resolve::unquotable(cause) {
         stopped(resolve::Refused::UnquotableName)
+    } else if resolve::ambiguous_self_join_column(cause) {
+        stopped(resolve::Refused::AmbiguousSelfJoinColumn)
     } else {
         unplanned(why, cause)
-    }
-}
-
-/// Whether `cause` is the unparser's or a text-policy view's refusal of a name it could not quote.
-fn unquotable(cause: &DataFusionError) -> bool {
-    match cause {
-        DataFusionError::External(cause) => cause.downcast_ref::<UnquotableName>().is_some(),
-        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unquotable(cause),
-        DataFusionError::Shared(cause) => unquotable(cause),
-        _ => false,
     }
 }
 
