@@ -43,6 +43,39 @@
 //! `AmbiguousDerivedColumn` is now downcast end to end into
 //! `StatementStopped::UnsupportedSyntax(SqlConstruct::AmbiguousSelfJoinColumn)` rather than the
 //! generic `NotPlanned` this file's cells asserted before.
+//!
+//! Eighth round (CI regression on f3637cb33): main's own pre-existing
+//! `duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata` proved the guard
+//! too broad - a self-join of ONE table was never that regression's own shape (a JOIN of two
+//! DIFFERENT aliases of the SAME table versus two genuinely different relations sharing a bare
+//! name), but the guard refused on any reference at all to a colliding name, and that regression's
+//! own two `customer_id` projections (`c.customer_id`, `d.customer_id`) are each a QUALIFIED
+//! reference - one that already carries its own qualifier and so is never actually ambiguous,
+//! unlike a BARE reference the unparser later renders unqualified once both sides sit inside the
+//! same derived table. The guard is narrowed to fire only on a BARE (unqualified) reference to a
+//! colliding name (`SelectBuilder::references_any_bare`, matching only `Expr::Identifier`, never
+//! the qualified `CompoundIdentifier` `references_any` also matches) - a qualified reference takes
+//! the unmodified-render path unconditionally, same as "nothing referenced". This file's own cells
+//! are UNCHANGED by that narrowing: every one of them is itself built from fully-qualified
+//! `m."region"`/`p."sales_area"`-style source SQL, yet the unparser renders the colliding
+//! aggregate's own input bare once wrapped (confirmed by inspecting the actual rendered text,
+//! e.g. `count(DISTINCT "sales_area")` with no qualifier, for both sides) - so every refusal cell
+//! here still refuses. The unreferenced-collision cell
+//! (`a_self_join_counted_only_still_answers_despite_an_unreferenced_collision`) is dropped this
+//! round: instrumenting the actual plan showed projection pushdown already empties the wrapped
+//! join's schema before this guard ever runs for that query, so no mutation of this guard's logic
+//! can kill it - it was never exercising this fix, only a different, already-true invariant.
+//!
+//! The coordinator's own round-9 instruction asked this round to go further and make the
+//! masked/unmasked cell assert a correct VALUE instead of a refusal (reasoning that the
+//! regression showed main already resolves this collision correctly elsewhere). That was tried
+//! and reproduces a genuine engine failure: `the engine plans the text it is handed: ...
+//! AmbiguousReference { field: Column { relation: None, name: "sales_area" } }` - the rendered
+//! derived table's own OUTER select really does contain two indistinguishable bare
+//! `count(DISTINCT "sales_area")` projections once no rewrite is attempted, so "render unmodified"
+//! is only safe when nothing bare actually collides downstream, which this shape does not satisfy.
+//! The masked/unmasked cell is kept as a refusal, unchanged from the seventh round, rather than
+//! asserting a value a live engine cannot actually produce.
 
 use super::OracleLegs;
 use super::*;
@@ -205,10 +238,16 @@ fn a_self_join_between_a_masked_and_an_unmasked_same_named_column_is_refused() {
                from "dim_region_m" m join "dim_region_p" p on m."region" = p."region"
                where m."region" <> 'missing' group by m."region" limit 50"#;
 
+    // Cube is excluded here: `statement.rs` keeps a Cube join LOCAL rather than pushing it down
+    // (`"Keep Cube joins local while the same cut pushes their supported children down"`), so this
+    // self-join's masked/unmasked aggregate runs over the real typed `LogicalPlan` in the local
+    // engine, never through the unparser's text-rendering path this refusal guards - there is no
+    // bare-identifier ambiguity to resolve because nothing is ever rendered to ambiguous text.
+    // Checked below instead: the masking is still applied correctly and the two counts still
+    // differ as expected, proving the local path is itself safe (not merely untested).
     for dialect in [
         TypeDialect::DuckDb,
         TypeDialect::DataFusion,
-        TypeDialect::Cube,
         TypeDialect::Postgres,
         TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
@@ -324,66 +363,14 @@ fn a_self_join_between_a_masked_and_an_unmasked_same_named_column_is_refused() {
     );
 }
 
-/// Opus round 7 (item 1): the collision guard must fire only when the parent actually reads one
-/// of the colliding names. A genuine self-join with `count(1)` and a `LIMIT` (no `ORDER BY`, so
-/// the join is still wrapped into a derived table) never reads either side's `region`/`sales_area`
-/// by name - the wrapped schema collides on both names, but nothing is ever out of scope, so
-/// main's own unaliased rendering must stand rather than being refused.
-#[test]
-fn a_self_join_counted_only_still_answers_despite_an_unreferenced_collision() {
-    let table = || {
-        RecordBatch::try_new(
-            Arc::new(Schema::new(vec![
-                Field::new("region", DataType::Utf8, true),
-                Field::new("sales_area", DataType::Utf8, true),
-            ])),
-            vec![
-                Arc::new(StringArray::from(vec![Some("a"), Some("a")])),
-                Arc::new(StringArray::from(vec![Some("x"), Some("y")])),
-            ],
-        )
-        .expect("two rectangular source rows")
-    };
-    let schema = || {
-        Arc::new(Schema::new(vec![
-            Field::new("region", DataType::Utf8, true),
-            Field::new("sales_area", DataType::Utf8, true),
-        ]))
-    };
-    let sql = r#"select count(1) as n from "dim_region_self" m join "dim_region_self" p on m."region" = p."region" limit 50"#;
-
-    for dialect in [TypeDialect::DuckDb, TypeDialect::DataFusion] {
-        let tables = [StatementTable::new(
-            named("geo"),
-            QualifiedTable::parse("dim_region_self").unwrap(),
-            dialect,
-            schema(),
-        )];
-        let mut legs = Engines::new(None);
-        drop(legs.at.insert(named("geo"), holding(&[("dim_region_self", table())])));
-        let statement = RawStatement::parse(sql).expect("a fixture question");
-        let answer = DataFusionCombiner::new().expect("a combiner").answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                true,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        );
-        let Some(Ok(rows)) = answer else {
-            panic!("{dialect:?}: an unreferenced collision must not remove an answer main gives: {answer:?}");
-        };
-        // Two source rows, both region "a", self-joined on region: every row pairs with every row,
-        // 2 * 2 = 4.
-        assert_eq!(
-            rows,
-            RawRows::of(
-                vec![String::from("n")],
-                vec![vec![sutura_domain::warehouse::Value::Integer(4)]]
-            ),
-            "{dialect:?}: {rows:?}"
-        );
-    }
-}
+// The seventh round's `a_self_join_counted_only_still_answers_despite_an_unreferenced_collision`
+// pinned that `count(1)` over a self-join with a `LIMIT` is never refused - no colliding name is
+// read by name, so nothing is ever out of scope. Round 9 confirmed, by instrumenting the actual
+// `colliding_names`/`referenced_names` computed for that plan, that DataFusion's own projection
+// pushdown already empties the wrapped join's schema before the unparser ever runs: there is no
+// collision left to see by the time this guard's code executes, for this query. No mutation of
+// this guard's logic - including forcing it to fire unconditionally, and forcing the
+// synthetic-alias rewrite to run unconditionally instead of the unmodified-render path - changes
+// that cell's outcome, because neither code path this fix touches is ever reached for it: the
+// test cannot be tied to this change by a killing mutation, and is dropped per the review's own
+// stated alternative rather than kept under a Claim-Cell with no real kill.

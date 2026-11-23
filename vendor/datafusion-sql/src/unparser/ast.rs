@@ -346,6 +346,56 @@ impl SelectBuilder {
             || self.distribute_by.visit(&mut visitor).is_break()
     }
 
+    /// True if this SELECT references, anywhere `references_any` would look, a column named in
+    /// `names` as a BARE identifier - never as the last segment of a compound/qualified one.
+    /// Used to tell a genuinely ambiguous reference (one with no qualifier of its own, so a
+    /// collision between two same-named wrapped columns cannot be told apart) from one that
+    /// already carries a qualifier and so is unambiguous regardless of the collision.
+    pub(super) fn references_any_bare(&self, names: &[String]) -> bool {
+        struct BareColumnReference<'a> {
+            names: &'a [String],
+            subqueries: usize,
+        }
+
+        impl ast::Visitor for BareColumnReference<'_> {
+            type Break = ();
+
+            fn pre_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries -= 1;
+                ControlFlow::Continue(())
+            }
+
+            fn pre_visit_expr(&mut self, expr: &ast::Expr) -> ControlFlow<()> {
+                if self.subqueries != 0 {
+                    return ControlFlow::Continue(());
+                }
+                if let ast::Expr::Identifier(ident) = expr
+                    && self.names.iter().any(|name| name == &ident.value)
+                {
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::Continue(())
+            }
+        }
+
+        let mut visitor = BareColumnReference {
+            names,
+            subqueries: 0,
+        };
+        self.projection.visit(&mut visitor).is_break()
+            || self.selection.visit(&mut visitor).is_break()
+            || self.group_by.visit(&mut visitor).is_break()
+            || self.having.visit(&mut visitor).is_break()
+            || self.sort_by.visit(&mut visitor).is_break()
+            || self.cluster_by.visit(&mut visitor).is_break()
+            || self.distribute_by.visit(&mut visitor).is_break()
+    }
+
     /// Retargets every compound column reference naming one of `from`'s qualifiers to
     /// `to` instead, across the projection, selection, `GROUP BY`, `HAVING` and the sort
     /// clauses - everywhere this SELECT can itself hold a qualified column. A nested

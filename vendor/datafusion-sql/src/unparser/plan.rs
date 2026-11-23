@@ -16,7 +16,7 @@
 // under the License.
 
 use super::{
-    AmbiguousDerivedColumn, Unparser,
+    Unparser,
     ast::{
         BuilderError, DerivedRelationBuilder, QueryBuilder, RelationBuilder,
         SelectBuilder, TableRelationBuilder, TableWithJoinsBuilder,
@@ -38,7 +38,7 @@ use crate::unparser::extension_unparser::{
 };
 use crate::unparser::utils::{find_unnest_node_until_relation, unproject_agg_exprs};
 use crate::unparser::{
-    ast::FlattenRelationBuilder, ast::UnnestRelationBuilder, rewrite::rewrite_qualify,
+    AmbiguousDerivedColumn, ast::FlattenRelationBuilder, ast::UnnestRelationBuilder, rewrite::rewrite_qualify,
 };
 use crate::utils::UNNEST_PLACEHOLDER;
 use datafusion_common::{
@@ -562,11 +562,12 @@ impl Unparser<'_> {
         // or two sibling relations collapsed into one wrapped plan) cannot be
         // disambiguated by a bare-name rewrite without risking a reference
         // silently binding to the wrong side - a text-policy leak if the two
-        // sides differ in masking. Refuse rather than guess - but ONLY when
-        // the parent actually reads one of the colliding names: a `count(1)`
-        // over a self-join never reads either side's columns by name, so
-        // nothing is ever out of scope and main's own (unaliased) rendering
-        // must stand; refusing there would remove an answer main gives.
+        // sides differ in masking, were a reference retargeted onto the wrong
+        // one. Rather than guess OR refuse an answer main already gives
+        // elsewhere (sutura's own name-restoring projection resolves exactly
+        // this outside the unparser), leave such a wrapper exactly as it
+        // would render without this rewrite at all: no alias-plus-qualifier
+        // rewrite is attempted, and nothing is returned as an error either.
         // Text-matching a bare qualifier is only safe against qualifiers the
         // wrapped plan itself owns: a sibling relation already registered in
         // this same parent FROM/JOIN list can expose the identical alias
@@ -619,7 +620,20 @@ impl Unparser<'_> {
                     .then(|| field.name().clone())
             })
             .collect();
-        if !select.references_any(&referenced_names) {
+        // A cross-qualifier collision is only ambiguous for a BARE (unqualified) reference to the
+        // colliding name: that reference carries no qualifier of its own, so once the wrapper's
+        // qualifiers are gone (both sides now sit inside the same derived table) there is no way
+        // to tell which side it meant, and guessing risks a text-policy leak if the two sides
+        // differ in masking. A QUALIFIED reference already carries its own qualifier and keeps
+        // resolving correctly without any rewrite - main's own output-name-restoring projection
+        // relies on exactly this outside the unparser (sutura's duplicate-source-output case) -
+        // so it takes the same no-rewrite path as "nothing referenced": the wrapper renders
+        // exactly as it would without this mechanism. The rewrite below only ever runs where
+        // every referenced name maps to exactly one qualifier.
+        if !colliding_names.is_empty() && select.references_any_bare(&colliding_names) {
+            return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
+        }
+        if !select.references_any(&referenced_names) || !colliding_names.is_empty() {
             return if self.dialect.requires_derived_table_alias() {
                 self.derive(
                     plan,
@@ -630,9 +644,6 @@ impl Unparser<'_> {
             } else {
                 self.derive(plan, relation, None, lateral)
             };
-        }
-        if !colliding_names.is_empty() && select.references_any(&colliding_names) {
-            return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
         }
         let synthetic_alias = {
             let n = self.derived_alias_counter.get();

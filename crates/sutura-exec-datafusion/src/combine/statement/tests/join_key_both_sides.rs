@@ -21,9 +21,7 @@ use super::*;
 
 /// The join-key-from-both-sides shape: two distinct tables, the shared key aliased differently on
 /// each side, `LIMIT` and no `ORDER BY` forcing a derived table.
-const JOIN_KEY_BOTH_SIDES: &str = "select c.region, r.region as r_region, r.sales_area \
-                                    from dim_customer c join dim_region r on c.region = r.region \
-                                    limit 10";
+const JOIN_KEY_BOTH_SIDES: &str = r#"select c."region", r."region" as r_region, r."sales_area" from "dim_customer" c join "dim_region" r on c."region" = r."region" limit 10"#;
 
 /// `JOIN_KEY_BOTH_SIDES` against `customers()`/`regions()`, as a sorted multiset rendered to text:
 /// the query carries no `ORDER BY` of its own, so row order is an engine's own join-strategy
@@ -79,8 +77,33 @@ impl StatementLegs for AlwaysAnswers {
         Ok(())
     }
 
-    fn run(&mut self, _source: &SourceName, _statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-        Ok(RawRows::of(Vec::new(), Vec::new()))
+    fn run(&mut self, _source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        // A single source statement (no federation split here) answers the final admitted text
+        // as is, but pushdown can still ask a NARROWER part than the whole query's own three
+        // columns - this same leg answers more than one width across the test below. The width
+        // this answer must clear (`combine::statement::fitted`) reads the part's own schema, not
+        // the whole query's, so the only width that is always right is the one THIS statement's
+        // own outermost SELECT list actually asks for - counted here, not hardcoded - with
+        // columns labelled `c0`, `c1`, ... positionally (`combine::statement::label`), zero rows.
+        let width = admitted_select_width(statement);
+        Ok(RawRows::of((0..width).map(|index| format!("c{index}")).collect(), Vec::new()))
+    }
+}
+
+/// How many columns the admitted text's own outermost `SELECT` list asks for - panics on
+/// anything else, since every statement this leg ever receives is one this branch's own unparser
+/// produced, never untrusted input.
+fn admitted_select_width(statement: &RawStatement) -> usize {
+    use datafusion::sql::sqlparser::ast::{SetExpr, Statement as SqlStatement};
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+    let parsed = Parser::parse_sql(&GenericDialect {}, statement.as_str()).expect("admitted text parses");
+    let [SqlStatement::Query(query)] = parsed.as_slice() else {
+        panic!("admitted text is one query: {statement:?}")
+    };
+    match &*query.body {
+        SetExpr::Select(select) => select.projection.len(),
+        other => panic!("admitted text's body is a SELECT: {other:?}"),
     }
 }
 

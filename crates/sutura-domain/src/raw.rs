@@ -299,8 +299,8 @@ pub enum SqlConstruct {
     /// A numeric source value cannot be ordered or evaluated locally as its text representation.
     NumberText,
     /// A self-join (or two relations collapsed into one derived table) referenced a column name
-    /// exposed under more than one of that derived table's own qualifiers - ambiguous, refused
-    /// rather than guessed.
+    /// exposed under more than one of that derived table's own qualifiers as a BARE, unqualified
+    /// reference - ambiguous, refused rather than guessed.
     AmbiguousSelfJoinColumn,
 }
 
@@ -313,7 +313,9 @@ impl fmt::Display for SqlConstruct {
             Self::FetchFirst => "FETCH FIRST is not supported; use LIMIT",
             Self::TableFunction => "table functions are not supported",
             Self::NumberText => "value-dependent operations over an unbounded NUMBER column require one Oracle source",
-            Self::AmbiguousSelfJoinColumn => "a self-join referenced a column name shared by more than one side",
+            Self::AmbiguousSelfJoinColumn => {
+                "a self-join referenced a column name shared by more than one side without a qualifier"
+            }
         })
     }
 }

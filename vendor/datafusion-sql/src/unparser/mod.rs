@@ -171,16 +171,17 @@ impl std::error::Error for UnquotableName {}
 /// Why an [`Unparser`] refused: a derived table it had to synthesize (to give a mixed-schema
 /// plan's parent expressions a qualifier back in scope) would have exposed the same column
 /// name under more than one of the wrapped plan's own qualifiers - a self-join, or two
-/// relations collapsed into one wrapped plan. Resolving that ambiguity by picking one side
-/// risks a reference silently binding to the wrong one - a text-policy leak if the two sides
-/// differ in masking - so this is refused rather than guessed (sutura#1972, sutura#2041).
+/// relations collapsed into one wrapped plan - and the parent reads that name as a BARE,
+/// unqualified reference, which cannot be told which side it meant without guessing. A
+/// qualified reference to a colliding name is not ambiguous (it already carries its own
+/// qualifier) and renders unmodified instead; only the unqualified case is refused.
 #[derive(Debug)]
 pub struct AmbiguousDerivedColumn;
 
 impl std::fmt::Display for AmbiguousDerivedColumn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(
-            "a derived table would expose the same column name under more than one qualifier of the wrapped plan",
+            "a derived table would expose the same column name under more than one qualifier of the wrapped plan, and a bare reference reads it",
         )
     }
 }

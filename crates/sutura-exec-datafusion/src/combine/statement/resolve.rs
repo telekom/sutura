@@ -22,7 +22,7 @@ pub(super) enum Refused {
     /// A name holds a backslash or a quote character, which no source statement carries.
     UnquotableName,
     /// The unparser refused a self-join (or two relations collapsed into one derived table)
-    /// whose own columns collided under more than one qualifier, and the parent referenced one.
+    /// whose own columns collide under more than one qualifier, read as a bare reference.
     AmbiguousSelfJoinColumn,
 }
 
@@ -37,7 +37,7 @@ pub(super) fn unquotable(cause: &DataFusionError) -> bool {
 }
 
 /// Whether `cause` is the unparser's refusal of a self-join (or two relations collapsed into one
-/// derived table) whose own columns collide under more than one qualifier and are referenced.
+/// derived table) whose own columns collide under more than one qualifier and are read bare.
 pub(super) fn ambiguous_self_join_column(cause: &DataFusionError) -> bool {
     match cause {
         DataFusionError::External(cause) => cause.downcast_ref::<AmbiguousDerivedColumn>().is_some(),
