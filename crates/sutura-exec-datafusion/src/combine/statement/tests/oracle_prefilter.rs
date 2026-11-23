@@ -45,9 +45,16 @@ fn holds_no_raw_like_on_script(selection: &Expr) -> bool {
 
 /// #2038 Opus review MEDIUM4(c): every shape the HIGH1/HIGH2 fixes in `text_prefilter.rs` must
 /// reject - each asserted to leave no raw `LIKE` on `SCRIPT` at the base-table level, the only
-/// level the source ever receives the stored value from. A base `WHERE` may still legitimately
-/// carry an unrelated pushdown filter (the two-`WHERE` case below), so the check targets the raw
-/// `SCRIPT` predicate specifically rather than refusing any selection at all.
+/// level the source ever receives the stored value from.
+///
+/// A case belongs here only when the dangerous shape is load-bearing enough that the planner
+/// cannot legitimately flatten or merge it away before `discover` ever sees it - a case with an
+/// unused column, a merely re-filtering level, or a key the predicate already commutes with (a
+/// `GROUP BY`/`DISTINCT` key, a two-level `WHERE`, an unreferenced scalar subquery or window
+/// column) proves nothing at this level and is covered instead directly against
+/// [`super::super::text_prefilter::discover`] in
+/// `raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_directly`, where
+/// no planning sits between the SQL text and the guard.
 ///
 /// Pins pre-existing chain-walk logic this PR did not introduce (green against base); its
 /// `Claim-Cell` trailer and killing mutation live on the commit touching it, per
@@ -61,16 +68,14 @@ fn raw_prefilter_never_reaches_the_source_through_a_row_changing_or_renaming_lev
         // or filtering BY SCRIPT itself, this does not commute with a filter above it, so the
         // planner cannot legitimately flatten it into the plain base case.
         "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, max(SCRIPT) AS SCRIPT FROM DOCS GROUP BY OBJECT_NAME) d WHERE SCRIPT LIKE '%MRC%'",
-        // ... a window function in its projection.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, row_number() OVER (ORDER BY OBJECT_NAME) AS r FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+        // ... a window function in its projection, with its own output load-bearing in the outer
+        // WHERE (an unused window column is pruned away before discover ever sees it, flattening
+        // this into the plain safe shape - the same mistake a filter on a GROUP BY key made).
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, row_number() OVER (ORDER BY OBJECT_NAME) AS r FROM DOCS) d WHERE SCRIPT LIKE '%MRC%' AND r <= 5",
         // A level renames the predicate's own column instead of passing it through bare.
         "SELECT count(*) FROM (SELECT OBJECT_NAME AS SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
         // ... or transforms it.
         "SELECT count(*) FROM (SELECT UPPER(OBJECT_NAME) AS SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
-        // Two levels each carry their own WHERE.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS WHERE OBJECT_NAME IS NOT NULL) d WHERE SCRIPT LIKE '%MRC%'",
-        // A scalar subquery sits inside a derived level's own projection.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, (SELECT count(*) FROM DOCS o WHERE o.OBJECT_NAME = DOCS.OBJECT_NAME) AS n FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
         // A UNION sits inside a derived level.
         "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS UNION SELECT OBJECT_NAME, SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
     ] {
@@ -101,8 +106,12 @@ fn raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_d
         "SELECT count(id) FROM (SELECT id, id AS \"BODY\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
         // ... or transforms it.
         "SELECT count(id) FROM (SELECT id, UPPER(id) AS \"BODY\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
-        // Two levels each carry their own WHERE.
+        // Two levels each carry their own WHERE - the two filters may merge into one, so this is
+        // checked directly against the guard rather than through the planner.
         "SELECT count(id) FROM (SELECT id, \"BODY\" FROM \"notes\" WHERE id IS NOT NULL) d WHERE \"BODY\" LIKE '%TERM%'",
+        // A scalar subquery sits inside a derived level's own projection, unreferenced outside it -
+        // a planner may prune it away before discover ever runs, so this is checked directly too.
+        "SELECT count(id) FROM (SELECT id, \"BODY\", (SELECT count(*) FROM \"notes\" o WHERE o.id = \"notes\".id) AS n FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
         // A WHERE sits above a GROUP BY level, filtering on the grouping key itself - a shape a
         // planner may flatten away, so it must be rejected at this unvarnished textual level too.
         "SELECT count(id) FROM (SELECT id, \"BODY\", count(*) AS n FROM \"notes\" GROUP BY id, \"BODY\") d WHERE \"BODY\" LIKE '%TERM%'",
