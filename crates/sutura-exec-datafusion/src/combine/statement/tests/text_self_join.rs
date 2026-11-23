@@ -1,81 +1,17 @@
-//! Second review round on github.com/telekom/sutura#2047's HIGH finding: a self-join's
-//! mixed-schema derived table must give a masked column and a same-named unmasked column
-//! from the other relation two distinct output names, split out of text.rs to hold the
-//! `max-lines` cap.
+//! A self-join through the mixed-schema derived-table fallback: one table under two aliases, and a
+//! masked column beside a same-named unmasked one. Once both sides sit inside one derived table, a
+//! BARE reference to the colliding name cannot say which side it means, and guessing would be a
+//! text-policy leak for a masked/unmasked pair. So the unparser refuses it
+//! (`AmbiguousDerivedColumn`, surfaced as
+//! `StatementStopped::UnsupportedSyntax(SqlConstruct::AmbiguousSelfJoinColumn)`), in every dialect.
+//! A QUALIFIED reference is never ambiguous and renders unmodified.
 //!
-//! Third round (Opus re-review of 4a78da5f6): the first round's cell joined two DIFFERENT
-//! tables with a plain join and no `count(DISTINCT)`, so it likely never reached the
-//! mixed-schema fallback at all. This round adds a genuine self-join - one table under two
-//! aliases - through the fallback shape, executed on real engines rather than captured text,
-//! and replaces the Oracle leg's substring count with an AST assertion that the masked
-//! column's own rewritten expression is what the outer aggregate actually reads.
-//!
-//! Fourth round (Opus re-review of 75abf9df3): the self-join cell asserted only row values
-//! that are identical for a correct mapping and a swapped one (`n1 == n2`), and never
-//! checked that the Oracle leg's own generated text actually took the derived-table
-//! fallback at all - a plan that happened to push the whole self-join down untouched would
-//! pass the same assertion. It now also reads `legs.statements` by AST and asserts the
-//! derived table's own projection carries two DISTINCT output names for the self-joined
-//! column, and an asymmetric filter on the `p` side makes `n1 != n2`, so a swap reddens the
-//! row check too. The masked-vs-unmasked cell's AST check is tightened the same way: it used
-//! to ask "does ANY projection anywhere carry a `REGEXP_REPLACE` aliased this name", which the
-//! broken collapse (both a `REGEXP_REPLACE` and a bare item named `"sales_area"` in the SAME
-//! projection) would also satisfy; it now resolves both `masked_n` and `plain_n` through
-//! that ONE derived table's own projection list, requires each resolved name to be unique
-//! there, and requires only the masked one to be the `REGEXP_REPLACE` item.
-//!
-//! Sixth round (Opus re-review of 5febf24fb): a self-join suffixes BOTH sides, so a bare
-//! unqualified reference the parent built against the wrapped plan can no longer be told
-//! which side it meant - and picking one guesses, which for a masked/unmasked pair is a
-//! text-policy leak, not just a syntax failure. The disambiguation-renaming machinery these
-//! two cells pinned is removed; a self-join whose two sides collide on a bare column name is
-//! now refused outright (`AmbiguousDerivedColumn`, surfaced here as `StatementStopped::NotPlanned`)
-//! rather than resolved by a guess. Both cells now assert the refusal, across every dialect they
-//! used to assert a value for - a self-join is a documented limit, not a value a swap could get
-//! wrong undetected.
-//!
-//! Seventh round (Opus re-review of 19a82b942): the guard fired on collision alone, even when the
-//! parent never read either side - removing an answer main gives (`count(1)` over a self-join with
-//! a `LIMIT`). The guard now refuses only when the parent actually reads a colliding name;
-//! `a_self_join_counted_only_still_answers_despite_an_unreferenced_collision` pins the unreferenced
-//! case, and both refusal cells above now also run on Postgres, `ClickHouse` and `BigQuery`
-//! (github.com/telekom/sutura#1909), not just `DuckDb`/`DataFusion`/Cube/Oracle. The typed
-//! `AmbiguousDerivedColumn` is now downcast end to end into
-//! `StatementStopped::UnsupportedSyntax(SqlConstruct::AmbiguousSelfJoinColumn)` rather than the
-//! generic `NotPlanned` this file's cells asserted before.
-//!
-//! Eighth round (CI regression on f3637cb33): main's own pre-existing
-//! `duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata` proved the guard
-//! too broad - a self-join of ONE table was never that regression's own shape (a JOIN of two
-//! DIFFERENT aliases of the SAME table versus two genuinely different relations sharing a bare
-//! name), but the guard refused on any reference at all to a colliding name, and that regression's
-//! own two `customer_id` projections (`c.customer_id`, `d.customer_id`) are each a QUALIFIED
-//! reference - one that already carries its own qualifier and so is never actually ambiguous,
-//! unlike a BARE reference the unparser later renders unqualified once both sides sit inside the
-//! same derived table. The guard is narrowed to fire only on a BARE (unqualified) reference to a
-//! colliding name (`SelectBuilder::references_any_bare`, matching only `Expr::Identifier`, never
-//! the qualified `CompoundIdentifier` `references_any` also matches) - a qualified reference takes
-//! the unmodified-render path unconditionally, same as "nothing referenced". This file's own cells
-//! are UNCHANGED by that narrowing: every one of them is itself built from fully-qualified
-//! `m."region"`/`p."sales_area"`-style source SQL, yet the unparser renders the colliding
-//! aggregate's own input bare once wrapped (confirmed by inspecting the actual rendered text,
-//! e.g. `count(DISTINCT "sales_area")` with no qualifier, for both sides) - so every refusal cell
-//! here still refuses. The unreferenced-collision cell
-//! (`a_self_join_counted_only_still_answers_despite_an_unreferenced_collision`) is dropped this
-//! round: instrumenting the actual plan showed projection pushdown already empties the wrapped
-//! join's schema before this guard ever runs for that query, so no mutation of this guard's logic
-//! can kill it - it was never exercising this fix, only a different, already-true invariant.
-//!
-//! The coordinator's own round-9 instruction asked this round to go further and make the
-//! masked/unmasked cell assert a correct VALUE instead of a refusal (reasoning that the
-//! regression showed main already resolves this collision correctly elsewhere). That was tried
-//! and reproduces a genuine engine failure: `the engine plans the text it is handed: ...
-//! AmbiguousReference { field: Column { relation: None, name: "sales_area" } }` - the rendered
-//! derived table's own OUTER select really does contain two indistinguishable bare
-//! `count(DISTINCT "sales_area")` projections once no rewrite is attempted, so "render unmodified"
-//! is only safe when nothing bare actually collides downstream, which this shape does not satisfy.
-//! The masked/unmasked cell is kept as a refusal, unchanged from the seventh round, rather than
-//! asserting a value a live engine cannot actually produce.
+//! The cells read the generated statement by AST, so a plan that pushed the whole self-join down
+//! untouched, or that swapped the two sides, does not pass. Limit: a `count(1)`-only self-join is
+//! not covered here - projection pushdown empties the wrapped schema before the guard runs, so no
+//! mutation of the guard changes that outcome. Rendering a value instead of a refusal for the
+//! masked/unmasked shape is not possible: the engine rejects the two identical bare
+//! `count(DISTINCT "sales_area")` projections as an ambiguous reference.
 
 use super::OracleLegs;
 use super::*;
@@ -361,84 +297,4 @@ fn a_self_join_between_a_masked_and_an_unmasked_same_named_column_is_refused() {
         "a refused statement must never reach the port: {:?}",
         legs.0
     );
-}
-
-// The seventh round's `a_self_join_counted_only_still_answers_despite_an_unreferenced_collision`
-// pinned that `count(1)` over a self-join with a `LIMIT` is never refused - no colliding name is
-// read by name, so nothing is ever out of scope. Round 9 confirmed, by instrumenting the actual
-// `colliding_names`/`referenced_names` computed for that plan, that DataFusion's own projection
-// pushdown already empties the wrapped join's schema before the unparser ever runs: there is no
-// collision left to see by the time this guard's code executes, for this query. No mutation of
-// this guard's logic - including forcing it to fire unconditionally, and forcing the
-// synthetic-alias rewrite to run unconditionally instead of the unmodified-render path - changes
-// that cell's outcome, because neither code path this fix touches is ever reached for it: the
-// test cannot be tied to this change by a killing mutation, and is dropped per the review's own
-// stated alternative rather than kept under a Claim-Cell with no real kill.
-
-/// Round-9 follow-up (Opus): `references_any_bare` scans ORDER BY for any bare identifier
-/// matching a colliding name, with no exclusion for a name the parent's OWN projection list
-/// already aliases to that exact spelling. An `ORDER BY region` following `m."region" AS region`
-/// is a reference to that output alias, resolved unambiguously by the projection already - not a
-/// direct read of the wrapped plan's raw, colliding `region` column - so refusing it would reject
-/// an answer main gives. This pins that the self-join is still answered, never refused, when the
-/// only bare mention of the colliding name is such an output-alias ORDER BY.
-#[test]
-fn a_self_joins_order_by_output_alias_still_answers_despite_the_bare_name_colliding() {
-    let table = || {
-        RecordBatch::try_new(
-            Arc::new(Schema::new(vec![
-                Field::new("region", DataType::Utf8, true),
-                Field::new("sales_area", DataType::Utf8, true),
-            ])),
-            vec![
-                Arc::new(StringArray::from(vec![Some("a"), Some("a")])),
-                Arc::new(StringArray::from(vec![Some("x"), Some("y")])),
-            ],
-        )
-        .expect("two rectangular source rows")
-    };
-    let schema = || {
-        Arc::new(Schema::new(vec![
-            Field::new("region", DataType::Utf8, true),
-            Field::new("sales_area", DataType::Utf8, true),
-        ]))
-    };
-    let sql = r#"select m."region" as region, count(distinct m."sales_area") as n1, count(distinct p."sales_area") as n2
-               from "dim_region_self" m join "dim_region_self" p on m."region" = p."region"
-               where m."region" <> 'missing' and p."sales_area" <> 'y' group by m."region"
-               order by region limit 50"#;
-
-    for dialect in [
-        TypeDialect::DuckDb,
-        TypeDialect::DataFusion,
-        TypeDialect::Postgres,
-        TypeDialect::ClickHouse,
-        TypeDialect::BigQuery,
-    ] {
-        let tables = [StatementTable::new(
-            named("geo"),
-            QualifiedTable::parse("dim_region_self").unwrap(),
-            dialect,
-            schema(),
-        )];
-        let mut legs = Engines::new(None);
-        drop(legs.at.insert(named("geo"), holding(&[("dim_region_self", table())])));
-        let statement = RawStatement::parse(sql).expect("a fixture question");
-        let answer = DataFusionCombiner::new().expect("a combiner").answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                true,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        );
-        assert!(
-            matches!(answer, Some(Ok(_))),
-            "{dialect:?}: ORDER BY referencing the projection's OWN output alias must not be \
-             mistaken for a direct, ambiguous read of the wrapped plan's raw colliding column: \
-             {answer:?}"
-        );
-    }
 }

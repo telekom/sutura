@@ -405,7 +405,7 @@ impl StatementLegs for OracleLegs {
         if *source == named("geo") {
             self.statements.push(String::from(statement.as_str()));
             eprintln!("source SQL: {}", statement.as_str());
-            // ponytail: only the fake normalizes FETCH; the live venue executes Oracle spelling.
+            // Only the fake normalizes FETCH; the live venue executes Oracle spelling.
             let Some(normalized) = oracle_fetch_to_limit(statement.as_str()) else {
                 return Err(source.clone());
             };

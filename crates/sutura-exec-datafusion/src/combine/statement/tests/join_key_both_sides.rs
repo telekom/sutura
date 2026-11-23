@@ -1,4 +1,4 @@
-//! Opus round 7 on github.com/telekom/sutura#2047 (item 2): #1943's own shape is a genuine
+//! #1943's own shape is a genuine
 //! two-table JOIN - two DIFFERENT relations, not one relation self-joined under two aliases -
 //! whose join key is projected from BOTH sides, each under its own distinct alias (`a.region`,
 //! `r.region AS r_region`), with a `LIMIT` and no `ORDER BY` forcing the join itself into a

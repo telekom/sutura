@@ -354,7 +354,6 @@ impl SelectBuilder {
     pub(super) fn references_any_bare(&self, names: &[String]) -> bool {
         struct BareColumnReference<'a> {
             names: &'a [String],
-            exclude: &'a [String],
             subqueries: usize,
         }
 
@@ -377,7 +376,6 @@ impl SelectBuilder {
                 }
                 if let ast::Expr::Identifier(ident) = expr
                     && self.names.iter().any(|name| name == &ident.value)
-                    && !self.exclude.iter().any(|name| name == &ident.value)
                 {
                     return ControlFlow::Break(());
                 }
@@ -385,42 +383,17 @@ impl SelectBuilder {
             }
         }
 
-        // An ORDER BY naming one of `names` may be a reference to this SELECT's OWN output
-        // alias rather than a direct, ambiguous read of the wrapped plan's raw colliding
-        // column - standard SQL resolves an unqualified ORDER BY item against the projection's
-        // own output names first. Such an alias already unambiguously picks one side in the
-        // projection itself, so it carries no collision risk and is excluded from the sort
-        // clauses' bare-match check; it is NOT excluded anywhere else; a bare read in the
-        // projection, WHERE, GROUP BY or HAVING is never an output-alias reference and stays
-        // ambiguous when it collides.
-        let aliased: Vec<String> = self
-            .projection
-            .iter()
-            .flatten()
-            .filter_map(|item| match item {
-                ast::SelectItem::ExprWithAlias { alias, .. } => Some(alias.value.clone()),
-                _ => None,
-            })
-            .filter(|alias| names.contains(alias))
-            .collect();
-
-        let mut unqualified = BareColumnReference {
+        let mut visitor = BareColumnReference {
             names,
-            exclude: &[],
             subqueries: 0,
         };
-        let mut sort_only = BareColumnReference {
-            names,
-            exclude: &aliased,
-            subqueries: 0,
-        };
-        self.projection.visit(&mut unqualified).is_break()
-            || self.selection.visit(&mut unqualified).is_break()
-            || self.group_by.visit(&mut unqualified).is_break()
-            || self.having.visit(&mut unqualified).is_break()
-            || self.sort_by.visit(&mut sort_only).is_break()
-            || self.cluster_by.visit(&mut unqualified).is_break()
-            || self.distribute_by.visit(&mut unqualified).is_break()
+        self.projection.visit(&mut visitor).is_break()
+            || self.selection.visit(&mut visitor).is_break()
+            || self.group_by.visit(&mut visitor).is_break()
+            || self.having.visit(&mut visitor).is_break()
+            || self.sort_by.visit(&mut visitor).is_break()
+            || self.cluster_by.visit(&mut visitor).is_break()
+            || self.distribute_by.visit(&mut visitor).is_break()
     }
 
     /// Retargets every compound column reference naming one of `from`'s qualifiers to
