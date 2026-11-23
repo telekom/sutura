@@ -156,7 +156,7 @@ in
                 (a, SOURCE, 5432), (a, "${hosts.dbTwoHost}", 5432), (b, SOURCE, 5432), (b, "${hosts.dbTwoHost}", 5432),
                 (a, SOURCE, 5433),
                 (outsider, address_of["rw-reader-a"], 8080),
-                (worker, SOURCE, 5432), (worker, "${dbTwoHost}", 5432),
+                (worker, SOURCE, 5432), (worker, "${hosts.dbTwoHost}", 5432),
             ]:
                 assert tcp(origin, address, port), (origin["metadata"]["name"], address, port)
             machine.succeed("helm template rw ${chart} -f ${values hosts} "
