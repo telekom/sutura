@@ -292,6 +292,8 @@ impl Warehouse for GenuineFailure {
     }
 }
 
+/// Pinned behaviour, not this branch's own: killed by sweeping every `policy.is_read()` leg into
+/// the named refusal regardless of cause (`Claim-Cell`, `devco/claim-mutations/<this fn's name>`).
 #[test]
 fn a_genuine_source_refusal_over_a_policy_column_stays_source_failed() {
     let warehouses = Warehouses::of(GenuineFailure {
