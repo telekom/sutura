@@ -216,7 +216,7 @@ mod tests {
     const JOB: &str = "shipped-features";
 
     /// The selection that job runs under: the `rust` area, as the step in `ci` read it.
-    const CLASSIFIED: &str = "needs.identity-classify.outputs.rust == 'true'";
+    const CLASSIFIED: &str = "needs.classify.outputs.rust == 'true'";
 
     /// A directory that looks like the one the warm start filled.
     fn stamped() -> PathBuf {
