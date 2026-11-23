@@ -53,7 +53,7 @@ fn table(path: &QualifiedTable, dialect: TypeDialect, policy: &serde_json::Value
     let text = match dialect {
         TypeDialect::Oracle => "VARCHAR2(4000)",
         TypeDialect::ClickHouse => "String",
-        TypeDialect::BigQuery | TypeDialect::Cube => "STRING",
+        TypeDialect::BigQuery | TypeDialect::Cube | TypeDialect::Foundry => "STRING",
         TypeDialect::DuckDb | TypeDialect::DataFusion | TypeDialect::Postgres => "text",
     };
     let columns = ["body", "cohort", "env", "is_deleted"]

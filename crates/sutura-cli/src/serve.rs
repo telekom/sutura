@@ -47,7 +47,7 @@ use sutura_config::{Settings, Sources, TlsMaterial};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_http::ServiceState;
-use sutura_runtime::{Admission, Shutdown, banner, shutdown, telemetry};
+use sutura_runtime::{Admission, Shutdown, banner, shutdown};
 
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
@@ -230,11 +230,7 @@ pub(crate) fn run() -> Result<(), String> {
     #[cfg(feature = "distributed")]
     let combiner = combiner.row_ceiling(settings.federated_row_ceiling());
 
-    // 4. The log, then the panic hook.
-    install_telemetry(&settings)?;
-
-    // 5. What was resolved, and what this service does not do.
-    banner::announce(&settings);
+    compose::install_telemetry(&settings)?;
 
     // `security.outbound.transport_anchors`, before any adapter is opened - the same order leg 1's
     // key set is read in, for the same reason: an unreadable declaration stops the process rather
@@ -264,12 +260,6 @@ pub(crate) fn run() -> Result<(), String> {
         settings.server().request_timeout(),
         outbound.as_ref(),
     )?;
-    // `LocalService::start_composed` loads the declared catalogs a SECOND time - and composes them -
-    // rather than being handed the bundle above, and that is deliberate: the bundle it validates has
-    // to be the bundle it serves, and the only way to guarantee that is for the same call to do
-    // both. The load above exists so the engine can be opened for the sources the catalog actually
-    // names, which has to happen first. For N catalogs the assembler is what makes the two bundles
-    //
     // The audit sink is named here too, and it is the third port this root attaches. A deployment
     // that wants records somewhere else replaces this one argument; a deployment that attaches
     // nothing gets the structured writer over the subscriber installed at step 4, which is the sink
@@ -547,12 +537,6 @@ pub(crate) fn run() -> Result<(), String> {
     served
 }
 
-fn install_telemetry(settings: &Settings) -> Result<(), String> {
-    telemetry::install(settings.telemetry()).map_err(flatten)?;
-    sutura_runtime::install_panic_hook();
-    Ok(())
-}
-
 /// The agent surface's transport, built AFTER the state exists - `github.com/telekom/sutura#892`.
 ///
 /// **Why after, when `main`'s pre-#892 order built it before.** The state owns this replica's spend
@@ -768,7 +752,6 @@ pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
 #[cfg(feature = "cube")]
 pub(crate) use crate::cube::CubeSource;
 
-/// A Foundry source as this binary composes it, named once for registry and dispatch types.
 #[cfg(feature = "foundry")]
 pub(crate) use crate::foundry::FoundrySource;
 

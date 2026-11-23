@@ -53,6 +53,7 @@ where
         TypeDialect::ClickHouse => polyglot_sql::DialectType::ClickHouse,
         TypeDialect::DuckDb => polyglot_sql::DialectType::DuckDB,
         TypeDialect::Postgres => polyglot_sql::DialectType::PostgreSQL,
+        TypeDialect::Foundry => polyglot_sql::DialectType::Spark,
         TypeDialect::DataFusion | TypeDialect::Cube => polyglot_sql::DialectType::Generic,
     };
     let sql = polyglot_sql::transpile(sql, polyglot_sql::DialectType::Generic, dialect)

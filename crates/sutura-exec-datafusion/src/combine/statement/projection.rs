@@ -122,9 +122,12 @@ where
 fn checked(sql: &str, dialect: TypeDialect) -> Result<(), Inadmissible> {
     let reader = match dialect {
         TypeDialect::BigQuery | TypeDialect::ClickHouse => super::literal::reader(dialect),
-        TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::Oracle | TypeDialect::DataFusion => {
-            &GenericDialect {}
-        }
+        TypeDialect::Postgres
+        | TypeDialect::Cube
+        | TypeDialect::DuckDb
+        | TypeDialect::Oracle
+        | TypeDialect::DataFusion
+        | TypeDialect::Foundry => &GenericDialect {},
     };
     let statements = Parser::parse_sql(reader, sql)?;
     if !matches!(statements.as_slice(), [Statement::Query(_)]) {

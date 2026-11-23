@@ -39,7 +39,7 @@ use std::sync::Arc;
 use sutura_config::{RuntimeSettings, ServerRole, Settings, TlsMaterial};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_exec_datafusion::{Nodes, PartitionReader};
-use sutura_runtime::{Shutdown, banner, shutdown, telemetry};
+use sutura_runtime::{Shutdown, shutdown};
 
 /// Builds this node's worker, then serves it until a signal stops the process.
 ///
@@ -55,9 +55,7 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
     else {
         return Err(String::from("a worker needs server.tls_node_authority, and it is not set"));
     };
-    telemetry::install(settings.telemetry()).map_err(super::flatten)?;
-    sutura_runtime::install_panic_hook();
-    banner::announce(settings);
+    super::compose::install_telemetry(settings)?;
     let reading = settings.server().role() == ServerRole::ReadingWorker;
     let mount = if reading {
         reading_mount(tls, authority, settings)?

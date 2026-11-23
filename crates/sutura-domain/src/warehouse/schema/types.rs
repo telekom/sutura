@@ -39,7 +39,7 @@ impl TypeDialect {
     pub const fn engine_collation(self) -> Option<&'static Collation> {
         match self {
             Self::DataFusion | Self::ClickHouse => Some(&BINARY),
-            Self::DuckDb | Self::Cube | Self::Postgres | Self::BigQuery | Self::Oracle => None,
+            Self::DuckDb | Self::Cube | Self::Postgres | Self::BigQuery | Self::Oracle | Self::Foundry => None,
         }
     }
 

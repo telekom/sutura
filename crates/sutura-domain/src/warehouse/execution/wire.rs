@@ -68,6 +68,7 @@ enum Dialect {
     Clickhouse,
     Bigquery,
     Oracle,
+    Foundry,
 }
 
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -134,6 +135,7 @@ impl From<TypeDialect> for Dialect {
             TypeDialect::ClickHouse => Self::Clickhouse,
             TypeDialect::BigQuery => Self::Bigquery,
             TypeDialect::Oracle => Self::Oracle,
+            TypeDialect::Foundry => Self::Foundry,
         }
     }
 }
@@ -147,6 +149,7 @@ impl From<Dialect> for TypeDialect {
             Dialect::Clickhouse => Self::ClickHouse,
             Dialect::Bigquery => Self::BigQuery,
             Dialect::Oracle => Self::Oracle,
+            Dialect::Foundry => Self::Foundry,
         }
     }
 }

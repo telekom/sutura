@@ -25,8 +25,7 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
-  # EXPERIMENTAL declaring source over a Foundry ontology's metadata API; capabilities and limits are
-  # in docs/what-foundry-can-carry.md - `github.com/telekom/sutura#1727`.
+  # EXPERIMENTAL Foundry ontology catalog; see docs/what-foundry-can-carry.md - `#1727`.
   "crates/sutura-catalog-foundry",
   "crates/sutura-catalog-openapi", # EXPERIMENTAL: declaring source configured by an OpenAPI document - `#1727`.
   "crates/sutura-catalog-wren",
@@ -117,14 +116,12 @@ members = [
 # Windows and macOS built the Linux-only vendored allocator on its own account. Excluding the whole
 # directory by path prefix also keeps `--workspace` clippy and tests off third-party code.
 exclude = ["vendor"]
-
 [workspace.package]
 version = "0.19.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
 repository = "https://github.com/telekom/sutura"
-
 [workspace.dependencies]
 sutura-domain = { path = "crates/sutura-domain" }
 sutura-catalog-local = { path = "crates/sutura-catalog-local" }
@@ -207,7 +204,6 @@ parking_lot = "0.13"
 # Parsed only to validate configured resource and issuer URLs. The original spelling remains the
 # stored value because OAuth resource indicators are compared byte for byte.
 url = { version = "2.5", default-features = false }
-
 # The `StreamExt` `sutura-exec-datafusion` drains an engine stream with; already in the graph
 # through `datafusion`, so naming it adds no supply-chain surface.
 futures-util = "0.3"
@@ -321,7 +317,6 @@ polyglot-sql = { version = "0.14.0", default-features = false, features = [
   "dialect-oracle",
   "dialect-spark",
 ] }
-
 # The in-process engine, for the adapter that executes a plan without rendering it. It has no
 # dialect: a plan becomes a logical plan over Arrow, which is the whole reason the `Warehouse` port
 # takes a plan rather than a statement.

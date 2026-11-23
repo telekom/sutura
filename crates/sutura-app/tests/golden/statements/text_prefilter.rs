@@ -470,6 +470,7 @@ const fn prefilter_capable(dialect: TypeDialect) -> bool {
         TypeDialect::ClickHouse => true,
         TypeDialect::BigQuery => true,
         TypeDialect::Oracle => true,
+        TypeDialect::Foundry => false,
     }
 }
 

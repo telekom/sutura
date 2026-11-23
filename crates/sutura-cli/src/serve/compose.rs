@@ -4,8 +4,16 @@ use std::sync::Arc;
 
 use sutura_config::{Settings, StaticCredentialBroker};
 use sutura_exec_datafusion::DataFusionCombiner;
+use sutura_runtime::{banner, telemetry};
 
 use super::Serving;
+
+pub(super) fn install_telemetry(settings: &Settings) -> Result<(), String> {
+    telemetry::install(settings.telemetry()).map_err(super::flatten)?;
+    sutura_runtime::install_panic_hook();
+    banner::announce(settings);
+    Ok(())
+}
 
 /// Loads the catalogs a second time through their ports, composes them, verifies every anchor, and
 /// erases the adapter.
