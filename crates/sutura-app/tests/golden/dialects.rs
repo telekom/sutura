@@ -427,8 +427,11 @@ impl Family {
     /// all of them, which is what makes it a registry rather than a floor.
     const EXECUTION: [Self; 5] = [Self::Rows, Self::Refused, Self::Error, Self::AnchorReport, Self::PlannedRows];
 
-    /// The families pinning emitted statements or parameters, without engine execution.
-    const RENDER: [Self; 4] = [Self::Sql, Self::Params, Self::PlannedShapes, Self::TextPolicyShapes];
+    /// The families pinning the semantic renderer's SQL and parameters.
+    const SEMANTIC_RENDER: [Self; 2] = [Self::Sql, Self::Params];
+
+    /// The families pinned by the source-statement render matrix.
+    const STATEMENT_RENDER: [Self; 2] = [Self::PlannedShapes, Self::TextPolicyShapes];
 
     /// The family a snapshot stem - the file name with its `@{dialect}.snap` suffix already
     /// stripped - belongs to, or `None` if this census cannot name it.
@@ -544,8 +547,8 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// backs its goldens and that declaration is compared against the tree - two checks, neither of
 /// which the prose it replaced could make:
 ///
-/// 1. **Render goldens exist at all.** Without it a dialect with nothing whatsoever could declare a
-///    limit and read as covered-but-honest.
+/// 1. **Semantic render goldens exist for every dialect.** Source-statement render goldens are
+///    required for the dialects in the statement matrix.
 /// 2. **[`Evidence::Executed`] means every one of [`Family::EXECUTION`] is non-empty**, and a
 ///    missing one is NAMED. The count it replaces was a floor: 34 of the 35 execution goldens
 ///    deleted still passed it.
@@ -562,16 +565,31 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// Their render and native matrices use the separate `statement_dialects` and `data_systems` registry axes.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
+    let mut statement_dialects = BTreeSet::new();
+    macro_rules! collect_statement_dialect {
+        ($name:ident, $dialect:expr) => {
+            statement_dialects.insert(stringify!($name));
+        };
+    }
+    crate::adapters::registered!(statement_dialects: collect_statement_dialect);
+
     for &dialect in dialect::ALL {
         let counted = census(dialect);
         let held = |family: Family| counted.get(&family).copied().unwrap_or_default();
         let name = dialect.as_str();
 
-        for family in Family::RENDER {
+        for family in Family::SEMANTIC_RENDER {
             assert!(
                 held(family) > 0,
                 "{name} has no {family:?} goldens, so it renders nothing this suite pins - \
                  whatever `evidence` declares about it describes an empty cell"
+            );
+        }
+        for family in Family::STATEMENT_RENDER {
+            assert_eq!(
+                held(family) > 0,
+                statement_dialects.contains(name),
+                "{name} {family:?} golden coverage must match the source-statement registry"
             );
         }
 
