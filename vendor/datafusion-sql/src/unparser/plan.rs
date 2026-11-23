@@ -16,7 +16,7 @@
 // under the License.
 
 use super::{
-    Unparser,
+    AmbiguousDerivedColumn, Unparser,
     ast::{
         BuilderError, DerivedRelationBuilder, QueryBuilder, RelationBuilder,
         SelectBuilder, TableRelationBuilder, TableWithJoinsBuilder,
@@ -599,15 +599,20 @@ impl Unparser<'_> {
         // A mixed schema (some columns qualified by one relation, some by
         // another, or some unqualified) can't be satisfied by the trick above:
         // no single alias equals every qualifier the parent already rendered.
-        // Give the wrapper a synthetic alias instead - unique per statement, so
-        // two unrelated wrappers never share a base name a rewrite could then
-        // retarget ambiguously - and retarget every reference the parent
-        // already built against one of the wrapped plan's own qualifiers onto
-        // that alias. Left unaliased or aliased without this rewrite, such a
-        // qualifier is out of scope the moment this wrapper exists: that is
-        // how length/substr/instr over a qualified text-policy column, and
-        // count(DISTINCT)+GROUP BY+LIMIT's extra grouping level, produced
-        // Oracle ORA-00904 (sutura#1972, sutura#2041).
+        // Give the wrapper a synthetic alias instead - unique per statement -
+        // and retarget every reference the parent already built against the
+        // wrapped plan's own qualifier onto that alias. Left unaliased or
+        // aliased without this rewrite, such a qualifier is out of scope the
+        // moment this wrapper exists: that is how length/substr/instr over a
+        // qualified text-policy column, and count(DISTINCT)+GROUP BY+LIMIT's
+        // extra grouping level, produced Oracle ORA-00904 (sutura#1972,
+        // sutura#2041) - both single-table shapes, one qualifier plus some
+        // unqualified computed columns.
+        // Two DIFFERENT qualifiers exposing the SAME column name (a self-join,
+        // or two sibling relations collapsed into one wrapped plan) cannot be
+        // disambiguated by a bare-name rewrite without risking a reference
+        // silently binding to the wrong side - a text-policy leak if the two
+        // sides differ in masking. Refuse rather than guess.
         // Text-matching a bare qualifier is only safe against qualifiers the
         // wrapped plan itself owns: a sibling relation already registered in
         // this same parent FROM/JOIN list can expose the identical alias
@@ -615,30 +620,34 @@ impl Unparser<'_> {
         // not to the wrapper being built here. Exclude those up front rather
         // than retargeting a reference onto the wrong relation.
         let sibling_qualifiers = select.sibling_qualifiers();
-        let from_qualifiers: Vec<Vec<String>> = {
-            let mut seen = Vec::new();
-            for (name, _) in plan.schema().iter() {
-                let Some(table_ref) = name else { continue };
-                let prefix = if self.dialect.full_qualified_col() {
-                    table_ref.to_vec()
-                } else {
-                    vec![table_ref.table().to_string()]
-                };
-                if seen.contains(&prefix) {
-                    continue;
-                }
-                if prefix.first().is_some_and(|head| sibling_qualifiers.iter().any(|s| s == head))
-                {
-                    continue;
-                }
-                seen.push(prefix);
+        let mut from_qualifiers: Vec<Vec<String>> = Vec::new();
+        let mut name_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for (name, field) in plan.schema().iter() {
+            let Some(table_ref) = name else { continue };
+            let prefix = if self.dialect.full_qualified_col() {
+                table_ref.to_vec()
+            } else {
+                vec![table_ref.table().to_string()]
+            };
+            if prefix.first().is_some_and(|head| sibling_qualifiers.iter().any(|s| s == head)) {
+                continue;
             }
-            seen
-        };
+            if !from_qualifiers.contains(&prefix) {
+                from_qualifiers.push(prefix);
+            }
+            *name_counts.entry(field.name().as_str()).or_insert(0) += 1;
+        }
+        if name_counts.values().any(|count| *count > 1) {
+            return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
+        }
         // The parent may not reference the wrapped plan's columns at all - a
         // `count(1)` over a filtered scan, say - in which case no qualifier is
-        // ever out of scope and the alias/rename machinery below has nothing to
-        // fix: skip it rather than decorate every derived table unconditionally.
+        // ever out of scope and the rewrite below has nothing to fix: skip it
+        // rather than decorate every derived table unconditionally. A dialect
+        // that requires every derived table to carry an alias regardless
+        // (e.g. Cube) still gets one - `alias` itself, unchanged, exactly as
+        // it would without this guard - just no rewrite, since nothing reads
+        // the wrapped plan's columns through it.
         let referenced_names: Vec<String> = plan
             .schema()
             .iter()
@@ -655,104 +664,44 @@ impl Unparser<'_> {
             })
             .collect();
         if !select.references_any(&referenced_names) {
-            return self.derive(plan, relation, None, lateral);
+            return if self.dialect.requires_derived_table_alias() {
+                self.derive(
+                    plan,
+                    relation,
+                    Some(self.new_table_alias(alias.to_string(), columns)),
+                    lateral,
+                )
+            } else {
+                self.derive(plan, relation, None, lateral)
+            };
         }
         let synthetic_alias = {
             let n = self.derived_alias_counter.get();
             self.derived_alias_counter.set(n + 1);
             format!("{alias}_{n}")
         };
-        // Two columns of the wrapped schema sharing a name under different
-        // qualifiers (a self-join) must not both retarget onto the same
-        // final `synthetic_alias.<name>`: the derived table would then expose
-        // two identically-named output columns (Oracle ORA-00918), and an
-        // engine resolving the duplicate silently can bind a reference to
-        // the wrong side - a data leak if the two sides differ in masking.
-        // Give every such column its own output name instead.
-        let (column_mapping, renames) =
-            self.disambiguate_derived_output_columns(plan, &from_qualifiers)?;
-        select.rewrite_qualifiers(&column_mapping, &synthetic_alias)?;
-        self.derive_with_output_renames(
+        let column_mapping: Vec<(Vec<String>, String, String)> = plan
+            .schema()
+            .iter()
+            .filter_map(|(name, field)| {
+                let name = name.as_ref()?;
+                let prefix = if self.dialect.full_qualified_col() {
+                    name.to_vec()
+                } else {
+                    vec![name.table().to_string()]
+                };
+                from_qualifiers
+                    .contains(&prefix)
+                    .then(|| (prefix, field.name().clone(), field.name().clone()))
+            })
+            .collect();
+        select.rewrite_qualifiers(&column_mapping, &synthetic_alias);
+        self.derive(
             plan,
             relation,
             Some(self.new_table_alias(synthetic_alias, columns)),
             lateral,
-            &renames,
         )
-    }
-
-    /// For each column the wrapped plan exposes under one of `from_qualifiers`,
-    /// pick a unique output name - the column's own name if no other
-    /// qualifier in the schema shares it, otherwise a `{name}_{n}` suffix that
-    /// collides with no existing field name. Returns the `(qualifier,
-    /// original_name, output_name)` triples driving the qualifier rewrite,
-    /// plus the `(position, output_name)` pairs that actually need an `AS` in
-    /// the inner projection (positions unaffected by a rename are omitted).
-    fn disambiguate_derived_output_columns(
-        &self,
-        plan: &LogicalPlan,
-        from_qualifiers: &[Vec<String>],
-    ) -> Result<(Vec<(Vec<String>, String, String)>, Vec<(usize, String)>)> {
-        let fields: Vec<(Option<Vec<String>>, String)> = plan
-            .schema()
-            .iter()
-            .map(|(name, field)| {
-                let prefix = name.map(|table_ref| {
-                    if self.dialect.full_qualified_col() {
-                        table_ref.to_vec()
-                    } else {
-                        vec![table_ref.table().to_string()]
-                    }
-                });
-                (prefix, field.name().to_string())
-            })
-            .collect();
-
-        let mut name_counts: std::collections::HashMap<&str, usize> =
-            std::collections::HashMap::new();
-        for (prefix, name) in &fields {
-            if prefix.is_some() {
-                *name_counts.entry(name.as_str()).or_insert(0) += 1;
-            }
-        }
-        // Taken once up front and then grown with every output name this loop itself
-        // allocates - otherwise two columns sharing a name each probe the same
-        // unclaimed-looking suffix and both land on it, recreating the exact collision
-        // this function exists to remove.
-        let mut existing_names: std::collections::HashSet<String> =
-            fields.iter().map(|(_, n)| n.clone()).collect();
-
-        let mut mapping = Vec::new();
-        let mut renames = Vec::new();
-        for (position, (prefix, name)) in fields.iter().enumerate() {
-            let Some(prefix) = prefix else { continue };
-            if !from_qualifiers.contains(prefix) {
-                continue;
-            }
-            let output_name = if name_counts.get(name.as_str()).copied().unwrap_or(0) <= 1 {
-                name.clone()
-            } else {
-                let mut suffix = 2usize;
-                loop {
-                    let candidate = format!("{name}_{suffix}");
-                    if !existing_names.contains(candidate.as_str()) {
-                        break candidate;
-                    }
-                    suffix += 1;
-                    if suffix > fields.len() + 2 {
-                        return internal_err!(
-                            "cannot derive a unique output column name for \"{name}\" while wrapping a mixed-schema plan in a derived table"
-                        );
-                    }
-                }
-            };
-            if output_name != *name {
-                existing_names.insert(output_name.clone());
-                renames.push((position, output_name.clone()));
-            }
-            mapping.push((prefix.clone(), name.clone(), output_name));
-        }
-        Ok((mapping, renames))
     }
 
     /// Projection unparsing when [`super::dialect::Dialect::unnest_as_lateral_flatten`] is enabled:

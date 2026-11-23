@@ -357,28 +357,20 @@ impl SelectBuilder {
     /// through that alias, or the qualifier they still carry is out of scope one level up.
     ///
     /// `mapping` carries one `(qualifier_prefix, original_column, output_column)` triple
-    /// per column the wrapped plan exposes under that qualifier - never just the
-    /// qualifier - so two columns sharing a name under different qualifiers (a
-    /// self-join) retarget onto two distinct output names instead of colliding into
-    /// one ambiguous column of the derived table.
+    /// per column the wrapped plan exposes under that qualifier; the caller never calls
+    /// this with a wrapped schema that exposes the same column name under more than one
+    /// qualifier (that is refused earlier, before a mapping is even built), so `output_column`
+    /// always equals `original_column` here and no rename is involved - only a re-qualify.
     ///
-    /// An outer reference that already carries one of `mapping`'s qualifiers is
-    /// unambiguous and always rewritten. One that does not - `DataFusion`'s own
-    /// unparser renders some column references bare even when the original SQL
-    /// qualified them - is only rewritten when its bare name matches EXACTLY ONE
-    /// renamed output (`output_column != original_column`) in `mapping`; an
-    /// unrenamed output needs no rewrite (its name did not change), and a bare name
-    /// matching more than one renamed output cannot be resolved here at all - this
-    /// refuses rather than silently picking one (github.com/telekom/sutura#1972's
-    /// own self-join shape is exactly where two renamed outputs can share a base
-    /// name).
-    pub(super) fn rewrite_qualifiers(
-        &mut self,
-        mapping: &[(Vec<String>, String, String)],
-        to: &str,
-    ) -> datafusion_common::Result<()> {
+    /// An UNQUALIFIED outer reference needs no rewrite: the derived table exposes the
+    /// wrapped plan's own columns under their own bare names (nothing was renamed), so a
+    /// bare reference the parent built already resolves correctly without a qualifier.
+    /// Rewriting it anyway risks hijacking a projection alias or a sibling relation's own
+    /// column that happens to share the bare name - only an explicitly qualified reference
+    /// naming one of `mapping`'s prefixes is unambiguously this wrapper's own.
+    pub(super) fn rewrite_qualifiers(&mut self, mapping: &[(Vec<String>, String, String)], to: &str) {
         if mapping.is_empty() {
-            return Ok(());
+            return;
         }
 
         struct QualifierRewriter<'a> {
@@ -388,59 +380,36 @@ impl SelectBuilder {
         }
 
         impl ast::VisitorMut for QualifierRewriter<'_> {
-            type Break = datafusion_common::DataFusionError;
+            type Break = ();
 
-            fn pre_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<Self::Break> {
+            fn pre_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<()> {
                 self.subqueries += 1;
                 ControlFlow::Continue(())
             }
 
-            fn post_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<Self::Break> {
+            fn post_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<()> {
                 self.subqueries -= 1;
                 ControlFlow::Continue(())
             }
 
-            fn post_visit_expr(&mut self, expr: &mut ast::Expr) -> ControlFlow<Self::Break> {
-                if self.subqueries != 0 {
-                    return ControlFlow::Continue(());
-                }
-                match expr {
-                    ast::Expr::CompoundIdentifier(parts) if parts.len() > 1 => {
-                        let prefix: Vec<String> =
-                            parts[..parts.len() - 1].iter().map(|p| p.value.clone()).collect();
-                        let column = &parts[parts.len() - 1].value;
-                        if let Some((_, _, output)) = self
-                            .mapping
-                            .iter()
-                            .find(|(p, c, _)| p == &prefix && c == column)
-                        {
-                            *parts = vec![
-                                ast::Ident::new(self.to.to_string()),
-                                ast::Ident::new(output.clone()),
-                            ];
-                        }
-                    }
-                    ast::Expr::Identifier(ident) => {
-                        let mut renamed = self
-                            .mapping
-                            .iter()
-                            .filter(|(_, name, output)| name == &ident.value && output != name);
-                        let Some((_, _, output)) = renamed.next() else {
-                            return ControlFlow::Continue(());
-                        };
-                        if renamed.next().is_some() {
-                            return ControlFlow::Break(datafusion_common::DataFusionError::Internal(format!(
-                                "cannot disambiguate an unqualified reference to \"{}\": it matches more \
-                                 than one renamed output of a derived table wrapping a mixed-schema plan",
-                                ident.value
-                            )));
-                        }
-                        *expr = ast::Expr::CompoundIdentifier(vec![
+            fn post_visit_expr(&mut self, expr: &mut ast::Expr) -> ControlFlow<()> {
+                if self.subqueries == 0
+                    && let ast::Expr::CompoundIdentifier(parts) = expr
+                    && parts.len() > 1
+                {
+                    let prefix: Vec<String> =
+                        parts[..parts.len() - 1].iter().map(|p| p.value.clone()).collect();
+                    let column = &parts[parts.len() - 1].value;
+                    if let Some((_, _, output)) = self
+                        .mapping
+                        .iter()
+                        .find(|(p, c, _)| p == &prefix && c == column)
+                    {
+                        *parts = vec![
                             ast::Ident::new(self.to.to_string()),
                             ast::Ident::new(output.clone()),
-                        ]);
+                        ];
                     }
-                    _ => {}
                 }
                 ControlFlow::Continue(())
             }
@@ -451,20 +420,13 @@ impl SelectBuilder {
             to,
             subqueries: 0,
         };
-        for result in [
-            VisitMut::visit(&mut self.projection, &mut rewriter),
-            VisitMut::visit(&mut self.selection, &mut rewriter),
-            VisitMut::visit(&mut self.group_by, &mut rewriter),
-            VisitMut::visit(&mut self.having, &mut rewriter),
-            VisitMut::visit(&mut self.sort_by, &mut rewriter),
-            VisitMut::visit(&mut self.cluster_by, &mut rewriter),
-            VisitMut::visit(&mut self.distribute_by, &mut rewriter),
-        ] {
-            if let ControlFlow::Break(cause) = result {
-                return Err(cause);
-            }
-        }
-        Ok(())
+        let _ = VisitMut::visit(&mut self.projection, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.selection, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.group_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.having, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.sort_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.cluster_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.distribute_by, &mut rewriter);
     }
 
     /// The alias (or bare table name) every relation already registered in this
@@ -1174,7 +1136,7 @@ impl fmt::Display for BuilderError {
 impl std::error::Error for BuilderError {}
 
 #[cfg(test)]
-mod rewrite_qualifiers_tests {
+mod select_builder_tests {
     use super::*;
     use sqlparser::ast::{BinaryOperator, Expr, Ident};
 
@@ -1182,14 +1144,10 @@ mod rewrite_qualifiers_tests {
         ast::Expr::Identifier(Ident::new(name))
     }
 
-    /// An outer reference that no longer carries its original qualifier (`DataFusion`'s own
-    /// unparser renders some column references bare even when the wrapped plan's schema was
-    /// qualified) must still retarget onto the ONE renamed output whose original name it bears,
-    /// not stay unresolved against the synthetic alias (which is #2041's `ORA-00904`: the
-    /// derived table exposes `sales_area_2`/`sales_area_3`, nothing is left bare-named
-    /// `sales_area`, so an un-rewritten reference finds no column at all).
+    /// A bare reference naming a column in the probe list, anywhere `rewrite_qualifiers`
+    /// would look, must be found.
     #[test]
-    fn rewrites_an_unqualified_reference_to_its_one_renamed_output() {
+    fn references_any_finds_a_bare_identifier_in_the_selection() {
         let mut select = SelectBuilder::default();
         select.selection(Some(Expr::BinaryOp {
             left: Box::new(bare("sales_area")),
@@ -1197,57 +1155,17 @@ mod rewrite_qualifiers_tests {
             right: Box::new(bare("region")),
         }));
 
-        let mapping = vec![
-            (vec![String::from("m")], String::from("sales_area"), String::from("sales_area")),
-            (
-                vec![String::from("p")],
-                String::from("sales_area"),
-                String::from("sales_area_2"),
-            ),
-        ];
-        select
-            .rewrite_qualifiers(&mapping, "derived_projection_0")
-            .expect("exactly one renamed output matches the bare name");
-
-        let Some(Expr::BinaryOp { left, .. }) = select.selection else {
-            panic!("selection must stay a binary comparison");
-        };
-        assert_eq!(
-            *left,
-            Expr::CompoundIdentifier(vec![Ident::new("derived_projection_0"), Ident::new("sales_area_2")]),
-            "the bare reference must retarget onto its one renamed output, qualified by the \
-             synthetic alias"
-        );
+        assert!(select.references_any(&[String::from("sales_area")]));
     }
 
-    /// Two different qualifiers both renaming `"sales_area"` to two distinct output names
-    /// (a self-join where BOTH sides needed disambiguation) leaves a bare, unqualified
-    /// `"sales_area"` reference with no single resolution: refuse it with a typed error
-    /// rather than silently pick one side, which could read the wrong (and in a masking
-    /// case, wrongly-unmasked) column.
+    /// A probe list naming no column the SELECT references anywhere must come back false -
+    /// the whole point of the guard is to skip the alias/rewrite machinery when nothing
+    /// wrapped is actually read.
     #[test]
-    fn refuses_an_unqualified_reference_ambiguous_between_two_renamed_outputs() {
+    fn references_any_is_false_when_nothing_matches() {
         let mut select = SelectBuilder::default();
-        select.selection(Some(bare("sales_area")));
+        select.selection(Some(bare("region")));
 
-        let mapping = vec![
-            (
-                vec![String::from("m")],
-                String::from("sales_area"),
-                String::from("sales_area_2"),
-            ),
-            (
-                vec![String::from("p")],
-                String::from("sales_area"),
-                String::from("sales_area_3"),
-            ),
-        ];
-        let result = select.rewrite_qualifiers(&mapping, "derived_projection_0");
-
-        assert!(
-            result.is_err(),
-            "a bare reference matching two renamed outputs by the same original name must be \
-             refused, not resolved to either one"
-        );
+        assert!(!select.references_any(&[String::from("sales_area")]));
     }
 }
