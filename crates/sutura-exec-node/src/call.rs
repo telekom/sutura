@@ -11,6 +11,7 @@ use futures_util::{StreamExt as _, TryStreamExt as _, stream};
 use hyper_util::rt::TokioIo;
 use sutura_domain::plan::remote::LegWire;
 use sutura_domain::warehouse::ResultBatches;
+use sutura_domain::warehouse::UnannouncedBatch;
 use sutura_domain::warehouse::arrow::{Accumulating, ResultBudget};
 use sutura_domain::warehouse::deadline::Deadline;
 use tokio_rustls::TlsConnector;
@@ -152,7 +153,15 @@ async fn read(reply: tonic::Streaming<arrow_flight::FlightData>, budget: ResultB
                     .as_mut()
                     .ok_or(NodeError::Answer)?
                     .push(batch)
-                    .map_err(|cause| NodeError::Result { cause })?;
+                    .map_err(|cause| NodeError::Result {
+                        // Report the configured total budget while still enforcing the remainder.
+                        cause: match cause {
+                            UnannouncedBatch::OverBudget { .. } => UnannouncedBatch::OverBudget {
+                                most_bytes: budget.bytes(),
+                            },
+                            other => other,
+                        },
+                    })?;
             }
             DecodedPayload::None if schema_seen && metadata.is_empty() => {}
             _ => return Err(NodeError::Answer),

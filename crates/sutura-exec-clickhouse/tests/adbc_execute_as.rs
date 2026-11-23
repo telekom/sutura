@@ -27,6 +27,7 @@ mod adbc_execute_as {
         Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey, PlanMeasure, PlanPredicate,
         PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
     };
+    use sutura_domain::query::{ResultBound, Top, TopBy, TopDirection, TopN};
     use sutura_domain::raw::RawStatement;
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content};
@@ -674,6 +675,70 @@ mod adbc_execute_as {
         if let Some(switched) = under_readonly(tier.as_user(READONLY_READS, &plan, READONLY_USER), "readonly_settings") {
             sent_settings_in_effect(&switched, READONLY_USER);
         }
+    }
+
+    /// The database and view this cell alone writes to, and the row count both back.
+    const RESULT_LIMIT_READS: &str = "adbc_result_limit_provenance";
+    const RESULT_LIMIT_VIEW: &str = "result_limit_probe";
+    const RESULT_LIMIT_PROBE_ROWS: u32 = 10_002;
+
+    /// `amount_cents` by `result_key`, over [`RESULT_LIMIT_VIEW`]: one row per distinct key, all on
+    /// the one day the view fixes, so the row cap is the only thing that can refuse this question.
+    fn result_key_totals() -> QueryPlan {
+        let view = table_named(RESULT_LIMIT_VIEW);
+        question(
+            StatementTables::only(view.clone()),
+            vec![keyed("result_key", column_of(&view, "result_key"))],
+            column_of(&view, "amount_cents"),
+        )
+    }
+
+    /// A row past the adapter's own stream ceiling - fetched by a `top` asking for more than the
+    /// ceiling allows - is refused under the ceiling's own answer cap, not the raw stream count
+    /// that tripped it: `QueryPlan::row_limit` bounds how many rows `Accumulating` ever reads,
+    /// whatever `top` asked `ClickHouse` to return.
+    #[test]
+    fn a_query_past_the_stream_ceiling_is_refused_under_its_own_answer_cap() {
+        let Some(tier) = Tier::up("result_limit_provenance") else {
+            return;
+        };
+        tier.posted(&format!("CREATE DATABASE IF NOT EXISTS {RESULT_LIMIT_READS}"));
+        tier.posted(&format!(
+            "CREATE OR REPLACE VIEW {RESULT_LIMIT_READS}.{RESULT_LIMIT_VIEW} AS SELECT number AS result_key, \
+             toDate('2026-01-01') AS day, toInt64(1) AS amount_cents FROM numbers({RESULT_LIMIT_PROBE_ROWS})"
+        ));
+        let warehouse = tier.opened_in(RESULT_LIMIT_READS, corpus::posture());
+        let plan = result_key_totals();
+        let answer_limit = plan.max_rows();
+
+        let probed = warehouse
+            .execute(Executable::Query(&plan), &corpus::presented(), corpus::deadline())
+            .unwrap_or_else(|e| panic!("a probe within the row cap answers: {e}"));
+        assert_eq!(
+            probed.rows(),
+            (answer_limit + 1) as usize,
+            "the probe fetches one row past the cap"
+        );
+
+        let topped = plan.with_top(Top::new(
+            TopN::parse(answer_limit + 2).expect("a count past the cap is still a row count"),
+            TopBy::Metric,
+            TopDirection::Desc,
+        ));
+        let refused = warehouse
+            .execute(Executable::Query(&topped), &corpus::presented(), corpus::deadline())
+            .expect_err("a top past the stream ceiling asks the server for more rows than the adapter reads back");
+        let bound = warehouse.result_limit(&refused).map_or_else(
+            || panic!("a row-bound refusal carries its provenance: {refused}"),
+            ResultBound::from,
+        );
+        assert_eq!(
+            bound,
+            ResultBound::Rows {
+                limit: topped.max_rows()
+            },
+            "{refused}"
+        );
     }
 
     fn sent_settings_in_effect(answered: &RowSet, who: &str) {

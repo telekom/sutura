@@ -712,7 +712,8 @@ pub trait Warehouse {
 
     /// Facts about a source result that did not fit. The default preserves a genuinely opaque
     /// refusal; adapters with known limits override this and retain their measured threshold.
-    /// This is not the complete rejected result size, a final-answer cap, or a working-set bound.
+    /// A query's own answer cap can be reported separately. Neither case measures total rejected
+    /// size or a working-set reservation.
     fn result_limit(&self, error: &Self::Error) -> Option<ResultLimit> {
         self.result_did_not_fit(error).then_some(ResultLimit::Unknown)
     }

@@ -98,7 +98,7 @@ pub enum UnannouncedBatch {
 }
 
 impl UnannouncedBatch {
-    /// The rejected stream's own limit; schema failures are not size refusals.
+    /// Classifies an accumulator whose row bound is a source-stream limit.
     #[must_use]
     pub const fn result_limit(&self) -> Option<super::ResultLimit> {
         match *self {
