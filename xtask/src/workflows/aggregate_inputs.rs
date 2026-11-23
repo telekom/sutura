@@ -1,5 +1,5 @@
 //! The required aggregate reads the exact results of CI, QA, and their prerequisite checks.
-//! Pin those inputs and require the fast gate as a prerequisite for the slow jobs.
+//! Pin those inputs and require classification before the slow jobs.
 
 mod queue_validated;
 
@@ -49,7 +49,7 @@ const EXPRESSIONS: &[(&str, &str)] = &[
     ("CAUS_RESULT", "needs.causality.result"),
     (
         "CAUS_REQUIRED",
-        "needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.identity-classify.outputs.causality_reused != 'true'",
+        "needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.classify.outputs.causality_reused != 'true'",
     ),
     ("PGD_RESULT", "needs.postgres-linked-driver.result"),
     (
@@ -66,11 +66,6 @@ const EXPRESSIONS: &[(&str, &str)] = &[
 const UNAGGREGATED: &[(&str, &str)] = &[
     ("pr-cache", "warms a future run"),
     ("crap-comment", "posts the CRAP delta already gated by CI"),
-    (
-        "demo-container",
-        "ordinary PR advisory; QA requires it in queue and full runs",
-    ),
-    ("kind-smoke", "ordinary PR advisory; QA requires it in queue and full runs"),
     ("qa-receipt", "records the checked-out PR commit after this aggregate"),
     (
         "causality-receipt",
@@ -183,25 +178,28 @@ fn job_ids(text: &str) -> Vec<(usize, String)> {
     out
 }
 
-/// Jobs doing slow work wait for the fast verdict, directly or through `ci`.
+/// Jobs doing slow work wait for classification, directly or through `ci`.
 fn fast_dependencies(text: &str) -> Vec<String> {
-    if !job_needs(text, "ci").iter().any(|need| need == "identity-classify") {
+    if !job_needs(text, "ci").iter().any(|need| need == "classify") {
         return vec![String::from(
-            "ci.yml: `ci` must need `identity-classify` before running the core checks",
+            "ci.yml: `ci` must need `classify` before running the core checks",
         )];
     }
     job_ids(text)
         .into_iter()
         .filter(|(_, job)| {
             // The aggregate must report a failure. The lookup and release observer run no checks.
-            !matches!(job.as_str(), AGGREGATE | "ci" | "identity-classify" | "release-status")
+            !matches!(
+                job.as_str(),
+                AGGREGATE | "ci" | "classify" | "identity-classify" | "release-status"
+            )
         })
         .filter(|(_, job)| {
             !job_needs(text, job)
                 .iter()
-                .any(|need| matches!(need.as_str(), "ci" | "identity-classify"))
+                .any(|need| matches!(need.as_str(), "ci" | "classify" | AGGREGATE))
         })
-        .map(|(line, job)| format!("ci.yml:{line}  job `{job}` must need `identity-classify` or `ci`"))
+        .map(|(line, job)| format!("ci.yml:{line}  job `{job}` must need `classify`, `ci`, or `ci-aggregate`"))
         .collect()
 }
 
@@ -261,7 +259,7 @@ fn check(text: &str) -> Vec<String> {
             continue;
         }
         for job in &input.jobs {
-            if job != expected && !(input.key == "CAUS_REQUIRED" && job == "identity-classify") {
+            if job != expected && !(input.key == "CAUS_REQUIRED" && job == "classify") {
                 out.push(format!(
                     "ci.yml:{}  {AGGREGATE} env `{}` reads `needs.{job}` - \
                      the committed table requires `needs.{expected}`",
@@ -430,7 +428,7 @@ mod tests {
         writeln!(out, "  {AGGREGATE}:").expect("writing into a String cannot fail");
         out.push_str("    runs-on: ubuntu-latest\n");
         out.push_str(
-            "    needs: [ci, identity-classify, qa, release-status, causality, postgres-linked-driver, shipped-features]\n",
+            "    needs: [ci, classify, identity-classify, qa, release-status, causality, postgres-linked-driver, shipped-features]\n",
         );
         out.push_str("    if: ${{ !cancelled() }}\n");
         out.push_str("    steps:\n");
@@ -458,7 +456,7 @@ mod tests {
             "          RELEASE_PUSH: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):') }}",
             "          RELEASE_RESULT: ${{ needs.release-status.result }}",
             "          CAUS_RESULT: ${{ needs.causality.result }}",
-            "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.identity-classify.outputs.causality_reused != 'true' }}",
+            "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.classify.outputs.causality_reused != 'true' }}",
             "          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}",
             "          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}",
             "          SHIP_RESULT: ${{ needs.shipped-features.result }}",
@@ -660,7 +658,7 @@ mod tests {
   identity-classify:
     runs-on: ubuntu-latest
   ci:
-    needs: [identity-classify]
+    needs: [classify]
   cross:
     needs: [ci]
 ";

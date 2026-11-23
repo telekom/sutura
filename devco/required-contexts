@@ -135,17 +135,16 @@ qa.yml:integration-verdict
 cross-link.yml:link
 demo-container.yml:smoke-test
 
-# Ordinary pull-request smoke results stay advisory. Reusable QA gates these suites on the queue.
-ci.yml:demo-container
-ci.yml:kind-smoke
-
 # These report advisory metadata after the associated required gate.
 ci.yml:qa-receipt
 ci.yml:causality-receipt
 ci.yml:crap-comment
 ci.yml:pr-cache
 
-# Fast checks precede core CI, reusable QA and the independently gated Rust checks.
+# Classification precedes core CI and publishes routing metadata only.
+ci.yml:classify
+
+# Fast checks run alongside core CI, reusable QA and the independently gated Rust checks.
 ci.yml:identity-classify
 ci.yml:causality
 ci.yml:postgres-linked-driver
@@ -169,24 +168,9 @@ docs.yml:publish
 examples.yml:examples
 
 # The supply-chain audit. It runs on a pull request that touches a manifest or a lock, on a push to
-# `main`, and weekly regardless - and the weekly run is the point of the file, since most
-# advisories arrive against a dependency already in the lock. The pull-request leg is a path-scoped
-# duplicate of the `nix run .#deny` step inside `ci`, which IS required, so nothing here is the only
-# reader of an advisory. Found by this gate on its first run, which is what the gate is for: nobody
-# had classified it, and `ci.yml`'s own trigger comment already says that making this required
-# would need a `merge_group` trigger added here.
+# `main`, and weekly regardless. Pull requests keep the npm OSV scan here, while the required `ci`
+# job owns the Rust cargo-deny verdict. Main pushes and the weekly run keep the full audit.
 security-audit.yml:audit
-
-# The text formatters: markdown, YAML and TOML through dprint, Python through ruff. Path-scoped, so
-# it reports nothing at all on a pull request that changes no text - which is on its own a reason it
-# cannot be required: a required context that does not report is a permanently pending merge, and
-# this one deliberately does not report on most pull requests. The same script runs in the
-# `format-text` commit hook and inside `just validate`, so a developer sees it before pushing and
-# this leg is the backstop rather than the only reader. Making it required would mean either
-# dropping the paths filter - a formatter run on every Rust-only pull request - or adding a job that
-# reports green when the filter excludes it, which is a context that says nothing.
-format.yml:format
-
 
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
 # partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it

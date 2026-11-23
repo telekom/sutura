@@ -627,7 +627,7 @@ mod tests {
     const JOB: &str = "shipped-features";
 
     /// The selection that job runs under: the `rust` area, as the step in `ci` read it.
-    const CLASSIFIED: &str = "needs.identity-classify.outputs.rust == 'true'";
+    const CLASSIFIED: &str = "needs.classify.outputs.rust == 'true'";
 
     #[test]
     fn target_declarations_are_complete_literal_inputs_not_a_host_subset() {

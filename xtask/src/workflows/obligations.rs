@@ -786,13 +786,13 @@ mod tests {
             ),
             (
                 "ci",
-                "      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}",
-                "      tested-commit: ${{ needs.identity-classify.outputs.green_jobs }}",
+                "      tested-commit: ${{ needs.classify.outputs.tested_commit }}",
+                "      tested-commit: ${{ needs.classify.outputs.green_jobs }}",
             ),
             (
                 "ci",
-                "      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}",
-                "      green-jobs: ${{ needs.identity-classify.outputs.tested_commit }}",
+                "      green-jobs: ${{ needs.classify.outputs.green_jobs }}",
+                "      green-jobs: ${{ needs.classify.outputs.tested_commit }}",
             ),
             (
                 "ci",

@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       fast-checked:
-        description: The caller requires the fast checks before calling QA
+        description: The caller requires the fast checks
         type: boolean
         default: false
       tested-commit:
@@ -27,6 +27,12 @@ on:
         type: string
       green-jobs:
         description: Exact successful job names from the accepted PR run
+        type: string
+      main-tested-commit:
+        description: Main commit validated by the merge queue
+        type: string
+      main-green-jobs:
+        description: Exact successful job names from the merge-queue run
         type: string
 
 permissions:
@@ -52,8 +58,9 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
+      # Ordinary PR and queue runs already require the fast job's scan. Pushes include release tags.
       - name: Secrets
-        if: always()
+        if: ${{ always() && (!inputs.fast-checked || github.event_name == 'push') }}
         run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
       - name: Format
@@ -75,6 +82,8 @@ jobs:
           LIVE_ELIGIBLE: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
           TESTED_COMMIT: ${{ inputs.tested-commit }}
           GREEN_JOBS: ${{ inputs.green-jobs }}
+          MAIN_TESTED_COMMIT: ${{ inputs.main-tested-commit }}
+          MAIN_GREEN_JOBS: ${{ inputs.main-green-jobs }}
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
         run: |
@@ -86,7 +95,14 @@ jobs:
             fi
             nix run .#xtask -- ci-suites --all
           elif [ "$EVENT" = "push" ]; then
-            nix run .#xtask -- ci-suites --main
+            if [[ "$MAIN_TESTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] &&
+              [[ "$MAIN_GREEN_JOBS" == \[*\] ]] &&
+              git cat-file -e "$MAIN_TESTED_COMMIT^{commit}" 2>/dev/null; then
+              export GREEN_JOBS="$MAIN_GREEN_JOBS"
+              nix run .#xtask -- ci-suites --main-queue "$MAIN_TESTED_COMMIT"
+            else
+              nix run .#xtask -- ci-suites --main
+            fi
           elif [ "$EVENT" = merge_group ]; then
             if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$BASE" HEAD &&
               [[ "$TESTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] &&
