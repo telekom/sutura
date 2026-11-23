@@ -505,64 +505,14 @@ impl Unparser<'_> {
         alias: Option<ast::TableAlias>,
         lateral: bool,
     ) -> Result<()> {
-        self.derive_with_output_renames(plan, relation, alias, lateral, &[])
-    }
-
-    /// Like [`Self::derive`], but additionally renames some of the inner
-    /// query's own top-level output columns (`(position, new_name)` pairs,
-    /// `position` 0-based in schema/projection order) via an explicit `AS` on
-    /// that projection item - used to give two differently-qualified,
-    /// same-named columns distinct names before they land in one derived
-    /// table, where ANSI `alias(c0, c1, ...)` column-alias lists are not a
-    /// portable way to do it across dialects (Oracle inline views don't
-    /// accept one). Refuses rather than guessing if the inner query isn't a
-    /// plain `SELECT` with one projection item per schema field - renaming
-    /// would then risk silently landing on the wrong item.
-    fn derive_with_output_renames(
-        &self,
-        plan: &LogicalPlan,
-        relation: &mut RelationBuilder,
-        alias: Option<ast::TableAlias>,
-        lateral: bool,
-        renames: &[(usize, String)],
-    ) -> Result<()> {
         let mut derived_builder = DerivedRelationBuilder::default();
         derived_builder.lateral(lateral).alias(alias).subquery({
             let inner_statement = self.plan_to_sql(plan)?;
-            let mut inner_query = if let ast::Statement::Query(inner_query) = inner_statement {
-                inner_query
-            } else {
+            let ast::Statement::Query(inner_query) = inner_statement else {
                 return internal_err!(
                     "Subquery must be a Query, but found {inner_statement:?}"
                 );
             };
-            if !renames.is_empty() {
-                let SetExpr::Select(inner_select) = inner_query.body.as_mut() else {
-                    return internal_err!(
-                        "cannot disambiguate derived table output columns: inner query is not a plain SELECT"
-                    );
-                };
-                for (position, new_name) in renames {
-                    let Some(item) = inner_select.projection.get_mut(*position) else {
-                        return internal_err!(
-                            "cannot disambiguate derived table output columns: projection has no item at position {position}"
-                        );
-                    };
-                    let expr = match item {
-                        ast::SelectItem::UnnamedExpr(expr) => expr.clone(),
-                        ast::SelectItem::ExprWithAlias { expr, .. } => expr.clone(),
-                        _ => {
-                            return internal_err!(
-                                "cannot disambiguate derived table output columns: projection item at position {position} is not a plain expression"
-                            );
-                        }
-                    };
-                    *item = ast::SelectItem::ExprWithAlias {
-                        expr,
-                        alias: Ident::new(new_name.clone()),
-                    };
-                }
-            }
             inner_query
         });
         relation.derived(derived_builder);
@@ -612,7 +562,11 @@ impl Unparser<'_> {
         // or two sibling relations collapsed into one wrapped plan) cannot be
         // disambiguated by a bare-name rewrite without risking a reference
         // silently binding to the wrong side - a text-policy leak if the two
-        // sides differ in masking. Refuse rather than guess.
+        // sides differ in masking. Refuse rather than guess - but ONLY when
+        // the parent actually reads one of the colliding names: a `count(1)`
+        // over a self-join never reads either side's columns by name, so
+        // nothing is ever out of scope and main's own (unaliased) rendering
+        // must stand; refusing there would remove an answer main gives.
         // Text-matching a bare qualifier is only safe against qualifiers the
         // wrapped plan itself owns: a sibling relation already registered in
         // this same parent FROM/JOIN list can expose the identical alias
@@ -637,9 +591,11 @@ impl Unparser<'_> {
             }
             *name_counts.entry(field.name().as_str()).or_insert(0) += 1;
         }
-        if name_counts.values().any(|count| *count > 1) {
-            return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
-        }
+        let colliding_names: Vec<String> = name_counts
+            .iter()
+            .filter(|(_, count)| **count > 1)
+            .map(|(name, _)| name.to_string())
+            .collect();
         // The parent may not reference the wrapped plan's columns at all - a
         // `count(1)` over a filtered scan, say - in which case no qualifier is
         // ever out of scope and the rewrite below has nothing to fix: skip it
@@ -674,6 +630,9 @@ impl Unparser<'_> {
             } else {
                 self.derive(plan, relation, None, lateral)
             };
+        }
+        if !colliding_names.is_empty() && select.references_any(&colliding_names) {
+            return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
         }
         let synthetic_alias = {
             let n = self.derived_alias_counter.get();

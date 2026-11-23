@@ -23,6 +23,7 @@ use tokio::runtime::Runtime;
 use crate::combine::DataFusionCombiner;
 
 mod cube_pushdown;
+mod join_key_both_sides;
 #[cfg(test)]
 pub(super) mod literals;
 #[cfg(test)]
