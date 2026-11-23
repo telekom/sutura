@@ -11,7 +11,10 @@ use crate::{Environment, Settings, Sources};
 /// Unwraps a `load` failure down to the typed `InvalidDescriptionSource`, so a cell can assert the
 /// specific refusal rather than only that loading failed - the same `expect_err` would also pass on
 /// an unrelated error, including one base already produces today.
-fn assert_description_error(result: Result<Settings, crate::settings::SettingsLoadError>, expected: &InvalidDescriptionSource) {
+pub(super) fn assert_description_error(
+    result: Result<Settings, crate::settings::SettingsLoadError>,
+    expected: &InvalidDescriptionSource,
+) {
     let error = result.expect_err("a refused description source");
     let SettingsError::Catalog {
         cause: InvalidCatalogSettings::Rdbms { cause, .. },
@@ -314,7 +317,7 @@ fn a_zero_refresh_interval_is_refused_naming_the_catalog() {
     assert_eq!(error, InvalidCatalogSettings::ZeroRefresh { name: name("catalog") });
 }
 
-const ENTRY: &[&str] = &[
+pub(super) const ENTRY: &[&str] = &[
     "environment: prod",
     "source_alias: warehouse",
     "live_row_predicate: {column: deleted_at, operator: is_null}",
@@ -322,7 +325,7 @@ const ENTRY: &[&str] = &[
     "max_dictionary_bytes: 1048576",
 ];
 
-const CONNECTION: &[&str] = &[
+pub(super) const CONNECTION: &[&str] = &[
     "host: 127.0.0.1",
     "port: 5432",
     "database: dictionary",
@@ -331,7 +334,7 @@ const CONNECTION: &[&str] = &[
     "transport_mode: plaintext",
 ];
 
-fn overlay(kind: &str, entry: &[&str], connection: Option<&[&str]>) -> String {
+pub(super) fn overlay(kind: &str, entry: &[&str], connection: Option<&[&str]>) -> String {
     let indent = |lines: &[&str], by: &str| lines.iter().flat_map(|line| [by, line, "\n"]).collect::<String>();
     let connection = connection.map_or_default(|lines| format!("    connection:\n{}", indent(lines, "      ")));
     format!(
@@ -341,7 +344,7 @@ fn overlay(kind: &str, entry: &[&str], connection: Option<&[&str]>) -> String {
     )
 }
 
-fn load(overlay: &str) -> Result<Settings, crate::settings::SettingsLoadError> {
+pub(super) fn load(overlay: &str) -> Result<Settings, crate::settings::SettingsLoadError> {
     Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
 }
 
@@ -377,98 +380,6 @@ fn a_separate_description_mapping_is_parsed_as_prose_only_with_a_closed_predicat
 }
 
 #[test]
-fn a_description_key_via_joins_a_declared_parent_table_on_declared_columns() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.object_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n"
-    );
-    let settings = load(&text).expect("a key.via mapping loads");
-    let entry = settings.catalogs().each().next().unwrap();
-    let sources = entry.rdbms().unwrap().descriptions_from();
-    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = sources.first().unwrap() else {
-        panic!("a mapping")
-    };
-    let crate::catalog::rdbms::DescriptionKeySource::Via(via) = mapping.key_source() else {
-        panic!("a via key source")
-    };
-    assert_eq!(via.table().to_string(), "inventory.object_docs");
-    assert_eq!(via.on().len(), 1);
-    assert_eq!(via.schema().as_str(), "schema_name");
-    assert_eq!(via.table_name().as_str(), "object_name");
-}
-
-#[test]
-fn description_key_rejects_both_direct_and_via_or_neither() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let both = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, via: {{table: inventory.object_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n"
-    );
-    assert_description_error(load(&both), &InvalidDescriptionSource::KeyShape);
-
-    let neither = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{column: field_name}}\n        description: prose\n"
-    );
-    assert_description_error(load(&neither), &InvalidDescriptionSource::KeyShape);
-}
-
-#[test]
-fn description_key_via_requires_a_nonempty_on_mapping() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.object_docs, on: {{}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n"
-    );
-    assert_description_error(load(&text), &InvalidDescriptionSource::ViaJoin);
-}
-
-/// A `key.via` naming the mapped table itself collapses the join back onto its own starting
-/// table, so every predicate would resolve to `PredicateTable::Main` and `PredicateTable::Via`
-/// could never be produced - refused rather than silently accepted as a no-op join.
-#[test]
-fn description_key_via_naming_the_mapped_table_itself_is_refused() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.column_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n"
-    );
-    assert_description_error(load(&text), &InvalidDescriptionSource::ViaJoin);
-}
-
-#[test]
-fn live_row_predicates_is_a_closed_conjunction_naming_main_or_via_tables() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.object_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n        live_row_predicates:\n          - {{table: inventory.column_docs, column: deleted, operator: equals, value: 'N'}}\n          - {{table: inventory.object_docs, column: retired_at, operator: is_null}}\n"
-    );
-    let settings = load(&text).expect("a plural predicate list on main and via tables loads");
-    let entry = settings.catalogs().each().next().unwrap();
-    let sources = entry.rdbms().unwrap().descriptions_from();
-    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = sources.first().unwrap() else {
-        panic!("a mapping")
-    };
-    let predicates = mapping.predicates();
-    assert_eq!(predicates.len(), 2);
-    assert_eq!(predicates[0].table(), crate::catalog::rdbms::PredicateTable::Main);
-    assert_eq!(predicates[1].table(), crate::catalog::rdbms::PredicateTable::Via);
-}
-
-#[test]
-fn live_row_predicates_entries_must_name_the_mapped_table_or_its_via_table() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{via: {{table: inventory.object_docs, on: {{obj_id: id}}, schema: schema_name, table_name: object_name}}, column: field_name}}\n        description: prose\n        live_row_predicates:\n          - {{table: inventory.unrelated, column: deleted, operator: equals, value: 'N'}}\n"
-    );
-    assert_description_error(load(&text), &InvalidDescriptionSource::PredicateTable);
-}
-
-#[test]
-fn live_row_predicate_and_live_row_predicates_are_mutually_exclusive() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{column: deleted, operator: equals, value: 'N'}}\n        live_row_predicates:\n          - {{table: inventory.column_docs, column: retired_at, operator: is_null}}\n"
-    );
-    assert_description_error(load(&text), &InvalidDescriptionSource::PredicateShape);
-}
-
-#[test]
 fn referenced_catalogs_are_prose_only_and_unrelated_contributors_are_retained() {
     let base = overlay("rdbms", ENTRY, Some(CONNECTION));
     let first = format!("{base}    descriptions_from: [{{catalog: second}}]\n");
@@ -481,45 +392,4 @@ fn referenced_catalogs_are_prose_only_and_unrelated_contributors_are_retained() 
         structural.each().map(|entry| entry.name().as_str()).collect::<Vec<_>>(),
         ["dict", "third"]
     );
-}
-
-/// `table` is only meaningful inside `live_row_predicates:`'s list form - on the singular
-/// `live_row_predicate:` it has no effect, so `deny_unknown_fields` refuses it rather than
-/// silently ignoring it (`RawLiveRowPredicate` carries no `table` field at all).
-#[test]
-fn live_row_predicate_table_field_is_refused_as_unknown() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicate: {{table: inventory.column_docs, column: deleted, operator: equals, value: 'N'}}\n"
-    );
-    let error = load(&text).expect_err("table on the singular predicate is an unknown field");
-    assert!(matches!(error.reason(), SettingsError::Source { .. }), "{error:?}");
-    let rendered = format!("{:?}", core::error::Error::source(&error));
-    assert!(
-        rendered.contains("unknown field") && rendered.contains("table"),
-        "the refusal names the key: {rendered}"
-    );
-
-    let dictionary = format!(
-        "{}\n    live_row_predicate: {{table: inventory.column_docs, column: deleted_at, operator: is_null}}\n",
-        overlay("rdbms", &["environment: prod", "source_alias: warehouse"], Some(CONNECTION))
-    );
-    let error = load(&dictionary).expect_err("table on the dictionary-level predicate is an unknown field");
-    assert!(matches!(error.reason(), SettingsError::Source { .. }), "{error:?}");
-    let rendered = format!("{:?}", core::error::Error::source(&error));
-    assert!(
-        rendered.contains("unknown field") && rendered.contains("table"),
-        "the refusal names the key: {rendered}"
-    );
-}
-
-/// `live_row_predicates: []` is a declared-but-empty conjunction, which is never what an operator
-/// means - either omit the key for "no predicate", or name at least one.
-#[test]
-fn live_row_predicates_empty_list_is_refused() {
-    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
-    let text = format!(
-        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        live_row_predicates: []\n"
-    );
-    assert_description_error(load(&text), &InvalidDescriptionSource::PredicateListEmpty);
 }

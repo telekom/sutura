@@ -595,3 +595,6 @@ impl Catalogs {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod description_relations_tests;
