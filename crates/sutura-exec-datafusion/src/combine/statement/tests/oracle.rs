@@ -690,8 +690,9 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
     }
 }
 
-/// Every `qualifier.column` in `sql` whose qualifier names no relation in the FROM clause of the
-/// SELECT level it is written in. Oracle refuses such a reference with ORA-00904; the fake engine
+/// Every `qualifier.column` in a projection, WHERE, GROUP BY or HAVING of `sql` whose qualifier
+/// names no relation in the FROM clause of the SELECT level it is written in. ORDER BY, JOIN ON
+/// and subqueries inside expressions are not read. Oracle refuses such a reference with ORA-00904; the fake engine
 /// behind [`OracleLegs`] executes the text through `DataFusion` instead and does not.
 fn qualifiers_out_of_scope(sql: &str) -> Vec<String> {
     use datafusion::sql::sqlparser::ast::{Expr, Select, SetExpr, Statement, TableFactor, TableWithJoins, Visit as _, Visitor};
