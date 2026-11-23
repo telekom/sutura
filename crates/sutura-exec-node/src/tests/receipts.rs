@@ -3,6 +3,7 @@
 use arrow_flight::FlightData;
 use arrow_flight::encode::FlightDataEncoderBuilder;
 use futures_util::{TryStreamExt as _, stream};
+use sutura_domain::warehouse::Warehouse as _;
 
 use super::{Node, NodeError, Reply, answer, client_trusting, fake, labels, run, subject};
 
@@ -86,6 +87,13 @@ fn a_node_charges_receipt_bytes_before_retaining_its_rows() {
     .expect("a node client");
     let refused = run(&warehouse, &subject()).expect_err("metadata and rows share one budget");
     assert!(matches!(refused, NodeError::Result { .. }), "{refused:?}");
+    assert_eq!(
+        warehouse.result_limit(&refused),
+        Some(sutura_domain::warehouse::ResultLimit::MaterializationBytes {
+            limit_bytes: budget.bytes()
+        }),
+        "the reported bound is the configured budget, not the metadata-reduced remainder",
+    );
 }
 
 #[test]
