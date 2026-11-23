@@ -296,9 +296,11 @@ At most 64 declarations with at most 32 distinct pairs each are accepted. Exact 
 visible endpoints and known compatible mapped types are required. Equal mapped types and integer
 widths are compatible; unknown or incompatible types always refuse the load, naming the endpoint.
 An endpoint absent or excluded from the reading identity's dictionary instead follows
-`on_missing_endpoint`, default `refuse` (the behaviour above, unchanged). `on_missing_endpoint: omit`
+`on_missing_endpoint`, default `refuse` (the behaviour above, unchanged). A declaration with no
+`on_missing_endpoint` key of its own follows the catalog's own `on_missing_endpoint` key (also
+default `refuse`), so a deployment can opt every declaration into `omit` at once instead of naming
+it per relationship. `on_missing_endpoint: omit` (per relationship, or inherited from the catalog)
 drops that one declaration with a `WARN` log instead of refusing the whole catalog - the same
-declaration can then serve several environments whose service users hold different grants. An
 omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
 never joins, and `describe_catalog` never lists it. A misspelled table name in a visible schema
 cannot be told apart from a hidden table under `shared-service-user` - either way the selected
@@ -336,11 +338,21 @@ the existing consistency and fan-out checks; these declarations change none of t
 In `documentation_schema` mode, `relationships_view: relationships` opts into a second view in
 `dictionary_schema`. Absence makes no second-view query. Its rows are authored many-to-one
 assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
-Configuration declarations can also be used with documentation catalogs. **`on_missing_endpoint`
-is a configuration-declaration setting only: a view row with an endpoint the reading identity
-cannot see still refuses the whole load** - the view has no column to opt a row out, so an
-operator who needs `omit` for a view-sourced relationship keeps it as a configuration declaration
-instead.
+Configuration declarations can also be used with documentation catalogs. A view row has no column
+of its own to opt one row out, so it always follows the **catalog's** `on_missing_endpoint` key
+(default `refuse`, unchanged): an endpoint absent or excluded from the reading identity's
+dictionary either refuses the whole load (`refuse`) or is dropped with the same `WARN` log a
+configuration declaration gets (`omit`), naming the relationship and the missing endpoint. A
+misspelled column on a visible table is still refused either way, same as configuration.
+
+```yaml
+catalogs:
+  - name: warehouse
+    kind: rdbms
+    dictionary_source: documentation_schema
+    relationships_view: relationships
+    on_missing_endpoint: omit
+```
 
 | Column                                           | Contract                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------- |

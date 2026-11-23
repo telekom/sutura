@@ -63,8 +63,13 @@ pub(super) fn open_one_rdbms_catalog(settings: &sutura_config::CatalogSettings) 
 
     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
     // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
+    let view_on_missing_endpoint = match rdbms.relationships_on_missing_endpoint() {
+        sutura_config::MissingEndpointPolicy::Refuse => sutura_catalog_rdbms::MissingEndpointPolicy::Refuse,
+        sutura_config::MissingEndpointPolicy::Omit => sutura_catalog_rdbms::MissingEndpointPolicy::Omit,
+    };
     let reader = reader
         .with_relationships(relationships(rdbms)?)
+        .with_relationships_on_missing_endpoint(view_on_missing_endpoint)
         .with_relationships_view(rdbms.relationships_view().map(sutura_config::DocumentationSchema::as_str))
         .map_err(|cause| cause.to_string())?;
     let bounds = reader.bounds();

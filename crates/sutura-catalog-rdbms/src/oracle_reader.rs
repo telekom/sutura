@@ -134,6 +134,7 @@ pub struct OracleReader {
     query: ReadQuery,
     bounds: DictionaryBounds,
     relationships: Vec<crate::DeclaredRelationship>,
+    relationships_on_missing_endpoint: crate::MissingEndpointPolicy,
 }
 
 impl OracleReader {
@@ -209,12 +210,22 @@ impl OracleReader {
             query,
             bounds,
             relationships: Vec::new(),
+            relationships_on_missing_endpoint: crate::MissingEndpointPolicy::Refuse,
         })
     }
 
     pub fn with_relationships_view(mut self, view: Option<&str>) -> Result<Self, InvalidReaderConfig> {
         self.query.with_relationships_view(view)?;
         Ok(self)
+    }
+
+    /// The policy a `relationships_view` row follows when its endpoint is absent or excluded from
+    /// this reading identity's dictionary. Default `Refuse` - the behaviour before the policy
+    /// existed, so a reader built with no call here reads unchanged.
+    #[must_use]
+    pub const fn with_relationships_on_missing_endpoint(mut self, policy: crate::MissingEndpointPolicy) -> Self {
+        self.relationships_on_missing_endpoint = policy;
+        self
     }
 
     #[must_use]
@@ -316,7 +327,7 @@ impl DictionaryReader for OracleReader {
             }
         }
         let mut dictionary = assembly.finish();
-        let documented_declarations = constraints.apply(&mut dictionary)?;
+        let documented_declarations = constraints.apply(&mut dictionary, self.relationships_on_missing_endpoint)?;
         let (dictionary, resolved_relationships) = self
             .query
             .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Oracle)?

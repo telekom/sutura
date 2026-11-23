@@ -156,7 +156,11 @@ impl Constraints {
         Ok(())
     }
 
-    pub(crate) fn apply(self, dictionary: &mut Dictionary) -> Result<Vec<crate::DeclaredRelationship>, RdbmsError> {
+    pub(crate) fn apply(
+        self,
+        dictionary: &mut Dictionary,
+        on_missing_endpoint: crate::MissingEndpointPolicy,
+    ) -> Result<Vec<crate::DeclaredRelationship>, RdbmsError> {
         let mut declared = Vec::new();
         for key in self.0.into_values() {
             let invalid = |fault| invalid(&key.header.name, fault);
@@ -171,9 +175,10 @@ impl Constraints {
                     target_key.push(referenced.ok_or_else(|| invalid(Fault::Field))?);
                 }
                 if key.header.declared {
-                    declared.push(crate::DeclaredRelationship::new(
+                    declared.push(crate::DeclaredRelationship::with_missing_endpoint_policy(
                         Relationship::declared(Some(key.header.name), key.header.origin, target, pairs)?,
                         None,
+                        on_missing_endpoint,
                     ));
                 } else {
                     let kind = key.header.target_kind.ok_or_else(|| invalid(Fault::Kind))?;
@@ -243,5 +248,76 @@ pub(crate) fn documentation_statement(schema: &str, view: &str, oracle: bool, li
         format!(
             "SELECT (CASE WHEN cardinality = 'many_to_one' THEN 'd' ELSE 'invalid' END)::text AS record_kind, {columns}, {ordinal} AS ordinal, {arity} AS arity, 'd'::text AS target_kind, {catalogs} FROM {source} WHERE environment = $1 AND is_deleted = false ORDER BY relationship_name, ordinal LIMIT {limit}"
         )
+    }
+}
+
+#[cfg(test)]
+mod view_missing_endpoint_tests {
+    //! Pins `Constraints::apply`'s `on_missing_endpoint` parameter: a documentation-schema
+    //! `relationships_view` row whose declared target table the reading identity's dictionary does
+    //! not carry follows the same `MissingEndpointPolicy` a configuration declaration does.
+
+    use super::Constraints;
+    use crate::{Dictionary, MissingEndpointPolicy, RdbmsError, Table, TableAddress};
+
+    fn declared_row(target_table: &str) -> [Option<String>; 13] {
+        [
+            Some(String::from("d")),
+            Some(String::from("1")),
+            Some(String::from("events_apps")),
+            Some(String::from("public")),
+            Some(String::from("events")),
+            Some(String::from("app_id")),
+            Some(String::from("public")),
+            Some(target_table.to_owned()),
+            Some(String::from("id")),
+            Some(String::from("id")),
+            Some(String::from("1")),
+            Some(String::from("1")),
+            Some(String::from("d")),
+        ]
+    }
+
+    fn address(name: &str) -> TableAddress {
+        TableAddress::in_schema(String::from("public"), name.to_owned())
+    }
+
+    fn dictionary_with_events_only() -> Dictionary {
+        Dictionary::new(
+            vec![Table::new(
+                "events".to_owned(),
+                address("events"),
+                vec!["app_id".to_owned()],
+                None,
+            )],
+            Vec::new(),
+        )
+    }
+
+    #[test]
+    fn a_view_row_whose_target_table_is_hidden_refuses_the_load_by_default() {
+        let mut constraints = Constraints::default();
+        constraints.push(declared_row("apps")).unwrap();
+        let mut dictionary = dictionary_with_events_only();
+        assert!(matches!(
+            constraints.apply(&mut dictionary, MissingEndpointPolicy::Refuse),
+            Err(RdbmsError::Declaration { .. })
+        ));
+    }
+
+    #[test]
+    fn a_view_row_whose_target_table_is_hidden_is_omitted_under_the_catalogs_omit_default() {
+        let mut constraints = Constraints::default();
+        constraints.push(declared_row("apps")).unwrap();
+        let mut dictionary = dictionary_with_events_only();
+        let resolved = constraints
+            .apply(&mut dictionary, MissingEndpointPolicy::Omit)
+            .expect("an omit-policy view row never refuses the whole load");
+        assert_eq!(
+            resolved.len(),
+            0,
+            "an omitted view-sourced declaration must not be probed for uniqueness"
+        );
+        assert_eq!(dictionary.relationships(), []);
     }
 }

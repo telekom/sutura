@@ -49,7 +49,7 @@ pub enum MissingEndpointPolicy {
 }
 impl MissingEndpointPolicy {
     const ALL: [Self; 2] = [Self::Refuse, Self::Omit];
-    fn parse(written: &str) -> Option<Self> {
+    pub(crate) fn parse(written: &str) -> Option<Self> {
         let written = written.trim();
         Self::ALL.into_iter().find(|policy| policy.as_str() == written)
     }
@@ -109,7 +109,10 @@ fn endpoint(raw: &RawEndpoint) -> Result<RelationshipEndpoint, InvalidRdbmsCatal
         .collect::<Result<Vec<_>, _>>()?;
     Ok(RelationshipEndpoint { table, columns })
 }
-pub(crate) fn parse(raw: &[RawRelationship]) -> Result<Vec<DeclaredRelationship>, InvalidRdbmsCatalog> {
+pub(crate) fn parse(
+    raw: &[RawRelationship],
+    default_on_missing_endpoint: MissingEndpointPolicy,
+) -> Result<Vec<DeclaredRelationship>, InvalidRdbmsCatalog> {
     if raw.len() > 64 {
         return Err(invalid(InvalidRelationship::Shape));
     }
@@ -148,7 +151,7 @@ pub(crate) fn parse(raw: &[RawRelationship]) -> Result<Vec<DeclaredRelationship>
                         MissingEndpointPolicy::parse(written).ok_or_else(|| invalid(InvalidRelationship::MissingEndpointPolicy))
                     })
                     .transpose()?
-                    .unwrap_or_default(),
+                    .unwrap_or(default_on_missing_endpoint),
             })
         })
         .collect()

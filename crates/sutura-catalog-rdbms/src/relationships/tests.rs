@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ColumnMetadata, DeclarationError, DeclaredRelationship, Dictionary, Table};
+use crate::{ColumnMetadata, DeclarationError, DeclaredRelationship, Dictionary, MissingEndpointPolicy, Table};
 use sutura_domain::catalog::{DictionaryInclude, DictionaryPattern, DictionarySelection};
 use sutura_domain::warehouse::schema::TypeDialect;
 
@@ -332,7 +332,7 @@ fn native_constraint_assembly_refuses_incomplete_and_inconsistent_ordinals() {
     complete.push(row("2", "id")).unwrap();
     complete.push(row("1", "tenant")).unwrap();
     let mut actual = Dictionary::new(vec![table("apps", &[("tenant", "bigint"), ("id", "bigint")])], Vec::new());
-    complete.apply(&mut actual).unwrap();
+    complete.apply(&mut actual, MissingEndpointPolicy::Refuse).unwrap();
     assert_eq!(actual.tables()[0].primary_key(), ["tenant", "id"]);
     let fault = |error: RdbmsError| match error {
         RdbmsError::Read(cause) => {
@@ -345,12 +345,15 @@ fn native_constraint_assembly_refuses_incomplete_and_inconsistent_ordinals() {
     let mut partial = Constraints::default();
     partial.push(row("1", "tenant")).unwrap();
     let mut keyless = Dictionary::new(vec![table("apps", &[("tenant", "bigint"), ("id", "bigint")])], Vec::new());
-    assert_eq!(fault(partial.apply(&mut keyless).unwrap_err()), Fault::Incomplete);
+    assert_eq!(
+        fault(partial.apply(&mut keyless, MissingEndpointPolicy::Refuse).unwrap_err()),
+        Fault::Incomplete
+    );
     let mut doubled = Constraints::default();
     doubled.push(row("1", "tenant")).unwrap();
     doubled.push(row("2", "id")).unwrap();
     assert_eq!(
-        fault(doubled.apply(&mut dictionary()).unwrap_err()),
+        fault(doubled.apply(&mut dictionary(), MissingEndpointPolicy::Refuse).unwrap_err()),
         Fault::DuplicatePrimaryKey
     );
     let mut repeated = Constraints::default();
