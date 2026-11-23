@@ -113,6 +113,9 @@ fn raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_d
         "SELECT count(id) FROM (SELECT * RENAME (id AS renamed_id) FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
         // LOW: a bare wildcard beside another item aliased to the predicate column's own name.
         "SELECT count(id) FROM (SELECT *, id AS \"BODY\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
+        // LOW, fail-closed: the shadowing alias differs only in case from the predicate column -
+        // must still refuse rather than let the case difference slip the shadow check.
+        "SELECT count(id) FROM (SELECT *, id AS \"body\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
     ] {
         assert!(
             super::text_prefilter::raw_predicates(sql, enabled())

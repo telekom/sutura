@@ -134,19 +134,23 @@ const fn bare_wildcard(options: &WildcardAdditionalOptions) -> bool {
 }
 
 /// `name` reaches this level's base unchanged: a bare identifier or compound identifier of that
-/// exact name, or a bare wildcard that passes every column through untouched and is not shadowed
-/// by another projection item aliased to the same name. An alias, a cast, a function call or any
+/// name, or a bare wildcard that passes every column through untouched and is not shadowed by
+/// another projection item aliased to the same name. An alias, a cast, a function call or any
 /// other expression under that name is a rename or a transform, not a passthrough - the raw
 /// condition built later resolves `name` straight against the physical schema, so anything else
 /// would let that resolution land on a different column than the one the redacted predicate
-/// actually tested.
+/// actually tested. The comparison is case-insensitive: fail-closed, because a quoted and an
+/// unquoted spelling of the same name must not be treated as two different columns here when
+/// deciding whether a wildcard is shadowed.
 fn passes_through(name: &str, projection: &[SelectItem]) -> bool {
     let shadowed = projection
         .iter()
-        .any(|item| matches!(item, SelectItem::ExprWithAlias { alias, .. } if alias.value == name));
+        .any(|item| matches!(item, SelectItem::ExprWithAlias { alias, .. } if alias.value.eq_ignore_ascii_case(name)));
     projection.iter().any(|item| match item {
-        SelectItem::UnnamedExpr(Expr::Identifier(ident)) => ident.value == name,
-        SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path)) => path.last().is_some_and(|ident| ident.value == name),
+        SelectItem::UnnamedExpr(Expr::Identifier(ident)) => ident.value.eq_ignore_ascii_case(name),
+        SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path)) => {
+            path.last().is_some_and(|ident| ident.value.eq_ignore_ascii_case(name))
+        }
         SelectItem::Wildcard(options) | SelectItem::QualifiedWildcard(_, options) => bare_wildcard(options) && !shadowed,
         _ => false,
     })
