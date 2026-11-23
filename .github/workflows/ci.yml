@@ -272,43 +272,8 @@ jobs:
           QUEUE_REF: ${{ github.event.merge_group.head_ref }}
         run: bash nix/ci-pr-verdict.sh
 
-  pr-redelivery-guard:
-    # A no-op `pull_request` `synchronize` whose before SHA equals its after SHA still races
-    # `ci`'s own concurrency group below: dependabot PR #2061 (build: Bump rmcp) got three
-    # `pull_request` events for the identical head, two `ci` runs 2-4 s apart got cancelled, and
-    # the pull request stayed merge-blocked 40+ minutes after the third run's `ci` finished
-    # green, because a cancelled check run for a REQUIRED context does not stop counting once a
-    # later run with the same name succeeds.
-    #
-    # This lives in its OWN job rather than in `ci`'s `if:` because `carries_release_skip`
-    # (xtask/src/workflows/obligations.rs) refuses any `||` after the release-skip clause on a
-    # `RELEASE_SKIP` job, by design, so no later edit widens the clause past it. Detecting
-    # "pull_request && synchronize && before == after" needs an `||` to negate, so it is computed
-    # here and `ci` reads one boolean output - an AND-only conjunct, which the rule accepts.
-    needs: [identity-classify]
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    outputs:
-      skip: ${{ steps.check.outputs.skip }}
-    steps:
-      - name: Detect a no-op synchronize redelivery
-        id: check
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          ACTION: ${{ github.event.action }}
-          BEFORE_SHA: ${{ github.event.before }}
-          AFTER_SHA: ${{ github.event.after }}
-        run: |
-          set -euo pipefail
-          skip=false
-          if [ "$EVENT_NAME" = "pull_request" ] && [ "$ACTION" = "synchronize" ] \
-            && [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
-            skip=true
-          fi
-          echo "skip=$skip" >> "$GITHUB_OUTPUT"
-
   ci:
-    needs: [identity-classify, pr-redelivery-guard]
+    needs: [identity-classify]
     # THE VALIDATION CONCURRENCY GROUP (#561), at the `ci` JOB level rather than the workflow
     # level. A workflow-level `concurrency:` makes every job of run N+1 - pr-cache,
     # e2e-datahub-adbc, ci-aggregate included - wait for every job of run N, so the next run's
@@ -320,9 +285,19 @@ jobs:
     # Never cancel a run on the default branch, and the correctness that used to rest on that
     # comment is now on the durable marker (#561): the default-branch base is the last fully
     # validated commit, so even an EVICTED pending run's commits are covered by the next run.
+    #
+    # Keyed on the HEAD SHA, not `github.ref`, and never cancels on a pull request either
+    # (#2061/#2062): `types: [opened, synchronize, reopened, labeled]` on this trigger means a
+    # label flip (`ci:full`) fires `pull_request` without a new commit, and `opened` plus a
+    # same-second `labeled` delivery for one push landed two `ci` runs for the SAME head a few
+    # seconds apart. Cancelling one left a `cancelled` check-run for the required `ci` context
+    # that a later green run of the same name does not retire, so the pull request stayed
+    # merge-blocked after `ci` had gone green. A head-scoped group makes same-head duplicates
+    # QUEUE behind each other instead of racing; a genuinely new push gets its own group and
+    # still runs immediately, so this changes nothing about how fast a real change is validated.
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-ci
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+      group: ci-${{ github.event.pull_request.head.sha || github.sha }}
+      cancel-in-progress: false
     # The version bump skips core CI and ordinary QA. The tag workflow runs full QA,
     # including live conformance and the linked-driver exercise.
     # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
@@ -338,11 +313,7 @@ jobs:
     # `head_commit` exists on `push` and on nothing else. A `pull_request` event reads the empty
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
     # promotion PR whose tip happens to be a release commit is still gated.
-    #
-    # The second conjunct reads `pr-redelivery-guard`'s output rather than repeating its `||` -
-    # see that job's header for why a no-op `synchronize` redelivery cannot be filtered here
-    # directly.
-    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.pr-redelivery-guard.outputs.skip != 'true' }}
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     runs-on: rust-mcp-16core
     # 75, AND THE CEILING IS THE MERGE QUEUE RATHER THAN THE SLOWEST RUN. `ci` is the only
     # REQUIRED check, so the queue's check-response timeout - 90 minutes - is the point past which

@@ -147,10 +147,6 @@ ci.yml:pr-cache
 
 # Fast checks precede core CI, reusable QA and the independently gated Rust checks.
 ci.yml:identity-classify
-# Feeds `ci`'s own `if:` with one boolean output rather than gating anything itself - see the
-# job's header in ci.yml for why the no-op-synchronize check could not live in `ci`'s own
-# condition. Advisory: a job nobody requires other than `ci` reading its output.
-ci.yml:pr-redelivery-guard
 ci.yml:causality
 ci.yml:postgres-linked-driver
 ci.yml:shipped-features
