@@ -4,7 +4,9 @@ use std::ops::ControlFlow;
 
 use datafusion::arrow::array::ArrayRef;
 
-use datafusion::sql::sqlparser::ast::{LimitClause, Query, VisitMut as _, VisitorMut};
+use datafusion::sql::sqlparser::ast::{
+    LimitClause, Query, Select, SelectItem, TableFactor, Visit as _, VisitMut as _, Visitor, VisitorMut,
+};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 
@@ -711,11 +713,9 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
     }
 }
 
-/// #2038: a native Oracle dictionary reports UPPERCASE table and column names. A text-policy CLOB
-/// with a bare `column: SCRIPT` raw-prefilter rule must still have its raw predicate pushed down for
-/// every client spelling Oracle itself accepts, not only the one the dictionary happens to echo back.
-#[test]
-fn raw_prefilter_reaches_the_oracle_source_for_every_case_spelling_of_a_native_dictionary_clob() {
+/// A text-policy fixture: one `CLOB` column (`SCRIPT`) carrying a bare raw-prefilter rule, one
+/// ordinary column (`OBJECT_NAME`), on a table named `DOCS` - #2038's own reproduction shape.
+fn docs_table() -> Vec<StatementTable> {
     let policy = serde_json::json!({
         "max_text_bytes": 128,
         "redact": [{"pattern": "secret_[^ ]+", "replace": "[masked]"}],
@@ -729,39 +729,166 @@ fn raw_prefilter_reaches_the_oracle_source_for_every_case_spelling_of_a_native_d
         Field::new("SCRIPT", DataType::Utf8, true).with_metadata(metadata),
         Field::new("OBJECT_NAME", DataType::Utf8, true),
     ]));
-    let tables = vec![StatementTable::new(
+    vec![StatementTable::new(
         named("geo"),
         QualifiedTable::parse("DOCS").expect("a fixture table"),
         TypeDialect::Oracle,
-        Arc::clone(&schema),
-    )];
+        schema,
+    )]
+}
+
+/// The SQL the fake Oracle source receives for `sql` over [`docs_table`], captured without running it.
+fn reaches_oracle(sql: &str) -> String {
+    let mut legs = CapturedLegs::default();
+    let statement = RawStatement::parse(sql).expect("an admitted native dictionary query");
+    // The leg stops every source immediately after capturing its statement: only the SQL rendered
+    // for the Oracle source is under test here, never whether a fake engine can run it.
+    drop(DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &docs_table(),
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    ));
+    legs.statements.into_iter().next().unwrap_or_default()
+}
+
+/// Walks every `Select` reached, from `statement` down, and collects every one whose `FROM` names
+/// `table` directly - the redaction view's own base-table level(s), stacked beneath every owner and
+/// aggregate the unparser wrapped around it. More than one when `table` is self-joined or unioned,
+/// as several of the negative cases below do on purpose - each occurrence is a level the source
+/// could read the stored value from, so a safety check must hold for every one found, not just one.
+#[derive(Default)]
+struct BaseTableSelects<'a> {
+    table: &'a str,
+    stack: Vec<Select>,
+    found: Vec<Select>,
+}
+
+impl Visitor for BaseTableSelects<'_> {
+    type Break = ();
+
+    fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Self::Break> {
+        self.stack.push(select.clone());
+        ControlFlow::Continue(())
+    }
+
+    fn post_visit_select(&mut self, _select: &Select) -> ControlFlow<Self::Break> {
+        self.stack.pop();
+        ControlFlow::Continue(())
+    }
+
+    fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<Self::Break> {
+        if let TableFactor::Table { name, .. } = factor
+            && name.to_string().trim_matches('"').eq_ignore_ascii_case(self.table)
+            && let Some(enclosing) = self.stack.last()
+        {
+            self.found.push(enclosing.clone());
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+fn base_table_selects(reached: &str, table: &str) -> Vec<Select> {
+    let parsed = Parser::parse_sql(&GenericDialect, reached).expect("the reached statement reparses");
+    let [statement] = parsed.as_slice() else {
+        panic!("expected one statement: {reached}");
+    };
+    let mut finder = BaseTableSelects {
+        table,
+        stack: Vec::new(),
+        found: Vec::new(),
+    };
+    let _never_breaks = statement.visit(&mut finder);
+    finder.found
+}
+
+/// #2038: a native Oracle dictionary reports UPPERCASE table and column names. A text-policy CLOB
+/// with a bare `column: SCRIPT` raw-prefilter rule must still have its raw predicate pushed down for
+/// every client spelling Oracle itself accepts, not only the one the dictionary happens to echo back.
+///
+/// Unquoted identifiers are case-insensitive, so lowercase `docs`/`script` reach `discover` already
+/// resolved: `statement` here is `DataFusion`'s own unparse of the *planned* `LogicalPlan`
+/// (`crates/sutura-exec-datafusion/src/combine/statement.rs`, `written`), not the client's literal
+/// text, and plan resolution matched the client's spelling against the registered schema's name
+/// (`DOCS`) case-insensitively before this module ever sees an AST. The lowercase case below asserts
+/// that fold, rather than assuming it.
+#[test]
+fn raw_prefilter_reaches_the_oracle_source_for_every_case_spelling_of_a_native_dictionary_clob() {
     for sql in [
         "SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%'",
         "SELECT count(OBJECT_NAME) FROM DOCS WHERE UPPER(SCRIPT) LIKE '%MRC%'",
         "SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%' LIMIT 5",
         "select count(object_name) from docs where script like '%mrc%'",
     ] {
-        let mut legs = CapturedLegs::default();
-        let statement = RawStatement::parse(sql).expect("an admitted native dictionary query");
-        // The leg stops every source immediately after capturing its statement: only the SQL
-        // rendered for the Oracle source is under test here, never whether a fake engine can run it.
-        drop(DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                false,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        ));
-        let reached = legs
-            .statements
-            .first()
-            .expect("one native Oracle source statement was reached");
+        let reached = reaches_oracle(sql);
+        // The raw condition must sit in the redaction view's own base-table SELECT - the one whose
+        // FROM names DOCS directly - so the source tests it against the stored value before that
+        // same level's projection computes the redacted one, never against the redacted output.
+        let bases = base_table_selects(&reached, "DOCS");
+        let [base] = bases.as_slice() else {
+            panic!("expected exactly one SELECT naming DOCS directly: {sql} -> {reached} ({bases:?})");
+        };
+        let selection = base
+            .selection
+            .as_ref()
+            .unwrap_or_else(|| panic!("the base-table level must carry the raw condition: {sql} -> {reached}"));
+        let raw = selection.to_string().to_uppercase();
+        assert!(raw.contains("LIKE '%MRC%'"), "{sql} -> {reached} (base selection: {raw})");
         assert!(
-            reached.to_uppercase().contains("LIKE '%MRC%'") && !reached.to_uppercase().contains("REGEXP_REPLACE"),
-            "the raw condition must reach the source before any masking is applied: {sql} -> {reached}"
+            !raw.contains("REGEXP_REPLACE"),
+            "the base-table condition must test the stored value, never the redacted one: {sql} -> {reached}"
+        );
+        // The same level still redacts SCRIPT for whatever it hands upward - the raw test is an
+        // additional pushdown, never a substitute for the redacted predicate deciding the answer.
+        let script = base
+            .projection
+            .iter()
+            .find(|item| matches!(item, SelectItem::ExprWithAlias { alias, .. } if alias.value.eq_ignore_ascii_case("SCRIPT")))
+            .unwrap_or_else(|| panic!("SCRIPT must still be projected, read or not: {sql} -> {reached}"));
+        assert!(
+            script.to_string().to_uppercase().contains("REGEXP_REPLACE"),
+            "SCRIPT's own projection must still redact it: {sql} -> {reached}"
+        );
+    }
+}
+
+/// #2038 Opus review MEDIUM4(c): every shape the HIGH1/HIGH2 fixes in `text_prefilter.rs` must
+/// reject - each asserted to leave no raw condition at the base-table level at all, which is the
+/// only level the source ever receives the stored value from.
+#[test]
+fn raw_prefilter_never_reaches_the_source_through_a_row_changing_or_renaming_level() {
+    for sql in [
+        // A derived table between the owner and the base carries its own LIMIT.
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS LIMIT 5) d WHERE SCRIPT LIKE '%MRC%'",
+        // ... a GROUP BY/aggregate.
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, count(*) AS n FROM DOCS GROUP BY OBJECT_NAME, SCRIPT) d WHERE SCRIPT LIKE '%MRC%'",
+        // ... DISTINCT.
+        "SELECT count(OBJECT_NAME) FROM (SELECT DISTINCT OBJECT_NAME, SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+        // ... a window function in its projection.
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, row_number() OVER (ORDER BY OBJECT_NAME) AS r FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+        // A level renames the predicate's own column instead of passing it through bare.
+        "SELECT count(*) FROM (SELECT OBJECT_NAME AS SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+        // ... or transforms it.
+        "SELECT count(*) FROM (SELECT UPPER(OBJECT_NAME) AS SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+        // Two levels each carry their own WHERE.
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS WHERE OBJECT_NAME IS NOT NULL) d WHERE SCRIPT LIKE '%MRC%'",
+        // A scalar subquery sits inside a derived level's own projection.
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, (SELECT count(*) FROM DOCS o WHERE o.OBJECT_NAME = DOCS.OBJECT_NAME) AS n FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+        // A UNION sits inside a derived level.
+        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS UNION SELECT OBJECT_NAME, SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
+    ] {
+        let reached = reaches_oracle(sql);
+        let no_raw_at_base = base_table_selects(&reached, "DOCS")
+            .iter()
+            .all(|base| base.selection.is_none());
+        assert!(
+            no_raw_at_base,
+            "a row-changing or renaming level must keep the redacted-only plan, never push a raw \
+             condition to the base table: {sql} -> {reached}"
         );
     }
 }
