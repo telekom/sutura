@@ -8,7 +8,7 @@ use crate::workflows::step;
 pub(super) fn check(root: &Path, ci: &str) -> Vec<String> {
     let release = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap_or_default();
     let mut out = Vec::new();
-    let lookup = step::named_step(ci, "identity-classify", "Find reusable PR verdicts");
+    let lookup = step::named_step(ci, "classify", "Find reusable PR verdicts");
     let lookup_valid = lookup.is_some_and(|lines| {
         lines.contains(&"        id: pr-verdict")
             && lines.contains(&"        if: github.event_name == 'merge_group'")
@@ -20,21 +20,21 @@ pub(super) fn check(root: &Path, ci: &str) -> Vec<String> {
             "queue-validated rule: the lookup must use the checked queue event and fall back on failure",
         ));
     }
-    let ci_ready = ["identity-classify", "qa-plan"];
+    let ci_ready = ["classify", "qa-plan"];
     let release_ready = ["qa-plan"];
-    let qa_valid = job_needs(ci, "qa-plan") == ["identity-classify"]
+    let qa_valid = job_needs(ci, "qa-plan") == ["classify"]
         && step::job(ci, "qa-plan").is_some_and(|lines| {
             lines.contains(&"    uses: $/.github/workflows/qa.yml")
                 && lines.contains(&"      fast-checked: true")
                 && lines.contains(&"      plan-only: true")
-                && lines.contains(&"      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}")
-                && lines.contains(&"      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}")
+                && lines.contains(&"      tested-commit: ${{ needs.classify.outputs.tested_commit }}")
+                && lines.contains(&"      green-jobs: ${{ needs.classify.outputs.green_jobs }}")
         })
         && qa_uses_plan(ci, &ci_ready)
         && live_jobs_use_plan(ci, &ci_ready);
     if !qa_valid {
         out.push(String::from(
-            "queue-validated rule: ordinary QA must wait for fast checks, use their evidence, and share the plan with the direct live jobs",
+            "queue-validated rule: ordinary QA must use the classifier's evidence and share the plan with the direct live jobs",
         ));
     }
     let release_valid = job_needs(&release, "qa-plan") == ["gates"]

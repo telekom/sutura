@@ -1,5 +1,4 @@
-# Formatting, workflow lint and classification gate the test jobs through identity-classify.
-# The test graph runs only after that job passes. ci and ci-aggregate are required contexts.
+# Classification starts the test graph alongside the fast checks. The aggregate requires both.
 #
 # Every action is pinned by commit. A tag is mutable and these run with the job's token.
 name: ci
@@ -145,15 +144,18 @@ on:
 permissions:
   contents: read
 
-# #561: the concurrency group MOVED from the workflow level to the `ci` JOB (below), so a run's
-# validation is not held up by an unrelated predecessor's downstream tail. The correctness of the
-# default-branch base no longer depends on `cancel-in-progress: false` either - the base is read
-# from a durable marker, so an evicted run's commits stay covered regardless of cancellation.
+# A new PR run supersedes its whole graph. Other events retain the core job's existing
+# serialization without waiting for an earlier run's downstream jobs (#561).
+concurrency:
+  group: ci-run-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  # Core CI, QA and the separate Rust checks wait for the fast checks.
-  identity-classify:
+  # Classification is cheap enough to run before the fast checks. The heavy jobs can start from
+  # its outputs while hygiene and clippy still provide the required fast verdict.
+  classify:
     runs-on: rust-mcp-16core
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
       actions: read
@@ -163,6 +165,8 @@ jobs:
       tested_commit: ${{ steps.pr-verdict.outputs.tested_commit }}
       green_jobs: ${{ steps.pr-verdict.outputs.green_jobs }}
       causality_reused: ${{ steps.pr-verdict.outputs.causality_reused }}
+      main_tested_commit: ${{ steps.main-verdict.outputs.tested_commit }}
+      main_green_jobs: ${{ steps.main-verdict.outputs.green_jobs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -173,8 +177,6 @@ jobs:
         with:
           minimum-gb: "25"
 
-      # EXACTLY ONE INSTALLER PER EVENT, `ci`'s own pattern: gated OFF `pull_request` so the
-      # PR-additive step below is the only one that runs there.
       - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
         if: github.event_name != 'pull_request'
         with:
@@ -183,13 +185,6 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # PR-ADDITIVE (#980 review, finding 3): trusts `sutura-prs` too, so a PR that already
-      # published its own `.#xtask`/`ciArtifacts` (from a previous commit's `pr-cache` run, or
-      # this job's own on an earlier push) substitutes instead of building cold. No local
-      # `nix-store-cache` restore here on purpose (finding 7) - this job needs only `.#xtask`,
-      # which `cachix-push.yml` already publishes to the shared stores, so the cachix
-      # substituters this step names are enough; a local store restore would also make this job a
-      # THIRD writer of scope `ci` on a main push, ahead of `ci` and `cachix-push` themselves.
       - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
         if: github.event_name == 'pull_request'
         with:
@@ -198,30 +193,7 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
-      # A formatting failure still owes the authoritative secret scan.
-      - name: Secrets
-        if: ${{ always() && github.event_name != 'push' }}
-        run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
-
-      - name: Format
-        run: nix build .#checks.x86_64-linux.fmt -L
-
-      - name: Text format
-        run: bash nix/format-text.sh check
-
-      - name: Workflow static analysis
-        run: bash nix/lint-workflows.sh
-
-      # #980 review, finding 6: a PUSH to main checks out that push's own tip, so `origin/main`
-      # IS `HEAD` at this point - `git merge-base origin/main HEAD` measured an EMPTY diff on
-      # every push, which `classify` (correctly) reads as "cannot tell, run everything" and
-      # therefore selected `identity` on every push to main, including the `chore(release):`
-      # commit `ci` itself skips on purpose. `github.event.before` is the actual previous tip;
-      # this job has no concurrency group of its own (unlike `ci`, whose durable-marker eviction
-      # handling this file deliberately does not copy - see the job header), so there is no
-      # evicted-run gap for `before` to fall into. `merge_group` is untouched: `origin/main`
-      # there is genuinely an ancestor, not the ref this event just moved.
-      - name: Base for this leg's own classification
+      - name: Base for classification
         id: base
         env:
           EVENT: ${{ github.event_name }}
@@ -255,12 +227,6 @@ jobs:
             nix run .#classify
           fi
 
-      - name: Structural gates
-        run: nix build .#checks.x86_64-linux.hygiene -L
-
-      - name: Clippy
-        run: nix build .#checks.x86_64-linux.clippy -L
-
       - name: Find reusable PR verdicts
         id: pr-verdict
         if: github.event_name == 'merge_group'
@@ -272,8 +238,71 @@ jobs:
           QUEUE_REF: ${{ github.event.merge_group.head_ref }}
         run: bash nix/ci-pr-verdict.sh
 
+      - name: Find the merge-queue verdict for main
+        id: main-verdict
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message || '', 'chore(release):')
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash nix/ci-main-verdict.sh
+
+  # The aggregate requires the fast verdict alongside the test results.
+  identity-classify:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      # EXACTLY ONE INSTALLER PER EVENT, `ci`'s own pattern: gated OFF `pull_request` so the
+      # PR-additive step below is the only one that runs there.
+      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
+        if: github.event_name != 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      # The PR cache supplies dependency closures published by earlier commits on the branch.
+      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      # A formatting failure still owes the authoritative secret scan.
+      - name: Secrets
+        if: ${{ always() && github.event_name != 'push' }}
+        run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
+
+      - name: Format
+        run: nix build .#checks.x86_64-linux.fmt -L
+
+      - name: Text format
+        run: bash nix/format-text.sh check
+
+      - name: Workflow static analysis
+        run: bash nix/lint-workflows.sh
+
+      - name: Structural gates
+        run: nix build .#checks.x86_64-linux.hygiene -L
+
+      - name: Clippy
+        run: nix build .#checks.x86_64-linux.clippy -L
+
   ci:
-    needs: [identity-classify]
+    needs: [classify]
     # THE VALIDATION CONCURRENCY GROUP (#561), at the `ci` JOB level rather than the workflow
     # level. A workflow-level `concurrency:` makes every job of run N+1 - pr-cache,
     # e2e-datahub-adbc, ci-aggregate included - wait for every job of run N, so the next run's
@@ -1182,50 +1211,21 @@ jobs:
             echo "posted a new comment on pull request $PR_NUMBER"
           fi
 
-  # Ordinary PR smoke reports stay advisory. Reusable QA requires both in the queue and full runs.
-  demo-container:
-    needs: [identity-classify]
-    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci:full')
-    uses: $/.github/workflows/demo-container.yml
-
-  kind-smoke:
-    needs: [identity-classify]
-    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci:full')
-    runs-on: rust-mcp-16core
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
-        with:
-          extra_nix_config: |
-            fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-
-      - name: kind up, install, wait for Ready, tear down
-        run: |
-          set -eu
-          nix run .#kind-smoke
-
   qa-plan:
-    needs: [identity-classify]
+    needs: [classify]
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     uses: $/.github/workflows/qa.yml
     with:
       plan-only: true
       fast-checked: true
       run-all-checks: ${{ inputs.run-all-checks || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
-      tested-commit: ${{ needs.identity-classify.outputs.tested_commit }}
-      green-jobs: ${{ needs.identity-classify.outputs.green_jobs }}
+      tested-commit: ${{ needs.classify.outputs.tested_commit }}
+      green-jobs: ${{ needs.classify.outputs.green_jobs }}
+      main-tested-commit: ${{ needs.classify.outputs.main_tested_commit }}
+      main-green-jobs: ${{ needs.classify.outputs.main_green_jobs }}
 
   qa:
-    needs: [identity-classify, qa-plan]
+    needs: [classify, qa-plan]
     if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') }}
     uses: $/.github/workflows/qa.yml
     with:
@@ -1234,7 +1234,7 @@ jobs:
       suite-plan: ${{ needs.qa-plan.outputs.suite-plan }}
 
   e2e-datahub-adbc:
-    needs: [identity-classify, qa-plan]
+    needs: [classify, qa-plan]
     if: contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'e2e-datahub-adbc') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: rust-mcp-16core
     timeout-minutes: 75
@@ -1266,7 +1266,7 @@ jobs:
         run: rm -f -- "$RUNNER_TEMP"/sutura-bq-key.*
 
   bigquery-conformance:
-    needs: [identity-classify, qa-plan]
+    needs: [classify, qa-plan]
     if: contains(fromJSON(needs.qa-plan.outputs.suite-plan || '{}').selected, 'bigquery-conformance') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: rust-mcp-16core
     timeout-minutes: 60
@@ -1300,7 +1300,7 @@ jobs:
   # (run 37610275316, run 37606732243). Here it starts beside `ci` and no longer adds to it.
   #
   # THE CONDITION IS THE STEP'S OLD ONE, read off a different job: `rust` and not a push, with `rust`
-  # taken from `identity-classify` (#983's second classification) because a job-level `if:` can
+  # taken from `classify` (#983's second classification) because a job-level `if:` can
   # only read a job that finished before it. `ci-aggregate` holds run-or-fail against `ci`'s OWN
   # `rust` - `needs.ci.outputs.rust` - so the two classifications may disagree and fail closed, as
   # `keycloak-served-test`'s do: `ci` selects and this job does not is a RED aggregate, this job
@@ -1317,11 +1317,10 @@ jobs:
   #   * THE WARM TARGET. The two shipped-feature steps, then in `ci`, used to leave
   #     `target/causality-target` warm for this gate. Here the directory holds only what
   #     `cargoWarmStart` unpacks from the store, and the gate compiles the rest.
-  #   * ITS OWN SETUP: waiting for `identity-classify`, then checkout, disk, Nix and the store
-  #     restore, none of which `ci` paid again for this step.
+  #   * ITS OWN SETUP: waiting for `classify`, then checkout, disk and Nix.
   causality:
-    needs: [identity-classify]
-    if: github.event_name != 'push' && needs.identity-classify.outputs.rust == 'true' && needs.identity-classify.outputs.causality_reused != 'true'
+    needs: [classify]
+    if: github.event_name != 'push' && needs.classify.outputs.rust == 'true' && needs.classify.outputs.causality_reused != 'true'
     runs-on: rust-mcp-16core
     # 60: well past the 175-291 s the gate has measured, below `ci`'s 75 and the merge queue's 90.
     timeout-minutes: 60
@@ -1361,10 +1360,6 @@ jobs:
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
-
-      - uses: $/.github/actions/nix-store-cache
-        with:
-          scope: ci
 
       # `ci`'s `Resolve the base to compare against`, cut to the one arm this job needs. A pull
       # request derives its own base inside `Test causality`, and a push never reaches this job. A
@@ -1516,16 +1511,13 @@ jobs:
           fi
           exit "$status"
 
-      - uses: $/.github/actions/nix-store-cache-report
-        if: always()
-
   # #1280: `Postgres linked driver` AS ITS OWN JOB. It was the largest single step of `ci` - 209 s
   # in the scout's run, 1006-1434 s across six pull-request runs on 8a85f95c9's code (runs
   # 37605102469 to 37610275316) - and nothing after it in `ci` reads anything it produces: the step
   # has no `id:`, writes no `GITHUB_ENV` and leaves no file a later step opens.
   #
   # THE CONDITION IS THE STEP'S OLD ONE, `causality`'s way: `run_all`, `nix` or `data_source_postgres`
-  # and not a push, with the first three read off `identity-classify`'s `postgres_driver` (the OR is
+  # and not a push, with the first three read off `classify`'s `postgres_driver` (the OR is
   # taken there, as `driver_check`'s is) and `ci-aggregate` holding run-or-fail against `ci`'s own
   # copy of the same three. Same limit: a disagreement fails closed, never open.
   #
@@ -1534,8 +1526,8 @@ jobs:
   # sandbox, so the tier step above it in `ci` is no prerequisite and stays there. What it gives up
   # is `causality`'s list: fail-fast, the gating hop, its own setup.
   postgres-linked-driver:
-    needs: [identity-classify]
-    if: github.event_name != 'push' && needs.identity-classify.outputs.postgres_driver == 'true'
+    needs: [classify]
+    if: github.event_name != 'push' && needs.classify.outputs.postgres_driver == 'true'
     runs-on: rust-mcp-16core
     # 60: past the 1434 s the step has measured, below `ci`'s 75 and the merge queue's 90.
     timeout-minutes: 60
@@ -1570,10 +1562,6 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
-      - uses: $/.github/actions/nix-store-cache
-        with:
-          scope: ci
-
       # THE SHIPPED POSTGRES PATH AGAINST THE LINKED DRIVER (`telekom/sutura#913` stage 2): every
       # `kind: postgres` source is answered over ADBC, and a musl release links the static driver,
       # so its libpq and static OpenSSL have to answer real statements somewhere. This builds the
@@ -1582,9 +1570,6 @@ jobs:
       # what that leaves out. Gated on the adapter, its driver and its tier.
       - name: Postgres linked driver
         run: nix build .#checks.x86_64-linux.postgres-linked-driver -L
-
-      - uses: $/.github/actions/nix-store-cache-report
-        if: always()
 
   # #1696: THE SHIPPED FEATURE SET AS ITS OWN JOB, on #1280's terms. Its two steps were the only ones
   # in `ci` that touch cargo's default features - the set `nix/shipped.nix` publishes - and ran 74 s
@@ -1597,7 +1582,7 @@ jobs:
   # all. Apps rather than checks for `Supply chain`'s reason: both shell out to cargo, which needs a
   # registry and a writable target directory the sandbox has not got.
   #
-  # THE CONDITION IS THE STEPS' OLD ONE, read off `identity-classify` for `causality`'s reason, and
+  # THE CONDITION IS THE STEPS' OLD ONE, read off `classify` for `causality`'s reason, and
   # `ci-aggregate` holds run-or-fail against `ci`'s OWN `rust`: `ci` selects and this job skips or
   # fails is a RED aggregate, never a silent pass. `rust` and not a narrower classification: the
   # package list is derived from `nix/shipped.nix`, which matches no area and so fails open to
@@ -1606,8 +1591,8 @@ jobs:
   # WHERE THE DEPENDENCY CLOSURE COMES FROM NOW. In `ci` the stage-2 graph had put it in the store
   # before either step. Nothing here does: each app's script embeds `cargoWarmStart`, so `.#deps`
   # (`ciArtifacts`) is an input of the app's derivation and its output path is in the script text,
-  # and `nix run` realises it - from this job's store-cache restore, from a substituter
-  # (`cachix-push.yml` publishes `.#deps`), or by building it. A change that moves the closure
+  # and `nix run` realises it - from a substituter (`cachix-push.yml` publishes `.#deps`)
+  # or by building it. A change that moves the closure
   # builds it here as well as in `ci`, on two runners at once.
   #
   # ADJACENT, AND THAT IS THE ONE THING THE ORDER DECIDES. The two ask cargo the SAME narrow
@@ -1626,11 +1611,10 @@ jobs:
   # shipped binary enables, which is what the `--all-features` gates are for.
   #
   # WHAT THIS GIVES UP is `causality`'s list: fail-fast, the gating hop (required through
-  # `ci-aggregate` now), and its own setup - `identity-classify`, checkout, disk, Nix and the
-  # store restore, none of which `ci` paid again for these steps.
+  # `ci-aggregate` now), and its own setup - `classify`, checkout, disk and Nix.
   shipped-features:
-    needs: [identity-classify]
-    if: github.event_name != 'push' && needs.identity-classify.outputs.rust == 'true'
+    needs: [classify]
+    if: github.event_name != 'push' && needs.classify.outputs.rust == 'true'
     runs-on: rust-mcp-16core
     # 45: a cold closure fits in the 992 s a `ci` run rebuilding it took whole, and the steps add 159 s.
     timeout-minutes: 45
@@ -1665,10 +1649,6 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
 
-      - uses: $/.github/actions/nix-store-cache
-        with:
-          scope: ci
-
       # BOTH WRAPPED IN `measure-host` (#562): the cargo tail had no utilisation telemetry before,
       # so nobody could say whether it was CPU-bound or waiting. The `run:` is the gate's command;
       # only the wrapper is added.
@@ -1689,9 +1669,6 @@ jobs:
           run: |-
             set -eu
             nix run .#default-feature-tests
-
-      - uses: $/.github/actions/nix-store-cache-report
-        if: always()
 
   release-status:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')
@@ -1717,6 +1694,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [
       ci,
+      classify,
       identity-classify,
       qa-plan,
       qa,
@@ -1742,7 +1720,7 @@ jobs:
           RELEASE_PUSH: ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):') }}
           RELEASE_RESULT: ${{ needs.release-status.result }}
           CAUS_RESULT: ${{ needs.causality.result }}
-          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.identity-classify.outputs.causality_reused != 'true' }}
+          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' && needs.classify.outputs.causality_reused != 'true' }}
           PGD_RESULT: ${{ needs.postgres-linked-driver.result }}
           PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}
           SHIP_RESULT: ${{ needs.shipped-features.result }}
@@ -1783,7 +1761,7 @@ jobs:
 
   qa-receipt:
     name: QA checkout (${{ github.sha }})
-    needs: [ci-aggregate, identity-classify]
+    needs: [ci-aggregate]
     # The aggregate can pass with skipped ancestors, which suppress the implicit success().
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.ci-aggregate.result == 'success' }}
     runs-on: ubuntu-latest
@@ -1792,7 +1770,7 @@ jobs:
       - run: echo "Records the PR merge checkout after the required checks passed."
 
   causality-receipt:
-    needs: [identity-classify, causality]
+    needs: [classify, identity-classify, causality]
     if: github.event_name == 'pull_request' && needs.causality.outputs.reusable == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 2

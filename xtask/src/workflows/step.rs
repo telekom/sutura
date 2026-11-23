@@ -405,8 +405,8 @@ run_step 0 not-called '' ''
 "#;
     }
 
-    mod identity_classify_base {
-        //! Execute the real `identity-classify` base-resolution step - #980 review finding 6.
+    mod classify_base {
+        //! Execute the real `classify` base-resolution step - #980 review finding 6.
         //!
         //! No `origin/main` ref exists in this fixture at all: the OLD push arm's
         //! `git merge-base origin/main HEAD || true` would therefore fail and the `|| true` would
@@ -421,8 +421,7 @@ run_step 0 not-called '' ''
             let root = crate::repo::root().expect("the repository root");
             let workflow = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("the workflow");
             let step =
-                crate::workflows::step::named_step(&workflow, "identity-classify", "Base for this leg's own classification")
-                    .expect("the live step");
+                crate::workflows::step::named_step(&workflow, "classify", "Base for classification").expect("the live step");
             let body = crate::workflows::step::shell(&step)
                 .into_iter()
                 .skip(1)
@@ -430,7 +429,7 @@ run_step 0 not-called '' ''
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            let tree = crate::scratch_tree::Tree::of("identity-classify-base", &[]);
+            let tree = crate::scratch_tree::Tree::of("classify-base", &[]);
             let scratch = tree.root();
             let script = format!(
                 "{}\n{body}\ncat \"$GITHUB_OUTPUT\"",

@@ -1,9 +1,9 @@
 # Markdown, YAML and TOML formatting, and Python formatting plus lint.
 #
-# ITS OWN WORKFLOW, and the reason is what it does NOT run. The paths filter below means a
-# text-only change gets this verdict without `ci.yml`'s matrix, and a Rust-only change pays
-# nothing for a formatter that would have inspected no changed file. Folding it into `ci.yml`
-# inverts both halves of that.
+# ITS OWN WORKFLOW FOR MAIN PUSHES, and the reason is what it does NOT run on pull requests.
+# `ci.yml` already runs this formatter in its required fast-check job on every pull request, so
+# starting a second path-filtered workflow there only duplicates the verdict. The push filter keeps
+# text-only commits on `main` checked without starting the Rust graph.
 #
 # THE SAME SCRIPT A DEVELOPER RUNS. `nix/format-text.sh` is what the `format-text` pre-commit
 # hook, `just lint-text`, `just fmt` and `just validate` call, so a local run and CI cannot check
@@ -24,17 +24,6 @@ on:
       - "dprint.json"
       - "nix/dprint.nix"
       - "nix/format-text.sh"
-  pull_request:
-    paths:
-      - "**.md"
-      - "**.yml"
-      - "**.yaml"
-      - "**.toml"
-      - "**.py"
-      - "dprint.json"
-      - "nix/dprint.nix"
-      - "nix/format-text.sh"
-
 permissions:
   contents: read
 

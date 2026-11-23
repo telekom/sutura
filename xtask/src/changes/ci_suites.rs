@@ -197,6 +197,7 @@ pub(crate) fn ids(root: &Path) -> Result<Vec<String>, String> {
 enum Run<'a> {
     All,
     Main,
+    MainQueue { tested: &'a str },
     Pr(Option<&'a str>),
     Queue { base: &'a str, tested: &'a str },
 }
@@ -251,11 +252,14 @@ fn select_changed<'a>(suites: &'a [Suite], base: &str, tested: Option<&str>) -> 
         Some(commit) => Some(changes_since_tested(suites, commit, &metadata)?),
         None => None,
     };
-    let green = std::env::var("GREEN_JOBS")
+    Some(planned_suites(suites, &topic, since_pr.as_deref(), &green_jobs()))
+}
+
+fn green_jobs() -> BTreeSet<String> {
+    std::env::var("GREEN_JOBS")
         .ok()
         .and_then(|value| serde_json::from_str::<BTreeSet<String>>(&value).ok())
-        .unwrap_or_default();
-    Some(planned_suites(suites, &topic, since_pr.as_deref(), &green))
+        .unwrap_or_default()
 }
 
 /// Emit the matrix and selected IDs used by the standalone, credentialed and called jobs.
@@ -263,11 +267,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let mode = match args {
         [all] if all == "--all" => Run::All,
         [main] if main == "--main" => Run::Main,
+        [main_queue, tested] if main_queue == "--main-queue" && sha(tested) => Run::MainQueue { tested },
         [pr] if pr == "--pr" => Run::Pr(None),
         [pr, base] if pr == "--pr" && sha(base) => Run::Pr(Some(base)),
         [queue, base, tested] if queue == "--queue" && sha(base) && sha(tested) => Run::Queue { base, tested },
         _ => {
-            eprintln!("ci-suites: expected --all, --main, --pr [<base>], or --queue <base> <tested>");
+            eprintln!("ci-suites: expected --all, --main, --main-queue <tested>, --pr [<base>], or --queue <base> <tested>");
             return Verdict::Usage;
         }
     };
@@ -284,6 +289,23 @@ fn select_mode<'a>(suites: &'a [Suite], mode: Run<'_>) -> Vec<&'a Suite> {
     match mode {
         Run::All => suites.iter().collect(),
         Run::Main => suites.iter().filter(|suite| !suite.before_merge).collect(),
+        Run::MainQueue { tested } => {
+            if tree(tested).is_none_or(|tested| tree("HEAD").as_ref() != Some(&tested)) {
+                return suites.iter().filter(|suite| !suite.before_merge).collect();
+            }
+            let green = green_jobs();
+            suites
+                .iter()
+                .filter(|suite| !suite.before_merge)
+                .filter(|suite| {
+                    if suite.passed(&green) {
+                        println!("ci-suites: reusing merge-queue verdict for {}", suite.id);
+                        return false;
+                    }
+                    true
+                })
+                .collect()
+        }
         Run::Pr(base) => base
             .and_then(|base| select_changed(suites, base, None))
             .unwrap_or_else(|| suites.iter().collect())
