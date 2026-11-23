@@ -7,8 +7,8 @@ use datafusion::common::plan_datafusion_err;
 use datafusion::error::Result;
 use datafusion::sql::sqlparser::ast::helpers::attached_token::AttachedToken;
 use datafusion::sql::sqlparser::ast::{
-    BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
-    ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
+    BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, GroupByExpr,
+    Ident, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
 };
 use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
@@ -39,22 +39,16 @@ struct Owner<'a> {
     alias: Option<&'a Ident>,
 }
 
-/// A query beyond `allowed`, a collation override or negative/disjunctive logic is unknown.
+/// A collation override or negative/disjunctive logic anywhere is unknown; so is a `Query` node
+/// anywhere in the statement that the chain walk did not itself step through.
 ///
-/// `allowed` is the depth of derived-table wrapping `discover` has already walked and approved
-/// structurally (one `Query` node per plan node the unparser could not flatten into a single
-/// `SELECT` - a redaction projection below a filter, an aggregate above it, ...); it carries no
-/// predicate of its own, so it is not the "more than one query" this guard exists to reject. Any
-/// `Query` node beyond that depth - a correlated subquery, a UNION, a CTE - still is.
+/// The caller checks `queries` against the chain's own depth for exact equality, never merely an
+/// upper bound - a position-blind bound would let an attacker trade one chain hop for one injected
+/// subquery elsewhere (a scalar subquery inside a derived level's projection, say) and still clear
+/// a bare count ceiling. Counting here only; the caller compares.
+#[derive(Default)]
 struct Scope {
     queries: usize,
-    allowed: usize,
-}
-
-impl Scope {
-    const fn within(allowed: usize) -> Self {
-        Self { queries: 0, allowed }
-    }
 }
 
 impl Visitor for Scope {
@@ -62,11 +56,7 @@ impl Visitor for Scope {
 
     fn pre_visit_query(&mut self, _query: &Query) -> ControlFlow<Self::Break> {
         self.queries += 1;
-        if self.queries > self.allowed {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        }
+        ControlFlow::Continue(())
     }
 
     fn pre_visit_expr(&mut self, expression: &Expr) -> ControlFlow<Self::Break> {
@@ -88,6 +78,95 @@ impl Visitor for Scope {
     }
 }
 
+/// Every plain column name an owner's `WHERE` names, bare identifier or compound identifier alike.
+///
+/// Purely syntactic and deliberately over-inclusive: it does not resolve qualifiers against the
+/// schema, so it may collect a name that turns out irrelevant, which only makes a later passthrough
+/// check stricter than it needs to be, never laxer.
+#[derive(Default)]
+struct ColumnNames {
+    names: Vec<String>,
+}
+
+impl Visitor for ColumnNames {
+    type Break = ();
+
+    fn pre_visit_expr(&mut self, expression: &Expr) -> ControlFlow<Self::Break> {
+        match expression {
+            Expr::Identifier(ident) => self.names.push(ident.value.clone()),
+            Expr::CompoundIdentifier(path) => {
+                if let Some(ident) = path.last() {
+                    self.names.push(ident.value.clone());
+                }
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// A window function anywhere in a projection - a row-changing device as much as `LIMIT` or
+/// `GROUP BY`, just not held by a dedicated `Select`/`Query` field.
+struct WindowProbe;
+
+impl Visitor for WindowProbe {
+    type Break = ();
+
+    fn pre_visit_expr(&mut self, expression: &Expr) -> ControlFlow<Self::Break> {
+        if matches!(expression, Expr::Function(function) if function.over.is_some()) {
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// `name` reaches this level's base unchanged: a bare identifier or compound identifier of that
+/// exact name, or a wildcard that passes every column through untouched. An alias, a cast, a
+/// function call or any other expression under that name is a rename or a transform, not a
+/// passthrough - the raw condition built later resolves `name` straight against the physical
+/// schema, so anything else would let that resolution land on a different column than the one the
+/// redacted predicate actually tested.
+fn passes_through(name: &str, projection: &[SelectItem]) -> bool {
+    projection.iter().any(|item| match item {
+        SelectItem::UnnamedExpr(Expr::Identifier(ident)) => ident.value == name,
+        SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path)) => path.last().is_some_and(|ident| ident.value == name),
+        SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(..) => true,
+        _ => false,
+    })
+}
+
+/// A level that only ever narrows which columns are visible, never how many rows there are or in
+/// what order - the shape every level strictly below the owner must hold, since none of them is
+/// the one the redacted predicate's own row count was already checked against.
+fn pure_projection(select: &Select) -> bool {
+    select.distinct.is_none()
+        && select.select_modifiers.is_none()
+        && select.top.is_none()
+        && select.exclude.is_none()
+        && select.into.is_none()
+        && matches!(&select.group_by, GroupByExpr::Expressions(exprs, modifiers) if exprs.is_empty() && modifiers.is_empty())
+        && select.cluster_by.is_empty()
+        && select.distribute_by.is_empty()
+        && select.sort_by.is_empty()
+        && select.having.is_none()
+        && select.named_window.is_empty()
+        && select.qualify.is_none()
+        && select.value_table_mode.is_none()
+        && select.optimizer_hints.is_empty()
+        && !select.projection.iter().any(|item| item.visit(&mut WindowProbe).is_break())
+}
+
+/// The `Query`-level counterpart of [`pure_projection`]: no clause that reorders, bounds or locks
+/// the rows a level below the owner passes up.
+const fn pure_query(query: &Query) -> bool {
+    query.order_by.is_none()
+        && query.limit_clause.is_none()
+        && query.fetch.is_none()
+        && query.locks.is_empty()
+        && query.for_clause.is_none()
+        && query.format_clause.is_none()
+}
+
 pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect: TypeDialect) -> Result<Option<Prefilter>> {
     let Some(capability) = PrefilterCapability::of(dialect) else {
         return Ok(None);
@@ -99,10 +178,14 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     // The unparser wraps one derived table per plan node it cannot flatten into a single `SELECT`
     // - a redaction projection below a filter, an aggregate above it, the per-row LOB bound - none
     // of which carries a predicate of its own. Walk down through that wrapping to the physical
-    // table at the bottom, remembering the single level, if any, that does carry one.
+    // table at the bottom, remembering the single level, if any, that does carry one, and the exact
+    // column names its predicate names, so every level below it can be held to passing them through
+    // unchanged (see `passes_through`) rather than renaming or transforming the very column the raw
+    // condition built later will resolve straight against the physical schema.
     let mut current = query.as_ref();
     let mut levels: usize = 0;
     let mut owner: Option<Owner<'_>> = None;
+    let mut owner_names: Vec<String> = Vec::new();
     let address = loop {
         levels += 1;
         let SetExpr::Select(select) = current.body.as_ref() else {
@@ -135,12 +218,24 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
         if relation_alias.as_ref().is_some_and(|alias| !alias.columns.is_empty()) {
             return Ok(None);
         }
+        // Strictly below the owner: a pure, row-preserving projection, and every name the owner's
+        // predicate depends on must still cross unchanged.
+        if owner.is_some()
+            && (!pure_query(current)
+                || !pure_projection(select)
+                || owner_names.iter().any(|name| !passes_through(name, &select.projection)))
+        {
+            return Ok(None);
+        }
         if let Some(selection) = &select.selection {
             if owner.is_some() {
                 // More than one level filters: not the benign unparser-wrapping shape this walk
                 // recognizes, and scope across two independent predicates is unknown.
                 return Ok(None);
             }
+            let mut names = ColumnNames::default();
+            let _never_breaks = selection.visit(&mut names);
+            owner_names = names.names;
             owner = Some(Owner {
                 selection,
                 projection: &select.projection,
@@ -198,10 +293,12 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     else {
         return Ok(None);
     };
-    // Any `Query` node beyond the wrapping already walked and approved above - a correlated
-    // subquery, a UNION, a CTE - is unknown, as is a collation override or negative/disjunctive
-    // logic anywhere in the statement.
-    if statement.visit(&mut Scope::within(levels)).is_break() {
+    // Any `Query` node anywhere in the statement besides the ones the chain walk above itself
+    // stepped through - a correlated subquery, a UNION, a CTE - is unknown, as is a collation
+    // override or negative/disjunctive logic anywhere. The count must equal the chain's own depth
+    // exactly, not merely stay under it; see `Scope`'s own doc for why a bound alone is not enough.
+    let mut scope = Scope::default();
+    if statement.visit(&mut scope).is_break() || scope.queries != levels {
         return Ok(None);
     }
     let aliases = projection
