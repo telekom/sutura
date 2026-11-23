@@ -216,6 +216,14 @@ pub(super) enum Socket {
 /// bind, unchanged.
 pub(super) type EarlySocket = (Socket, Option<u16>);
 
+/// `run`'s one call to decide the socket: binds early, synchronously, only when
+/// [`own_wants_bound_port`] says `settings.server().nodes.own` needs a real port before
+/// [`combiner`] runs - otherwise hands back the address for `serve_as_configured` to bind at its
+/// original, late timing, unchanged.
+///
+/// # Errors
+///
+/// [`bind_server_socket`] could not bind or read back the address it bound.
 pub(super) fn socket_for(settings: &sutura_config::Settings) -> Result<EarlySocket, String> {
     if own_wants_bound_port(settings.server().tls()) {
         let (listener, bound_port) = bind_server_socket(settings)?;

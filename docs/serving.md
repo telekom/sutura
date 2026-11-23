@@ -502,9 +502,11 @@ this node dials, so the certificate must be signed by the node authority and car
 node serves its worker on the same listener, to clients whose certificate the authority signed.
 
 `own`'s port may be the literal `0`, the same shorthand `server.port: 0` already is for the listener itself: the
-process resolves it to the port it actually bound, before planning across the declared nodes, so a restart does not
-need a port picked in advance. Any other port, including the scheme's default when none is written, is read exactly
-as declared.
+process resolves it to the port it actually bound, before planning across the declared nodes - which avoids a port
+picked in advance only for a node no peer dials (see the Limit below; a dialed node's peers still have to be told
+the real port, restart or not). Any other port, including the scheme's default when none is written, is read exactly
+as declared. Only the port is substituted: `own`'s host is read exactly as written and never replaced by whatever
+host the listener happened to bind to, even when the two differ.
 
 **Trade-off:** resolving `own: 0` needs a real port before the combiner above runs, so for this case alone the
 listener is bound synchronously at the very start of boot, before every later startup refusal - node identity,

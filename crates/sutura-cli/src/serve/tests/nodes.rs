@@ -108,6 +108,36 @@ fn a_node_declaring_others_exports_the_worker_slots_it_wants() {
     );
 }
 
+/// `with_nodes` only compares peers against `own`'s LITERAL string, so a peer declared at the port
+/// a literal `own: 0` resolves to is not a self-reference it can see - this is `combiner`'s own
+/// post-resolution re-check (`nodes.rs:250-256`) catching it instead. Fails on `9146847ff`, where
+/// that re-check does not exist and this combine was never refused.
+#[cfg(feature = "distributed")]
+#[test]
+fn a_peer_at_the_port_own_zero_resolves_to_is_refused_naming_itself() {
+    let (certificate, key) = written("self-reference");
+    let path = |path: &std::path::Path| path.display().to_string();
+    let others = [sutura_config::DeclaredNodeInput::new(
+        "https://node-a.example.com:54321",
+        "worker",
+        [].as_slice(),
+    )];
+    let tls = sutura_config::TlsMaterial::parse(Some(&path(&certificate)), Some(&path(&key)), Some(&path(&certificate)))
+        .expect("a pair and an authority are TLS material")
+        .expect("material was declared")
+        .with_nodes("https://node-a.example.com:0", &others)
+        .expect("https addresses are nodes, and own:0 is not the peer's literal address");
+    let built = super::super::nodes::combiner(Some(&tls), runtime(), Some(54321));
+    let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
+    let Err(refused) = built else {
+        panic!("a peer declared at own's resolved port planned a combine instead of refusing itself");
+    };
+    assert!(
+        refused.contains("node-a.example.com:54321"),
+        "the refusal must name the peer declared at own's resolved address: {refused}"
+    );
+}
+
 #[cfg(feature = "distributed")]
 #[test]
 fn an_unreadable_node_authority_is_refused_naming_it() {
