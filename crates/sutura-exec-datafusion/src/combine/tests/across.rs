@@ -7,19 +7,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
-use datafusion::arrow::array::{ArrayRef, Int64Array, StringArray};
+use datafusion::arrow::array::{ArrayRef, StringArray};
 use datafusion::arrow::datatypes::DataType;
-use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
-use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
 use datafusion::error::DataFusionError;
-use datafusion::functions_aggregate::expr_fn::sum;
-use datafusion::logical_expr::col;
-use datafusion::physical_plan::repartition::RepartitionExec;
-use datafusion::physical_plan::test::TestMemoryExec;
-use datafusion::physical_plan::{Partitioning, collect_partitioned};
 use datafusion::prelude::{CsvReadOptions, SessionConfig, SessionContext};
-use datafusion_distributed::{DistributedConfig, DistributedLeafExec, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
+use datafusion_distributed::{DistributedConfig, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use sutura_domain::plan::{FederatedPlan, FederationCombiner as _, LegResult};
@@ -300,6 +292,82 @@ fn every_call_a_combine_across_nodes_makes_carries_its_grant_and_only_an_install
     }
 }
 
+/// A call's body, noting the length its first gRPC message declares: the stage's plan, whole, and
+/// nothing of what follows it on the stream.
+struct FirstMessage {
+    inner: Body,
+    prefix: Vec<u8>,
+    largest: Arc<AtomicUsize>,
+}
+
+impl http_body::Body for FirstMessage {
+    type Data = tonic::codegen::Bytes;
+    type Error = <Body as http_body::Body>::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        let polled = Pin::new(&mut self.inner).poll_frame(cx);
+        if let Poll::Ready(Some(Ok(frame))) = &polled
+            && let Some(data) = frame.data_ref()
+        {
+            let missing = 5_usize.saturating_sub(self.prefix.len());
+            self.prefix.extend(data.iter().take(missing));
+            if missing > 0
+                && self.prefix.len() == 5
+                && let Ok(length) = <[u8; 4]>::try_from(&self.prefix[1..])
+            {
+                #[expect(
+                    clippy::big_endian_bytes,
+                    reason = "the gRPC frame length prefix is always big-endian on the wire"
+                )]
+                let length = u32::from_be_bytes(length);
+                let length = usize::try_from(length).unwrap_or(usize::MAX);
+                self.largest.fetch_max(length, Ordering::SeqCst);
+            }
+        }
+        polled
+    }
+}
+
+/// `worker` served over `tls` on a free localhost port, the largest first message of any stage
+/// installed on it kept in `largest`.
+fn measured(servers: &tokio::runtime::Runtime, tls: Arc<ServerConfig>, worker: Worker, largest: &Arc<AtomicUsize>) -> Url {
+    let listener = servers
+        .block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0)))
+        .expect("a localhost port binds");
+    let port = listener.local_addr().expect("a bound port has an address").port();
+    let incoming = stream::unfold((listener, TlsAcceptor::from(tls)), |(listener, acceptor)| async move {
+        let accepted = match listener.accept().await {
+            Ok((tcp, _)) => acceptor.accept(tcp).await.map(Tls),
+            Err(cause) => Err(cause),
+        };
+        Some((accepted, (listener, acceptor)))
+    });
+    let largest = Arc::clone(largest);
+    let counted = MapRequestLayer::new(move |request: http::Request<Body>| {
+        if request.uri().path() == "/worker.WorkerService/CoordinatorChannel" {
+            request.map(|inner| {
+                Body::new(FirstMessage {
+                    inner,
+                    prefix: Vec::new(),
+                    largest: Arc::clone(&largest),
+                })
+            })
+        } else {
+            request
+        }
+    });
+    servers.spawn(
+        Server::builder()
+            .layer(counted)
+            .add_service(worker.into_worker_server())
+            .serve_with_incoming(incoming),
+    );
+    Url::parse(&format!("https://127.0.0.1:{port}")).expect("a socket address is a URL's authority")
+}
+
 /// Link values in a question one node is too small for: each leg is past the engine's thresholds
 /// for broadcasting a join's smaller side, so the join is hash-partitioned and each node builds a part.
 const LINKS: usize = 1 << 17;
@@ -402,6 +470,49 @@ fn a_question_one_node_refuses_for_its_working_set_three_nodes_answer_exactly() 
 }
 
 #[test]
+fn a_stage_sent_to_another_node_is_no_larger_for_a_leg_of_a_hundred_thousand_rows() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let largest: [Arc<AtomicUsize>; 2] = Default::default();
+    let others: Vec<Url> = largest
+        .iter()
+        .map(|largest| {
+            let other = authority.sign();
+            let worker = Nodes::worker(roomy(), authority.identity(&other)).expect("a worker builds");
+            measured(&servers, listening(&other, authority.peers()), worker, largest)
+        })
+        .collect();
+    let across = DataFusionCombiner::across(
+        Nodes::declared(own, own_url, others, authority.identity(&node)).across_above(NonZeroU64::new(1)),
+    )
+    .expect("a combiner builds");
+
+    let plan = sum_plan(true);
+    let results = wide(&plan);
+    let answer = across
+        .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+        .expect("three nodes answer a leg of a hundred thousand rows")
+        .to_rows()
+        .expect("a combined answer decodes");
+    let sum = i64::try_from(LINKS).expect("the link count is an integer") * 100;
+    assert_eq!(
+        answer.rows(),
+        &[vec![text("A"), text("north"), text("2026-06"), Value::Integer(sum)]]
+    );
+    for (other, largest) in largest.iter().enumerate() {
+        let bytes = largest.load(Ordering::SeqCst);
+        assert!(bytes > 0, "the other node {other} was sent no stage");
+        assert!(
+            bytes < 64 * 1024,
+            "the other node {other} was sent a stage of {bytes} bytes: the rows of its leg are in the plan"
+        );
+    }
+}
+
+#[test]
 fn a_stage_another_node_cannot_hold_in_its_own_working_set_refuses_the_question_for_its_ceiling() {
     let servers = servers();
     let authority = Authority::generate();
@@ -463,126 +574,6 @@ fn a_question_planned_onto_a_node_nothing_listens_on_is_refused_as_that_node_los
     assert!(!matches!(refused, CombineError::Execute { .. }), "{refused:?}");
     assert_eq!(across.working_set_exhausted(&refused), None, "{refused:?}");
     assert_eq!(across.workers_not_ready(&refused), None, "{refused:?}");
-}
-
-#[test]
-fn a_single_lookup_batch_is_shared_by_rows_across_three_tasks() {
-    let authority = Authority::generate();
-    let node = authority.sign();
-    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
-    let at = |port: u16| Url::parse(&format!("https://127.0.0.1:{port}")).expect("a node is a URL");
-    let session = Nodes::declared(own, at(1), [at(2), at(3)], authority.identity(&node))
-        .session(roomy())
-        .expect("a session builds");
-    let rows = RecordBatch::try_from_iter([
-        ("k", Arc::new(Int64Array::from_iter_values(0..7)) as ArrayRef),
-        ("n", Arc::new(Int64Array::from_iter_values(10..17)) as ArrayRef),
-    ])
-    .expect("the source returned one batch");
-    let grouped = session
-        .read_batch(rows)
-        .expect("the lookup reads")
-        .aggregate(vec![col("k")], vec![sum(col("n"))])
-        .expect("the grouping builds");
-    let plan = servers()
-        .block_on(grouped.create_physical_plan())
-        .expect("the grouping plans across the nodes");
-    let mut shares = Vec::new();
-    plan.apply(|plan| {
-        if let Some(leaf) = plan.downcast_ref::<DistributedLeafExec>() {
-            for variant in leaf.variants() {
-                let scan = variant.downcast_ref::<DataSourceExec>().expect("a variant scans memory");
-                let memory = scan
-                    .data_source()
-                    .downcast_ref::<MemorySourceConfig>()
-                    .expect("the data is in memory");
-                let keys = memory
-                    .partitions()
-                    .iter()
-                    .flatten()
-                    .flat_map(|batch| {
-                        let index = batch.schema().index_of("k").expect("the grouping key is present");
-                        let key = batch
-                            .column(index)
-                            .as_any()
-                            .downcast_ref::<Int64Array>()
-                            .expect("the key is an integer");
-                        key.values().iter().copied()
-                    })
-                    .collect::<Vec<_>>();
-                shares.push(keys);
-            }
-        }
-        Ok(TreeNodeRecursion::Continue)
-    })
-    .expect("the plan is traversed");
-    assert_eq!(shares, vec![vec![0, 1, 2], vec![3, 4], vec![5, 6]]);
-}
-
-#[test]
-fn repartition_caps_a_large_input_batch_and_keeps_every_row() {
-    let rows =
-        RecordBatch::try_from_iter([("k", Arc::new(Int64Array::from_iter_values(0..9)) as ArrayRef)]).expect("the batch builds");
-    let schema = rows.schema();
-    // Deliver the oversized batch directly to the exchange.
-    let source = TestMemoryExec::try_new_exec(&[vec![rows]], schema, None).expect("the scan builds");
-    let exchange = RepartitionExec::try_new(source, Partitioning::RoundRobinBatch(2)).expect("the exchange builds");
-    let session = SessionContext::new_with_config(SessionConfig::new().with_batch_size(4));
-    let partitions = servers()
-        .block_on(collect_partitioned(Arc::new(exchange), session.task_ctx()))
-        .expect("the exchange runs");
-    let sizes = partitions.iter().flatten().map(RecordBatch::num_rows).collect::<Vec<_>>();
-    assert_eq!(sizes, [4, 4, 1]);
-    let keys = partitions
-        .iter()
-        .flatten()
-        .flat_map(|batch| {
-            batch
-                .column(0)
-                .as_any()
-                .downcast_ref::<Int64Array>()
-                .expect("the output keeps its integer type")
-                .values()
-                .iter()
-                .copied()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(keys, (0..9).collect::<Vec<_>>());
-}
-
-#[test]
-fn repartition_drops_unused_string_buffers_before_queueing_batches() {
-    let suffix = "x".repeat(2048);
-    let labels = (0..13)
-        .map(|id| (id != 5).then(|| format!("{id}-{suffix}")))
-        .collect::<Vec<_>>();
-    let expected = labels.iter().map(Option::as_deref).collect::<Vec<_>>();
-    let strings: StringArray = expected.iter().collect();
-    let rows = RecordBatch::try_from_iter([("label", Arc::new(strings) as ArrayRef)]).expect("the batch builds");
-    let retained = rows.get_array_memory_size();
-    let schema = rows.schema();
-    let source = TestMemoryExec::try_new_exec(&[vec![rows]], schema, None).expect("the scan builds");
-    let exchange = RepartitionExec::try_new(source, Partitioning::RoundRobinBatch(2)).expect("the exchange builds");
-    let session = SessionContext::new_with_config(SessionConfig::new().with_batch_size(4));
-    let partitions = servers()
-        .block_on(collect_partitioned(Arc::new(exchange), session.task_ctx()))
-        .expect("the exchange runs");
-    let mut actual = Vec::new();
-    for batch in partitions.iter().flatten() {
-        assert!(
-            batch.get_array_memory_size().saturating_mul(2) < retained,
-            "each small batch retains only its own strings"
-        );
-        actual.extend(
-            batch
-                .column(0)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .expect("the output keeps its text type")
-                .iter(),
-        );
-    }
-    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -921,3 +912,15 @@ mod split_link;
 /// `mod`, as this file is test code already: the causality gate's base run reverts this line, and
 /// the cells, which name `Granted` and `Looked`, are not compiled there.
 mod served_split;
+
+/// A feed cut on a served link, under an operator above the fed leaf, reaches the planning node as a
+/// lost node.
+mod fed_cut;
+
+/// A repartition exchange caps an oversized input batch and drops rows a smaller output batch does
+/// not keep.
+mod repartition_sizing;
+
+/// A single lookup batch plans as one `FedRowsExec` naming a feed, and dealt across three tasks
+/// gives each task a contiguous row range rather than a whole-batch share.
+mod fed;

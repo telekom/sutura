@@ -4809,6 +4809,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "h2",
+ "http-body",
  "hyper-util",
  "insta",
  "parking_lot 0.13.0",
