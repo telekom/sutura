@@ -4683,6 +4683,7 @@ dependencies = [
  "tower",
  "tracing",
  "ureq",
+ "url",
 ]
 
 [[package]]

@@ -71,7 +71,10 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
     } else {
         tracing::info!("serving as a worker: no catalog or source opened, no /v1, /mcp or Flight");
     }
-    let address = settings.server().bind().socket();
+    // No node reads a worker's own address back out of `server.nodes` (`server.nodes` is not read
+    // here), so a worker never needs the early bind the serving root's `own: 0` case does - this is
+    // the ordinary, late-bound socket `serve_as_configured` binds at its original timing.
+    let socket = super::nodes::Socket::Address(settings.server().bind().socket());
     let material = settings.server().tls().cloned();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -80,7 +83,7 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
     let stopping = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
     let served = runtime.block_on(async {
         drop(tokio::spawn(shutdown::listen(stopping.clone())));
-        super::serve_as_configured(router, address, stopping.clone(), material).await
+        super::nodes::serve_as_configured(router, socket, stopping.clone(), material).await
     });
     super::stop(runtime, &stopping);
     served

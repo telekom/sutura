@@ -106,7 +106,7 @@ actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
   github-server-url
   allow-unsafe-pr-checkout
 
-actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc
   client-id
   app-id
   private-key
@@ -208,7 +208,7 @@ cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866
   cachixBin
   installCommand
 
-cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086
+cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9
   extra_nix_config
   github_access_token
   install_url
@@ -240,11 +240,12 @@ nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569
   upload-chunk-size
   token
 
-ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e
+ossf/scorecard-action@23f22cd43608bae7a1f1fa2603d7314dee9538a5
   results_file
   results_format
   repo_token
   publish_results
   file_mode
+  fail_on_publish_error
   internal_publish_base_url
   internal_default_token

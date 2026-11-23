@@ -24,7 +24,7 @@ fn runtime() -> sutura_config::RuntimeSettings {
 #[test]
 fn declared_nodes_are_refused_by_a_build_without_the_feature() {
     let tls = declaring("/nonexistent/node.pem", "/nonexistent/node.key", "/nonexistent/authority.pem");
-    let Err(refused) = super::super::nodes::combiner(Some(&tls), runtime()) else {
+    let Err(refused) = super::super::nodes::combiner(Some(&tls), runtime(), None) else {
         panic!("declared nodes on a build without the feature planned a combine");
     };
     assert!(
@@ -51,7 +51,7 @@ fn declared_nodes_serve_this_nodes_worker() {
     let (certificate, key) = written("declared");
     let path = |path: &std::path::Path| path.display().to_string();
     let tls = declaring(&path(&certificate), &path(&key), &path(&certificate));
-    let built = super::super::nodes::combiner(Some(&tls), runtime());
+    let built = super::super::nodes::combiner(Some(&tls), runtime(), None);
     let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
     let (_combiner, worker) = built.expect("a signed node with its authority plans across the declared nodes");
     assert!(
@@ -93,7 +93,7 @@ fn a_node_declaring_others_exports_the_worker_slots_it_wants() {
     let (certificate, key) = written("wanted");
     let path = |path: &std::path::Path| path.display().to_string();
     let tls = declaring(&path(&certificate), &path(&key), &path(&certificate));
-    let built = super::super::nodes::combiner(Some(&tls), runtime());
+    let built = super::super::nodes::combiner(Some(&tls), runtime(), None);
     let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
     let (combiner, _) = built.expect("a signed node with its authority plans across the declared nodes");
     let service = super::super::compose::shared_identity_service(&catalogs, files.engines, combiner, None, &settings)
@@ -108,6 +108,36 @@ fn a_node_declaring_others_exports_the_worker_slots_it_wants() {
     );
 }
 
+/// `with_nodes` only compares peers against `own`'s LITERAL string, so a peer declared at the port
+/// a literal `own: 0` resolves to is not a self-reference it can see - this is `combiner`'s own
+/// post-resolution re-check (`nodes.rs:250-256`) catching it instead. Fails on `9146847ff`, where
+/// that re-check does not exist and this combine was never refused.
+#[cfg(feature = "distributed")]
+#[test]
+fn a_peer_at_the_port_own_zero_resolves_to_is_refused_naming_itself() {
+    let (certificate, key) = written("self-reference");
+    let path = |path: &std::path::Path| path.display().to_string();
+    let others = [sutura_config::DeclaredNodeInput::new(
+        "https://node-a.example.com:54321",
+        "worker",
+        [].as_slice(),
+    )];
+    let tls = sutura_config::TlsMaterial::parse(Some(&path(&certificate)), Some(&path(&key)), Some(&path(&certificate)))
+        .expect("a pair and an authority are TLS material")
+        .expect("material was declared")
+        .with_nodes("https://node-a.example.com:0", &others)
+        .expect("https addresses are nodes, and own:0 is not the peer's literal address");
+    let built = super::super::nodes::combiner(Some(&tls), runtime(), Some(54321));
+    let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
+    let Err(refused) = built else {
+        panic!("a peer declared at own's resolved port planned a combine instead of refusing itself");
+    };
+    assert!(
+        refused.contains("node-a.example.com:54321"),
+        "the refusal must name the peer declared at own's resolved address: {refused}"
+    );
+}
+
 #[cfg(feature = "distributed")]
 #[test]
 fn an_unreadable_node_authority_is_refused_naming_it() {
@@ -115,7 +145,7 @@ fn an_unreadable_node_authority_is_refused_naming_it() {
     let path = |path: &std::path::Path| path.display().to_string();
     let missing = "/nowhere/node-authority.pem";
     let tls = declaring(&path(&certificate), &path(&key), missing);
-    let built = super::super::nodes::combiner(Some(&tls), runtime());
+    let built = super::super::nodes::combiner(Some(&tls), runtime(), None);
     let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
     let Err(refused) = built else {
         panic!("an unreadable node authority planned a combine instead of refusing");

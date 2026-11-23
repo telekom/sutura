@@ -140,9 +140,9 @@ pub use crate::problem::{Failure, ProblemBody};
 pub use crate::router::worker_router;
 pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
 pub use crate::servable::{NotServable, ServableSettings};
+pub use crate::server::{ServeFailed, serve, serve_on};
 #[cfg(feature = "tls")]
-pub use crate::server::serve_tls;
-pub use crate::server::{ServeFailed, serve};
+pub use crate::server::{serve_tls, serve_tls_on};
 #[cfg(feature = "flight")]
 pub use crate::state::FlightMount;
 pub use crate::state::ServiceState;

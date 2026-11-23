@@ -198,6 +198,9 @@ secrecy = { workspace = true }
 # and, on a build with no linked fixed-host client, simply unused - never a second per-feature copy
 # of this dependency line.
 sutura-tls = { workspace = true }
+# `crate::serve::nodes::resolve_own` names a declared node's own address, read back from
+# `sutura-config`, as this exact type - its port is set in place rather than reparsed.
+url = { workspace = true }
 # Rendering, and this binary IS a SQL consumer: `sutura compile` exists to print the statement for a
 # dialect somebody named on the command line, without opening a data system at all. So the
 # generator is in this binary's tree deliberately and by a declared edge, which is the difference
