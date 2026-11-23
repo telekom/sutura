@@ -776,6 +776,12 @@ pub(crate) struct RawCatalog {
     pub(crate) relationships_view: Option<String>,
     #[serde(default)]
     pub(crate) descriptions_from: Vec<crate::catalog::rdbms::descriptions::RawDescriptionSource>,
+    /// The per-catalog default for every relationship's `on_missing_endpoint` - a configuration
+    /// declaration that writes its own key still overrides this; a `relationships_view` row has no
+    /// per-row key, so this default is the only way to opt a documentation view into `omit`. Absent
+    /// stays `refuse`, the behaviour before this key existed.
+    #[serde(default)]
+    pub(crate) on_missing_endpoint: Option<String>,
 }
 
 /// Native dictionary include pair. Patterns are data, never SQL fragments.

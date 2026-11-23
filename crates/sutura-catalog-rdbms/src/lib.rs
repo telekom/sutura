@@ -130,6 +130,17 @@ impl AnyDictionaryReader {
         }
     }
 
+    /// The policy a `relationships_view` row follows when its endpoint is absent or excluded from
+    /// this reading identity's dictionary. Default `Refuse`.
+    #[must_use]
+    pub fn with_relationships_on_missing_endpoint(self, policy: MissingEndpointPolicy) -> Self {
+        match self {
+            Self::Postgres(reader) => Self::Postgres(Box::new(reader.with_relationships_on_missing_endpoint(policy))),
+            #[cfg(feature = "live-oracle")]
+            Self::Oracle(reader) => Self::Oracle(Box::new(reader.with_relationships_on_missing_endpoint(policy))),
+        }
+    }
+
     pub const fn bounds(&self) -> DictionaryBounds {
         match self {
             Self::Postgres(reader) => reader.bounds(),

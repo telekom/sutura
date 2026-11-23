@@ -31,7 +31,9 @@ pub use descriptions::{
 mod relationships;
 mod selection;
 pub(crate) use relationships::RawRelationship;
-pub use relationships::{DeclaredRelationship, MissingEndpointPolicy, RelationshipEndpoint, UniquenessCheck};
+pub use relationships::{
+    DeclaredRelationship, InvalidRelationship, MissingEndpointPolicy, RelationshipEndpoint, UniquenessCheck,
+};
 pub(crate) use selection::RawColumnRule;
 use selection::native_selection;
 
@@ -63,6 +65,7 @@ pub struct RdbmsSettings {
     descriptions_from: Vec<DescriptionSource>,
     relationships: Vec<DeclaredRelationship>,
     relationships_view: Option<DocumentationSchema>,
+    relationships_on_missing_endpoint: MissingEndpointPolicy,
 }
 
 impl RdbmsSettings {
@@ -114,6 +117,12 @@ impl RdbmsSettings {
             .as_ref()
             .ok_or(InvalidRdbmsCatalog::Missing { key: "connection" })?;
         let connection = CatalogConnection::parse(name, connection).map_err(|cause| InvalidRdbmsCatalog::Connection { cause })?;
+        let relationships_on_missing_endpoint = raw
+            .on_missing_endpoint
+            .as_deref()
+            .map(|written| MissingEndpointPolicy::parse(written).ok_or(InvalidRdbmsCatalog::DefaultOnMissingEndpoint))
+            .transpose()?
+            .unwrap_or_default();
         let dictionary_schema = raw
             .dictionary_schema
             .as_deref()
@@ -140,7 +149,7 @@ impl RdbmsSettings {
                 .map_err(|cause| InvalidRdbmsCatalog::Audience { cause })?,
             connection,
             descriptions_from: descriptions::parse(name, &raw.descriptions_from)?,
-            relationships: relationships::parse(&raw.relationships)?,
+            relationships: relationships::parse(&raw.relationships, relationships_on_missing_endpoint)?,
             relationships_view: match dictionary_source {
                 DictionarySource::NativeDictionary if raw.relationships_view.is_some() => {
                     return Err(InvalidRdbmsCatalog::ViewKeysOnNative);
@@ -152,6 +161,7 @@ impl RdbmsSettings {
                     .transpose()
                     .map_err(|cause| InvalidRdbmsCatalog::DictionarySchema { cause })?,
             },
+            relationships_on_missing_endpoint,
         })
     }
 
@@ -167,6 +177,14 @@ impl RdbmsSettings {
 
     pub fn relationships(&self) -> &[DeclaredRelationship] {
         &self.relationships
+    }
+
+    /// The per-catalog default `on_missing_endpoint` policy - what a `relationships_view` row (no
+    /// per-row key of its own) follows, and what a configuration declaration with no explicit
+    /// `on_missing_endpoint` key defaults to. Absent in the written catalog, this itself defaults to
+    /// `Refuse`, so a catalog that names neither key reads exactly as before this setting existed.
+    pub const fn relationships_on_missing_endpoint(&self) -> MissingEndpointPolicy {
+        self.relationships_on_missing_endpoint
     }
 
     pub fn descriptions_from(&self) -> &[DescriptionSource] {

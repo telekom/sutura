@@ -1,3 +1,13 @@
+/// The config crate's policy enum, read from the declaration, to the catalog-rdbms crate's own -
+/// two independent types so neither crate depends on the other's for a two-variant enum, kept in
+/// step only by this mapping and the test below it.
+const fn map_on_missing_endpoint(policy: sutura_config::MissingEndpointPolicy) -> sutura_catalog_rdbms::MissingEndpointPolicy {
+    match policy {
+        sutura_config::MissingEndpointPolicy::Refuse => sutura_catalog_rdbms::MissingEndpointPolicy::Refuse,
+        sutura_config::MissingEndpointPolicy::Omit => sutura_catalog_rdbms::MissingEndpointPolicy::Omit,
+    }
+}
+
 pub(super) fn open_one_rdbms_catalog(settings: &sutura_config::CatalogSettings) -> Result<super::native::Rdbms, String> {
     use sutura_catalog_rdbms::AnyDictionaryReader;
 
@@ -63,8 +73,10 @@ pub(super) fn open_one_rdbms_catalog(settings: &sutura_config::CatalogSettings) 
 
     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
     // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
+    let view_on_missing_endpoint = map_on_missing_endpoint(rdbms.relationships_on_missing_endpoint());
     let reader = reader
         .with_relationships(relationships(rdbms)?)
+        .with_relationships_on_missing_endpoint(view_on_missing_endpoint)
         .with_relationships_view(rdbms.relationships_view().map(sutura_config::DocumentationSchema::as_str))
         .map_err(|cause| cause.to_string())?;
     let bounds = reader.bounds();
@@ -228,10 +240,7 @@ fn relationships(settings: &sutura_config::RdbmsSettings) -> Result<Vec<sutura_c
                     .collect(),
             )
             .map_err(|cause| cause.to_string())?;
-            let on_missing_endpoint = match declaration.on_missing_endpoint() {
-                sutura_config::MissingEndpointPolicy::Refuse => sutura_catalog_rdbms::MissingEndpointPolicy::Refuse,
-                sutura_config::MissingEndpointPolicy::Omit => sutura_catalog_rdbms::MissingEndpointPolicy::Omit,
-            };
+            let on_missing_endpoint = map_on_missing_endpoint(declaration.on_missing_endpoint());
             Ok(DeclaredRelationship::with_missing_endpoint_policy(
                 relationship,
                 declaration
@@ -241,4 +250,24 @@ fn relationships(settings: &sutura_config::RdbmsSettings) -> Result<Vec<sutura_c
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::map_on_missing_endpoint;
+
+    /// The composition root's own policy mapping (used for both the catalog-level default and a
+    /// per-relationship override) must carry `Refuse`/`Omit` straight through, never swap or
+    /// collapse them - a silent swap would flip the whole feature's security property.
+    #[test]
+    fn map_on_missing_endpoint_carries_each_variant_through_unchanged() {
+        assert_eq!(
+            map_on_missing_endpoint(sutura_config::MissingEndpointPolicy::Refuse),
+            sutura_catalog_rdbms::MissingEndpointPolicy::Refuse
+        );
+        assert_eq!(
+            map_on_missing_endpoint(sutura_config::MissingEndpointPolicy::Omit),
+            sutura_catalog_rdbms::MissingEndpointPolicy::Omit
+        );
+    }
 }

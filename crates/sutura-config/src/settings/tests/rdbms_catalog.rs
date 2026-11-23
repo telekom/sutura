@@ -573,3 +573,66 @@ fn rdbms_relationship_declarations_are_capped_at_64_declarations_and_32_pairs() 
         );
     }
 }
+
+/// A catalog-level `on_missing_endpoint` default (`telekom/sutura#2039` ask 2) is what a
+/// relationship declaration with no key of its own follows - the per-relationship key, when
+/// present, still overrides it.
+#[test]
+fn a_catalog_level_on_missing_endpoint_default_applies_to_a_declaration_with_no_key_of_its_own() {
+    use crate::catalog::MissingEndpointPolicy;
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    on_missing_endpoint: omit\n    relationships:\n      - from: {table: public.events, columns: [app_id]}\n        to: {table: public.apps, columns: [id]}\n        cardinality: many_to_one\n";
+    let settings = load(&format!("{base}{declaration}")).unwrap();
+    let entry = settings.catalogs().each().next().unwrap();
+    let rdbms = entry.rdbms().unwrap();
+    assert_eq!(rdbms.relationships_on_missing_endpoint(), MissingEndpointPolicy::Omit);
+    let relation = rdbms.relationships().first().unwrap();
+    assert_eq!(relation.on_missing_endpoint(), MissingEndpointPolicy::Omit);
+}
+
+#[test]
+fn a_per_relationship_on_missing_endpoint_overrides_the_catalog_level_default() {
+    use crate::catalog::MissingEndpointPolicy;
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    on_missing_endpoint: omit\n    relationships:\n      - from: {table: public.events, columns: [app_id]}\n        to: {table: public.apps, columns: [id]}\n        cardinality: many_to_one\n        on_missing_endpoint: refuse\n";
+    let settings = load(&format!("{base}{declaration}")).unwrap();
+    let entry = settings.catalogs().each().next().unwrap();
+    let relation = entry.rdbms().unwrap().relationships().first().unwrap();
+    assert_eq!(relation.on_missing_endpoint(), MissingEndpointPolicy::Refuse);
+}
+
+/// Absent, the catalog-level default stays `Refuse` - a catalog that names neither key reads
+/// exactly as before `on_missing_endpoint` existed at either scope.
+#[test]
+fn the_catalog_level_on_missing_endpoint_default_stays_refuse_when_absent() {
+    use crate::catalog::MissingEndpointPolicy;
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let settings = load(&base).unwrap();
+    let entry = settings.catalogs().each().next().unwrap();
+    assert_eq!(
+        entry.rdbms().unwrap().relationships_on_missing_endpoint(),
+        MissingEndpointPolicy::Refuse
+    );
+}
+
+#[test]
+fn an_unknown_catalog_level_on_missing_endpoint_value_is_refused() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    on_missing_endpoint: ignore\n";
+    assert_names(
+        &refusal(&format!("{base}{declaration}")),
+        "relationship on_missing_endpoint must be one of refuse, omit",
+    );
+}
+
+/// `on_missing_endpoint` is an rdbms-only key like `relationships_view`; a non-rdbms catalog
+/// setting it must be refused the same way, not silently accepted because the raw shape knows the
+/// key and `deny_unknown_fields` cannot see past that (`refuse_rdbms_keys` in `settings/catalogs.rs`).
+#[test]
+fn an_on_missing_endpoint_key_on_another_kind_is_refused() {
+    let chain = refusal(&overlay("markdown", &["on_missing_endpoint: omit"], None));
+    assert_names(
+        &chain,
+        "`catalogs.dict.on_missing_endpoint` is read only when `kind` is `rdbms`",
+    );
+}
