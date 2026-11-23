@@ -15,7 +15,8 @@ pub(crate) struct Reader {
 #[derive(Debug)]
 enum Input {
     Catalog(Box<OpenedCatalogs>),
-    Mapping(AnyDictionaryReader),
+    /// A table mapping's reader, with whether its key matches the main dictionary case-insensitively.
+    Mapping(AnyDictionaryReader, bool),
 }
 
 impl Reader {
@@ -43,8 +44,10 @@ impl DictionaryReader for Reader {
                     DescriptionOverlay::from_definitions(bundle.definitions(), bounds)
                         .map_err(|cause| RdbmsError::Read(Box::new(cause)))
                 }
-                Input::Mapping(reader) => DescriptionOverlay::from_dictionary(&reader.read_dictionary()?, reader.bounds())
-                    .map_err(|cause| RdbmsError::Read(Box::new(cause))),
+                Input::Mapping(reader, case_insensitive) => {
+                    DescriptionOverlay::from_dictionary(&reader.read_dictionary()?, reader.bounds(), *case_insensitive)
+                        .map_err(|cause| RdbmsError::Read(Box::new(cause)))
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
         let (dictionary, ignored_columns) = dictionary.overlay_descriptions(&overlays)?;
@@ -129,7 +132,9 @@ fn inputs(
         .iter()
         .map(|source| match source {
             DescriptionSource::Catalog(name) => referenced(name, all, outbound).map(|catalog| Input::Catalog(Box::new(catalog))),
-            DescriptionSource::Table(mapping) => mapped_reader(settings, rdbms, mapping).map(Input::Mapping),
+            DescriptionSource::Table(mapping) => {
+                mapped_reader(settings, rdbms, mapping).map(|reader| Input::Mapping(reader, mapping.case_insensitive()))
+            }
         })
         .collect()
 }
