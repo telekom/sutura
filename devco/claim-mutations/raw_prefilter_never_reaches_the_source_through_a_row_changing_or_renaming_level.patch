@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/statement/text_prefilter.rs b/crates/sutura-exec-datafusion/src/combine/statement/text_prefilter.rs
+index 84e017a92..f8344750d 100644
+--- a/crates/sutura-exec-datafusion/src/combine/statement/text_prefilter.rs
++++ b/crates/sutura-exec-datafusion/src/combine/statement/text_prefilter.rs
+@@ -242,7 +242,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
+         }
+         // Strictly below the owner: a pure, row-preserving projection, and every name the owner's
+         // predicate depends on must still cross unchanged.
+-        if owner.is_some()
++        if owner.is_none()
+             && (!pure_query(current)
+                 || !pure_projection(select)
+                 || owner_names.iter().any(|name| !passes_through(name, &select.projection)))
