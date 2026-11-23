@@ -16,7 +16,7 @@
 //! statement before it reached a leg, not that a live engine of that dialect would accept the
 //! rendered text. That gap is #1909's own scope, not this branch's.
 
-use super::oracle::OracleLegs;
+use super::OracleLegs;
 use super::*;
 
 /// The join-key-from-both-sides shape: two distinct tables, the shared key aliased differently on
@@ -24,6 +24,47 @@ use super::*;
 const JOIN_KEY_BOTH_SIDES: &str = "select c.region, r.region as r_region, r.sales_area \
                                     from dim_customer c join dim_region r on c.region = r.region \
                                     limit 10";
+
+/// `JOIN_KEY_BOTH_SIDES` against `customers()`/`regions()`, as a sorted multiset rendered to text:
+/// the query carries no `ORDER BY` of its own, so row order is an engine's own join-strategy
+/// artifact, not a property this test holds the unparser to.
+fn sorted_join_key_both_sides_rows(raw: &RawRows) -> String {
+    let mut rows: Vec<String> = raw.rows().iter().map(|row| format!("{row:?}")).collect();
+    rows.sort();
+    format!("{:?}: {rows:?}", raw.columns())
+}
+
+/// The exact rows `customers()` joined with `regions()` on `region` must produce, independent of
+/// which engine (or federation) answered: four customers, each paired with its own region's sales
+/// area, `region`/`r_region` always equal.
+fn expected_join_key_both_sides_rows() -> RawRows {
+    use sutura_domain::warehouse::Value;
+    RawRows::of(
+        vec![String::from("region"), String::from("r_region"), String::from("sales_area")],
+        vec![
+            vec![
+                Value::Text(String::from("north")),
+                Value::Text(String::from("north")),
+                Value::Text(String::from("emea")),
+            ],
+            vec![
+                Value::Text(String::from("north")),
+                Value::Text(String::from("north")),
+                Value::Text(String::from("emea")),
+            ],
+            vec![
+                Value::Text(String::from("south")),
+                Value::Text(String::from("south")),
+                Value::Text(String::from("emea")),
+            ],
+            vec![
+                Value::Text(String::from("east")),
+                Value::Text(String::from("east")),
+                Value::Text(String::from("apac")),
+            ],
+        ],
+    )
+}
 
 /// A leg that never actually runs `statement`: it always answers an empty result. Used only for
 /// dialects the fake engine's `DataFusion` SQL frontend cannot parse back (`Postgres`,
@@ -59,10 +100,16 @@ fn a_join_key_projected_from_both_sides_still_answers_in_every_dialect() {
         ),
         &mut legs,
     );
-    assert!(
-        matches!(answer, Some(Ok(_))),
-        "a non-self two-table join with the key aliased distinctly on each side must still \
-         answer (federated DuckDb+Postgres): {answer:?}"
+    let Some(Ok(rows)) = answer else {
+        panic!(
+            "a non-self two-table join with the key aliased distinctly on each side must still \
+             answer (federated DuckDb+Postgres): {answer:?}"
+        );
+    };
+    assert_eq!(
+        sorted_join_key_both_sides_rows(&rows),
+        sorted_join_key_both_sides_rows(&expected_join_key_both_sides_rows()),
+        "federated DuckDb+Postgres: {rows:?}"
     );
 
     // A single DataFusion source holding both tables.
@@ -97,10 +144,16 @@ fn a_join_key_projected_from_both_sides_still_answers_in_every_dialect() {
         ),
         &mut legs,
     );
-    assert!(
-        matches!(answer, Some(Ok(_))),
-        "a non-self two-table join with the key aliased distinctly on each side must still \
-         answer (DataFusion): {answer:?}"
+    let Some(Ok(rows)) = answer else {
+        panic!(
+            "a non-self two-table join with the key aliased distinctly on each side must still \
+             answer (DataFusion): {answer:?}"
+        );
+    };
+    assert_eq!(
+        sorted_join_key_both_sides_rows(&rows),
+        sorted_join_key_both_sides_rows(&expected_join_key_both_sides_rows()),
+        "DataFusion: {rows:?}"
     );
 
     // Oracle: executed for real through `oracle_fetch_to_limit`, not just captured as text.
@@ -122,10 +175,17 @@ fn a_join_key_projected_from_both_sides_still_answers_in_every_dialect() {
         ),
         &mut legs,
     );
-    assert!(
-        matches!(answer, Some(Ok(_))),
-        "a non-self two-table join with the key aliased distinctly on each side must still \
-         answer (Oracle, no ORA-00904/ORA-00918): {answer:?}; source SQL: {:?}",
+    let Some(Ok(rows)) = answer else {
+        panic!(
+            "a non-self two-table join with the key aliased distinctly on each side must still \
+             answer (Oracle, no ORA-00904/ORA-00918): {answer:?}; source SQL: {:?}",
+            legs.statements
+        );
+    };
+    assert_eq!(
+        sorted_join_key_both_sides_rows(&rows),
+        sorted_join_key_both_sides_rows(&expected_join_key_both_sides_rows()),
+        "Oracle: {rows:?}; source SQL: {:?}",
         legs.statements
     );
     assert!(

@@ -29,6 +29,7 @@ pub(super) mod literals;
 #[cfg(test)]
 mod names;
 mod oracle;
+mod oracle_mixed_schema;
 mod policy_search;
 mod raw_condition;
 #[cfg(test)]
@@ -378,6 +379,40 @@ pub(super) fn oracle_fetch_to_limit(statement: &str) -> Option<String> {
         return None;
     }
     Some(sql.to_string())
+}
+
+/// An Oracle leg, executed by the shared fake engine: generated `FETCH` is normalized back to
+/// `LIMIT` via [`oracle_fetch_to_limit`] before running, so an Oracle dialect cell can be executed,
+/// not just captured as text. Private, like every other test fixture here: visible to `tests` and
+/// every one of its descendant modules, which is every module that uses it.
+struct OracleLegs {
+    engines: Engines,
+    statements: Vec<String>,
+}
+
+impl StatementLegs for OracleLegs {
+    type Stop = SourceName;
+
+    fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        self.engines.open(sources)
+    }
+
+    fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        if !explicit_source_projection(statement.as_str()) {
+            return Err(source.clone());
+        }
+        if *source == named("geo") {
+            self.statements.push(String::from(statement.as_str()));
+            eprintln!("source SQL: {}", statement.as_str());
+            // ponytail: only the fake normalizes FETCH; the live venue executes Oracle spelling.
+            let Some(normalized) = oracle_fetch_to_limit(statement.as_str()) else {
+                return Err(source.clone());
+            };
+            let statement = RawStatement::parse(normalized).map_err(|_cause| source.clone())?;
+            return self.engines.run(source, &statement);
+        }
+        self.engines.run(source, statement)
+    }
 }
 
 fn rows_of(runtime: &Runtime, context: &SessionContext, statement: &str) -> RawRows {

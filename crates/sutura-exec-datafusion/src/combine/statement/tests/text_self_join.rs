@@ -44,7 +44,7 @@
 //! `StatementStopped::UnsupportedSyntax(SqlConstruct::AmbiguousSelfJoinColumn)` rather than the
 //! generic `NotPlanned` this file's cells asserted before.
 
-use super::oracle::OracleLegs;
+use super::OracleLegs;
 use super::*;
 
 /// #1972/#2041's own shape: `count(DISTINCT ...)` forces the join itself into one derived table
@@ -372,9 +372,18 @@ fn a_self_join_counted_only_still_answers_despite_an_unreferenced_collision() {
             ),
             &mut legs,
         );
-        assert!(
-            matches!(answer, Some(Ok(_))),
-            "{dialect:?}: an unreferenced collision must not remove an answer main gives: {answer:?}"
+        let Some(Ok(rows)) = answer else {
+            panic!("{dialect:?}: an unreferenced collision must not remove an answer main gives: {answer:?}");
+        };
+        // Two source rows, both region "a", self-joined on region: every row pairs with every row,
+        // 2 * 2 = 4.
+        assert_eq!(
+            rows,
+            RawRows::of(
+                vec![String::from("n")],
+                vec![vec![sutura_domain::warehouse::Value::Integer(4)]]
+            ),
+            "{dialect:?}: {rows:?}"
         );
     }
 }

@@ -1,6 +1,12 @@
 //! The planner's Oracle leg, executed by a fake source engine; actual Oracle belongs to its venue.
 
+use std::ops::ControlFlow;
+
 use datafusion::arrow::array::ArrayRef;
+
+use datafusion::sql::sqlparser::ast::{LimitClause, Query, VisitMut as _, VisitorMut};
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::parser::Parser;
 
 use super::*;
 
@@ -32,12 +38,9 @@ fn oracle_temporal_constants_use_ansi_literals_without_session_format_casts() {
     );
 }
 
-/// Normalizes a generated Oracle leg's `FETCH` back to `LIMIT` before running it against the
-/// shared fake engine, so an Oracle dialect cell can be executed, not just captured as text.
-/// `pub(super)` so a sibling test module can run a self-join cell through a real Oracle leg too.
-pub(super) struct OracleLegs {
-    pub(super) engines: Engines,
-    pub(super) statements: Vec<String>,
+struct OracleLegs {
+    engines: Engines,
+    statements: Vec<String>,
 }
 
 impl StatementLegs for OracleLegs {
@@ -55,13 +58,50 @@ impl StatementLegs for OracleLegs {
             self.statements.push(String::from(statement.as_str()));
             eprintln!("source SQL: {}", statement.as_str());
             // ponytail: only the fake normalizes FETCH; the live venue executes Oracle spelling.
-            let Some(normalized) = super::oracle_fetch_to_limit(statement.as_str()) else {
+            let mut parsed = Parser::parse_sql(&GenericDialect, statement.as_str()).map_err(|_cause| source.clone())?;
+            let [sql] = parsed.as_mut_slice() else {
                 return Err(source.clone());
             };
-            let statement = RawStatement::parse(normalized).map_err(|_cause| source.clone())?;
+            if sql.visit(&mut OracleLimits).is_break() {
+                return Err(source.clone());
+            }
+            let statement = RawStatement::parse(sql.to_string()).map_err(|_cause| source.clone())?;
             return self.engines.run(source, &statement);
         }
         self.engines.run(source, statement)
+    }
+}
+
+struct OracleLimits;
+
+impl VisitorMut for OracleLimits {
+    type Break = ();
+
+    fn post_visit_query(&mut self, query: &mut Query) -> ControlFlow<Self::Break> {
+        let Some(fetch) = query.fetch.take() else {
+            return ControlFlow::Continue(());
+        };
+        if fetch.with_ties || fetch.percent {
+            return ControlFlow::Break(());
+        }
+        let Some(quantity) = fetch.quantity else {
+            return ControlFlow::Break(());
+        };
+        let offset = match query.limit_clause.take() {
+            None => None,
+            Some(LimitClause::LimitOffset {
+                limit: None,
+                offset,
+                limit_by,
+            }) if limit_by.is_empty() => offset,
+            Some(_) => return ControlFlow::Break(()),
+        };
+        query.limit_clause = Some(LimitClause::LimitOffset {
+            limit: Some(quantity),
+            offset,
+            limit_by: Vec::new(),
+        });
+        ControlFlow::Continue(())
     }
 }
 
@@ -554,23 +594,6 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             r#"select r."region" from "dim_region" r where exists (select 1 from "dim_region" x where x."region" = r."region" and x."region" = 'north')"#,
             r#"select r."region" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north')"#,
             r#"select r."region", r."sales_area" from "dim_region" r where r."region" in (select x."region" from "dim_region" x where x."region" = 'north') limit 1"#,
-            // github.com/telekom/sutura#2041: count(DISTINCT) expands into an extra GROUP BY
-            // level, and the outer level's qualifier must resolve through the inner one's alias.
-            r#"select "region", count(distinct "sales_area") as n from "dim_region" where "region" <> 'missing' group by "region" limit 50"#,
-            // #2041: a repeated expression inside OR is hoisted into a common-subexpression
-            // wrapper; the wrapper's own output and every sibling column must stay in scope above it.
-            r#"select "region", "sales_area" from "dim_region" where upper("region") like '%no%' or upper("region") like '%st%' limit 100"#,
-            // #1972's own shape: a self-join makes the wrapped plan's schema MIXED (qualifiers
-            // "r" and "x" both present), so the single-uniform-qualifier branch can't apply and
-            // the parent's own qualified `r."region"` must be rewritten onto the wrapper's alias.
-            r#"select r."region", count(distinct x."sales_area") as n from "dim_region" r join "dim_region" x on r."region" = x."region" where r."region" <> 'missing' group by r."region" limit 50"#,
-            r#"select r."region", r."sales_area" from "dim_region" r join "dim_region" x on r."region" = x."region" where upper(r."region") like '%no%' or upper(r."region") like '%st%' limit 100"#,
-            // Second review round on #2047 (HIGH): the mixed-schema fallback must not
-            // collapse two differently-qualified SAME-NAMED columns onto one output
-            // name - `r."region"` and `x."region"` projected together must stay two
-            // distinct, correctly-paired columns of the derived table, not one
-            // ambiguous `region` an engine could silently resolve to the wrong side.
-            r#"select r."region" as r_region, x."region" as x_region from "dim_region" r join "dim_region" x on r."region" <> x."region" order by r_region, x_region limit 5"#,
         ] {
             let mut legs = OracleLegs {
                 engines: Engines::new(None),
@@ -590,35 +613,13 @@ fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect
             let Some(Ok(rows)) = answer else {
                 panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
             };
-            // A `sql` with no `order by` of its own makes no promise about row order - a bare
-            // `GROUP BY`'s row order is the engine's own hash-aggregation order, not a property of
-            // the plan this test holds the unparser to - so compare as a sorted multiset there, or
-            // this would flake on row order rather than on anything this fix changes.
-            if sql.contains("order by") {
-                assert_eq!(
-                    rows,
-                    legs.engines.as_one(sql),
-                    "{dialect:?}: {sql}; source SQL: {:?}",
-                    legs.statements
-                );
-            } else {
-                let sort_by_text = |raw: &RawRows| {
-                    let mut rows: Vec<String> = raw.rows().iter().map(|row| format!("{row:?}")).collect();
-                    rows.sort();
-                    (raw.columns().to_vec(), rows)
-                };
-                assert_eq!(
-                    sort_by_text(&rows),
-                    sort_by_text(&legs.engines.as_one(sql)),
-                    "{dialect:?}: {sql}; source SQL: {:?}",
-                    legs.statements
-                );
-            }
-            // Cube cannot push a join: a self-join over "dim_region" reaches it as two legs, one
-            // per relation, same as an EXISTS/IN subquery's own separate leg.
-            let parts = if dialect == TypeDialect::Cube
-                && (sql.contains("exists (") || sql.contains(" in (select") || sql.contains("join"))
-            {
+            assert_eq!(
+                rows,
+                legs.engines.as_one(sql),
+                "{dialect:?}: {sql}; source SQL: {:?}",
+                legs.statements
+            );
+            let parts = if dialect == TypeDialect::Cube && (sql.contains("exists (") || sql.contains(" in (select")) {
                 2
             } else {
                 1
