@@ -3307,11 +3307,13 @@ omitted; a unique index without a primary/unique constraint supplies no evidence
 visible endpoints and known compatible mapped types are required. Equal mapped types and integer
 widths are compatible; unknown or incompatible types always refuse the load, naming the endpoint.
 An endpoint absent or excluded from the reading identity's dictionary instead follows
-<code>on_missing_endpoint</code>, default <code>refuse</code> (the behaviour above, unchanged). <code>on_missing_endpoint: omit</code>
-drops that one declaration with a <code>WARN</code> log instead of refusing the whole catalog - the same
-declaration can then serve several environments whose service users hold different grants. An
-omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
-never joins, and <code>describe_catalog</code> never lists it. A misspelled table name in a visible schema
+<code>on_missing_endpoint</code>, default <code>refuse</code> (the behaviour above, unchanged). A declaration with no
+<code>on_missing_endpoint</code> key of its own follows the catalog's own <code>on_missing_endpoint</code> key (also
+default <code>refuse</code>), so a deployment can opt every declaration into <code>omit</code> at once instead of naming
+it per relationship. <code>on_missing_endpoint: omit</code> (per relationship, or inherited from the catalog)
+drops that one declaration with a <code>WARN</code> log instead of refusing the whole catalog. An omitted
+relationship discloses nothing beyond what the dictionary selection already excluded: it never
+joins, and <code>describe_catalog</code> never lists it. A misspelled table name in a visible schema
 cannot be told apart from a hidden table under <code>shared-service-user</code> - either way the selected
 dictionary simply has no such table - so under <code>omit</code> a typo there is silently dropped with the
 same <code>WARN</code> log as a real missing grant, never refused. A misspelled <em>column</em> on a table the
@@ -3341,11 +3343,22 @@ the existing consistency and fan-out checks; these declarations change none of t
 <p>In <code>documentation_schema</code> mode, <code>relationships_view: relationships</code> opts into a second view in
 <code>dictionary_schema</code>. Absence makes no second-view query. Its rows are authored many-to-one
 assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
-Configuration declarations can also be used with documentation catalogs. <strong><code>on_missing_endpoint</code>
-is a configuration-declaration setting only: a view row with an endpoint the reading identity
-cannot see still refuses the whole load</strong> - the view has no column to opt a row out, so an
-operator who needs <code>omit</code> for a view-sourced relationship keeps it as a configuration declaration
-instead.</p>
+Configuration declarations can also be used with documentation catalogs. A view row has no column
+of its own to opt one row out, so it always follows the <strong>catalog's</strong> <code>on_missing_endpoint</code> key
+(default <code>refuse</code>, unchanged): an endpoint absent or excluded from the reading identity's
+dictionary either refuses the whole load (<code>refuse</code>) or is dropped with the same <code>WARN</code> log a
+configuration declaration gets (<code>omit</code>), naming the relationship and the missing endpoint. Those
+names come from the documentation view's own rows - data the service user already reads, not from
+operator configuration - and base's <code>refuse</code> error already carried the same names; only operators
+see the log. A misspelled column on a visible table is still refused either way, same as
+configuration.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">catalogs</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">warehouse</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rdbms</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="nt">dictionary_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">documentation_schema</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span><span class="nt">relationships_view</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">relationships</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="nt">on_missing_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">omit</span>
+</span></code></pre></div>
 <table>
 <thead>
 <tr>
