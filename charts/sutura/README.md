@@ -123,7 +123,7 @@ The chart refuses a render that the binary would refuse to start:
 - no `security.inbound.mode`: a lookup leg a reading worker reads is granted for a verified caller;
 - a group that names no source, or a source `sources` does not declare;
 - a group with no `catalogs`, a group name that is not a DNS label, and `readingWorkers.groups` without `workerPool.enabled`;
-- with `networkPolicy.enabled`, a network-backed group with no `egress`, an `egress` entry that is not a `{cidr, port}` pair, a `port` with a fractional part, and a `cidr` with a zero-length prefix.
+- with `networkPolicy.enabled`, a group with a network-backed source or catalog and no `egress`, an `egress` entry that is not a `{cidr, port}` pair, a `port` with a fractional part, and a `cidr` with a zero-length prefix.
 
 Limits.
 The chart deploys the nodes and names them; what a served question reads on them is the binary's, and [Serving over HTTP](https://telekom.github.io/sutura/latest/serving/) states it for each release.
@@ -134,7 +134,7 @@ The group keeps the release's `serviceAccount`, `nodeSelector`, `affinity` and `
 The group's mounted Secret is readable by every process in the group's pod, which is why the credentials of a source belong in the group that reads it and in no other.
 With `networkPolicy.enabled: true`, each group gets its own policy.
 Its pods reach this release's nodes - the serving pods, the combining workers and every group's reading workers - on the service port, because a stage reads join inputs from other nodes, another group's readers included.
-They reach a network-backed data source only at the `egress` addresses the group declares, one `{cidr, port}` per source, plus DNS. Local `files` and `duckdb` sources need no destination rule.
+They reach network-backed sources and catalogs only at the `egress` addresses the group declares, one `{cidr, port}` per endpoint, plus DNS. Local `files`, `duckdb`, `markdown`, `okf` and `datacontract` entries need no destination rule. Include each remote catalog endpoint in the group's `egress` list.
 The isolation between groups is therefore on egress to a source, not on the node links.
 The policy bounds the address and port. It does not check that a source's `host` resolves to a declared address, and it does not stop a pod reaching a declared address for another purpose.
 The chart checks the shape of each CIDR and refuses a zero-length prefix. Kubernetes validates the CIDR when it accepts the policy.
@@ -157,7 +157,8 @@ scrape target) already depends on reachability these rules would remove. Judge a
 cluster's own network setup before turning it on. It does not restrict a serving pod's own egress,
 because a serving pod reads the data sources and reaches an identity provider this chart cannot name.
 A reading worker that needs an address the chart cannot see, such as a Google API endpoint for a
-BigQuery source, needs that address listed under its group's `egress`.
+BigQuery source or a remote catalog, needs that address listed under its group's `egress`. The chart
+does not resolve endpoint hostnames against the declared ranges.
 
 ## Configure
 

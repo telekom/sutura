@@ -90,9 +90,9 @@ spec:
 ---
 # Reading workers of group {{ $group }} reach this release's nodes on the service port, as every node
 # does - another group's readers and the combining workers serve join inputs a stage reads - and
-# reach a network-backed data source only at the addresses the group declares under `egress`, plus
-# DNS. Local `files` and `duckdb` sources need no destination rule. One policy per group, selected by
-# the group's own label. Groups can share a destination when their
+# reach network-backed sources and catalogs only at the addresses the group declares under `egress`,
+# plus DNS. Local `files`, `duckdb`, `markdown`, `okf` and `datacontract` entries need no destination
+# rule. One policy per group, selected by the group's own label. Groups can share a destination when their
 # declarations overlap. The policy does not validate a source's `host` against its destinations.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

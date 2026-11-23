@@ -301,8 +301,15 @@ and catalog are the chart's to refuse.
 {{- $networkSource = true -}}
 {{- end -}}
 {{- end -}}
-{{- if and $networkSource (not (and (kindIs "slice" $egress) (gt (len $egress) 0))) -}}
-{{ fail (printf "readingWorkers.groups.%s reads a network-backed source and declares no egress while networkPolicy.enabled is set: list each source's address and port in readingWorkers.groups.%s.egress as {cidr, port}" $group $group) }}
+{{- $networkCatalog := false -}}
+{{- range $catalogs -}}
+{{- $kind := lower (toString (dig "kind" "" .)) -}}
+{{- if not (has $kind (list "markdown" "okf" "datacontract")) -}}
+{{- $networkCatalog = true -}}
+{{- end -}}
+{{- end -}}
+{{- if and (or $networkSource $networkCatalog) (not (and (kindIs "slice" $egress) (gt (len $egress) 0))) -}}
+{{ fail (printf "readingWorkers.groups.%s reads a network-backed source or catalog and declares no egress while networkPolicy.enabled is set: list each endpoint's address and port in readingWorkers.groups.%s.egress as {cidr, port}" $group $group) }}
 {{- end -}}
 {{- range $egress -}}
 {{- if not (and (kindIs "map" .) (kindIs "string" (dig "cidr" nil .)) (regexMatch "^[0-9a-fA-F:.]+/[0-9]{1,3}$" (dig "cidr" "" .))) -}}

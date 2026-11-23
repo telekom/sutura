@@ -169,9 +169,10 @@ readingWorkers:
   #                       `config.base`. At least one.
   #   resources:          CPU and memory limits and requests for each pod.
   #   egress:             Where the group's pods may connect, as `{cidr, port}` entries - each network
-  #                       source's own address and port. Required for network-backed sources when
-  #                       `networkPolicy.enabled` is set. Local `files` and `duckdb` sources need no
-  #                       destination. The policy admits these entries, DNS and this release's nodes.
+  #                       source or remote catalog's own address and port. Required for network-backed
+  #                       sources or catalogs when `networkPolicy.enabled` is set. Local `files`,
+  #                       `duckdb`, `markdown`, `okf` and `datacontract` entries need no destination.
+  #                       The policy admits these entries, DNS and this release's nodes.
   #                       A zero-length prefix is refused. Choose ranges narrow enough for the source.
   #   extraVolumes,
   #   extraVolumeMounts:  What the group's sources read, such as a credential Secret. The release's
