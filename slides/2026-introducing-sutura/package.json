@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@slidev/cli": "^53.1.0",
-    "vue": "^3.5.45"
+    "vue": "^3.5.46"
   },
   "overrides": {
     "dompurify": "^3.4.16",
