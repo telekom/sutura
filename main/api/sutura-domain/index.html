@@ -12865,8 +12865,7 @@ the two is the one line that declares the capability:</p>
 </span><span id="__span-751-38"><a id="__codelineno-751-38" name="__codelineno-751-38" href="#__codelineno-751-38"></a>);
 </span></code></pre></div>
 <h3 id="use-resultlimit"><code>use ResultLimit</code><a class="headerlink" href="#use-resultlimit" title="Permanent link">&para;</a></h3>
-<p>The limit that refused a source result. An adapter may classify only these facts, never an
-arbitrary tool refusal. Unknown limits carry no invented number.</p>
+<p>Facts an adapter can report about a result refusal. A threshold gives no total rejected size.</p>
 <h3 id="use-accumulating"><code>use Accumulating</code><a class="headerlink" href="#use-accumulating" title="Permanent link">&para;</a></h3>
 <p>One result stream, checked against its announced schema batch by batch.</p>
 <p><strong>The accumulator exists so the schema check, the row ceiling and the byte budget fire WHILE the
@@ -14398,7 +14397,7 @@ metadata - and never a cell, so a refusal an operator reads discloses no data.</
 <h5 id="methods_142">Methods<a class="headerlink" href="#methods_142" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-897-1"><a id="__codelineno-897-1" name="__codelineno-897-1" href="#__codelineno-897-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">result_limit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="k">super</span><span class="p">::</span><span class="n">ResultLimit</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The rejected stream's own limit; schema failures are not size refusals.</p>
+<p>Classifies an accumulator whose row bound is a source-stream limit.</p>
 <h5 id="implements_227">Implements<a class="headerlink" href="#implements_227" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="enum-unreadablecell"><code>enum UnreadableCell</code><a class="headerlink" href="#enum-unreadablecell" title="Permanent link">&para;</a></h4>
