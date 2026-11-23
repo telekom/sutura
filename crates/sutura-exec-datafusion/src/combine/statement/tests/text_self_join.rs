@@ -13,7 +13,7 @@
 //! masked/unmasked shape is not possible: the engine rejects the two identical bare
 //! `count(DISTINCT "sales_area")` projections as an ambiguous reference.
 
-use super::OracleLegs;
+use super::oracle::OracleLegs;
 use super::*;
 
 /// #1972/#2041's own shape: `count(DISTINCT ...)` forces the join itself into one derived table
@@ -22,7 +22,7 @@ use super::*;
 /// bare column name under both the wrapped plan's qualifiers; the fallback can no longer rewrite
 /// an unqualified outer reference unambiguously onto either side, so this is refused rather than
 /// resolved by a guess. Checked for real (not just unparsed and inspected) on `DuckDB`,
-/// `DataFusion` and Oracle (via `oracle_fetch_to_limit`).
+/// `DataFusion` and Oracle (via the Oracle leg's `FETCH` normalisation).
 #[test]
 fn a_genuine_self_join_over_one_table_is_refused_in_every_dialect() {
     let table = || {

@@ -1,13 +1,12 @@
 diff --git a/vendor/datafusion-sql/src/unparser/plan.rs b/vendor/datafusion-sql/src/unparser/plan.rs
-index 23410e822..d05f18db6 100644
+index 23410e822..5ae7ea1ae 100644
 --- a/vendor/datafusion-sql/src/unparser/plan.rs
 +++ b/vendor/datafusion-sql/src/unparser/plan.rs
-@@ -629,7 +629,7 @@ impl Unparser<'_> {
-         // so it takes the same no-rewrite path as "nothing referenced": the wrapper renders
-         // exactly as it would without this mechanism. The rewrite below only ever runs where
-         // every referenced name maps to exactly one qualifier.
--        if !colliding_names.is_empty() && select.references_any_bare(&colliding_names) {
-+        if from_qualifiers.len() > 1 {
-             return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
-         }
-         if !select.references_any(&referenced_names) || !colliding_names.is_empty() {
+@@ -530,6 +530,7 @@ impl Unparser<'_> {
+         columns: Vec<Ident>,
+     ) -> Result<()> {
+         // A wrapper must export the qualifier its parent expressions render.
++        if true { return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn))); }
+         // A mixed schema needs that alias only when the outer projection uses it.
+         let mut qualifiers = plan.schema().iter().filter_map(|(name, _)| name);
+         if let Some(table_ref) = qualifiers.next()

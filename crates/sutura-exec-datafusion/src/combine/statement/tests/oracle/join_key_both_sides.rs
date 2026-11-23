@@ -16,7 +16,6 @@
 //! statement before it reached a leg, not that a live engine of that dialect would accept the
 //! rendered text. That gap is #1909's own scope, not this branch's.
 
-use super::OracleLegs;
 use super::*;
 
 /// The join-key-from-both-sides shape: two distinct tables, the shared key aliased differently on
@@ -179,7 +178,7 @@ fn a_join_key_projected_from_both_sides_still_answers_in_every_dialect() {
         "DataFusion: {rows:?}"
     );
 
-    // Oracle: executed for real through `oracle_fetch_to_limit`, not just captured as text.
+    // Oracle: executed for real through the Oracle leg's `FETCH` normalisation, not just captured as text.
     let mut legs = OracleLegs {
         engines: Engines::new(None),
         statements: Vec::new(),

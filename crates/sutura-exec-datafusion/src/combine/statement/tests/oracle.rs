@@ -38,9 +38,9 @@ fn oracle_temporal_constants_use_ansi_literals_without_session_format_casts() {
     );
 }
 
-struct OracleLegs {
-    engines: Engines,
-    statements: Vec<String>,
+pub(super) struct OracleLegs {
+    pub(super) engines: Engines,
+    pub(super) statements: Vec<String>,
 }
 
 impl StatementLegs for OracleLegs {
@@ -689,3 +689,6 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
         assert_eq!(legs.statements.len(), 1);
     }
 }
+
+mod join_key_both_sides;
+mod mixed_schema;
