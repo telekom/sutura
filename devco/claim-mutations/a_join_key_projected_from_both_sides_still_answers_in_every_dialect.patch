@@ -1,25 +1,13 @@
 diff --git a/vendor/datafusion-sql/src/unparser/plan.rs b/vendor/datafusion-sql/src/unparser/plan.rs
-index 3efd4f5d3..029862b38 100644
+index 23410e822..d05f18db6 100644
 --- a/vendor/datafusion-sql/src/unparser/plan.rs
 +++ b/vendor/datafusion-sql/src/unparser/plan.rs
-@@ -591,11 +591,15 @@ impl Unparser<'_> {
-             }
-             *name_counts.entry(field.name().as_str()).or_insert(0) += 1;
+@@ -629,7 +629,7 @@ impl Unparser<'_> {
+         // so it takes the same no-rewrite path as "nothing referenced": the wrapper renders
+         // exactly as it would without this mechanism. The rewrite below only ever runs where
+         // every referenced name maps to exactly one qualifier.
+-        if !colliding_names.is_empty() && select.references_any_bare(&colliding_names) {
++        if from_qualifiers.len() > 1 {
+             return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
          }
--        let colliding_names: Vec<String> = name_counts
--            .iter()
--            .filter(|(_, count)| **count > 1)
--            .map(|(name, _)| name.to_string())
--            .collect();
-+        let colliding_names: Vec<String> = if from_qualifiers.len() > 1 {
-+            name_counts.keys().map(|name| name.to_string()).collect()
-+        } else {
-+            name_counts
-+                .iter()
-+                .filter(|(_, count)| **count > 1)
-+                .map(|(name, _)| name.to_string())
-+                .collect()
-+        };
-         // The parent may not reference the wrapped plan's columns at all - a
-         // `count(1)` over a filtered scan, say - in which case no qualifier is
-         // ever out of scope and the rewrite below has nothing to fix: skip it
+         if !select.references_any(&referenced_names) || !colliding_names.is_empty() {
