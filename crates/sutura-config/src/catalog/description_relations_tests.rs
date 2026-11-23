@@ -195,3 +195,15 @@ fn description_key_match_rejects_an_unknown_value() {
     );
     assert_description_error(load(&text), &InvalidDescriptionSource::KeyMatch);
 }
+
+/// `key.match: case_insensitive` must parse through the ordinary entry point, independent of any
+/// accessor this diff adds - a `deny_unknown_fields` raw shape that does not yet know the field
+/// would refuse this exact text.
+#[test]
+fn description_key_match_case_insensitive_parses_through_the_ordinary_entry_point() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name, match: case_insensitive}}\n        description: prose\n"
+    );
+    assert!(load(&text).is_ok(), "key.match: case_insensitive must be accepted");
+}

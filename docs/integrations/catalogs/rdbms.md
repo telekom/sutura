@@ -285,7 +285,9 @@ PostgreSQL's locale-aware comparison. An identifier that differs between those a
 (Turkish dotless `ı`/`i`, German `ß`) may not match under a mixed-locale deployment; it never
 silently mismatches two distinct served identifiers onto one description - a served dictionary
 whose own identifiers collide under this fold (for example both `ID` and `id`) refuses the whole
-load instead, naming the colliding identifiers.
+load instead, naming the colliding identifiers. That refusal is not scoped to the colliding rows:
+it rejects every `descriptions_from` mapping in the load, including an exact-match source covering
+some other, non-colliding table.
 
 Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
 accounting and the existing description byte, line and control-character checks. PostgreSQL's
