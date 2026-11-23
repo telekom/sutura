@@ -63,6 +63,10 @@ pub struct Unparser<'a> {
     /// Set once a name holds a backslash or a quote character, which `sqlparser` does
     /// not quote exactly in every dialect. Every later unparse with this `Unparser` fails.
     unquotable: Cell<bool>,
+    /// Counts synthetic derived-table aliases handed out by `derive_with_dialect_alias`'s
+    /// fallback branch, so two unrelated derived tables in the same statement never share
+    /// a base name a qualifier rewrite could then retarget ambiguously.
+    derived_alias_counter: Cell<usize>,
 }
 
 impl<'a> Unparser<'a> {
@@ -72,6 +76,7 @@ impl<'a> Unparser<'a> {
             pretty: false,
             extension_unparsers: vec![],
             unquotable: Cell::new(false),
+            derived_alias_counter: Cell::new(0),
         }
     }
 
@@ -163,6 +168,26 @@ impl std::fmt::Display for UnquotableName {
 
 impl std::error::Error for UnquotableName {}
 
+/// Why an [`Unparser`] refused: a derived table it had to synthesize (to give a mixed-schema
+/// plan's parent expressions a qualifier back in scope) would have exposed the same column
+/// name under more than one of the wrapped plan's own qualifiers - a self-join, or two
+/// relations collapsed into one wrapped plan - and the parent reads that name as a BARE,
+/// unqualified reference, which cannot be told which side it meant without guessing. A
+/// qualified reference to a colliding name is not ambiguous (it already carries its own
+/// qualifier) and renders unmodified instead; only the unqualified case is refused.
+#[derive(Debug)]
+pub struct AmbiguousDerivedColumn;
+
+impl std::fmt::Display for AmbiguousDerivedColumn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "a derived table would expose the same column name under more than one qualifier of the wrapped plan, and a bare reference reads it",
+        )
+    }
+}
+
+impl std::error::Error for AmbiguousDerivedColumn {}
+
 impl Default for Unparser<'_> {
     fn default() -> Self {
         Self {
@@ -170,6 +195,7 @@ impl Default for Unparser<'_> {
             pretty: false,
             extension_unparsers: vec![],
             unquotable: Cell::new(false),
+            derived_alias_counter: Cell::new(0),
         }
     }
 }

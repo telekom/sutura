@@ -38,7 +38,7 @@ use crate::unparser::extension_unparser::{
 };
 use crate::unparser::utils::{find_unnest_node_until_relation, unproject_agg_exprs};
 use crate::unparser::{
-    ast::FlattenRelationBuilder, ast::UnnestRelationBuilder, rewrite::rewrite_qualify,
+    AmbiguousDerivedColumn, ast::FlattenRelationBuilder, ast::UnnestRelationBuilder, rewrite::rewrite_qualify,
 };
 use crate::utils::UNNEST_PLACEHOLDER;
 use datafusion_common::{
@@ -508,13 +508,12 @@ impl Unparser<'_> {
         let mut derived_builder = DerivedRelationBuilder::default();
         derived_builder.lateral(lateral).alias(alias).subquery({
             let inner_statement = self.plan_to_sql(plan)?;
-            if let ast::Statement::Query(inner_query) = inner_statement {
-                inner_query
-            } else {
+            let ast::Statement::Query(inner_query) = inner_statement else {
                 return internal_err!(
                     "Subquery must be a Query, but found {inner_statement:?}"
                 );
-            }
+            };
+            inner_query
         });
         relation.derived(derived_builder);
 
@@ -525,7 +524,7 @@ impl Unparser<'_> {
         &self,
         alias: &str,
         plan: &LogicalPlan,
-        select: &SelectBuilder,
+        select: &mut SelectBuilder,
         relation: &mut RelationBuilder,
         lateral: bool,
         columns: Vec<Ident>,
@@ -547,16 +546,131 @@ impl Unparser<'_> {
                 lateral,
             );
         }
-        if self.dialect.requires_derived_table_alias() || !columns.is_empty() {
-            self.derive(
-                plan,
-                relation,
-                Some(self.new_table_alias(alias.to_string(), columns)),
-                lateral,
-            )
-        } else {
-            self.derive(plan, relation, None, lateral)
+        // A mixed schema (some columns qualified by one relation, some by
+        // another, or some unqualified) can't be satisfied by the trick above:
+        // no single alias equals every qualifier the parent already rendered.
+        // Give the wrapper a synthetic alias instead - unique per statement -
+        // and retarget every reference the parent already built against the
+        // wrapped plan's own qualifier onto that alias. Left unaliased or
+        // aliased without this rewrite, such a qualifier is out of scope the
+        // moment this wrapper exists: that is how length/substr/instr over a
+        // qualified text-policy column, and count(DISTINCT)+GROUP BY+LIMIT's
+        // extra grouping level, produced Oracle ORA-00904 (sutura#1972,
+        // sutura#2041) - both single-table shapes, one qualifier plus some
+        // unqualified computed columns.
+        // Two DIFFERENT qualifiers exposing the SAME column name (a self-join,
+        // or two sibling relations collapsed into one wrapped plan) cannot be
+        // disambiguated by a bare-name rewrite without risking a reference
+        // silently binding to the wrong side - a text-policy leak if the two
+        // sides differ in masking, were a reference retargeted onto the wrong
+        // one. No alias-plus-qualifier rewrite is attempted for such a
+        // wrapper; whether that is an error depends on how the parent reads
+        // the colliding name - see the bare-vs-qualified check below, which is
+        // where a genuine ambiguity is actually refused.
+        // Text-matching a bare qualifier is only safe against qualifiers the
+        // wrapped plan itself owns: a sibling relation already registered in
+        // this same parent FROM/JOIN list can expose the identical alias
+        // text, and a reference carrying it then belongs to that sibling,
+        // not to the wrapper being built here. Exclude those up front rather
+        // than retargeting a reference onto the wrong relation.
+        let sibling_qualifiers = select.sibling_qualifiers();
+        let mut from_qualifiers: Vec<Vec<String>> = Vec::new();
+        let mut name_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for (name, field) in plan.schema().iter() {
+            let Some(table_ref) = name else { continue };
+            let prefix = if self.dialect.full_qualified_col() {
+                table_ref.to_vec()
+            } else {
+                vec![table_ref.table().to_string()]
+            };
+            if prefix.first().is_some_and(|head| sibling_qualifiers.iter().any(|s| s == head)) {
+                continue;
+            }
+            if !from_qualifiers.contains(&prefix) {
+                from_qualifiers.push(prefix);
+            }
+            *name_counts.entry(field.name().as_str()).or_insert(0) += 1;
         }
+        let colliding_names: Vec<String> = name_counts
+            .iter()
+            .filter(|(_, count)| **count > 1)
+            .map(|(name, _)| name.to_string())
+            .collect();
+        // The parent may not reference the wrapped plan's columns at all - a
+        // `count(1)` over a filtered scan, say - in which case no qualifier is
+        // ever out of scope and the rewrite below has nothing to fix: skip it
+        // rather than decorate every derived table unconditionally. A dialect
+        // that requires every derived table to carry an alias regardless
+        // (e.g. Cube) still gets one - `alias` itself, unchanged, exactly as
+        // it would without this guard - just no rewrite, since nothing reads
+        // the wrapped plan's columns through it.
+        let referenced_names: Vec<String> = plan
+            .schema()
+            .iter()
+            .filter_map(|(name, field)| {
+                let name = name.as_ref()?;
+                let prefix = if self.dialect.full_qualified_col() {
+                    name.to_vec()
+                } else {
+                    vec![name.table().to_string()]
+                };
+                from_qualifiers
+                    .contains(&prefix)
+                    .then(|| field.name().clone())
+            })
+            .collect();
+        // A cross-qualifier collision is only ambiguous for a BARE (unqualified) reference to the
+        // colliding name: that reference carries no qualifier of its own, so once the wrapper's
+        // qualifiers are gone (both sides now sit inside the same derived table) there is no way
+        // to tell which side it meant, and guessing risks a text-policy leak if the two sides
+        // differ in masking. A QUALIFIED reference already carries its own qualifier and keeps
+        // resolving correctly without any rewrite - main's own output-name-restoring projection
+        // relies on exactly this outside the unparser (sutura's duplicate-source-output case) -
+        // so it takes the same no-rewrite path as "nothing referenced": the wrapper renders
+        // exactly as it would without this mechanism. The rewrite below only ever runs where
+        // every referenced name maps to exactly one qualifier.
+        if !colliding_names.is_empty() && select.references_any_bare(&colliding_names) {
+            return Err(DataFusionError::External(Box::new(AmbiguousDerivedColumn)));
+        }
+        if !select.references_any(&referenced_names) || !colliding_names.is_empty() {
+            return if self.dialect.requires_derived_table_alias() {
+                self.derive(
+                    plan,
+                    relation,
+                    Some(self.new_table_alias(alias.to_string(), columns)),
+                    lateral,
+                )
+            } else {
+                self.derive(plan, relation, None, lateral)
+            };
+        }
+        let synthetic_alias = {
+            let n = self.derived_alias_counter.get();
+            self.derived_alias_counter.set(n + 1);
+            format!("{alias}_{n}")
+        };
+        let column_mapping: Vec<(Vec<String>, String, String)> = plan
+            .schema()
+            .iter()
+            .filter_map(|(name, field)| {
+                let name = name.as_ref()?;
+                let prefix = if self.dialect.full_qualified_col() {
+                    name.to_vec()
+                } else {
+                    vec![name.table().to_string()]
+                };
+                from_qualifiers
+                    .contains(&prefix)
+                    .then(|| (prefix, field.name().clone(), field.name().clone()))
+            })
+            .collect();
+        select.rewrite_qualifiers(&column_mapping, &synthetic_alias);
+        self.derive(
+            plan,
+            relation,
+            Some(self.new_table_alias(synthetic_alias, columns)),
+            lateral,
+        )
     }
 
     /// Projection unparsing when [`super::dialect::Dialect::unnest_as_lateral_flatten`] is enabled:

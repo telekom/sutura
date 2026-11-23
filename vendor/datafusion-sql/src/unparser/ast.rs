@@ -20,7 +20,7 @@ use std::ops::ControlFlow;
 
 use sqlparser::ast::helpers::attached_token::AttachedToken;
 use sqlparser::ast::{
-    self, LimitClause, OrderByKind, SelectFlavor, Visit, visit_expressions_mut,
+    self, LimitClause, OrderByKind, SelectFlavor, Visit, VisitMut, visit_expressions_mut,
 };
 
 #[derive(Clone)]
@@ -289,6 +289,236 @@ impl SelectBuilder {
             .is_break()
     }
 
+    /// True if this SELECT references, anywhere `rewrite_qualifiers` would look
+    /// (projection, selection, `GROUP BY`, `HAVING`, the sort clauses), a column
+    /// named in `names` - as a bare identifier, or as the last segment of a
+    /// compound one. Used before giving a wrapped plan a synthetic alias: that
+    /// machinery (and its disambiguation) is only needed when the parent actually
+    /// renders one of the wrapped plan's own columns: a plan nothing references by
+    /// column (e.g. a `count(1)` over a filtered scan) needs no alias at all.
+    pub(super) fn references_any(&self, names: &[String]) -> bool {
+        struct ColumnReference<'a> {
+            names: &'a [String],
+            subqueries: usize,
+        }
+
+        impl ast::Visitor for ColumnReference<'_> {
+            type Break = ();
+
+            fn pre_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries -= 1;
+                ControlFlow::Continue(())
+            }
+
+            fn pre_visit_expr(&mut self, expr: &ast::Expr) -> ControlFlow<()> {
+                if self.subqueries != 0 {
+                    return ControlFlow::Continue(());
+                }
+                let last = match expr {
+                    ast::Expr::CompoundIdentifier(parts) => parts.last(),
+                    ast::Expr::Identifier(ident) => Some(ident),
+                    _ => None,
+                };
+                if let Some(ident) = last
+                    && self.names.iter().any(|name| name == &ident.value)
+                {
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::Continue(())
+            }
+        }
+
+        let mut visitor = ColumnReference {
+            names,
+            subqueries: 0,
+        };
+        self.projection.visit(&mut visitor).is_break()
+            || self.selection.visit(&mut visitor).is_break()
+            || self.group_by.visit(&mut visitor).is_break()
+            || self.having.visit(&mut visitor).is_break()
+            || self.sort_by.visit(&mut visitor).is_break()
+            || self.cluster_by.visit(&mut visitor).is_break()
+            || self.distribute_by.visit(&mut visitor).is_break()
+    }
+
+    /// True if this SELECT references, anywhere `references_any` would look, a column named in
+    /// `names` as a BARE identifier - never as the last segment of a compound/qualified one.
+    /// Used to tell a genuinely ambiguous reference (one with no qualifier of its own, so a
+    /// collision between two same-named wrapped columns cannot be told apart) from one that
+    /// already carries a qualifier and so is unambiguous regardless of the collision.
+    pub(super) fn references_any_bare(&self, names: &[String]) -> bool {
+        struct BareColumnReference<'a> {
+            names: &'a [String],
+            exclude: &'a [String],
+            subqueries: usize,
+        }
+
+        impl ast::Visitor for BareColumnReference<'_> {
+            type Break = ();
+
+            fn pre_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &ast::Query) -> ControlFlow<()> {
+                self.subqueries -= 1;
+                ControlFlow::Continue(())
+            }
+
+            fn pre_visit_expr(&mut self, expr: &ast::Expr) -> ControlFlow<()> {
+                if self.subqueries != 0 {
+                    return ControlFlow::Continue(());
+                }
+                if let ast::Expr::Identifier(ident) = expr
+                    && self.names.iter().any(|name| name == &ident.value)
+                    && !self.exclude.iter().any(|name| name == &ident.value)
+                {
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::Continue(())
+            }
+        }
+
+        // An ORDER BY naming one of `names` may be a reference to this SELECT's OWN output
+        // alias rather than a direct, ambiguous read of the wrapped plan's raw colliding
+        // column - standard SQL resolves an unqualified ORDER BY item against the projection's
+        // own output names first. Such an alias already unambiguously picks one side in the
+        // projection itself, so it carries no collision risk and is excluded from the sort
+        // clauses' bare-match check; it is NOT excluded anywhere else; a bare read in the
+        // projection, WHERE, GROUP BY or HAVING is never an output-alias reference and stays
+        // ambiguous when it collides.
+        let aliased: Vec<String> = self
+            .projection
+            .iter()
+            .flatten()
+            .filter_map(|item| match item {
+                ast::SelectItem::ExprWithAlias { alias, .. } => Some(alias.value.clone()),
+                _ => None,
+            })
+            .filter(|alias| names.contains(alias))
+            .collect();
+
+        let mut unqualified = BareColumnReference {
+            names,
+            exclude: &[],
+            subqueries: 0,
+        };
+        let mut sort_only = BareColumnReference {
+            names,
+            exclude: &aliased,
+            subqueries: 0,
+        };
+        self.projection.visit(&mut unqualified).is_break()
+            || self.selection.visit(&mut unqualified).is_break()
+            || self.group_by.visit(&mut unqualified).is_break()
+            || self.having.visit(&mut unqualified).is_break()
+            || self.sort_by.visit(&mut sort_only).is_break()
+            || self.cluster_by.visit(&mut unqualified).is_break()
+            || self.distribute_by.visit(&mut unqualified).is_break()
+    }
+
+    /// Retargets every compound column reference naming one of `from`'s qualifiers to
+    /// `to` instead, across the projection, selection, `GROUP BY`, `HAVING` and the sort
+    /// clauses - everywhere this SELECT can itself hold a qualified column. A nested
+    /// query (a subquery expression, `EXISTS`, `IN (SELECT ...)`) resolves its own
+    /// columns in its own scope and is left alone, matching `projects_qualifier` above.
+    ///
+    /// Used when a derived table this SELECT wraps gets a synthetic alias: expressions
+    /// already built against the wrapped plan's own qualifier(s) must now resolve
+    /// through that alias, or the qualifier they still carry is out of scope one level up.
+    ///
+    /// `mapping` carries one `(qualifier_prefix, original_column, output_column)` triple
+    /// per column the wrapped plan exposes under that qualifier; the caller never calls
+    /// this with a wrapped schema that exposes the same column name under more than one
+    /// qualifier (that is refused earlier, before a mapping is even built), so `output_column`
+    /// always equals `original_column` here and no rename is involved - only a re-qualify.
+    ///
+    /// An UNQUALIFIED outer reference needs no rewrite: the derived table exposes the
+    /// wrapped plan's own columns under their own bare names (nothing was renamed), so a
+    /// bare reference the parent built already resolves correctly without a qualifier.
+    /// Rewriting it anyway risks hijacking a projection alias or a sibling relation's own
+    /// column that happens to share the bare name - only an explicitly qualified reference
+    /// naming one of `mapping`'s prefixes is unambiguously this wrapper's own.
+    pub(super) fn rewrite_qualifiers(&mut self, mapping: &[(Vec<String>, String, String)], to: &str) {
+        if mapping.is_empty() {
+            return;
+        }
+
+        struct QualifierRewriter<'a> {
+            mapping: &'a [(Vec<String>, String, String)],
+            to: &'a str,
+            subqueries: usize,
+        }
+
+        impl ast::VisitorMut for QualifierRewriter<'_> {
+            type Break = ();
+
+            fn pre_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<()> {
+                self.subqueries += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &mut ast::Query) -> ControlFlow<()> {
+                self.subqueries -= 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_expr(&mut self, expr: &mut ast::Expr) -> ControlFlow<()> {
+                if self.subqueries == 0
+                    && let ast::Expr::CompoundIdentifier(parts) = expr
+                    && parts.len() > 1
+                {
+                    let prefix: Vec<String> =
+                        parts[..parts.len() - 1].iter().map(|p| p.value.clone()).collect();
+                    let column = &parts[parts.len() - 1].value;
+                    if let Some((_, _, output)) = self
+                        .mapping
+                        .iter()
+                        .find(|(p, c, _)| p == &prefix && c == column)
+                    {
+                        *parts = vec![
+                            ast::Ident::new(self.to.to_string()),
+                            ast::Ident::new(output.clone()),
+                        ];
+                    }
+                }
+                ControlFlow::Continue(())
+            }
+        }
+
+        let mut rewriter = QualifierRewriter {
+            mapping,
+            to,
+            subqueries: 0,
+        };
+        let _ = VisitMut::visit(&mut self.projection, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.selection, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.group_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.having, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.sort_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.cluster_by, &mut rewriter);
+        let _ = VisitMut::visit(&mut self.distribute_by, &mut rewriter);
+    }
+
+    /// The alias (or bare table name) every relation already registered in this
+    /// SELECT's own `FROM`/`JOIN` list is exposed under. A qualifier text match
+    /// against the wrapped plan's own qualifiers is only safe once it excludes
+    /// names already claimed here - otherwise a reference that actually resolves
+    /// to a sibling relation sharing that same qualifier text gets retargeted
+    /// onto the wrong one.
+    pub(super) fn sibling_qualifiers(&self) -> Vec<String> {
+        self.from
+            .iter()
+            .flat_map(TableWithJoinsBuilder::exposed_names)
+            .collect()
+    }
+
     pub fn into(&mut self, value: Option<ast::SelectInto>) -> &mut Self {
         self.into = value;
         self
@@ -480,6 +710,23 @@ impl TableWithJoinsBuilder {
         self
     }
 
+    /// Every alias (or bare name) this `FROM` item exposes: its own relation
+    /// plus each joined relation, already built into `ast::Join`.
+    pub(super) fn exposed_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .relation
+            .as_ref()
+            .and_then(RelationBuilder::exposed_name)
+            .into_iter()
+            .collect();
+        names.extend(
+            self.joins
+                .iter()
+                .filter_map(|join| table_factor_exposed_name(&join.relation)),
+        );
+        names
+    }
+
     pub fn joins(&mut self, value: Vec<ast::Join>) -> &mut Self {
         self.joins = value;
         self
@@ -517,6 +764,30 @@ impl Default for TableWithJoinsBuilder {
 #[derive(Clone)]
 pub struct RelationBuilder {
     relation: Option<TableFactorBuilder>,
+}
+
+/// The alias (or, for a plain table, its bare name) `relation` builds into. An
+/// already-built `ast::Join`'s relation is read the same way via
+/// `table_factor_exposed_name` below; keep the two in sync.
+fn relation_alias_name(alias: Option<&ast::TableAlias>, fallback: Option<&str>) -> Option<String> {
+    alias
+        .map(|a| a.name.value.clone())
+        .or_else(|| fallback.map(str::to_string))
+}
+
+fn table_factor_exposed_name(tf: &ast::TableFactor) -> Option<String> {
+    match tf {
+        ast::TableFactor::Table { name, alias, .. } => relation_alias_name(
+            alias.as_ref(),
+            name.0.last().and_then(|p| p.as_ident()).map(|i| i.value.as_str()),
+        ),
+        ast::TableFactor::Derived { alias, .. }
+        | ast::TableFactor::TableFunction { alias, .. }
+        | ast::TableFactor::Function { alias, .. }
+        | ast::TableFactor::UNNEST { alias, .. } => relation_alias_name(alias.as_ref(), None),
+        ast::TableFactor::NestedJoin { alias, .. } => relation_alias_name(alias.as_ref(), None),
+        _ => None,
+    }
 }
 
 #[derive(Clone)]
@@ -590,6 +861,11 @@ impl RelationBuilder {
             None => (),
         }
         new
+    }
+    /// The alias (or bare name) this relation is exposed under, reusing `build`
+    /// rather than re-deriving each variant's naming rule a second time.
+    pub(super) fn exposed_name(&self) -> Option<String> {
+        self.build().ok().flatten().as_ref().and_then(table_factor_exposed_name)
     }
     pub fn build(&self) -> Result<Option<ast::TableFactor>, BuilderError> {
         Ok(match self.relation {
@@ -935,3 +1211,38 @@ impl fmt::Display for BuilderError {
     }
 }
 impl std::error::Error for BuilderError {}
+
+#[cfg(test)]
+mod select_builder_tests {
+    use super::*;
+    use sqlparser::ast::{BinaryOperator, Expr, Ident};
+
+    fn bare(name: &str) -> ast::Expr {
+        ast::Expr::Identifier(Ident::new(name))
+    }
+
+    /// A bare reference naming a column in the probe list, anywhere `rewrite_qualifiers`
+    /// would look, must be found.
+    #[test]
+    fn references_any_finds_a_bare_identifier_in_the_selection() {
+        let mut select = SelectBuilder::default();
+        select.selection(Some(Expr::BinaryOp {
+            left: Box::new(bare("sales_area")),
+            op: BinaryOperator::NotEq,
+            right: Box::new(bare("region")),
+        }));
+
+        assert!(select.references_any(&[String::from("sales_area")]));
+    }
+
+    /// A probe list naming no column the SELECT references anywhere must come back false -
+    /// the whole point of the guard is to skip the alias/rewrite machinery when nothing
+    /// wrapped is actually read.
+    #[test]
+    fn references_any_is_false_when_nothing_matches() {
+        let mut select = SelectBuilder::default();
+        select.selection(Some(bare("region")));
+
+        assert!(!select.references_any(&[String::from("sales_area")]));
+    }
+}

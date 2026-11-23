@@ -1,0 +1,25 @@
+diff --git a/vendor/datafusion-sql/src/unparser/plan.rs b/vendor/datafusion-sql/src/unparser/plan.rs
+index 3efd4f5d3..029862b38 100644
+--- a/vendor/datafusion-sql/src/unparser/plan.rs
++++ b/vendor/datafusion-sql/src/unparser/plan.rs
+@@ -591,11 +591,15 @@ impl Unparser<'_> {
+             }
+             *name_counts.entry(field.name().as_str()).or_insert(0) += 1;
+         }
+-        let colliding_names: Vec<String> = name_counts
+-            .iter()
+-            .filter(|(_, count)| **count > 1)
+-            .map(|(name, _)| name.to_string())
+-            .collect();
++        let colliding_names: Vec<String> = if from_qualifiers.len() > 1 {
++            name_counts.keys().map(|name| name.to_string()).collect()
++        } else {
++            name_counts
++                .iter()
++                .filter(|(_, count)| **count > 1)
++                .map(|(name, _)| name.to_string())
++                .collect()
++        };
+         // The parent may not reference the wrapped plan's columns at all - a
+         // `count(1)` over a filtered scan, say - in which case no qualifier is
+         // ever out of scope and the rewrite below has nothing to fix: skip it

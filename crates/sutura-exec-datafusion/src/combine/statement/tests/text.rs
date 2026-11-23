@@ -126,6 +126,225 @@ fn oracle_lob_top_n_keeps_the_qualified_output_in_scope() {
     assert!(subquery.order_by.is_some() && subquery.fetch.is_some(), "{sql}");
 }
 
+/// Every derived table in `sql` carries an alias, and every qualified column reference resolves
+/// against an alias or table name in scope where it is used: github.com/telekom/sutura#2041's
+/// scoping rule, held generically rather than per rewrite. A missing alias, or a qualifier a
+/// wrapper doesn't export, is exactly how a reference the planner built before the wrapper existed
+/// goes out of scope one level up.
+fn assert_every_derived_table_is_aliased(sql: &str) {
+    use datafusion::sql::sqlparser::ast::{
+        Expr, Query, Select, SetExpr, Statement, TableFactor, TableWithJoins, Visit as _, Visitor,
+    };
+    use datafusion::sql::sqlparser::dialect::GenericDialect;
+    use datafusion::sql::sqlparser::parser::Parser;
+    use std::ops::ControlFlow;
+
+    /// The name a `FROM` item or join relation makes available to the `SELECT` that holds it.
+    fn relation_name(factor: &TableFactor, sql: &str) -> String {
+        match factor {
+            TableFactor::Table { name, alias, .. } => alias.as_ref().map_or_else(
+                || name.0.last().expect("a table name has a part").to_string(),
+                |a| a.name.value.clone(),
+            ),
+            TableFactor::Derived { alias, .. } => alias
+                .as_ref()
+                .unwrap_or_else(|| panic!("an unaliased derived table is out of scope above it: {sql}"))
+                .name
+                .value
+                .clone(),
+            TableFactor::NestedJoin { alias: Some(alias), .. } => alias.name.value.clone(),
+            other => panic!("an unnamed FROM item is out of scope above it: {other}: {sql}"),
+        }
+    }
+
+    fn relations_in(twj: &TableWithJoins, names: &mut Vec<String>, sql: &str) {
+        names.push(relation_name(&twj.relation, sql));
+        for join in &twj.joins {
+            names.push(relation_name(&join.relation, sql));
+        }
+    }
+
+    /// Checks every `CompoundIdentifier` built in `select`'s own clauses (not a nested query's)
+    /// against `scope`, then recurses: into each `FROM` item's own derived table with its own
+    /// scope, and into every expression subquery (`EXISTS`, `IN (SELECT ...)`, scalar subquery)
+    /// with `scope` still visible, since a correlated subquery may reference an outer alias.
+    fn check_select(select: &Select, scope: &[String], sql: &str) {
+        struct ColumnsResolve<'a> {
+            scope: &'a [String],
+            sql: &'a str,
+            subqueries: usize,
+        }
+
+        impl Visitor for ColumnsResolve<'_> {
+            type Break = ();
+
+            // A nested query resolves its own columns in its own scope (`check_query` recurses
+            // into it separately, with its own scope); only count the depth here so expressions
+            // still inside it are skipped below, without aborting the rest of this traversal.
+            fn pre_visit_query(&mut self, _: &Query) -> ControlFlow<()> {
+                self.subqueries += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &Query) -> ControlFlow<()> {
+                self.subqueries -= 1;
+                ControlFlow::Continue(())
+            }
+
+            fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
+                if self.subqueries == 0
+                    && let Expr::CompoundIdentifier(parts) = expr
+                    && parts.len() > 1
+                {
+                    let prefix = &parts[parts.len() - 2].value;
+                    assert!(
+                        self.scope.iter().any(|name| name == prefix),
+                        "{prefix} is out of scope ({:?} available): {}: {}",
+                        self.scope,
+                        expr,
+                        self.sql
+                    );
+                }
+                ControlFlow::Continue(())
+            }
+        }
+
+        let mut resolver = ColumnsResolve {
+            scope,
+            sql,
+            subqueries: 0,
+        };
+        select.projection.visit(&mut resolver).is_break();
+        select.selection.visit(&mut resolver).is_break();
+        select.group_by.visit(&mut resolver).is_break();
+        select.having.visit(&mut resolver).is_break();
+
+        for item in &select.from {
+            check_table_factor(&item.relation, scope, sql);
+            for join in &item.joins {
+                check_table_factor(&join.relation, scope, sql);
+            }
+        }
+        for subquery in gather_subqueries(select) {
+            check_query(&subquery, scope, sql);
+        }
+    }
+
+    fn check_table_factor(factor: &TableFactor, outer_scope: &[String], sql: &str) {
+        if let TableFactor::Derived { subquery, .. } = factor {
+            let mut inner_scope = Vec::new();
+            if let SetExpr::Select(inner) = subquery.body.as_ref() {
+                for item in &inner.from {
+                    relations_in(item, &mut inner_scope, sql);
+                }
+            }
+            // a wrapper may itself reference an outer correlated alias, so keep both in scope.
+            let mut scope = inner_scope;
+            scope.extend(outer_scope.iter().cloned());
+            check_query(subquery, &scope, sql);
+        }
+    }
+
+    fn check_query(query: &Query, scope: &[String], sql: &str) {
+        match query.body.as_ref() {
+            SetExpr::Select(select) => check_select(select, scope, sql),
+            SetExpr::SetOperation { left, right, .. } => {
+                for side in [left.as_ref(), right.as_ref()] {
+                    let nested = Query {
+                        with: None,
+                        body: Box::new((*side).clone()),
+                        order_by: None,
+                        limit_clause: None,
+                        fetch: None,
+                        locks: Vec::new(),
+                        for_clause: None,
+                        settings: None,
+                        format_clause: None,
+                        pipe_operators: Vec::new(),
+                    };
+                    check_query(&nested, scope, sql);
+                }
+            }
+            SetExpr::Query(inner) => check_query(inner, scope, sql),
+            _ => {}
+        }
+        if let Some(with) = &query.with {
+            for cte in &with.cte_tables {
+                check_query(&cte.query, scope, sql);
+            }
+        }
+    }
+
+    /// The outermost `EXISTS`/`IN (SELECT ...)`/scalar subquery reached from each of `select`'s
+    /// own clauses; a subquery nested inside one of these is reached again when `check_query`
+    /// recurses into it, so it is skipped here rather than collected a second time.
+    fn gather_subqueries(select: &Select) -> Vec<Query> {
+        struct Subqueries {
+            found: Vec<Query>,
+            depth: usize,
+        }
+
+        impl Visitor for Subqueries {
+            type Break = ();
+
+            fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<()> {
+                if self.depth == 0 {
+                    self.found.push(query.clone());
+                }
+                self.depth += 1;
+                ControlFlow::Continue(())
+            }
+
+            fn post_visit_query(&mut self, _: &Query) -> ControlFlow<()> {
+                self.depth -= 1;
+                ControlFlow::Continue(())
+            }
+        }
+
+        let mut found = Subqueries {
+            found: Vec::new(),
+            depth: 0,
+        };
+        select.projection.visit(&mut found).is_break();
+        select.selection.visit(&mut found).is_break();
+        select.group_by.visit(&mut found).is_break();
+        select.having.visit(&mut found).is_break();
+        found.found
+    }
+
+    let parsed = Parser::parse_sql(&GenericDialect, sql).unwrap_or_else(|cause| panic!("{sql}: {cause}"));
+    let [Statement::Query(query)] = parsed.as_slice() else {
+        panic!("one query: {sql}")
+    };
+    let mut scope = Vec::new();
+    if let SetExpr::Select(select) = query.body.as_ref() {
+        for item in &select.from {
+            relations_in(item, &mut scope, sql);
+        }
+    }
+    check_query(query, &scope, sql);
+}
+
+#[test]
+fn oracle_lob_top_n_with_a_filter_keeps_the_qualified_output_in_scope() {
+    // github.com/telekom/sutura#1972's own repro: a WHERE predicate below the length/substr/instr
+    // projection, ordered and limited, over a redacted CLOB with no explicit table alias.
+    let tables = lob_table(r#"{"max_text_bytes":4000,"redact":[{"pattern":"secret","replace":"masked"}]}"#);
+    let (reached, outputs) = source_outputs(
+        &tables,
+        r#"SELECT "LABEL", length("SCRIPT") AS n, substr("SCRIPT", 4001, 120), instr(upper("SCRIPT"), 'END') AS p FROM "TEXT_EVENTS" WHERE "LABEL" <> 'missing' ORDER BY n DESC LIMIT 3"#,
+    );
+    assert_every_derived_table_is_aliased(&reached);
+    assert_eq!(outputs.len(), 4, "{reached}");
+
+    // `assert_every_derived_table_is_aliased` already walks every clause, `WHERE` included, and
+    // panics on a `CompoundIdentifier` whose qualifier is out of scope - exactly #1972's
+    // ORA-00904. The rendered statement also carries Oracle-only syntax (`DBMS_LOB."SUBSTR"`,
+    // `REGEXP_LIKE`, `CHR()`) that DataFusion's own SQL frontend cannot plan, so round-tripping it
+    // through the fake engine the way the sibling tests do would fail on that, not on scoping; a
+    // live Oracle venue is the only place this statement is actually executable.
+}
+
 #[test]
 fn oracle_lob_control_expressions_carry_their_lineage() {
     let tables = lob_table(r#"{"max_text_bytes":4000}"#);
