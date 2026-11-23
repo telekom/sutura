@@ -689,3 +689,51 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
         assert_eq!(legs.statements.len(), 1);
     }
 }
+
+/// #2038: a native dictionary CLOB with a bare raw-prefilter rule must still have its raw LIKE
+/// condition pushed to the Oracle source, not only the redacted one. Kept small and in this
+/// pre-existing module (not `tests/oracle_prefilter.rs`, which base cannot compile) so causality
+/// always has one cell of this fix that can run, and fail, against the unfixed tree.
+#[test]
+fn raw_prefilter_reaches_the_oracle_source_for_a_native_dictionary_clob() {
+    let policy = serde_json::json!({
+        "max_text_bytes": 128,
+        "redact": [{"pattern": "secret_[^ ]+", "replace": "[masked]"}],
+        "raw_prefilter": {"acknowledged_because": "#2038 reproduction: a native dictionary CLOB, bare column rule"},
+    });
+    let metadata = std::collections::HashMap::from([
+        (String::from("sutura:text_policy"), policy.to_string()),
+        (String::from("sutura:oracle_lob"), String::from("clob")),
+    ]);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("SCRIPT", DataType::Utf8, true).with_metadata(metadata),
+        Field::new("OBJECT_NAME", DataType::Utf8, true),
+    ]));
+    let tables = vec![StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("DOCS").expect("a fixture table"),
+        TypeDialect::Oracle,
+        schema,
+    )];
+    let mut legs = OracleLegs {
+        engines: Engines::new(None),
+        statements: Vec::new(),
+    };
+    let statement =
+        RawStatement::parse("SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%'").expect("a bounded query");
+    drop(DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    ));
+    let reached = legs.statements.first().expect("the Oracle source was reached");
+    assert!(
+        reached.to_uppercase().contains("LIKE '%MRC%'"),
+        "the raw condition must still reach the source: {reached}"
+    );
+}
