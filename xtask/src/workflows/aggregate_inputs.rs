@@ -67,6 +67,10 @@ const UNAGGREGATED: &[(&str, &str)] = &[
     ("pr-cache", "warms a future run"),
     ("crap-comment", "posts the CRAP delta already gated by CI"),
     (
+        "pr-redelivery-guard",
+        "its failure already blocks ci, which reads its output and is itself required",
+    ),
+    (
         "demo-container",
         "ordinary PR advisory; QA requires it in queue and full runs",
     ),
