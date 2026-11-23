@@ -153,7 +153,7 @@ in
             serving, worker, outsider = stand["rw-serving"], stand["rw-worker"], stand["rw-outsider"]
             # Control before any policy: every path below is open, so a later denial is a policy's.
             for origin, address, port in [
-                (a, SOURCE, 5432), (a, "${dbTwoHost}", 5432), (b, SOURCE, 5432), (b, "${dbTwoHost}", 5432),
+                (a, SOURCE, 5432), (a, "${hosts.dbTwoHost}", 5432), (b, SOURCE, 5432), (b, "${hosts.dbTwoHost}", 5432),
                 (a, SOURCE, 5433),
                 (outsider, address_of["rw-reader-a"], 8080),
                 (worker, SOURCE, 5432), (worker, "${dbTwoHost}", 5432),
@@ -163,7 +163,7 @@ in
                             "--show-only templates/networkpolicy.yaml | kubectl apply -f -")
             assert {"rw-reading-a", "rw-reading-b", "rw-workers-egress"} <= {
                 p["metadata"]["name"] for p in get("networkpolicies")["items"]}
-            eventually(lambda: not tcp(a, "${dbTwoHost}", 5432), 30)
+            eventually(lambda: not tcp(a, "${hosts.dbTwoHost}", 5432), 30)
             # What stays open: the release's nodes reach one another on the service port, another
             # group's readers included, each group reaches its own source, and DNS answers.
             for origin, address, port in [
@@ -172,12 +172,12 @@ in
                 (a, address_of["rw-reader-b"], 8080), (b, address_of["rw-reader-a"], 8080),
                 (a, address_of["rw-serving"], 8080), (b, address_of["rw-worker"], 8080),
                 (worker, address_of["rw-serving"], 8080),
-                (a, SOURCE, 5432), (b, "${dbTwoHost}", 5432), (a, dns, 53), (b, dns, 53),
+                (a, SOURCE, 5432), (b, "${hosts.dbTwoHost}", 5432), (a, dns, 53), (b, dns, 53),
             ]:
                 assert tcp(origin, address, port), (origin["metadata"]["name"], address, port)
             # Each group's source egress is its own: the other group's source is a different
             # address on the same port, and neither group reaches it.
-            denied_with_control(a, "${dbTwoHost}", 5432, "rw-reading-a")
+            denied_with_control(a, "${hosts.dbTwoHost}", 5432, "rw-reading-a")
             denied_with_control(b, SOURCE, 5432, "rw-reading-b")
             # A group's policy bounds the port as well as the address: its own source's address at
             # a port it did not declare is denied too.
@@ -185,7 +185,7 @@ in
             # A pod outside the release is not admitted by a group's ingress.
             denied_with_control(outsider, address_of["rw-reader-a"], 8080, "rw-reading-a")
             # A combining worker holds no source, so the chart's egress denies it both.
-            for address in [SOURCE, "${dbTwoHost}"]:
+            for address in [SOURCE, "${hosts.dbTwoHost}"]:
                 denied_with_control(worker, address, 5432, "rw-workers-egress")
             evidence["reading-groups"] = {
                 "policies": [get("networkpolicy/" + name)["spec"] for name in
