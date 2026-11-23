@@ -273,6 +273,9 @@ and catalog are the chart's to refuse.
 {{ fail "readingWorkers.groups requires workerPool.enabled: every reading worker's certificate comes from workerPool.issuer, and the serving pod names the groups beside the worker pool's own peer" }}
 {{- end -}}
 {{- $fullname := include "sutura.fullname" . -}}
+{{- $base := $.Values.config.base | default dict -}}
+{{- $env := $.Values.config.environment | default dict -}}
+{{- $declared := mergeOverwrite (deepCopy (dig "sources" (dict) $base)) (dig "sources" (dict) $env) -}}
 {{- range $group, $spec := .Values.readingWorkers.groups -}}
 {{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" (toString $group)) -}}
 {{ fail (printf "readingWorkers.groups names %q: a group name is a DNS label, lower-case letters, digits and `-`, beginning and ending with a letter or digit, because it names the group's Service" (toString $group)) }}
@@ -289,8 +292,17 @@ and catalog are the chart's to refuse.
 {{- end -}}
 {{- if $.Values.networkPolicy.enabled -}}
 {{- $egress := dig "egress" (list) $spec -}}
-{{- if not (and (kindIs "slice" $egress) (gt (len $egress) 0)) -}}
-{{ fail (printf "readingWorkers.groups.%s declares no egress while networkPolicy.enabled is set: the group's policy admits DNS and the addresses it lists, so a group listing none could read no source - list each source's address and port in readingWorkers.groups.%s.egress as {cidr, port}" $group $group) }}
+{{- $sources := dig "sources" (list) $spec -}}
+{{- $networkSource := false -}}
+{{- range $sources -}}
+{{- $source := get $declared (toString .) | default dict -}}
+{{- $kind := lower (toString (dig "kind" "" $source)) -}}
+{{- if not (has $kind (list "files" "duckdb")) -}}
+{{- $networkSource = true -}}
+{{- end -}}
+{{- end -}}
+{{- if and $networkSource (not (and (kindIs "slice" $egress) (gt (len $egress) 0))) -}}
+{{ fail (printf "readingWorkers.groups.%s reads a network-backed source and declares no egress while networkPolicy.enabled is set: list each source's address and port in readingWorkers.groups.%s.egress as {cidr, port}" $group $group) }}
 {{- end -}}
 {{- range $egress -}}
 {{- if not (and (kindIs "map" .) (kindIs "string" (dig "cidr" nil .)) (regexMatch "^[0-9a-fA-F:.]+/[0-9]{1,3}$" (dig "cidr" "" .))) -}}

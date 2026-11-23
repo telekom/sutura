@@ -1,5 +1,5 @@
 # A reading worker group that declares no `egress` while `networkPolicy.enabled` is set: its policy
-# admits DNS and the listed addresses only, so the group could read no source.
+# admits DNS and the listed addresses only, so the group could not reach its network-backed source.
 environment: production
 security:
   metricsToken:
@@ -33,7 +33,13 @@ config:
         algorithms: [RS256]
     sources:
       orders:
-        kind: files
-        data_dir: /srv/sutura/orders
+        kind: postgres
+        host: orders.db.example.com
+        port: 5432
+        database: orders
+        user: sutura
+        password_file: /srv/sutura/password
+        transport_mode: verified
+        transport_anchors: system
         posture: shared-service-user
         acknowledged_because: "a directory this deployment owns"

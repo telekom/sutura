@@ -168,10 +168,11 @@ readingWorkers:
   #   catalogs:           The catalog list the group certifies a leg against, as `catalogs` in
   #                       `config.base`. At least one.
   #   resources:          CPU and memory limits and requests for each pod.
-  #   egress:             Where the group's pods may connect, as `{cidr, port}` entries - each source's
-  #                       own address and port. Required when `networkPolicy.enabled` is set: the group's
-  #                       policy admits those entries, DNS and this release's nodes. A zero-length
-  #                       prefix is refused. Choose ranges narrow enough for the source.
+  #   egress:             Where the group's pods may connect, as `{cidr, port}` entries - each network
+  #                       source's own address and port. Required for network-backed sources when
+  #                       `networkPolicy.enabled` is set. Local `files` and `duckdb` sources need no
+  #                       destination. The policy admits these entries, DNS and this release's nodes.
+  #                       A zero-length prefix is refused. Choose ranges narrow enough for the source.
   #   extraVolumes,
   #   extraVolumeMounts:  What the group's sources read, such as a credential Secret. The release's
   #                       own `extraVolumes`, `extraVolumeMounts` and `extraEnv` never reach a group.
