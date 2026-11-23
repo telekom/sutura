@@ -46,6 +46,22 @@ pub(crate) fn checked_bounds(
     default_bounds(row_cap, byte_cap)
 }
 
+/// The check [`checked_bounds`] makes for a dictionary's single predicate, generalised to a mapped
+/// description source's predicate list: every predicate's column must be a safe identifier before
+/// any SQL text exists.
+pub(crate) fn checked_mapping_bounds<'a>(
+    columns: impl Iterator<Item = &'a str>,
+    row_cap: Option<NonZeroU64>,
+    byte_cap: Option<NonZeroU64>,
+) -> Result<DictionaryBounds, InvalidReaderConfig> {
+    for column in columns {
+        if !identifier(column) {
+            return Err(InvalidReaderConfig::PredicateColumn);
+        }
+    }
+    default_bounds(row_cap, byte_cap)
+}
+
 pub(crate) fn default_bounds(
     row_cap: Option<NonZeroU64>,
     byte_cap: Option<NonZeroU64>,
