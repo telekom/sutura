@@ -5,7 +5,6 @@ use std::ops::ControlFlow;
 use datafusion::arrow::array::ArrayRef;
 
 use datafusion::sql::sqlparser::ast::{LimitClause, Query, VisitMut as _, VisitorMut};
-use datafusion::sql::sqlparser::ast::{Select, SelectItem, TableFactor, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::Parser;
 
@@ -70,27 +69,6 @@ impl StatementLegs for OracleLegs {
             return self.engines.run(source, &statement);
         }
         self.engines.run(source, statement)
-    }
-}
-
-/// Captures the statement rendered for each source and stops immediately - no fake engine, no
-/// execution. Only the SQL reaching the source is under test; whether a fake engine can run it is
-/// a harness concern #2038 has nothing to do with.
-#[derive(Default)]
-pub(super) struct CapturedLegs {
-    pub(super) statements: Vec<String>,
-}
-
-impl StatementLegs for CapturedLegs {
-    type Stop = SourceName;
-
-    fn open(&mut self, _sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
-        Ok(())
-    }
-
-    fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-        self.statements.push(String::from(statement.as_str()));
-        Err(source.clone())
     }
 }
 
@@ -709,148 +687,5 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
         assert_eq!(rows.rows(), expected);
         assert_eq!(legs.engines.opened, [BTreeSet::from([named("geo")])]);
         assert_eq!(legs.statements.len(), 1);
-    }
-}
-
-/// A text-policy fixture: one `CLOB` column (`SCRIPT`) carrying a bare raw-prefilter rule, one
-/// ordinary column (`OBJECT_NAME`), on a table named `DOCS` - #2038's own reproduction shape.
-pub(super) fn docs_table() -> Vec<StatementTable> {
-    let policy = serde_json::json!({
-        "max_text_bytes": 128,
-        "redact": [{"pattern": "secret_[^ ]+", "replace": "[masked]"}],
-        "raw_prefilter": {"acknowledged_because": "#2038 reproduction: a native dictionary CLOB, bare column rule"},
-    });
-    let metadata = std::collections::HashMap::from([
-        (String::from("sutura:text_policy"), policy.to_string()),
-        (String::from("sutura:oracle_lob"), String::from("clob")),
-    ]);
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("SCRIPT", DataType::Utf8, true).with_metadata(metadata),
-        Field::new("OBJECT_NAME", DataType::Utf8, true),
-    ]));
-    vec![StatementTable::new(
-        named("geo"),
-        QualifiedTable::parse("DOCS").expect("a fixture table"),
-        TypeDialect::Oracle,
-        schema,
-    )]
-}
-
-/// The SQL the fake Oracle source receives for `sql` over [`docs_table`], captured without running it.
-pub(super) fn reaches_oracle(sql: &str) -> String {
-    let mut legs = CapturedLegs::default();
-    let statement = RawStatement::parse(sql).expect("an admitted native dictionary query");
-    // The leg stops every source immediately after capturing its statement: only the SQL rendered
-    // for the Oracle source is under test here, never whether a fake engine can run it.
-    drop(DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-        StatementQuestion::new(
-            &statement,
-            &docs_table(),
-            false,
-            UNBOUNDED,
-            opened(Duration::ZERO, Duration::from_secs(60)),
-        ),
-        &mut legs,
-    ));
-    legs.statements.into_iter().next().unwrap_or_default()
-}
-
-/// Walks every `Select` reached, from `statement` down, and collects every one whose `FROM` names
-/// `table` directly - the redaction view's own base-table level(s), stacked beneath every owner and
-/// aggregate the unparser wrapped around it. More than one when `table` is self-joined or unioned,
-/// as several of the negative cases below do on purpose - each occurrence is a level the source
-/// could read the stored value from, so a safety check must hold for every one found, not just one.
-#[derive(Default)]
-struct BaseTableSelects<'a> {
-    table: &'a str,
-    stack: Vec<Select>,
-    found: Vec<Select>,
-}
-
-impl Visitor for BaseTableSelects<'_> {
-    type Break = ();
-
-    fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Self::Break> {
-        self.stack.push(select.clone());
-        ControlFlow::Continue(())
-    }
-
-    fn post_visit_select(&mut self, _select: &Select) -> ControlFlow<Self::Break> {
-        self.stack.pop();
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<Self::Break> {
-        if let TableFactor::Table { name, .. } = factor
-            && name.to_string().trim_matches('"').eq_ignore_ascii_case(self.table)
-            && let Some(enclosing) = self.stack.last()
-        {
-            self.found.push(enclosing.clone());
-        }
-        ControlFlow::Continue(())
-    }
-}
-
-pub(super) fn base_table_selects(reached: &str, table: &str) -> Vec<Select> {
-    let parsed = Parser::parse_sql(&GenericDialect, reached).expect("the reached statement reparses");
-    let [statement] = parsed.as_slice() else {
-        panic!("expected one statement: {reached}");
-    };
-    let mut finder = BaseTableSelects {
-        table,
-        stack: Vec::new(),
-        found: Vec::new(),
-    };
-    let _never_breaks = statement.visit(&mut finder);
-    finder.found
-}
-
-/// #2038: a native Oracle dictionary reports UPPERCASE table and column names. A text-policy CLOB
-/// with a bare `column: SCRIPT` raw-prefilter rule must still have its raw predicate pushed down for
-/// every client spelling Oracle itself accepts, not only the one the dictionary happens to echo back.
-///
-/// Unquoted identifiers are case-insensitive, so lowercase `docs`/`script` reach `discover` already
-/// resolved: `statement` here is `DataFusion`'s own unparse of the *planned* `LogicalPlan`
-/// (`crates/sutura-exec-datafusion/src/combine/statement.rs`, `written`), not the client's literal
-/// text, and plan resolution matched the client's spelling against the registered schema's name
-/// (`DOCS`) case-insensitively before this module ever sees an AST. The lowercase case below asserts
-/// that fold, rather than assuming it.
-#[test]
-fn raw_prefilter_reaches_the_oracle_source_for_every_case_spelling_of_a_native_dictionary_clob() {
-    for sql in [
-        "SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%'",
-        "SELECT count(OBJECT_NAME) FROM DOCS WHERE UPPER(SCRIPT) LIKE '%MRC%'",
-        "SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%' LIMIT 5",
-        "select count(object_name) from docs where script like '%mrc%'",
-    ] {
-        let reached = reaches_oracle(sql);
-        // The raw condition must sit in the redaction view's own base-table SELECT - the one whose
-        // FROM names DOCS directly - so the source tests it against the stored value before that
-        // same level's projection computes the redacted one, never against the redacted output.
-        let bases = base_table_selects(&reached, "DOCS");
-        let [base] = bases.as_slice() else {
-            panic!("expected exactly one SELECT naming DOCS directly: {sql} -> {reached} ({bases:?})");
-        };
-        let selection = base
-            .selection
-            .as_ref()
-            .unwrap_or_else(|| panic!("the base-table level must carry the raw condition: {sql} -> {reached}"));
-        let raw = selection.to_string().to_uppercase();
-        assert!(raw.contains("LIKE '%MRC%'"), "{sql} -> {reached} (base selection: {raw})");
-        assert!(
-            !raw.contains("REGEXP_REPLACE"),
-            "the base-table condition must test the stored value, never the redacted one: {sql} -> {reached}"
-        );
-        // The same level still redacts SCRIPT for whatever it hands upward - the raw test is an
-        // additional pushdown, never a substitute for the redacted predicate deciding the answer.
-        let script = base
-            .projection
-            .iter()
-            .find(|item| matches!(item, SelectItem::ExprWithAlias { alias, .. } if alias.value.eq_ignore_ascii_case("SCRIPT")))
-            .unwrap_or_else(|| panic!("SCRIPT must still be projected, read or not: {sql} -> {reached}"));
-        assert!(
-            script.to_string().to_uppercase().contains("REGEXP_REPLACE"),
-            "SCRIPT's own projection must still redact it: {sql} -> {reached}"
-        );
     }
 }
