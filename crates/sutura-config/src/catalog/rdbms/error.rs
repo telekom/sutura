@@ -17,6 +17,8 @@ pub enum InvalidRdbmsCatalog {
         #[source]
         cause: InvalidDescriptionSource,
     },
+    #[error("relationship on_missing_endpoint must be one of refuse, omit")]
+    DefaultOnMissingEndpoint,
     #[error("invalid column text policy: {cause}")]
     TextPolicy {
         cause: sutura_domain::catalog::InvalidTextPolicy,

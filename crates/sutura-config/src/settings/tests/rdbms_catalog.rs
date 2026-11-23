@@ -624,3 +624,15 @@ fn an_unknown_catalog_level_on_missing_endpoint_value_is_refused() {
         "relationship on_missing_endpoint must be one of refuse, omit",
     );
 }
+
+/// `on_missing_endpoint` is an rdbms-only key like `relationships_view`; a non-rdbms catalog
+/// setting it must be refused the same way, not silently accepted because the raw shape knows the
+/// key and `deny_unknown_fields` cannot see past that (`refuse_rdbms_keys` in `settings/catalogs.rs`).
+#[test]
+fn an_on_missing_endpoint_key_on_another_kind_is_refused() {
+    let chain = refusal(&overlay("markdown", &["on_missing_endpoint: omit"], None));
+    assert_names(
+        &chain,
+        "`catalogs.dict.on_missing_endpoint` is read only when `kind` is `rdbms`",
+    );
+}

@@ -120,11 +120,7 @@ impl RdbmsSettings {
         let relationships_on_missing_endpoint = raw
             .on_missing_endpoint
             .as_deref()
-            .map(|written| {
-                MissingEndpointPolicy::parse(written).ok_or(InvalidRdbmsCatalog::Relationship {
-                    cause: InvalidRelationship::MissingEndpointPolicy,
-                })
-            })
+            .map(|written| MissingEndpointPolicy::parse(written).ok_or(InvalidRdbmsCatalog::DefaultOnMissingEndpoint))
             .transpose()?
             .unwrap_or_default();
         let dictionary_schema = raw

@@ -295,12 +295,25 @@ mod view_missing_endpoint_tests {
     }
 
     #[test]
-    fn a_view_row_whose_target_table_is_hidden_refuses_the_load_by_default() {
+    fn a_view_row_whose_target_table_is_hidden_refuses_the_load_under_refuse() {
         let mut constraints = Constraints::default();
         constraints.push(declared_row("apps")).unwrap();
         let mut dictionary = dictionary_with_events_only();
         assert!(matches!(
             constraints.apply(&mut dictionary, MissingEndpointPolicy::Refuse),
+            Err(RdbmsError::Declaration { .. })
+        ));
+    }
+
+    /// `MissingEndpointPolicy`'s own `#[default]` - never a caller passing `Refuse` explicitly - is
+    /// what an existing deployment with no opinion on the key actually gets.
+    #[test]
+    fn missing_endpoint_policys_own_default_is_refuse() {
+        let mut constraints = Constraints::default();
+        constraints.push(declared_row("apps")).unwrap();
+        let mut dictionary = dictionary_with_events_only();
+        assert!(matches!(
+            constraints.apply(&mut dictionary, MissingEndpointPolicy::default()),
             Err(RdbmsError::Declaration { .. })
         ));
     }

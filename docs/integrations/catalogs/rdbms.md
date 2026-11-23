@@ -300,9 +300,9 @@ An endpoint absent or excluded from the reading identity's dictionary instead fo
 `on_missing_endpoint` key of its own follows the catalog's own `on_missing_endpoint` key (also
 default `refuse`), so a deployment can opt every declaration into `omit` at once instead of naming
 it per relationship. `on_missing_endpoint: omit` (per relationship, or inherited from the catalog)
-drops that one declaration with a `WARN` log instead of refusing the whole catalog - the same
-omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
-never joins, and `describe_catalog` never lists it. A misspelled table name in a visible schema
+drops that one declaration with a `WARN` log instead of refusing the whole catalog. An omitted
+relationship discloses nothing beyond what the dictionary selection already excluded: it never
+joins, and `describe_catalog` never lists it. A misspelled table name in a visible schema
 cannot be told apart from a hidden table under `shared-service-user` - either way the selected
 dictionary simply has no such table - so under `omit` a typo there is silently dropped with the
 same `WARN` log as a real missing grant, never refused. A misspelled *column* on a table the
@@ -342,8 +342,11 @@ Configuration declarations can also be used with documentation catalogs. A view 
 of its own to opt one row out, so it always follows the **catalog's** `on_missing_endpoint` key
 (default `refuse`, unchanged): an endpoint absent or excluded from the reading identity's
 dictionary either refuses the whole load (`refuse`) or is dropped with the same `WARN` log a
-configuration declaration gets (`omit`), naming the relationship and the missing endpoint. A
-misspelled column on a visible table is still refused either way, same as configuration.
+configuration declaration gets (`omit`), naming the relationship and the missing endpoint. Those
+names come from the documentation view's own rows - data the service user already reads, not from
+operator configuration - and base's `refuse` error already carried the same names; only operators
+see the log. A misspelled column on a visible table is still refused either way, same as
+configuration.
 
 ```yaml
 catalogs:
