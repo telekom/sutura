@@ -214,9 +214,12 @@ pub(crate) fn run() -> Result<(), String> {
     #[cfg(not(feature = "flight"))]
     not_linked::flight_refused_if_enabled(&settings)?;
 
+    // Bound HERE, synchronously and before anything else - see `nodes::bind_server_socket` for why.
+    let (listener, bound_port) = nodes::bind_server_socket(&settings)?;
+
     // Before any adapter opens, so an unusable node identity, or nodes declared on a build that
     // cannot reach them, is refused before the process does anything else.
-    let (combiner, worker) = nodes::combiner(settings.server().tls(), settings.runtime())?;
+    let (combiner, worker) = nodes::combiner(settings.server().tls(), settings.runtime(), bound_port)?;
     #[cfg(feature = "distributed")]
     let combiner = combiner.row_ceiling(settings.federated_row_ceiling());
 
@@ -458,7 +461,7 @@ pub(crate) fn run() -> Result<(), String> {
     );
 
     // 7. The router, then the runtime, then serving. In that order: see the note on this function.
-    let address = settings.server().bind().socket();
+    // The listener itself was already bound, above - see that comment for why.
     // Read out before the settings are moved into the state. The first two are about the LISTENER
     // rather than about a request, and the third is about stopping, so this is the last place any of
     // them is looked at.
@@ -523,7 +526,7 @@ pub(crate) fn run() -> Result<(), String> {
     let stopping = Shutdown::with_grace(grace);
     let served = runtime.block_on(serve_until_stopped(
         router,
-        address,
+        listener,
         material,
         watching,
         stopping.clone(),
@@ -648,7 +651,7 @@ fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
 /// first place one is running.
 async fn serve_until_stopped(
     router: axum::Router,
-    address: std::net::SocketAddr,
+    listener: std::net::TcpListener,
     material: Option<TlsMaterial>,
     inbound: Option<Arc<sutura_http::InboundGate>>,
     stopping: Shutdown,
@@ -671,7 +674,7 @@ async fn serve_until_stopped(
     if let Some(gate) = inbound {
         gate.watch_keys_until_shutdown(&stopping);
     }
-    serve_as_configured(router, address, stopping, material).await
+    serve_as_configured(router, listener, stopping, material).await
 }
 
 /// Serves plaintext, or terminates TLS here, according to what was configured.
@@ -690,15 +693,16 @@ async fn serve_until_stopped(
 #[cfg(feature = "tls")]
 async fn serve_as_configured(
     router: axum::Router,
-    address: std::net::SocketAddr,
+    listener: std::net::TcpListener,
     stopping: Shutdown,
     material: Option<TlsMaterial>,
 ) -> Result<(), String> {
+    let listener = nodes::tokio_listener(listener)?;
     match material.as_ref() {
-        Some(material) => sutura_http::serve_tls(router, address, stopping, material)
+        Some(material) => sutura_http::serve_tls_on(listener, router, stopping, material)
             .await
             .map_err(flatten),
-        None => sutura_http::serve(router, address, stopping).await.map_err(flatten),
+        None => sutura_http::serve_on(listener, router, stopping).await.map_err(flatten),
     }
 }
 
@@ -706,7 +710,7 @@ async fn serve_as_configured(
 #[cfg(not(feature = "tls"))]
 async fn serve_as_configured(
     router: axum::Router,
-    address: std::net::SocketAddr,
+    listener: std::net::TcpListener,
     stopping: Shutdown,
     material: Option<TlsMaterial>,
 ) -> Result<(), String> {
@@ -718,7 +722,9 @@ async fn serve_as_configured(
              plaintext on a port that was configured to be encrypted",
         ));
     }
-    sutura_http::serve(router, address, stopping).await.map_err(flatten)
+    sutura_http::serve_on(nodes::tokio_listener(listener)?, router, stopping)
+        .await
+        .map_err(flatten)
 }
 
 /// The adapter(s) this process opened its sources with, and everything the next step needs from

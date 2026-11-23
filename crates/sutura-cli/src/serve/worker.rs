@@ -71,7 +71,11 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
     } else {
         tracing::info!("serving as a worker: no catalog or source opened, no /v1, /mcp or Flight");
     }
+    // Bound synchronously, before the runtime, for the same reason the serving root's is: no node
+    // reads a worker's own address back out of `server.nodes` (`server.nodes` is not read here), so
+    // this is only about matching `serve_as_configured`'s one signature, not about resolving `own`.
     let address = settings.server().bind().socket();
+    let listener = std::net::TcpListener::bind(address).map_err(|cause| format!("could not listen on {address}: {cause}"))?;
     let material = settings.server().tls().cloned();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -80,7 +84,7 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
     let stopping = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
     let served = runtime.block_on(async {
         drop(tokio::spawn(shutdown::listen(stopping.clone())));
-        super::serve_as_configured(router, address, stopping.clone(), material).await
+        super::serve_as_configured(router, listener, stopping.clone(), material).await
     });
     super::stop(runtime, &stopping);
     served

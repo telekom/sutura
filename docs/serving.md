@@ -501,6 +501,11 @@ server:
 this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
 node serves its worker on the same listener, to clients whose certificate the authority signed.
 
+`own`'s port may be the literal `0`, the same shorthand `server.port: 0` already is for the listener itself: the
+process resolves it to the port it actually bound, before planning across the declared nodes, so a restart does not
+need a port picked in advance. Any other port, including the scheme's default when none is written, is read exactly
+as declared.
+
 Each peer under `others` names its `role` (`worker` or `reading-worker`, never `serving`) and, for a `reading-worker`,
 the source aliases it reads - a `worker` naming any is refused, and a `reading-worker` naming none is. Every address is
 a bare origin, or one with a `#<ip>` fragment naming the address to dial it at: a path, query, userinfo or any other

@@ -31,14 +31,80 @@ pub(super) type Served = ();
 /// The combiner `run` serves through, and what it mounts beside the other transports.
 pub(super) type Chosen = (DataFusionCombiner, Served);
 
+/// This node's declared `own` address, with a literal port `0` resolved to `bound_port` - the port
+/// this process actually bound its listener to.
+///
+/// `own` is read by every OTHER node that reaches this one (`Nodes::declared`'s `own_url`, where
+/// `sutura-exec-datafusion`'s combine serves this node's stage output), so it has to name a real,
+/// dialable port. A literal `0` cannot be dialled, so a deployment writing it is declaring "whatever
+/// this process binds" - the same shorthand `server.port: 0` already is for the listener itself -
+/// rather than a port chosen in advance.
+///
+/// Any other value, including the absence of a port (the scheme's default), is a deployment's own
+/// explicit claim about where it is reachable and is left untouched: this process opens exactly one
+/// listener, so a literal `0` is the only spelling that could mean "it", and there is nothing else
+/// for it to ambiguously mean - no second listener, no second bound port, to choose between.
+#[cfg(feature = "distributed")]
+pub(super) fn resolve_own(own: &url::Url, bound_port: u16) -> url::Url {
+    if own.port() != Some(0) {
+        return own.clone();
+    }
+    let mut resolved = own.clone();
+    // `own` is `with_nodes`-validated as an https URL with a host, so it always accepts a port;
+    // a URL `set_port` refuses (`cannot-be-a-base`) is not a shape this type can hold here.
+    if resolved.set_port(Some(bound_port)).is_err() {
+        return own.clone();
+    }
+    resolved
+}
+
+/// What [`bind_server_socket`] hands back: the listener, and the port it actually bound.
+pub(super) type BoundSocket = (std::net::TcpListener, u16);
+
+/// Binds `settings.server().bind()`, synchronously and before anything else - rather than where
+/// `serve_as_configured` used to bind it - and reads the port actually bound back.
+///
+/// A declared node's own address can name port `0` for "whatever this process binds", and that has
+/// to be a real, dialable port before [`combiner`] builds the worker other nodes reach it through:
+/// guessing it in advance (a probe socket bound, read and dropped) is exactly the TOCTOU a
+/// concurrent process can win first. No runtime is entered yet (`run`'s own doc comment says why
+/// that order matters), and `std::net::TcpListener` needs none; `tokio_listener` adopts it into the
+/// async runtime later, right before serving.
+pub(super) fn bind_server_socket(settings: &sutura_config::Settings) -> Result<BoundSocket, String> {
+    let bind_address = settings.server().bind().socket();
+    let listener =
+        std::net::TcpListener::bind(bind_address).map_err(|cause| format!("could not listen on {bind_address}: {cause}"))?;
+    let bound_port = listener
+        .local_addr()
+        .map_err(|cause| format!("could not read back the address bound at {bind_address}: {cause}"))?
+        .port();
+    Ok((listener, bound_port))
+}
+
+/// Hands the listener `run` already bound - synchronously, before the runtime existed - to the
+/// runtime now driving it.
+///
+/// Binding happens before [`combiner`] so a declared node's own address of port `0` can be
+/// resolved to the port actually bound; converting it into this runtime's listener has to wait
+/// until the runtime exists, which is inside `serve_until_stopped`'s `block_on`.
+pub(super) fn tokio_listener(listener: std::net::TcpListener) -> Result<tokio::net::TcpListener, String> {
+    listener
+        .set_nonblocking(true)
+        .map_err(|cause| format!("the bound listener could not be set non-blocking: {cause}"))?;
+    tokio::net::TcpListener::from_std(listener).map_err(|cause| format!("the bound listener could not be adopted: {cause}"))
+}
+
 /// The combiner, and the worker the listener serves when it plans across declared nodes.
+///
+/// `bound_port` is the port this process's own listener was already bound to - see
+/// [`resolve_own`] for what it is used for.
 ///
 /// # Errors
 ///
 /// A pair or an authority that cannot be read or does not make a node's identity. Declared nodes
 /// never fall back to a combine on one node.
 #[cfg(feature = "distributed")]
-pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Result<Chosen, String> {
+pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings, bound_port: u16) -> Result<Chosen, String> {
     use sutura_exec_datafusion::Nodes;
 
     let Some((tls, nodes)) = tls.and_then(|tls| tls.nodes().map(|nodes| (tls, nodes))) else {
@@ -53,7 +119,7 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
         .map(|seconds| core::time::Duration::from_secs(core::num::NonZeroU64::from(seconds).get()));
     let across = Nodes::declared(
         own,
-        nodes.own().clone(),
+        resolve_own(nodes.own(), bound_port),
         nodes.others().iter().map(|node| node.url().clone()),
         identity,
     )
@@ -80,7 +146,7 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
 
 /// The same, on a build that cannot plan across nodes: declared ones are refused.
 #[cfg(not(feature = "distributed"))]
-pub(super) fn combiner(tls: Option<&TlsMaterial>, _runtime: RuntimeSettings) -> Result<Chosen, String> {
+pub(super) fn combiner(tls: Option<&TlsMaterial>, _runtime: RuntimeSettings, _bound_port: u16) -> Result<Chosen, String> {
     super::not_linked::nodes_refused_if_declared(tls)?;
     Ok((crate::catalog::one_node_combiner()?, ()))
 }
@@ -167,4 +233,33 @@ pub(super) fn mounted(state: ServiceState, worker: Served) -> ServiceState {
 #[cfg(not(feature = "distributed"))]
 pub(super) const fn mounted(state: ServiceState, (): Served) -> ServiceState {
     state
+}
+
+#[cfg(feature = "distributed")]
+#[cfg(test)]
+mod resolve_own_tests {
+    use url::Url;
+
+    use super::resolve_own;
+
+    fn url(text: &str) -> Url {
+        Url::parse(text).unwrap_or_else(|cause| panic!("{text} is a test URL: {cause}"))
+    }
+
+    #[test]
+    fn a_literal_zero_port_resolves_to_the_bound_port() {
+        assert_eq!(resolve_own(&url("https://127.0.0.1:0"), 54321).port(), Some(54321));
+    }
+
+    #[test]
+    fn an_explicit_nonzero_port_is_left_untouched() {
+        let own = url("https://node-a.example.com:8443");
+        assert_eq!(resolve_own(&own, 54321), own);
+    }
+
+    #[test]
+    fn the_scheme_default_port_is_left_untouched() {
+        let own = url("https://node-a.example.com");
+        assert_eq!(resolve_own(&own, 54321), own);
+    }
 }

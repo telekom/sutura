@@ -111,12 +111,21 @@ pub enum ServeFailed {
 
 /// Binds `address`, serves `router`, and returns when the shutdown has drained or the deadline
 /// expired.
-///
-/// The bound address is read back from the socket rather than assumed, so a port of zero - a test
-/// asking the kernel to choose - is reported as the port it actually got.
 pub async fn serve(router: Router, address: SocketAddr, shutdown: Shutdown) -> Result<(), ServeFailed> {
-    let listener = bind(address).await?;
-    tracing::info!(bound = %local(&listener, address)?, tls = false, "listening");
+    serve_on(bind(address).await?, router, shutdown).await
+}
+
+/// The same, over a socket the caller already bound.
+///
+/// This is what a caller that must learn the real port BEFORE building anything that names it -
+/// `server.port: 0`, and a declared node's own address that defers to whatever that resolves to -
+/// reaches for instead of [`serve`]: it binds first, reads the port back, and only then hands the
+/// already-bound listener here.
+///
+/// The bound address is read back from the socket rather than assumed, so a port of zero - a
+/// caller asking the kernel to choose - is reported as the port it actually got.
+pub async fn serve_on(listener: tokio::net::TcpListener, router: Router, shutdown: Shutdown) -> Result<(), ServeFailed> {
+    tracing::info!(bound = %local(&listener)?, tls = false, "listening");
     run(listener, router, shutdown).await
 }
 
@@ -134,12 +143,22 @@ pub async fn serve_tls(
     shutdown: Shutdown,
     material: &sutura_config::TlsMaterial,
 ) -> Result<(), ServeFailed> {
+    serve_tls_on(bind(address).await?, router, shutdown, material).await
+}
+
+/// The same, over a socket the caller already bound - see [`serve_on`] for why that matters.
+#[cfg(feature = "tls")]
+pub async fn serve_tls_on(
+    listener: tokio::net::TcpListener,
+    router: Router,
+    shutdown: Shutdown,
+    material: &sutura_config::TlsMaterial,
+) -> Result<(), ServeFailed> {
     let termination = crate::tls::Termination::prepare(material).map_err(|cause| ServeFailed::Tls { cause })?;
     let (config, renewal) = termination.into_parts();
-    let listener = bind(address).await?;
-    let bound = local(&listener, address)?;
+    let bound = local(&listener)?;
     let listener = crate::tls::TlsListener::wrap(listener, config).map_err(|cause| ServeFailed::Bind {
-        address: address.to_string(),
+        address: bound.to_string(),
         cause,
     })?;
     renewal.watch_until_shutdown(crate::tls::RENEWAL_INTERVAL, shutdown.clone());
@@ -159,11 +178,11 @@ async fn bind(address: SocketAddr) -> Result<tokio::net::TcpListener, ServeFaile
 
 /// The address actually bound.
 ///
-/// Read back from the socket rather than assumed, so a port of zero - a test asking the kernel to
+/// Read back from the socket rather than assumed, so a port of zero - a caller asking the kernel to
 /// choose - is reported as the port it got.
-fn local(listener: &tokio::net::TcpListener, requested: SocketAddr) -> Result<SocketAddr, ServeFailed> {
+fn local(listener: &tokio::net::TcpListener) -> Result<SocketAddr, ServeFailed> {
     listener.local_addr().map_err(|cause| ServeFailed::Bind {
-        address: requested.to_string(),
+        address: String::from("<socket already bound by the caller>"),
         cause,
     })
 }
