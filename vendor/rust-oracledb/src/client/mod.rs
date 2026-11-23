@@ -244,12 +244,22 @@ impl Client {
     /// Called when a timeout occurs and attempts to recover from it by sending
     /// an interrupt to the server and waiting for its response. If any error
     /// occurs during the recovery process, the connection is deemed unusable
-    /// and the connection closed and an error returned.
+    /// and the connection closed - but the error returned is always the
+    /// timeout that triggered recovery, never the recovery attempt's own
+    /// failure: a caller checking `is_call_timeout_exceeded()` must see the
+    /// same answer whether or not the interrupt/reset handshake itself
+    /// succeeded, since the handshake commonly fails for the same reason the
+    /// original call did (the peer that already timed out the call is often
+    /// the one that then fails to answer the interrupt too).
     fn recover_from_error(&mut self, err: Error) -> Result<Packet, Error> {
-        self.send_marker(constants::MARKER_TYPE_INTERRUPT)
+        if self
+            .send_marker(constants::MARKER_TYPE_INTERRUPT)
             .and_then(|_| self.reset(false))
-            .map_err(|_| self.unrecoverable_error())
-            .and_then(|_| Err(err))
+            .is_err()
+        {
+            let _ = self.transport.close();
+        }
+        Err(err)
     }
 
     /// Resets the transport after an error has taken place. All packets
@@ -1182,5 +1192,34 @@ impl Client {
         } else {
             self.caps.supports_ttc_field_version(version)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A failed interrupt/reset recovery must not replace the timeout that
+    /// triggered it with `UnableToRecover` - an unconnected client's own
+    /// recovery attempt fails the same way a peer that already timed out the
+    /// original call commonly does, so this drives the real failure path
+    /// without a live socket.
+    #[test]
+    fn recovery_failure_keeps_the_timeout_kind() {
+        let mut client = Client::with_ttc_field_version(0);
+        let timeout = Error::from(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "idle socket",
+        ));
+        assert!(timeout.is_call_timeout_exceeded());
+
+        let err = match client.recover_from_error(timeout) {
+            Ok(_) => panic!("an unconnected client cannot recover"),
+            Err(err) => err,
+        };
+        assert!(
+            err.is_call_timeout_exceeded(),
+            "recovery failure must surface the original timeout, not UnableToRecover: {err}"
+        );
     }
 }
