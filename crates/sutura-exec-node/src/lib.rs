@@ -205,14 +205,22 @@ impl Warehouse for NodeWarehouse {
         )
     }
 
-    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        if let NodeError::Result { cause } = error {
+            // Thresholds here come from local decoding, never peer-supplied figures.
+            return cause.result_limit();
+        }
         matches!(
-            *error,
-            NodeError::Result { .. }
-                | NodeError::Refused {
-                    code: RemoteCode::ResultTooLarge
-                }
+            error,
+            NodeError::Refused {
+                code: RemoteCode::ResultTooLarge
+            }
         )
+        .then_some(sutura_domain::warehouse::ResultLimit::Unknown)
+    }
+
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        self.result_limit(error).is_some()
     }
 
     fn leg_not_certified(&self, error: &Self::Error) -> bool {

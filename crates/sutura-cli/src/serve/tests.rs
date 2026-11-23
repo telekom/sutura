@@ -923,3 +923,58 @@ fn a_key_set_url_is_fetched_over_the_declared_outbound_anchors() {
     let gate = super::inbound_gate(&settings);
     assert!(gate.as_ref().is_ok_and(Option::is_some), "{:?}", gate.err());
 }
+
+#[cfg(feature = "postgres")]
+fn result_limit_warehouse() -> super::kind::AnyWarehouse {
+    use super::kind::AnyWarehouse;
+    use sutura_domain::identity::Secret;
+    use sutura_domain::model::SourceName;
+    use sutura_exec_postgres::adbc::{AdbcPostgres, Channel, Conninfo, PostgresDriver};
+    use sutura_exec_postgres::connection::ConnectionTarget;
+
+    let source = SourceName::parse("fixture").expect("fixture source");
+    let posture = sutura_domain::source::SourcePosture::SharedServiceUser {
+        declared: sutura_domain::source::SharedIdentityDeclared::of(
+            sutura_domain::source::AcknowledgementReason::parse("fixture shared source").expect("fixture reason"),
+        ),
+    };
+    let conninfo = Conninfo::new(
+        &source,
+        ConnectionTarget::Host("127.0.0.1"),
+        1,
+        "fixture",
+        "fixture",
+        &Secret::new("unused"),
+        Channel::Plaintext,
+    )
+    .expect("fixture connection");
+    let driver = PostgresDriver::parse("/nonexistent/libadbc_driver_postgresql.so").expect("absolute fixture path");
+    AnyWarehouse::Postgres(Box::new(
+        AdbcPostgres::new(source, posture, driver, conninfo).expect("adapter builds"),
+    ))
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn the_composed_warehouse_preserves_known_source_rows_and_materialization_bytes() {
+    use super::kind::AnyWarehouseError;
+    use sutura_domain::query::ResultBound;
+    use sutura_domain::warehouse::{UnannouncedBatch, Warehouse as _};
+    use sutura_exec_postgres::adbc::AdbcError;
+
+    let warehouse = result_limit_warehouse();
+    for (cause, expected) in [
+        (
+            UnannouncedBatch::OverBound { most: 17 },
+            serde_json::json!({"SourceRows": {"limit": 17}}),
+        ),
+        (
+            UnannouncedBatch::OverBudget { most_bytes: 31 },
+            serde_json::json!({"Materialization": {"limit_bytes": 31}}),
+        ),
+    ] {
+        let error = AnyWarehouseError::Postgres(AdbcError::Unannounced(cause).into());
+        let bound = warehouse.result_limit(&error).map(ResultBound::from).expect("a known limit");
+        assert_eq!(serde_json::to_value(bound).expect("bound serializes"), expected);
+    }
+}

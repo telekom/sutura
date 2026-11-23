@@ -4,7 +4,7 @@
 pub(crate) mod constraints;
 
 pub(crate) mod declared;
-pub use declared::{DeclarationError, DeclaredRelationship};
+pub use declared::{DeclarationError, DeclaredRelationship, MissingEndpointPolicy};
 
 use crate::{DictionaryReader, RdbmsCatalog, RdbmsError, TableAddress, exact_physical_identifier};
 use std::collections::{BTreeMap, BTreeSet};

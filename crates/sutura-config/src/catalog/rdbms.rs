@@ -24,11 +24,14 @@ use sutura_domain::catalog::{Audience, DictionarySelection};
 use sutura_domain::model::{ColumnName, SourceName};
 
 pub(crate) mod descriptions;
-pub use descriptions::{DescriptionMapping, DescriptionSource, InvalidDescriptionSource};
+pub use descriptions::{
+    DescriptionKeySource, DescriptionMapping, DescriptionPredicate, DescriptionSource, DescriptionVia, InvalidDescriptionSource,
+    PredicateTable,
+};
 mod relationships;
 mod selection;
 pub(crate) use relationships::RawRelationship;
-pub use relationships::{DeclaredRelationship, RelationshipEndpoint, UniquenessCheck};
+pub use relationships::{DeclaredRelationship, MissingEndpointPolicy, RelationshipEndpoint, UniquenessCheck};
 pub(crate) use selection::RawColumnRule;
 use selection::native_selection;
 
@@ -255,11 +258,15 @@ pub struct LiveRowPredicate {
 
 impl LiveRowPredicate {
     fn parse(raw: &RawLiveRowPredicate) -> Result<Self, InvalidRdbmsCatalog> {
-        let column = ColumnName::parse(&raw.column).map_err(|cause| InvalidRdbmsCatalog::PredicateColumn { cause })?;
-        let operator = PredicateOperator::parse(&raw.operator)?;
-        let value = match (operator, &raw.value) {
+        Self::parse_fields(&raw.column, &raw.operator, raw.value.as_deref())
+    }
+
+    pub(crate) fn parse_fields(column: &str, operator: &str, value: Option<&str>) -> Result<Self, InvalidRdbmsCatalog> {
+        let column = ColumnName::parse(column).map_err(|cause| InvalidRdbmsCatalog::PredicateColumn { cause })?;
+        let operator = PredicateOperator::parse(operator)?;
+        let value = match (operator, value) {
             (PredicateOperator::Equals, None) => return Err(InvalidRdbmsCatalog::PredicateValueMissing),
-            (PredicateOperator::Equals, Some(value)) => Some(value.clone()),
+            (PredicateOperator::Equals, Some(value)) => Some(value.to_owned()),
             (PredicateOperator::IsNull | PredicateOperator::IsNotNull, Some(_)) => {
                 return Err(InvalidRdbmsCatalog::PredicateValueUnexpected {
                     operator: operator.as_str(),

@@ -103,7 +103,7 @@ in the server (`crates/sutura-http/src/tls/authority.rs`), not in this chart.
 ## Reading workers
 
 `readingWorkers.groups` adds workers that read data sources themselves, so a lookup leg of a question can be read in partitions on the nodes that read its source.
-A group is a name and `sources`, `catalogs`, `replicas`, `resources`, `extraVolumes` and `extraVolumeMounts`.
+A group is a name and `sources`, `catalogs`, `replicas`, `resources`, `egress`, `extraVolumes` and `extraVolumeMounts`.
 Each group is a `Deployment` with `server.role: reading-worker`, a headless `Service` and a settings file, all named `<release>-reading-<group>`.
 The serving pod names every group under `server.nodes`, with the source aliases the group reads.
 A group needs `workerPool.enabled: true`: its certificate comes from `workerPool.issuer` and it ends TLS the way the workers do, so the same restrictions apply.
@@ -122,7 +122,8 @@ The chart refuses a render that the binary would refuse to start:
 
 - no `security.inbound.mode`: a lookup leg a reading worker reads is granted for a verified caller;
 - a group that names no source, or a source `sources` does not declare;
-- a group with no `catalogs`, a group name that is not a DNS label, and `readingWorkers.groups` without `workerPool.enabled`.
+- a group with no `catalogs`, a group name that is not a DNS label, and `readingWorkers.groups` without `workerPool.enabled`;
+- with `networkPolicy.enabled`, a group with a network-backed source or catalog and no `egress`, an `egress` entry that is not a `{cidr, port}` pair, a `port` with a fractional part, and a `cidr` with a zero-length prefix.
 
 Limits.
 The chart deploys the nodes and names them; what a served question reads on them is the binary's, and [Serving over HTTP](https://telekom.github.io/sutura/latest/serving/) states it for each release.
@@ -131,24 +132,33 @@ The chart cannot check that a source's connection settings are right or that a g
 A group's `catalogs` is written out for the group and is not checked against the serving pod's own catalog.
 The group keeps the release's `serviceAccount`, `nodeSelector`, `affinity` and `tolerations`.
 The group's mounted Secret is readable by every process in the group's pod, which is why the credentials of a source belong in the group that reads it and in no other.
-With `networkPolicy.enabled: true`, the reading workers accept their port from the serving pods, the combining workers and each other, as the workers do.
-The chart does not restrict their egress to a data source.
+With `networkPolicy.enabled: true`, each group gets its own policy.
+Its pods reach this release's nodes - the serving pods, the combining workers and every group's reading workers - on the service port, because a stage reads join inputs from other nodes, another group's readers included.
+They reach network-backed sources and catalogs only at the `egress` addresses the group declares, one `{cidr, port}` per endpoint, plus DNS. Local `files`, `duckdb`, `markdown`, `okf` and `datacontract` entries need no destination rule. Include each remote catalog endpoint in the group's `egress` list.
+The isolation between groups is therefore on egress to a source, not on the node links.
+The policy bounds the address and port. It does not check that a source's `host` resolves to a declared address, and it does not stop a pod reaching a declared address for another purpose.
+The chart checks the shape of each CIDR and refuses a zero-length prefix. Kubernetes validates the CIDR when it accepts the policy.
+Choose narrow ranges. Two `/1` blocks can cover every address, and groups with overlapping declarations can both reach a shared destination.
 
 ## Network policy
 
-`networkPolicy.enabled: true` adds `NetworkPolicy` objects for the serving, worker and operator
-pods (github.com/telekom/sutura#1680 finding 6): workers accept their port only from this
-release's serving pods, each other and the operator. The operator can reach this release's serving
-and worker pods on their service port, plus DNS and the Kubernetes API's common ports. Network policy
-permits a port rather than just `/metrics`; the metrics token authorizes scrapes and TLS verifies the node.
-Serving pods get an additive policy that keeps their port reachable even if
-the namespace later adds a default-deny policy.
+`networkPolicy.enabled: true` adds `NetworkPolicy` objects for the serving, worker, reading worker and
+operator pods (github.com/telekom/sutura#1680 finding 6). Workers accept their port from this
+release's nodes and the operator's scrapes. A combining worker connects only to this release's nodes
+on the service port and to DNS, so it reaches no data source (breaking: a combining worker had no
+egress limit before). Each reading worker group connects to the release's nodes, DNS and its declared
+`egress` addresses for network-backed sources and catalogs only. The operator's egress is limited to this release's pods, DNS and the
+Kubernetes API's common ports, and serving pods get an additive policy that keeps their port
+reachable even if the namespace later adds a default-deny policy.
+The metrics token authorizes scrapes and TLS verifies the node.
 **Off by default** - the chart cannot tell whether the cluster's CNI enforces `NetworkPolicy`, or
 whether something outside the chart's view (a service mesh, a cross-namespace ingress controller, a
 scrape target) already depends on reachability these rules would remove. Judge against the
-cluster's own network setup before turning it on; it does not restrict a serving pod's own egress,
-or a worker's egress to a data source or a sibling worker, because this chart cannot know a data
-source's address.
+cluster's own network setup before turning it on. It does not restrict a serving pod's own egress,
+because a serving pod reads the data sources and reaches an identity provider this chart cannot name.
+A reading worker that needs an address the chart cannot see, such as a Google API endpoint for a
+BigQuery source or a remote catalog, needs that address listed under its group's `egress`. The chart
+does not resolve endpoint hostnames against the declared ranges.
 
 ## Configure
 

@@ -78,7 +78,9 @@ use sutura_adbc_postgres::{AdbcError, Conninfo, PostgresDriver};
 use sutura_domain::catalog::Collation;
 use sutura_domain::warehouse::ParamValue;
 
-use crate::documentation::{Assembly, ReadQuery, Row as DocumentationRow, checked_bounds, default_bounds};
+use crate::documentation::{
+    Assembly, ReadQuery, Row as DocumentationRow, checked_bounds, checked_mapping_bounds, default_bounds,
+};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
 /// The documented default documentation schema, used when no `dictionary_schema` is configured.
@@ -226,7 +228,7 @@ impl PostgresReader {
         row_cap: Option<NonZeroU64>,
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
-        self.bounds = checked_bounds("descriptions", mapping.predicate(), row_cap, byte_cap)?;
+        self.bounds = checked_mapping_bounds(mapping.predicate_columns(), row_cap, byte_cap)?;
         self.query = ReadQuery::Descriptions(mapping);
         Ok(self)
     }
@@ -318,7 +320,7 @@ impl PostgresReader {
         }
         let mut dictionary = assembly.finish();
         let documented_declarations = constraints.apply(&mut dictionary)?;
-        let dictionary = self
+        let (dictionary, resolved_relationships) = self
             .query
             .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Postgres)?
             .apply_relationship_declarations(
@@ -326,12 +328,12 @@ impl PostgresReader {
                 sutura_domain::warehouse::schema::TypeDialect::Postgres,
                 self.query.unbounded_number(),
             )?;
-        let dictionary = dictionary.apply_relationship_declarations(
+        let (dictionary, _) = dictionary.apply_relationship_declarations(
             &documented_declarations,
             sutura_domain::warehouse::schema::TypeDialect::Postgres,
             self.query.unbounded_number(),
         )?;
-        for declaration in &self.relationships {
+        for declaration in &resolved_relationships {
             if let Some((sql, bounds)) = declaration.probe_statement(false).zip(declaration.check()) {
                 let mut probe = crate::relationships::declared::Probe::new(bounds);
                 let mut select = connection.new_statement().map_err(adbc)?;

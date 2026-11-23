@@ -3,7 +3,7 @@
 # The differential compares exact ordered answers with the same image/catalog/data on one roomy
 # node. IPv4 only, one KVM host, shared fixture identity; neither RSS nor human identity is proved.
 # Deletion cost is a preference with a read-to-delete race, even when this controlled run observes
-# the idle UID removed. Venue-only source policies know addresses the generic chart cannot know.
+# the idle UID removed. The chart owns worker egress. The fixture adds only serving-pod egress.
 { pkgs
 , chartHelm
 , ociImage
@@ -95,7 +95,6 @@ let
       ];
     }
   );
-
   sourceTls =
     dbHost:
     pkgs.runCommand "k3s-worker-pool-source-tls" { nativeBuildInputs = [ pkgs.openssl ]; } ''
@@ -117,21 +116,17 @@ let
     import json
     import os
     from pathlib import Path
-
     root = Path(os.environ["out"])
     (root / "data").mkdir(parents=True)
     (root / "catalog").mkdir()
     (root / "password").write_text("fixture-password")
-
     def document(name, value):
         (root / "catalog" / (name + ".md")).write_text(
             "---\n" + json.dumps(value) + "\n---\nDeterministic capacity fixture.\n"
         )
-
     document("declaration", dict(kind="declaration",
         definitions=["structure", "descriptions", "relationships", "cardinality",
                      "metrics", "grains", "allowed_values", "anchors", "column_types"], knowledge=[]))
-
     for size, fact_count in [("large", 32768), ("small", 8)]:
         fact, lookup, link = "fact_" + size, "lookup_" + size, "link_" + size
         lookup_segment, link_segment = "lookup_" + size + "_segment", "link_" + size + "_segment"
@@ -175,6 +170,7 @@ let
     PY
     cp ${sourceTls dbHost}/ca.pem "$out/postgres-ca.pem"
   '';
+  network = import ./k3s-worker-pool-network.nix { inherit pkgs chart chartHelm; };
   files = {
     kind = "files";
     data_dir = "/srv/sutura/data";
@@ -386,6 +382,7 @@ pkgs.testers.runNixOSTest {
       serviceConfig.ExecStart = "${pkgs.python3}/bin/python -m http.server 5433 --bind 0.0.0.0";
     };
   };
+  nodes.db2 = network.db2;
   nodes.machine = {
     imports = [ k3sNodeAddresses ];
     virtualisation = {
@@ -660,9 +657,12 @@ pkgs.testers.runNixOSTest {
             raw = raw.lstrip()[end:]
         return records
 
+    ${network.script { dbHost = nodes.db.networking.primaryIPAddress; dbTwoHost = nodes.db2.networking.primaryIPAddress; }}
+
     start_all()
     db.wait_for_unit("postgresql")
     db.wait_for_unit("source-control")
+    db2.wait_for_unit("source-two")
     machine.wait_for_unit("k3s")
     machine.wait_until_succeeds("kubectl get serviceaccount default", timeout=300)
     for host in HOSTS.values():
@@ -755,17 +755,15 @@ pkgs.testers.runNixOSTest {
                                                       "app.kubernetes.io/instance": "sutura"}}}
                      for name in ["sutura", "sutura-worker"]]
             links = {"to": peers, "ports": [{"port": 8080, "protocol": "TCP"}]}
-            for name, selector, rules in [
-                ("fixture-readers", {"fixture-reader": "true"}, [dns_rules, links,
-                    {"to": [{"ipBlock": {"cidr": SOURCE + "/32"}}], "ports": [{"port": 5432, "protocol": "TCP"}]}]),
-                ("fixture-workers", {"app.kubernetes.io/name": "sutura-worker", "app.kubernetes.io/instance": "sutura"}, [dns_rules, links]),
-            ]:
-                apply({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": name},
-                       "spec": {"podSelector": {"matchLabels": selector}, "policyTypes": ["Egress"], "egress": rules}})
+            apply({"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "fixture-readers"},
+                   "spec": {"podSelector": {"matchLabels": {"fixture-reader": "true"}}, "policyTypes": ["Egress"],
+                            "egress": [dns_rules, links,
+                                       {"to": [{"ipBlock": {"cidr": SOURCE + "/32"}}],
+                                        "ports": [{"port": 5432, "protocol": "TCP"}]}]}})
             assert tcp(serving, SOURCE, 5432)
             denied_with_control(serving, SOURCE, 5433, "fixture-readers")
             for port in [5432, 5433]:
-                denied_with_control(workers[0], SOURCE, port, "fixture-workers")
+                denied_with_control(workers[0], SOURCE, port, "sutura-workers-egress")
                 denied_with_control(operator_pod, SOURCE, port, "sutura-operator")
             host, prefix = namespace(operator_pod)
             api = get("service/kubernetes")["spec"]["clusterIP"]
@@ -778,6 +776,9 @@ pkgs.testers.runNixOSTest {
                                    "policies": get("networkpolicies")["items"]}
             pool(min=0, warm=0, idleAfterSeconds=0)
             settled(0)
+        with subtest("each reading worker group can reach its declared source"):
+            reading_groups(pause[0])
+
         exec(${builtins.toJSON (import ./k3s-worker-pool-calibration.nix)}, globals())
         roomy_record = evidence["roomy"]
         assert isinstance(roomy_record, dict), roomy_record

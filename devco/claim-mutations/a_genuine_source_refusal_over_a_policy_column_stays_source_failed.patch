@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
+index 880b58e87..537d2167c 100644
+--- a/crates/sutura-app/src/raw.rs
++++ b/crates/sutura-app/src/raw.rs
+@@ -469,6 +469,8 @@ impl<'a, W, B> RawLegs<'a, W, B> {
+                 }
+             } else if warehouse.source_refused(&cause) {
+                 RawRefusalReason::SourceRefused
++            } else if policy.is_read() {
++                RawRefusalReason::PolicySearchNeedsNarrowing
+             } else {
+                 RawRefusalReason::StatementFailed
+             })

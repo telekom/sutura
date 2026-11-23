@@ -15,7 +15,8 @@ pub(crate) struct Reader {
 #[derive(Debug)]
 enum Input {
     Catalog(Box<OpenedCatalogs>),
-    Mapping(AnyDictionaryReader),
+    /// A table mapping's reader, with whether its key matches the main dictionary case-insensitively.
+    Mapping(AnyDictionaryReader, bool),
 }
 
 impl Reader {
@@ -43,8 +44,10 @@ impl DictionaryReader for Reader {
                     DescriptionOverlay::from_definitions(bundle.definitions(), bounds)
                         .map_err(|cause| RdbmsError::Read(Box::new(cause)))
                 }
-                Input::Mapping(reader) => DescriptionOverlay::from_dictionary(&reader.read_dictionary()?, reader.bounds())
-                    .map_err(|cause| RdbmsError::Read(Box::new(cause))),
+                Input::Mapping(reader, case_insensitive) => {
+                    DescriptionOverlay::from_dictionary(&reader.read_dictionary()?, reader.bounds(), *case_insensitive)
+                        .map_err(|cause| RdbmsError::Read(Box::new(cause)))
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
         let (dictionary, ignored_columns) = dictionary.overlay_descriptions(&overlays)?;
@@ -129,7 +132,9 @@ fn inputs(
         .iter()
         .map(|source| match source {
             DescriptionSource::Catalog(name) => referenced(name, all, outbound).map(|catalog| Input::Catalog(Box::new(catalog))),
-            DescriptionSource::Table(mapping) => mapped_reader(settings, rdbms, mapping).map(Input::Mapping),
+            DescriptionSource::Table(mapping) => {
+                mapped_reader(settings, rdbms, mapping).map(|reader| Input::Mapping(reader, mapping.case_insensitive()))
+            }
         })
         .collect()
 }
@@ -139,15 +144,37 @@ fn mapped_reader(
     rdbms: &sutura_config::RdbmsSettings,
     mapping: &DescriptionMapping,
 ) -> Result<AnyDictionaryReader, String> {
-    let predicate = super::rdbms::predicate(mapping.predicate())?;
+    use sutura_catalog_rdbms::descriptions::{MappedKeySource, MappedPredicate, MappedTable, MappedVia};
+    let key = match mapping.key_source() {
+        sutura_config::catalog::rdbms::DescriptionKeySource::Direct { schema, table } => MappedKeySource::Direct {
+            schema: schema.clone(),
+            table: table.clone(),
+        },
+        sutura_config::catalog::rdbms::DescriptionKeySource::Via(via) => MappedKeySource::Via(MappedVia::new(
+            via.table().clone(),
+            via.on().to_vec(),
+            via.schema().clone(),
+            via.table_name().clone(),
+        )),
+    };
+    let predicates = mapping
+        .predicates()
+        .iter()
+        .map(|declared| {
+            let table = match declared.table() {
+                sutura_config::catalog::rdbms::PredicateTable::Main => MappedTable::Main,
+                sutura_config::catalog::rdbms::PredicateTable::Via => MappedTable::Via,
+            };
+            super::rdbms::predicate(Some(declared.predicate())).map(|predicate| MappedPredicate::new(table, predicate))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let projection = MappedDescriptions::new(
         mapping.table().clone(),
         mapping.catalog_key().cloned(),
-        mapping.schema_key().clone(),
-        mapping.table_key().clone(),
+        key,
         mapping.column_key().clone(),
         mapping.description().clone(),
-        predicate,
+        predicates,
     );
     match mapping.connection() {
         sutura_config::CatalogConnection::Postgres(connection) => {

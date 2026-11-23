@@ -359,6 +359,10 @@ impl Warehouse for AnyWarehouse {
         any_predicate!(self, error, working_set_exhausted, None)
     }
 
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        any_predicate!(self, error, result_limit, None)
+    }
+
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         any_predicate!(self, error, result_did_not_fit, false)
     }

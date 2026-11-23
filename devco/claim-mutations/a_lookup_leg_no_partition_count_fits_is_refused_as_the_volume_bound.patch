@@ -1,7 +1,8 @@
 diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+index 3f54d3357c667c7833043be34313bc0f0266059e..1b1e37112806236c30afdec922d58c5715777b03 100644
 --- a/crates/sutura-app/src/federated/leg.rs
 +++ b/crates/sutura-app/src/federated/leg.rs
-@@ -350,7 +350,7 @@
+@@ -349,7 +349,7 @@ where
              Ok(grantee) => (link == LinkCast::Undeclared).then_some(grantee),
          };
          match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, grantee, self.labels) {
@@ -10,13 +11,13 @@ diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/fede
                  warehouse,
                  (self.credentials, self.labels),
                  leg,
-@@ -369,9 +369,6 @@
+@@ -373,9 +373,6 @@ where
                  }))))
              }
              Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),
--            Ok(Partitioned::Refused(_)) => Err(LegError::Refusal(RefusalReason::ResultTooLarge {
--                bound: ResultBound::Volume,
--            })),
+-            Ok(Partitioned::Refused(capacity)) => {
+-                Err(LegError::Refusal(RefusalReason::ResultTooLarge { bound: capacity.into() }))
+-            }
              Ok(Partitioned::NotGranted(refused)) => Err(self.not_granted(leg, refused)),
              Err(cause) => Err(classified::<W, B, C>(warehouse, cause, deadline)),
          }

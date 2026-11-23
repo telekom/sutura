@@ -241,6 +241,30 @@ setting beside the pool's would be dropped without a word, as the pool's node ce
 {{- end -}}
 
 {{/*
+The nodes of this release that dial one another on the service port: the serving pods, the combining
+workers and, once groups are declared, every group's reading workers. A stage's join input is read
+from another node, so a policy that limited one group's readers to their own group would break a
+question; the isolation between groups is on egress to network-backed sources and catalogs, not on
+the node links.
+*/}}
+{{- define "sutura.nodePeers" -}}
+{{- $name := include "sutura.name" . -}}
+- podSelector:
+    matchLabels:
+      {{- include "sutura.selectorLabels" . | nindent 6 }}
+- podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Values.readingWorkers.groups }}
+- podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-reading-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- end -}}
+
+{{/*
 The reading worker groups' own guards, outside the posture guard: they read nothing the binary
 reads from the serving pod's settings, so the worker pool's node certificate and the group's name
 and catalog are the chart's to refuse.
@@ -250,6 +274,9 @@ and catalog are the chart's to refuse.
 {{ fail "readingWorkers.groups requires workerPool.enabled: every reading worker's certificate comes from workerPool.issuer, and the serving pod names the groups beside the worker pool's own peer" }}
 {{- end -}}
 {{- $fullname := include "sutura.fullname" . -}}
+{{- $base := $.Values.config.base | default dict -}}
+{{- $env := $.Values.config.environment | default dict -}}
+{{- $declared := mergeOverwrite (deepCopy (dig "sources" (dict) $base)) (dig "sources" (dict) $env) -}}
 {{- range $group, $spec := .Values.readingWorkers.groups -}}
 {{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" (toString $group)) -}}
 {{ fail (printf "readingWorkers.groups names %q: a group name is a DNS label, lower-case letters, digits and `-`, beginning and ending with a letter or digit, because it names the group's Service" (toString $group)) }}
@@ -263,6 +290,44 @@ and catalog are the chart's to refuse.
 {{- $catalogs := dig "catalogs" (list) $spec -}}
 {{- if not (and (kindIs "slice" $catalogs) (gt (len $catalogs) 0)) -}}
 {{ fail (printf "readingWorkers.groups.%s declares no catalogs: a reading worker certifies a leg against its own catalog before it reads, and sutura refuses to start one that declares none (NotFitToServe::ReadingWorkerWithoutCatalog) - list the catalogs in readingWorkers.groups.%s.catalogs" $group $group) }}
+{{- end -}}
+{{- if $.Values.networkPolicy.enabled -}}
+{{- $egress := dig "egress" (list) $spec -}}
+{{- $sources := dig "sources" (list) $spec -}}
+{{- $networkSource := false -}}
+{{- range $sources -}}
+{{- $source := get $declared (toString .) | default dict -}}
+{{- $kind := lower (toString (dig "kind" "" $source)) -}}
+{{- if not (has $kind (list "files" "duckdb")) -}}
+{{- $networkSource = true -}}
+{{- end -}}
+{{- end -}}
+{{- $networkCatalog := false -}}
+{{- range $catalogs -}}
+{{- $kind := lower (toString (dig "kind" "" .)) -}}
+{{- if not (has $kind (list "markdown" "okf" "datacontract")) -}}
+{{- $networkCatalog = true -}}
+{{- end -}}
+{{- end -}}
+{{- if and (or $networkSource $networkCatalog) (not (and (kindIs "slice" $egress) (gt (len $egress) 0))) -}}
+{{ fail (printf "readingWorkers.groups.%s reads a network-backed source or catalog and declares no egress while networkPolicy.enabled is set: list each endpoint's address and port in readingWorkers.groups.%s.egress as {cidr, port}" $group $group) }}
+{{- end -}}
+{{- range $egress -}}
+{{- if not (and (kindIs "map" .) (kindIs "string" (dig "cidr" nil .)) (regexMatch "^[0-9a-fA-F:.]+/[0-9]{1,3}$" (dig "cidr" "" .))) -}}
+{{ fail (printf "readingWorkers.groups.%s.egress holds an entry without a `cidr` written as an address and prefix length, such as 192.0.2.10/32: %s" $group (toJson .)) }}
+{{- end -}}
+{{- if regexMatch "/0+$" .cidr -}}
+{{ fail (printf "readingWorkers.groups.%s.egress names %s, which is every address: the group's policy exists to bound where its pods connect - name the source's own address, or leave networkPolicy.enabled unset" $group .cidr) }}
+{{- end -}}
+{{- $port := dig "port" nil . -}}
+{{- $portNumeric := or (kindIs "float64" $port) (kindIs "int64" $port) (kindIs "int" $port) -}}
+{{- if and $portNumeric (kindIs "float64" $port) (ne $port (float64 ($port | int))) -}}
+{{ fail (printf "readingWorkers.groups.%s.egress entry %s has a `port` written with a fractional part: a port is a whole number between 1 and 65535" $group (toJson .)) }}
+{{- end -}}
+{{- if not (and $portNumeric (ge ($port | int) 1) (le ($port | int) 65535)) -}}
+{{ fail (printf "readingWorkers.groups.%s.egress entry %s has no `port` between 1 and 65535 written as a number" $group (toJson .)) }}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

@@ -29,6 +29,10 @@ use sutura_domain::warehouse::labels::JobLabels;
 /// What [`SplitLegs::split_lookup`] answers.
 #[derive(Clone, Copy)]
 enum Splits {
+    RefuseRowStream,
+    RefuseMaterialization,
+    Opaque,
+
     /// One partition per row.
     PerRow,
     /// One partition per row, the first read outliving
@@ -39,7 +43,10 @@ enum Splits {
     /// One partition per row, granted to the leg's readers when a grantee is offered - each one a
     /// descriptor another node can read, or none of them where `portable` is `false`, and handed
     /// back an hour later where `late` - else read here.
-    Granting { portable: bool, late: bool },
+    Granting {
+        portable: bool,
+        late: bool,
+    },
     /// [`Self::Granting`] of portable partitions, handed back only after
     /// [`FixedBroker::GrantsSomethingExpiringWithinTheSecond`]'s grant ended - else read here.
     GrantingOutlivingTheGrant,
@@ -121,7 +128,31 @@ impl Warehouse for SplitLegs {
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         self.executes.fetch_add(1, Ordering::SeqCst);
+        if self.source() == &geo()
+            && matches!(
+                self.splits,
+                Splits::RefuseRowStream | Splits::RefuseMaterialization | Splits::Opaque
+            )
+        {
+            return Err(AdapterFailure::TooMuchData);
+        }
         self.legs.execute(executable, presented, deadline)
+    }
+
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(error, AdapterFailure::TooMuchData)
+    }
+
+    fn result_limit(&self, error: &Self::Error) -> Option<sutura_domain::warehouse::ResultLimit> {
+        use sutura_domain::warehouse::ResultLimit;
+        if !self.result_did_not_fit(error) {
+            return None;
+        }
+        Some(match self.splits {
+            Splits::RefuseRowStream => ResultLimit::StreamRows { limit: 17 },
+            Splits::RefuseMaterialization => ResultLimit::MaterializationBytes { limit_bytes: 31 },
+            _ => ResultLimit::Unknown,
+        })
     }
 
     fn dry_run_billed(
@@ -159,6 +190,11 @@ impl Warehouse for SplitLegs {
         self.splits_asked.fetch_add(1, Ordering::SeqCst);
         self.offered.store(grantee.is_some(), Ordering::SeqCst);
         let first_read_takes = match (self.splits, grantee) {
+            (Splits::RefuseRowStream | Splits::RefuseMaterialization | Splits::Opaque, _) => {
+                return Ok(Partitioned::Split(Box::new(std::iter::once(Err(
+                    AdapterFailure::TooMuchData,
+                )))));
+            }
             (Splits::PerRow, _) | (Splits::Granting { .. } | Splits::GrantingOutlivingTheGrant, None) => Duration::ZERO,
             (Splits::PerRowOutlivingTheGrant, _) => Duration::from_millis(1200),
             (Splits::Refused(refusal), _) => return Ok(Partitioned::Refused(refusal)),
@@ -314,15 +350,42 @@ fn a_lookup_leg_no_partition_count_fits_is_refused_as_the_volume_bound() {
 
     let outcome = answered(&warehouses);
 
+    let ToolOutcome::Refusal { ref reason } = outcome else {
+        panic!("capacity is refused");
+    };
+    let serialized = serde_json::to_value(reason).expect("the refusal serializes");
     assert_eq!(
-        outcome,
-        ToolOutcome::Refusal {
-            reason: RefusalReason::ResultTooLarge {
-                bound: ResultBound::Volume
-            }
-        }
+        serialized["ResultTooLarge"]["bound"],
+        serde_json::json!({"SplitCapacity": {"estimated_rows": 2, "per_stream_rows": 1, "ready_readers": 1}}),
+        "the refused estimate must retain its per-stream limit and available capacity: {serialized}"
     );
     assert_eq!(whole_reads(&warehouses), 0, "a refused split is not read whole instead");
+}
+
+#[test]
+fn known_and_unknown_limits_survive_whole_and_local_partition_leg_classification() {
+    for (splits, expected) in [
+        (Splits::RefuseRowStream, serde_json::json!({"SourceRows": {"limit": 17}})),
+        (
+            Splits::RefuseMaterialization,
+            serde_json::json!({"Materialization": {"limit_bytes": 31}}),
+        ),
+        (Splits::Opaque, serde_json::json!("Volume")),
+    ] {
+        for partitioned in [false, true] {
+            let warehouses = if partitioned {
+                registry(splits).splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN)
+            } else {
+                registry(splits)
+            };
+            let ToolOutcome::Refusal { reason } = answered(&warehouses) else {
+                panic!("the lookup refuses");
+            };
+            let serialized = serde_json::to_value(reason).expect("a refusal serializes");
+            assert_eq!(serialized["ResultTooLarge"]["bound"], expected, "{serialized}");
+            assert_eq!(whole_reads(&warehouses), usize::from(!partitioned));
+        }
+    }
 }
 
 #[test]
