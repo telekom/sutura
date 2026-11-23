@@ -2,6 +2,7 @@
 //! column under a text policy and where that policy runs.
 
 use std::collections::BTreeSet;
+use std::time::{Duration, Instant};
 
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{QualifiedTable, SourceName};
@@ -12,7 +13,7 @@ use sutura_domain::plan::{
 };
 use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::{AnchorRows, RawExecution, RawRows, ResultBatches, Value, Warehouse};
 
 use super::{RunSqlScope, answer_sql};
@@ -187,5 +188,133 @@ fn a_size_refusal_is_named_only_where_the_policy_runs_after_the_leg() {
             RawRefusalReason::TooManyRows { limit: MAX_ROWS },
             "{read:?}"
         );
+    }
+}
+
+/// `refused`, but under a deadline already spent before the leg's own call is even made - the
+/// pre-dispatch check `run_at` makes ahead of every leg, which used to answer a bare
+/// `DeadlineExceeded` with no regard for whether the leg was about to read a policy column.
+fn refused_already_out_of_time(read: PolicyRead) -> RawRefusalReason {
+    let warehouses = Warehouses::of(Planned {
+        inner: RawCapableWarehouse::answering_rows(source(), shared(), 0),
+        ends: Ends::Rows(0),
+    });
+    let pinned = verify_and_validate(bundle_over(&[]), &warehouses).expect("a bundle with no models validates");
+    let scope = RunSqlScope::new(run_sql_sources(vec![source()]), false);
+    let statement = RawStatement::parse("select n from t").expect("a test statement is a statement");
+    let spent = Deadline::opened_at(
+        Instant::now()
+            .checked_sub(Duration::from_secs(1000))
+            .expect("the test clock has run for over 1000s"),
+        Budget::parse(Duration::from_secs(1)).expect("a nonzero test budget"),
+    );
+    let ran = answer_sql(
+        &pinned,
+        &asked_by_a_person(),
+        &statement,
+        &CountingBroker::default(),
+        &warehouses,
+        &Combiner(read),
+        &scope,
+        1 << 20,
+        spent,
+    )
+    .expect("a leg refused before it ran is still an answer");
+    match ran.into_outcome() {
+        RawOutcome::Refusal { reason } => reason,
+        rows @ RawOutcome::Rows { .. } => panic!("expected a refusal, not {rows:?}"),
+    }
+}
+
+/// A policy-column search that spent its whole budget before its leg ever reached the data system
+/// is still named, not read back as a bare timeout: the pre-dispatch check knows what it is about
+/// to run.
+#[test]
+fn a_leg_already_out_of_time_before_it_runs_is_named_wherever_it_reads_a_policy_column() {
+    for read in [PolicyRead::AtSource, PolicyRead::Locally] {
+        assert_eq!(
+            refused_already_out_of_time(read),
+            RawRefusalReason::PolicySearchNeedsNarrowing,
+            "{read:?}"
+        );
+    }
+    assert_eq!(
+        refused_already_out_of_time(PolicyRead::Unread),
+        RawRefusalReason::DeadlineExceeded { budget_seconds: 1 }
+    );
+}
+
+/// A source-side refusal this port does not classify as a deadline or a size limit stays
+/// `source_failed` even where the leg read a column under a text policy - the named refusal is for
+/// an exhausted search, never a stand-in for every failure on a protected column.
+struct GenuineFailure {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl Warehouse for GenuineFailure {
+    type Error = AdapterFailure;
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn execute(
+        &self,
+        _executable: Executable<'_>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(AdapterFailure::RefusedBySource)
+    }
+
+    fn accepts_planned_statements(&self) -> bool {
+        true
+    }
+
+    fn execute_planned_statement(
+        &self,
+        _statement: &RawStatement,
+        _tables: &BTreeSet<QualifiedTable>,
+        _presented: &Presented,
+        _deadline: Deadline,
+    ) -> RawExecution<Self::Error> {
+        Some(Err(AdapterFailure::RefusedBySource))
+    }
+}
+
+#[test]
+fn a_genuine_source_refusal_over_a_policy_column_stays_source_failed() {
+    let warehouses = Warehouses::of(GenuineFailure {
+        source: source(),
+        posture: shared(),
+    });
+    let pinned = verify_and_validate(bundle_over(&[]), &warehouses).expect("a bundle with no models validates");
+    let scope = RunSqlScope::new(run_sql_sources(vec![source()]), false);
+    let statement = RawStatement::parse("select n from t").expect("a test statement is a statement");
+    let ran = answer_sql(
+        &pinned,
+        &asked_by_a_person(),
+        &statement,
+        &CountingBroker::default(),
+        &warehouses,
+        &Combiner(PolicyRead::AtSource),
+        &scope,
+        1 << 20,
+        test_deadline(),
+    )
+    .expect("a part that ended in a refusal is an answer, not a failure");
+    match ran.into_outcome() {
+        RawOutcome::Refusal { reason } => assert_eq!(reason, RawRefusalReason::SourceFailed),
+        rows @ RawOutcome::Rows { .. } => panic!("expected a refusal, not {rows:?}"),
     }
 }
