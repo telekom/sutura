@@ -437,9 +437,15 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         let budget_seconds = self.deadline.budget().seconds();
         // Checked before each leg is run and never re-derived - the same shape `crate::answer`'s own
         // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the leg
-        // is refused before the data system is asked at all.
+        // is refused before the data system is asked at all. A policy-column search that spent the
+        // whole budget getting here is still that search running out of room, not a bare timeout -
+        // the same split the port-level `deadline_exceeded` branch below draws.
         if self.deadline.remaining_at(Instant::now()).is_none() {
-            return Err(LegStop::Refused(RawRefusalReason::DeadlineExceeded { budget_seconds }));
+            return Err(LegStop::Refused(if policy.is_read() {
+                RawRefusalReason::PolicySearchNeedsNarrowing
+            } else {
+                RawRefusalReason::DeadlineExceeded { budget_seconds }
+            }));
         }
         let execution = match tables {
             Some(tables) => warehouse.execute_planned_statement(statement, tables, presented, self.deadline),
