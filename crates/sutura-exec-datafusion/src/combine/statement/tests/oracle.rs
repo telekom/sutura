@@ -732,7 +732,10 @@ fn raw_prefilter_reaches_the_oracle_source_for_every_case_spelling_of_a_native_d
             engines: Engines::new(None),
             statements: Vec::new(),
         };
-        drop(legs.engines.at.insert(named("geo"), holding(&[("DOCS", physical.clone())])));
+        // The fake engine's own session normalizes a quoted reference to lowercase before lookup
+        // (DataFusion's default `enable_ident_normalization`), so the registered name must be
+        // lowercase even though the dictionary and the rendered Oracle statement stay uppercase.
+        drop(legs.engines.at.insert(named("geo"), holding(&[("docs", physical.clone())])));
         let statement = RawStatement::parse(sql).expect("an admitted native dictionary query");
         let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
             StatementQuestion::new(
