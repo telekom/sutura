@@ -78,8 +78,8 @@ impl StatementLegs for OracleLegs {
 /// execution. Only the SQL reaching the source is under test; whether a fake engine can run it is
 /// a harness concern #2038 has nothing to do with.
 #[derive(Default)]
-struct CapturedLegs {
-    statements: Vec<String>,
+pub(super) struct CapturedLegs {
+    pub(super) statements: Vec<String>,
 }
 
 impl StatementLegs for CapturedLegs {
@@ -715,7 +715,7 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
 
 /// A text-policy fixture: one `CLOB` column (`SCRIPT`) carrying a bare raw-prefilter rule, one
 /// ordinary column (`OBJECT_NAME`), on a table named `DOCS` - #2038's own reproduction shape.
-fn docs_table() -> Vec<StatementTable> {
+pub(super) fn docs_table() -> Vec<StatementTable> {
     let policy = serde_json::json!({
         "max_text_bytes": 128,
         "redact": [{"pattern": "secret_[^ ]+", "replace": "[masked]"}],
@@ -738,7 +738,7 @@ fn docs_table() -> Vec<StatementTable> {
 }
 
 /// The SQL the fake Oracle source receives for `sql` over [`docs_table`], captured without running it.
-fn reaches_oracle(sql: &str) -> String {
+pub(super) fn reaches_oracle(sql: &str) -> String {
     let mut legs = CapturedLegs::default();
     let statement = RawStatement::parse(sql).expect("an admitted native dictionary query");
     // The leg stops every source immediately after capturing its statement: only the SQL rendered
@@ -792,7 +792,7 @@ impl Visitor for BaseTableSelects<'_> {
     }
 }
 
-fn base_table_selects(reached: &str, table: &str) -> Vec<Select> {
+pub(super) fn base_table_selects(reached: &str, table: &str) -> Vec<Select> {
     let parsed = Parser::parse_sql(&GenericDialect, reached).expect("the reached statement reparses");
     let [statement] = parsed.as_slice() else {
         panic!("expected one statement: {reached}");
@@ -852,43 +852,6 @@ fn raw_prefilter_reaches_the_oracle_source_for_every_case_spelling_of_a_native_d
         assert!(
             script.to_string().to_uppercase().contains("REGEXP_REPLACE"),
             "SCRIPT's own projection must still redact it: {sql} -> {reached}"
-        );
-    }
-}
-
-/// #2038 Opus review MEDIUM4(c): every shape the HIGH1/HIGH2 fixes in `text_prefilter.rs` must
-/// reject - each asserted to leave no raw condition at the base-table level at all, which is the
-/// only level the source ever receives the stored value from.
-#[test]
-fn raw_prefilter_never_reaches_the_source_through_a_row_changing_or_renaming_level() {
-    for sql in [
-        // A derived table between the owner and the base carries its own LIMIT.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS LIMIT 5) d WHERE SCRIPT LIKE '%MRC%'",
-        // ... a GROUP BY/aggregate.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, count(*) AS n FROM DOCS GROUP BY OBJECT_NAME, SCRIPT) d WHERE SCRIPT LIKE '%MRC%'",
-        // ... DISTINCT.
-        "SELECT count(OBJECT_NAME) FROM (SELECT DISTINCT OBJECT_NAME, SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
-        // ... a window function in its projection.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, row_number() OVER (ORDER BY OBJECT_NAME) AS r FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
-        // A level renames the predicate's own column instead of passing it through bare.
-        "SELECT count(*) FROM (SELECT OBJECT_NAME AS SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
-        // ... or transforms it.
-        "SELECT count(*) FROM (SELECT UPPER(OBJECT_NAME) AS SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
-        // Two levels each carry their own WHERE.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS WHERE OBJECT_NAME IS NOT NULL) d WHERE SCRIPT LIKE '%MRC%'",
-        // A scalar subquery sits inside a derived level's own projection.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT, (SELECT count(*) FROM DOCS o WHERE o.OBJECT_NAME = DOCS.OBJECT_NAME) AS n FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
-        // A UNION sits inside a derived level.
-        "SELECT count(OBJECT_NAME) FROM (SELECT OBJECT_NAME, SCRIPT FROM DOCS UNION SELECT OBJECT_NAME, SCRIPT FROM DOCS) d WHERE SCRIPT LIKE '%MRC%'",
-    ] {
-        let reached = reaches_oracle(sql);
-        let no_raw_at_base = base_table_selects(&reached, "DOCS")
-            .iter()
-            .all(|base| base.selection.is_none());
-        assert!(
-            no_raw_at_base,
-            "a row-changing or renaming level must keep the redacted-only plan, never push a raw \
-             condition to the base table: {sql} -> {reached}"
         );
     }
 }

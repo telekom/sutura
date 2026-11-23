@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs b/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs
+index d8eead147..f575dcec8 100644
+--- a/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs
++++ b/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs
+@@ -40,9 +40,6 @@ impl Fold {
+     }
+ 
+     fn name(self, ident: &Ident) -> String {
+-        if ident.quote_style.is_some() {
+-            return ident.value.clone();
+-        }
+         match self {
+             Self::Lower => ident.value.to_lowercase(),
+             Self::Upper => ident.value.to_uppercase(),

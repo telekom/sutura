@@ -9,6 +9,7 @@ use datafusion::sql::sqlparser::ast::helpers::attached_token::AttachedToken;
 use datafusion::sql::sqlparser::ast::{
     BinaryOperator, CaseWhen, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, GroupByExpr,
     Ident, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
+    WildcardAdditionalOptions,
 };
 use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
@@ -120,17 +121,33 @@ impl Visitor for WindowProbe {
     }
 }
 
+/// A wildcard with every option unset: no `REPLACE`, `RENAME`, `EXCEPT`, `EXCLUDE`, `ILIKE` or
+/// alias attached. Any of those turns the star from a bare passthrough into a rewrite of the
+/// very columns the raw condition built later assumes are untouched.
+const fn bare_wildcard(options: &WildcardAdditionalOptions) -> bool {
+    options.opt_ilike.is_none()
+        && options.opt_exclude.is_none()
+        && options.opt_except.is_none()
+        && options.opt_replace.is_none()
+        && options.opt_rename.is_none()
+        && options.opt_alias.is_none()
+}
+
 /// `name` reaches this level's base unchanged: a bare identifier or compound identifier of that
-/// exact name, or a wildcard that passes every column through untouched. An alias, a cast, a
-/// function call or any other expression under that name is a rename or a transform, not a
-/// passthrough - the raw condition built later resolves `name` straight against the physical
-/// schema, so anything else would let that resolution land on a different column than the one the
-/// redacted predicate actually tested.
+/// exact name, or a bare wildcard that passes every column through untouched and is not shadowed
+/// by another projection item aliased to the same name. An alias, a cast, a function call or any
+/// other expression under that name is a rename or a transform, not a passthrough - the raw
+/// condition built later resolves `name` straight against the physical schema, so anything else
+/// would let that resolution land on a different column than the one the redacted predicate
+/// actually tested.
 fn passes_through(name: &str, projection: &[SelectItem]) -> bool {
+    let shadowed = projection
+        .iter()
+        .any(|item| matches!(item, SelectItem::ExprWithAlias { alias, .. } if alias.value == name));
     projection.iter().any(|item| match item {
         SelectItem::UnnamedExpr(Expr::Identifier(ident)) => ident.value == name,
         SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path)) => path.last().is_some_and(|ident| ident.value == name),
-        SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(..) => true,
+        SelectItem::Wildcard(options) | SelectItem::QualifiedWildcard(_, options) => bare_wildcard(options) && !shadowed,
         _ => false,
     })
 }
