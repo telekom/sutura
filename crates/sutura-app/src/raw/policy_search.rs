@@ -316,7 +316,14 @@ fn a_genuine_source_refusal_over_a_policy_column_stays_source_failed() {
     )
     .expect("a part that ended in a refusal is an answer, not a failure");
     match ran.into_outcome() {
-        RawOutcome::Refusal { reason } => assert_eq!(reason, RawRefusalReason::SourceFailed),
+        RawOutcome::Refusal { reason } => {
+            assert_eq!(
+                reason,
+                RawRefusalReason::SourceFailed,
+                "a source refusal this port does not classify as a deadline or size limit must stay generic, \
+                 not be swept into the named policy-search refusal: got {reason:?}"
+            );
+        }
         rows @ RawOutcome::Rows { .. } => panic!("expected a refusal, not {rows:?}"),
     }
 }
