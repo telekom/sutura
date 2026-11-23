@@ -1,0 +1,11 @@
+diff --git a/crates/sutura-catalog-rdbms/src/relationships/declared.rs b/crates/sutura-catalog-rdbms/src/relationships/declared.rs
+--- a/crates/sutura-catalog-rdbms/src/relationships/declared.rs
++++ b/crates/sutura-catalog-rdbms/src/relationships/declared.rs
+@@ -208,6 +208,6 @@ fn omit_or_refuse(declaration: &DeclaredRelationship, cause: DeclarationError)
+     }
+     match declaration.on_missing_endpoint {
+-        MissingEndpointPolicy::Refuse => Err(cause.into()),
++        MissingEndpointPolicy::Refuse => Ok(None),
+         MissingEndpointPolicy::Omit => {
+             tracing::warn!(
+                 relationship = declaration.relationship.name().unwrap_or("<unnamed>"),

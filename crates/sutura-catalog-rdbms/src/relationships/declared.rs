@@ -3,16 +3,39 @@ use crate::{Dictionary, DictionaryBounds, RdbmsError, Relationship, TableAddress
 use sutura_domain::catalog::ColumnType;
 use sutura_domain::warehouse::schema::{TypeDialect, UnboundedNumber};
 
+/// The dictionary plus the declarations that actually resolved - an endpoint `Omit` dropped is
+/// not among them, so a caller probing target uniqueness afterward never selects from what
+/// resolution just decided this reading identity cannot see.
+pub(crate) type AppliedDeclarations = (Dictionary, Vec<DeclaredRelationship>);
+
+/// What a declared relationship's endpoint not being visible to the reading identity does.
+///
+/// The database grants decide visibility under `shared-service-user`, so a missing grant and a
+/// typo look identical at load time. `Refuse` is the conservative default - the exact behaviour
+/// this crate had before the choice existed, so an existing deployment reads unchanged - and
+/// `Omit` is the opt-in that lets one declaration serve several environments whose service users
+/// hold different grants. Neither widens what a reading identity can see: an omitted relationship
+/// just never joins what the grants already hid, and `describe_catalog` never lists it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MissingEndpointPolicy {
+    #[default]
+    Refuse,
+    Omit,
+}
+
 #[derive(Debug, Clone)]
 pub struct DeclaredRelationship {
     relationship: Relationship,
     check: Option<DictionaryBounds>,
+    on_missing_endpoint: MissingEndpointPolicy,
     checked: std::sync::OnceLock<()>,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum DeclarationError {
+    #[error("declared relationship endpoint table {table} is absent or excluded")]
+    TableMissing { table: TableAddress },
     #[error("declared relationship endpoint {table}.{column} is absent or excluded")]
-    Endpoint { table: TableAddress, column: String },
+    ColumnMissing { table: TableAddress, column: String },
     #[error("declared relationship columns {origin}.{origin_column} and {target}.{target_column} lack compatible known types")]
     Types {
         origin: Box<TableAddress>,
@@ -29,14 +52,25 @@ pub enum DeclarationError {
 }
 impl DeclaredRelationship {
     pub const fn new(relationship: Relationship, check: Option<DictionaryBounds>) -> Self {
+        Self::with_missing_endpoint_policy(relationship, check, MissingEndpointPolicy::Refuse)
+    }
+    pub const fn with_missing_endpoint_policy(
+        relationship: Relationship,
+        check: Option<DictionaryBounds>,
+        on_missing_endpoint: MissingEndpointPolicy,
+    ) -> Self {
         Self {
             relationship,
             check,
+            on_missing_endpoint,
             checked: std::sync::OnceLock::new(),
         }
     }
     pub fn check(&self) -> Option<DictionaryBounds> {
         self.checked.get().is_none().then_some(self.check).flatten()
+    }
+    pub const fn on_missing_endpoint(&self) -> MissingEndpointPolicy {
+        self.on_missing_endpoint
     }
     #[cfg(feature = "live")]
     pub(crate) fn mark_checked(&self) {
@@ -87,51 +121,102 @@ impl DeclaredRelationship {
     }
 }
 
+/// Applies every declaration, returning the dictionary and the declarations that actually
+/// resolved - an endpoint `Omit` dropped might still be in the input slice, but a probe over it
+/// would select from the very table resolution just decided this reading identity cannot see.
 pub(crate) fn apply(
     mut dictionary: Dictionary,
     declarations: &[DeclaredRelationship],
     dialect: TypeDialect,
     unbounded_number: Option<UnboundedNumber>,
-) -> Result<Dictionary, RdbmsError> {
+) -> Result<AppliedDeclarations, RdbmsError> {
+    let mut resolved = Vec::new();
     for declaration in declarations {
-        let relationship = &declaration.relationship;
-        for (origin_column, target_column) in relationship.pairs() {
-            let find = |address: &TableAddress, column: &str| {
-                dictionary
-                    .tables
-                    .iter()
-                    .find(|table| table.address() == address)
-                    .filter(|table| table.columns().iter().any(|name| name == column))
-                    .ok_or_else(|| DeclarationError::Endpoint {
-                        table: address.clone(),
-                        column: column.to_owned(),
-                    })
-            };
-            let origin = find(relationship.origin_table(), origin_column)?;
-            let target = find(relationship.target_table(), target_column)?;
-            let mapped = |table: &crate::Table, column| {
-                let declared = table
-                    .column_metadata(column)
-                    .and_then(crate::ColumnMetadata::data_type)
-                    .and_then(|raw| ColumnType::parse(raw).ok())?;
-                dialect.arrow_with_unbounded_number(&declared, unbounded_number)
-            };
-            let compatible = mapped(origin, origin_column)
-                .zip(mapped(target, target_column))
-                .is_some_and(|(left, right)| left == right || left.is_integer() && right.is_integer());
-            if !compatible {
-                return Err(DeclarationError::Types {
-                    origin: Box::new(relationship.origin_table().clone()),
-                    origin_column: origin_column.to_owned(),
-                    target: Box::new(relationship.target_table().clone()),
-                    target_column: target_column.to_owned(),
-                }
-                .into());
-            }
+        if let Some(relationship) = resolve(&dictionary, declaration, dialect, unbounded_number)? {
+            dictionary.relationships.push(relationship);
+            resolved.push(declaration.clone());
         }
-        dictionary.relationships.push(relationship.clone());
     }
-    Ok(dictionary)
+    Ok((dictionary, resolved))
+}
+
+/// Checks one declaration against the already-selected dictionary. `Ok(None)` is the `Omit`
+/// policy's whole effect: the relationship is simply never pushed, so `describe_catalog` lists
+/// nothing for it - never an endpoint identity disclosed past what the dictionary selection
+/// already exposed to this reading identity.
+fn resolve(
+    dictionary: &Dictionary,
+    declaration: &DeclaredRelationship,
+    dialect: TypeDialect,
+    unbounded_number: Option<UnboundedNumber>,
+) -> Result<Option<Relationship>, RdbmsError> {
+    let relationship = &declaration.relationship;
+    for (origin_column, target_column) in relationship.pairs() {
+        let find = |address: &TableAddress, column: &str| {
+            let table = dictionary
+                .tables
+                .iter()
+                .find(|table| table.address() == address)
+                .ok_or_else(|| DeclarationError::TableMissing { table: address.clone() })?;
+            if table.columns().iter().any(|name| name == column) {
+                Ok(table)
+            } else {
+                Err(DeclarationError::ColumnMissing {
+                    table: address.clone(),
+                    column: column.to_owned(),
+                })
+            }
+        };
+        let origin = match find(relationship.origin_table(), origin_column) {
+            Ok(table) => table,
+            Err(cause) => return omit_or_refuse(declaration, cause),
+        };
+        let target = match find(relationship.target_table(), target_column) {
+            Ok(table) => table,
+            Err(cause) => return omit_or_refuse(declaration, cause),
+        };
+        let mapped = |table: &crate::Table, column| {
+            let declared = table
+                .column_metadata(column)
+                .and_then(crate::ColumnMetadata::data_type)
+                .and_then(|raw| ColumnType::parse(raw).ok())?;
+            dialect.arrow_with_unbounded_number(&declared, unbounded_number)
+        };
+        let compatible = mapped(origin, origin_column)
+            .zip(mapped(target, target_column))
+            .is_some_and(|(left, right)| left == right || left.is_integer() && right.is_integer());
+        if !compatible {
+            // A type mismatch is a wrong declaration, never a missing grant, so it stays a refusal
+            // regardless of the endpoint policy.
+            return Err(DeclarationError::Types {
+                origin: Box::new(relationship.origin_table().clone()),
+                origin_column: origin_column.to_owned(),
+                target: Box::new(relationship.target_table().clone()),
+                target_column: target_column.to_owned(),
+            }
+            .into());
+        }
+    }
+    Ok(Some(relationship.clone()))
+}
+
+fn omit_or_refuse(declaration: &DeclaredRelationship, cause: DeclarationError) -> Result<Option<Relationship>, RdbmsError> {
+    // A visible table with no such column is a wrong declaration (a typo), never a missing grant -
+    // it stays a refusal under either policy, the same way a type mismatch does.
+    if matches!(cause, DeclarationError::ColumnMissing { .. }) {
+        return Err(cause.into());
+    }
+    match declaration.on_missing_endpoint {
+        MissingEndpointPolicy::Refuse => Err(cause.into()),
+        MissingEndpointPolicy::Omit => {
+            tracing::warn!(
+                relationship = declaration.relationship.name().unwrap_or("<unnamed>"),
+                cause = %cause,
+                "omitting declared relationship: endpoint table is absent or excluded from this reading identity's dictionary"
+            );
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(feature = "live")]

@@ -139,15 +139,37 @@ fn mapped_reader(
     rdbms: &sutura_config::RdbmsSettings,
     mapping: &DescriptionMapping,
 ) -> Result<AnyDictionaryReader, String> {
-    let predicate = super::rdbms::predicate(mapping.predicate())?;
+    use sutura_catalog_rdbms::descriptions::{MappedKeySource, MappedPredicate, MappedTable, MappedVia};
+    let key = match mapping.key_source() {
+        sutura_config::catalog::rdbms::DescriptionKeySource::Direct { schema, table } => MappedKeySource::Direct {
+            schema: schema.clone(),
+            table: table.clone(),
+        },
+        sutura_config::catalog::rdbms::DescriptionKeySource::Via(via) => MappedKeySource::Via(MappedVia::new(
+            via.table().clone(),
+            via.on().to_vec(),
+            via.schema().clone(),
+            via.table_name().clone(),
+        )),
+    };
+    let predicates = mapping
+        .predicates()
+        .iter()
+        .map(|declared| {
+            let table = match declared.table() {
+                sutura_config::catalog::rdbms::PredicateTable::Main => MappedTable::Main,
+                sutura_config::catalog::rdbms::PredicateTable::Via => MappedTable::Via,
+            };
+            super::rdbms::predicate(Some(declared.predicate())).map(|predicate| MappedPredicate::new(table, predicate))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let projection = MappedDescriptions::new(
         mapping.table().clone(),
         mapping.catalog_key().cloned(),
-        mapping.schema_key().clone(),
-        mapping.table_key().clone(),
+        key,
         mapping.column_key().clone(),
         mapping.description().clone(),
-        predicate,
+        predicates,
     );
     match mapping.connection() {
         sutura_config::CatalogConnection::Postgres(connection) => {

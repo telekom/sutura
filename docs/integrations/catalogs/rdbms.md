@@ -232,6 +232,36 @@ uppercase names for unquoted database columns. `key.catalog` is optional and req
 served dictionary carries that physical component. A mapping without it matches only addresses
 without a catalog component. Table comments can also come from referenced catalogs.
 
+A normalised documentation system often stores a row's schema and table name on a separate parent
+table rather than inline on the description row itself. `key.via` resolves the key through that
+parent table instead:
+
+```yaml
+descriptions_from:
+  - connection: { ... }
+    table: inventory.column_docs
+    key:
+      column: field_name
+      via:
+        table: inventory.object_catalog
+        on: { object_id: object_id }
+        schema: object_owner
+        table_name: object_name
+    description: description
+    live_row_predicates:
+      - { table: inventory.object_catalog, column: is_deleted, operator: equals, value: "N" }
+      - { table: inventory.column_docs, column: is_hidden, operator: equals, value: "N" }
+```
+
+`key` sets either `schema` and `table` directly, or `via`, never both or neither. `via.on` is a
+nonempty mapping of the mapped table's join columns to the parent table's, joined with exact
+physical names on the same read-only connection and transaction. `live_row_predicates` is a closed
+conjunction of several predicates, each naming the exact physical table it filters - the mapping's
+own `table` or, only when `key.via` is set, `via.table` - never a literal `main`/`via` token; it is
+mutually exclusive with the single-predicate `live_row_predicate`. A `key.via` join that resolves to
+more than one parent row for the same key is refused as a duplicate physical column
+(`DescriptionError::Duplicate`), the same way a flat mapping refuses two rows for one key.
+
 Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
 accounting and the existing description byte, line and control-character checks. PostgreSQL's
 byte refusal runs after libpq has materialized its result; Oracle bills decoded cursor rows.
@@ -264,7 +294,28 @@ relationships:
 
 At most 64 declarations with at most 32 distinct pairs each are accepted. Exact physical names,
 visible endpoints and known compatible mapped types are required. Equal mapped types and integer
-widths are compatible; unknown or incompatible types refuse the load, naming the endpoint.
+widths are compatible; unknown or incompatible types always refuse the load, naming the endpoint.
+An endpoint absent or excluded from the reading identity's dictionary instead follows
+`on_missing_endpoint`, default `refuse` (the behaviour above, unchanged). `on_missing_endpoint: omit`
+drops that one declaration with a `WARN` log instead of refusing the whole catalog - the same
+declaration can then serve several environments whose service users hold different grants. An
+omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
+never joins, and `describe_catalog` never lists it. A misspelled table name in a visible schema
+cannot be told apart from a hidden table under `shared-service-user` - either way the selected
+dictionary simply has no such table - so under `omit` a typo there is silently dropped with the
+same `WARN` log as a real missing grant, never refused. A misspelled *column* on a table the
+dictionary did select is still refused under either policy: that table's own columns are visible,
+so an absent one is a wrong declaration, not a missing grant.
+
+```yaml
+relationships:
+  - name: events_apps
+    from: { table: inventory.events, columns: [tenant, app_id] }
+    to: { table: inventory.apps, columns: [tenant, id] }
+    cardinality: many_to_one
+    on_missing_endpoint: omit
+```
+
 `many_to_one` is the only supported written cardinality. Without the optional check, uniqueness is
 an operator assertion. With it, the catalog's own connection checks nonnull full target keys on its
 first successful dictionary read. A duplicate or a row/key-byte cap overflow refuses the load: a truncated
@@ -285,7 +336,11 @@ the existing consistency and fan-out checks; these declarations change none of t
 In `documentation_schema` mode, `relationships_view: relationships` opts into a second view in
 `dictionary_schema`. Absence makes no second-view query. Its rows are authored many-to-one
 assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
-Configuration declarations can also be used with documentation catalogs.
+Configuration declarations can also be used with documentation catalogs. **`on_missing_endpoint`
+is a configuration-declaration setting only: a view row with an endpoint the reading identity
+cannot see still refuses the whole load** - the view has no column to opt a row out, so an
+operator who needs `omit` for a view-sourced relationship keeps it as a configuration declaration
+instead.
 
 | Column                                           | Contract                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------- |

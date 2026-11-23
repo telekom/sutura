@@ -60,6 +60,10 @@ caller's question it belongs to?
    **Superseded in part 2026-11-02** (`docs/adr/20261102082308-workers-read-sources.md`): a worker
    reads a split PostgreSQL or BigQuery leg's partition under a grant that names it. A stage that
    reads no source still holds no credential and still refuses a source leaf.
+
+   **Amended 2026-11-20** (`docs/adr/20261120042056-a-dealt-legs-rows-follow-its-plan.md`): rows the
+   stream a plan was set over feeds count as carried too. A dealt leg's share no longer travels
+   inside the plan.
 4. **A stream between nodes is authenticated by mutual TLS.** Both ends present a node certificate
    from the deployment's own authority: nix-generated in the VM venue, cert-manager in the k3s
    venue. A call to the engine's worker service without a client certificate is refused. The

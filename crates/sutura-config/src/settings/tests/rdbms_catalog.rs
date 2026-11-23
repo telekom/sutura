@@ -518,6 +518,33 @@ fn rdbms_relationship_declarations_require_exact_complete_typed_shapes_and_bound
     }
 }
 
+// Parsing's default value (`on_missing_endpoint` absent stays `Refuse`) is not pinned by a
+// dedicated cell here: the whole `MissingEndpointPolicy` enum is new in this change, so no base
+// run exists for a parsing-level pin to redden against. The security default itself - a reading
+// identity gets no relationship it cannot resolve unless it opts into `omit` - IS pinned, by
+// `default_policy_still_refuses_a_hidden_endpoint_table` in `sutura-catalog-rdbms`'s
+// `relationships/tests.rs`, which compiles unchanged on base and carries its own `Claim-Cell`.
+#[test]
+fn on_missing_endpoint_accepts_the_omit_opt_in() {
+    use crate::catalog::MissingEndpointPolicy;
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    relationships:\n      - from: {table: public.events, columns: [app_id]}\n        to: {table: public.apps, columns: [id]}\n        cardinality: many_to_one\n        on_missing_endpoint: omit\n";
+    let settings = load(&format!("{base}{declaration}")).unwrap();
+    let entry = settings.catalogs().each().next().unwrap();
+    let relation = entry.rdbms().unwrap().relationships().first().unwrap();
+    assert_eq!(relation.on_missing_endpoint(), MissingEndpointPolicy::Omit);
+}
+
+#[test]
+fn an_unknown_on_missing_endpoint_value_is_refused() {
+    let base = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let declaration = "    relationships:\n      - from: {table: public.events, columns: [app_id]}\n        to: {table: public.apps, columns: [id]}\n        cardinality: many_to_one\n        on_missing_endpoint: ignore\n";
+    assert_names(
+        &refusal(&format!("{base}{declaration}")),
+        "relationship on_missing_endpoint must be one of refuse, omit",
+    );
+}
+
 #[test]
 fn rdbms_relationship_declarations_are_capped_at_64_declarations_and_32_pairs() {
     let base = overlay("rdbms", ENTRY, Some(CONNECTION));
