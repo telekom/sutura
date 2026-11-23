@@ -715,10 +715,25 @@ fn raw_prefilter_reaches_the_oracle_source_for_a_native_dictionary_clob() {
         TypeDialect::Oracle,
         schema,
     )];
+    let physical = RecordBatch::try_from_iter([
+        (
+            "SCRIPT",
+            Arc::new(datafusion::arrow::array::StringArray::from(vec!["a MRC value"])) as ArrayRef,
+        ),
+        (
+            "OBJECT_NAME",
+            Arc::new(datafusion::arrow::array::StringArray::from(vec!["x"])) as ArrayRef,
+        ),
+    ])
+    .expect("the fake source stores the fixture row");
     let mut legs = OracleLegs {
         engines: Engines::new(None),
         statements: Vec::new(),
     };
+    // The fake engine's own session normalizes a quoted reference to lowercase before lookup
+    // (DataFusion's default `enable_ident_normalization`), so the registered name must be
+    // lowercase even though the dictionary and the rendered Oracle statement stay uppercase.
+    drop(legs.engines.at.insert(named("geo"), holding(&[("docs", physical)])));
     let statement =
         RawStatement::parse("SELECT count(OBJECT_NAME) FROM DOCS WHERE SCRIPT LIKE '%MRC%'").expect("a bounded query");
     drop(DataFusionCombiner::new().expect("a combiner builds").answer_statement(
