@@ -1,10 +1,11 @@
 {{/*
 NetworkPolicies closing github.com/telekom/sutura#1680 finding 6: the headless workers Service was
 reachable from every namespace, gated only on the node certificate check finding 5 narrows. These
-restrict ingress to the worker pods and egress from the operator pod; they do not touch the serving
-pods' own egress or the workers' egress to a data source, a sibling worker or the serving pods -
-this chart cannot know a data source's address, and the worker pool's own design already bounds who
-may call in. Off by default (`networkPolicy.enabled`) - see values.yaml for why.
+restrict ingress to the worker pods and egress from the operator pod, and bound the worker pools'
+own links: the release's nodes reach one another on the service port and nothing else, a combining
+worker reaches no source, and a reading worker reaches only the source addresses its group declares
+under `egress`. The serving pods' own egress is not restricted - they read the data sources and reach
+an identity provider this chart cannot name. Off by default (`networkPolicy.enabled`) - see values.yaml for why.
 */}}
 {{- if .Values.networkPolicy.enabled }}
 {{- $name := include "sutura.name" . }}
@@ -31,9 +32,9 @@ spec:
           protocol: TCP
 {{- if .Values.workerPool.enabled }}
 ---
-# Workers answer this release's serving pods, peers and operator - a combine across nodes dials a
-# sibling worker directly, and a serving pod dials a worker it planned a stage onto. No other
-# namespace or workload needs the node port.
+# Workers answer this release's nodes and the operator's metric scrapes.
+# Metrics share the node port; their bearer check and the worker transport's client certificate
+# check still decide which operations an allowed peer may call.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -49,13 +50,7 @@ spec:
     - Ingress
   ingress:
     - from:
-        - podSelector:
-            matchLabels:
-              {{- include "sutura.selectorLabels" . | nindent 14 }}
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: {{ $name }}-worker
-              app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "sutura.nodePeers" . | nindent 8 }}
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: {{ $name }}-operator
@@ -63,40 +58,82 @@ spec:
       ports:
         - port: {{ .Values.service.port }}
           protocol: TCP
-{{- if .Values.readingWorkers.groups }}
 ---
-# Reading workers answer only this release's serving pods, the combining workers and each other, as
-# the combining workers do. A reading worker's own egress to its data source is not restricted here,
-# for the reason the worker pool's is not.
+# A combining worker holds no source, so it needs no address outside this release: it dials this
+# release's nodes on the service port and nothing else. DNS stays open because this chart does not
+# know the cluster resolver's address.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ $fullname }}-reading-workers
+  name: {{ $fullname }}-workers-egress
   labels:
     {{- include "sutura.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: {{ $name }}-reading-worker
+      app.kubernetes.io/name: {{ $name }}-worker
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              {{- include "sutura.selectorLabels" . | nindent 14 }}
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: {{ $name }}-worker
-              app.kubernetes.io/instance: {{ .Release.Name }}
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: {{ $name }}-reading-worker
-              app.kubernetes.io/instance: {{ .Release.Name }}
+    - Egress
+  egress:
+    - to:
+        {{- include "sutura.nodePeers" . | nindent 8 }}
       ports:
         - port: {{ .Values.service.port }}
           protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- range $group, $spec := .Values.readingWorkers.groups }}
+---
+# Reading workers of group {{ $group }} reach this release's nodes on the service port, as every node
+# does - another group's readers and the combining workers serve join inputs a stage reads - and
+# reach network-backed sources and catalogs only at the addresses the group declares under `egress`,
+# plus DNS. Local `files`, `duckdb`, `markdown`, `okf` and `datacontract` entries need no destination
+# rule. One policy per group, selected by the group's own label. Groups can share a destination when their
+# declarations overlap. The policy does not validate a source's `host` against its destinations.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-reading-{{ $group }}
+  labels:
+    {{- include "sutura.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-reading-worker
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: {{ $group | quote }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- include "sutura.nodePeers" $ | nindent 8 }}
+      ports:
+        - port: {{ $.Values.service.port }}
+          protocol: TCP
+  egress:
+    - to:
+        {{- include "sutura.nodePeers" $ | nindent 8 }}
+      ports:
+        - port: {{ $.Values.service.port }}
+          protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- range (dig "egress" (list) $spec) }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+      ports:
+        - port: {{ .port | int }}
+          protocol: TCP
+    {{- end }}
 {{- end }}
 ---
 # The operator reads serving and worker metrics and calls the Kubernetes API. This permits the

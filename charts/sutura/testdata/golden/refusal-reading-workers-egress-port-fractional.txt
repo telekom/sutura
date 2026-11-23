@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/reading-workers.yaml:10:4): readingWorkers.groups.orders.egress entry {"cidr":"192.0.2.10/32","port":5432.5} has a `port` written with a fractional part: a port is a whole number between 1 and 65535
+
+Use --debug flag to render out invalid YAML

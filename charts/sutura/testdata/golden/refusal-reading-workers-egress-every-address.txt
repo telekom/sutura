@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/reading-workers.yaml:10:4): readingWorkers.groups.orders.egress names 0.0.0.0/0, which is every address: the group's policy exists to bound where its pods connect - name the source's own address, or leave networkPolicy.enabled unset
+
+Use --debug flag to render out invalid YAML

@@ -495,7 +495,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 47] = [
+    const REFUSALS: [(&str, Binary); 52] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -648,12 +648,32 @@ mod tests {
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
         ),
         (
+            "reading-workers-egress-every-address",
+            Binary::NeverReads("a network policy's address block, which the chart writes and the binary never reads"),
+        ),
+        (
+            "reading-workers-egress-port-fractional",
+            Binary::NeverReads("a network policy's destination port, which the chart writes and the binary never reads"),
+        ),
+        (
+            "reading-workers-egress-without-port",
+            Binary::NeverReads("a network policy's destination port, which the chart writes and the binary never reads"),
+        ),
+        (
+            "reading-workers-egress-zero-prefix-padded",
+            Binary::NeverReads("a network policy's address block, which the chart writes and the binary never reads"),
+        ),
+        (
             "reading-workers-group-name-invalid",
             Binary::NeverReads("a group's name, which becomes the group's Service name"),
         ),
         (
             "reading-workers-group-without-catalog",
             Binary::NeverReads("a reading worker's own catalog, a refusal of the group's pod and not of the serving pod"),
+        ),
+        (
+            "reading-workers-group-without-egress",
+            Binary::NeverReads("a group's network policy, which the chart writes and the binary never reads"),
         ),
         (
             "reading-workers-group-without-sources",
