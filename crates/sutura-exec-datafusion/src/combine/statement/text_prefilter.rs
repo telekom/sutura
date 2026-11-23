@@ -139,18 +139,19 @@ const fn bare_wildcard(options: &WildcardAdditionalOptions) -> bool {
 /// other expression under that name is a rename or a transform, not a passthrough - the raw
 /// condition built later resolves `name` straight against the physical schema, so anything else
 /// would let that resolution land on a different column than the one the redacted predicate
-/// actually tested. The comparison is case-insensitive: fail-closed, because a quoted and an
-/// unquoted spelling of the same name must not be treated as two different columns here when
-/// deciding whether a wildcard is shadowed.
+/// actually tested. The shadow check is case-insensitive: fail-closed, because it only ever makes
+/// refusal MORE likely by treating a quoted and an unquoted spelling of the same name as the same
+/// alias when deciding whether a wildcard is shadowed. The identifier and compound-identifier arms
+/// stay exact: case-insensitivity there would WIDEN acceptance, and a quoted name differs from its
+/// unquoted spelling as a physical column - on Oracle, `"body"` and `BODY` are distinct columns, so
+/// treating them as the same name would bind the raw condition to the wrong one.
 fn passes_through(name: &str, projection: &[SelectItem]) -> bool {
     let shadowed = projection
         .iter()
         .any(|item| matches!(item, SelectItem::ExprWithAlias { alias, .. } if alias.value.eq_ignore_ascii_case(name)));
     projection.iter().any(|item| match item {
-        SelectItem::UnnamedExpr(Expr::Identifier(ident)) => ident.value.eq_ignore_ascii_case(name),
-        SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path)) => {
-            path.last().is_some_and(|ident| ident.value.eq_ignore_ascii_case(name))
-        }
+        SelectItem::UnnamedExpr(Expr::Identifier(ident)) => ident.value == name,
+        SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path)) => path.last().is_some_and(|ident| ident.value == name),
         SelectItem::Wildcard(options) | SelectItem::QualifiedWildcard(_, options) => bare_wildcard(options) && !shadowed,
         _ => false,
     })

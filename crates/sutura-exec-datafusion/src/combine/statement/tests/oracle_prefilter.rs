@@ -116,6 +116,11 @@ fn raw_prefilter_guards_reject_renames_transforms_and_option_bearing_wildcards_d
         // LOW, fail-closed: the shadowing alias differs only in case from the predicate column -
         // must still refuse rather than let the case difference slip the shadow check.
         "SELECT count(id) FROM (SELECT *, id AS \"body\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
+        // Fail-closed, the other direction: a bare identifier differing only in case/quoting from
+        // the predicate column is NOT a passthrough of it - `"body"` and `"BODY"` are distinct
+        // physical columns, so treating them as the same name here would bind the raw condition to
+        // the wrong one.
+        "SELECT count(id) FROM (SELECT id, \"body\" FROM \"notes\") d WHERE \"BODY\" LIKE '%TERM%'",
     ] {
         assert!(
             super::text_prefilter::raw_predicates(sql, enabled())
