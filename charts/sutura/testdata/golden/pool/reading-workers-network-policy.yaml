@@ -27,9 +27,9 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# Workers answer this release's serving pods, peers and operator - a combine across nodes dials a
-# sibling worker directly, and a serving pod dials a worker it planned a stage onto. No other
-# namespace or workload needs the node port.
+# Workers answer this release's nodes and the operator's metric scrapes.
+# Metrics share the node port; their bearer check and the worker transport's client certificate
+# check still decide which operations an allowed peer may call.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -59,6 +59,10 @@ spec:
               app.kubernetes.io/instance: test-release
         - podSelector:
             matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
               app.kubernetes.io/name: sutura-operator
               app.kubernetes.io/instance: test-release
       ports:
@@ -67,13 +71,60 @@ spec:
 
 ---
 # Source: sutura/templates/networkpolicy.yaml
-# Reading workers answer only this release's serving pods, the combining workers and each other, as
-# the combining workers do. A reading worker's own egress to its data source is not restricted here,
-# for the reason the worker pool's is not.
+# A combining worker holds no source, so it needs no address outside this release: it dials this
+# release's nodes on the service port and nothing else. DNS stays open because this chart does not
+# know the cluster resolver's address.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: test-release-reading-workers
+  name: test-release-workers-egress
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sutura-worker
+      app.kubernetes.io/instance: test-release
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# Source: sutura/templates/networkpolicy.yaml
+# Reading workers of group finance reach this release's nodes on the service port, as every node
+# does - another group's readers and the combining workers serve join inputs a stage reads - and
+# reach a data source only at the addresses the group declares under `egress`, plus DNS. One policy
+# per group, selected by the group's own label. Groups can share a destination when their
+# declarations overlap. The policy does not validate a source's `host` against its destinations.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-release-reading-finance
   labels:
     app.kubernetes.io/name: sutura
     helm.sh/chart: sutura-0.1.0
@@ -85,8 +136,10 @@ spec:
     matchLabels:
       app.kubernetes.io/name: sutura-reading-worker
       app.kubernetes.io/instance: test-release
+      app.kubernetes.io/component: "finance"
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - podSelector:
@@ -103,6 +156,112 @@ spec:
               app.kubernetes.io/instance: test-release
       ports:
         - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: "192.0.2.20/32"
+      ports:
+        - port: 5433
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: "2001:db8::20/128"
+      ports:
+        - port: 5433
+          protocol: TCP
+
+---
+# Source: sutura/templates/networkpolicy.yaml
+# Reading workers of group orders reach this release's nodes on the service port, as every node
+# does - another group's readers and the combining workers serve join inputs a stage reads - and
+# reach a data source only at the addresses the group declares under `egress`, plus DNS. One policy
+# per group, selected by the group's own label. Groups can share a destination when their
+# declarations overlap. The policy does not validate a source's `host` against its destinations.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-release-reading-orders
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sutura-reading-worker
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/component: "orders"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-reading-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: "192.0.2.10/32"
+      ports:
+        - port: 5432
           protocol: TCP
 
 ---
@@ -210,10 +369,19 @@ data:
           url: https://test-release-workers.default.svc:8080
         - role: reading-worker
           sources:
+          - finance
+          url: https://test-release-reading-finance.default.svc:8080
+        - role: reading-worker
+          sources:
           - orders
           url: https://test-release-reading-orders.default.svc:8080
         wait_for_workers_seconds: 20
     sources:
+      finance:
+        acknowledged_because: a directory this deployment owns
+        data_dir: /srv/sutura/finance
+        kind: files
+        posture: shared-service-user
       orders:
         acknowledged_because: a directory this deployment owns
         data_dir: /srv/sutura/orders
@@ -224,6 +392,41 @@ data:
       format: bunyan
   production.yaml: |
     {}
+
+---
+# Source: sutura/templates/reading-workers.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-release-reading-finance-config
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+data:
+  base.yaml: |
+    catalogs:
+    - data_dir: /srv/sutura/data
+      dir: /srv/sutura/catalog
+      kind: markdown
+      name: model
+      version: "1"
+    security:
+      identity: multi-user
+      inbound:
+        algorithms:
+        - RS256
+        authorization_server: https://issuer.example.com
+        mode: direct
+        resource: https://sutura.example.com
+    sources:
+      finance:
+        acknowledged_because: a directory this deployment owns
+        data_dir: /srv/sutura/finance
+        kind: files
+        posture: shared-service-user
 
 ---
 # Source: sutura/templates/reading-workers.yaml
@@ -408,6 +611,31 @@ subjects:
   - kind: ServiceAccount
     name: test-release-operator
     namespace: default
+
+---
+# Source: sutura/templates/reading-workers.yaml
+# Headless: a serving node resolves every pod of the group from this name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-reading-finance
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  clusterIP: None
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: sutura-reading-worker
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/component: "finance"
 
 ---
 # Source: sutura/templates/reading-workers.yaml
@@ -614,6 +842,137 @@ spec:
             secretName: sutura-inbound-keys
             # Only the key set entry: any other entry of the Secret, such as a private key, stays out
             # of the pod. A projection and not a `subPath`, so a rotated Secret still reaches it.
+            items:
+              - key: jwks.json
+                path: jwks.json
+
+---
+# Source: sutura/templates/reading-workers.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-reading-finance
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sutura-reading-worker
+      app.kubernetes.io/instance: test-release
+      app.kubernetes.io/component: "finance"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sutura-reading-worker
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/component: "finance"
+    spec:
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: test-release
+      # A stage runs at most as long as the question it serves.
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: reading-worker
+          image: "ghcr.io/telekom/sutura:latest-musl"
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: "production"
+            - name: SUTURA_CONFIG_DIR
+              value: /etc/sutura/config
+            - name: SUTURA__SERVER__ROLE
+              value: reading-worker
+            - name: SUTURA__SERVER__HOST
+              value: "0.0.0.0"
+            - name: SUTURA__SERVER__PORT
+              value: "8080"
+            - name: SUTURA__RATE_LIMIT__ENABLED
+              value: "true"
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-metrics-token
+                  key: token
+            - name: SUTURA__SECURITY__TLS_TERMINATION
+              value: "in-process"
+            - name: SUTURA__SERVER__TLS_CERTIFICATE
+              value: /etc/sutura/node/tls.crt
+            - name: SUTURA__SERVER__TLS_KEY
+              value: /etc/sutura/node/tls.key
+            - name: SUTURA__SERVER__TLS_NODE_AUTHORITY
+              value: /etc/sutura/node/ca.crt
+            - name: SUTURA__SECURITY__INBOUND__KEY_SET_FILE
+              value: /etc/sutura/inbound-keys/jwks.json
+            - name: SUTURA__TELEMETRY__FORMAT
+              value: "bunyan"
+            - name: SUTURA__TELEMETRY__FILTER
+              value: "info"
+            - name: SUTURA__RUNTIME__SHUTDOWN_GRACE_SECONDS
+              value: "30"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sutura/config
+              readOnly: true
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+            - name: inbound-keys
+              mountPath: /etc/sutura/inbound-keys
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            {}
+      volumes:
+        - name: config
+          configMap:
+            name: test-release-reading-finance-config
+        - name: node
+          csi:
+            driver: csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              csi.cert-manager.io/issuer-name: sutura-nodes
+              csi.cert-manager.io/issuer-kind: Issuer
+              csi.cert-manager.io/dns-names: test-release-reading-finance.default.svc
+              csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
+              csi.cert-manager.io/duration: 720h
+              csi.cert-manager.io/fs-group: "65532"
+        - name: inbound-keys
+          secret:
+            secretName: sutura-inbound-keys
             items:
               - key: jwks.json
                 path: jwks.json
