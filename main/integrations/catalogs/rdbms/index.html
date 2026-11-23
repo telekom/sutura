@@ -3257,8 +3257,26 @@ omitted; a unique index without a primary/unique constraint supplies no evidence
 </span></code></pre></div>
 <p>At most 64 declarations with at most 32 distinct pairs each are accepted. Exact physical names,
 visible endpoints and known compatible mapped types are required. Equal mapped types and integer
-widths are compatible; unknown or incompatible types refuse the load, naming the endpoint.
-<code>many_to_one</code> is the only supported written cardinality. Without the optional check, uniqueness is
+widths are compatible; unknown or incompatible types always refuse the load, naming the endpoint.
+An endpoint absent or excluded from the reading identity's dictionary instead follows
+<code>on_missing_endpoint</code>, default <code>refuse</code> (the behaviour above, unchanged). <code>on_missing_endpoint: omit</code>
+drops that one declaration with a <code>WARN</code> log instead of refusing the whole catalog - the same
+declaration can then serve several environments whose service users hold different grants. An
+omitted relationship discloses nothing beyond what the dictionary selection already excluded: it
+never joins, and <code>describe_catalog</code> never lists it. A misspelled table name in a visible schema
+cannot be told apart from a hidden table under <code>shared-service-user</code> - either way the selected
+dictionary simply has no such table - so under <code>omit</code> a typo there is silently dropped with the
+same <code>WARN</code> log as a real missing grant, never refused. A misspelled <em>column</em> on a table the
+dictionary did select is still refused under either policy: that table's own columns are visible,
+so an absent one is a wrong declaration, not a missing grant.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">relationships</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">events_apps</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">from</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">inventory.events</span><span class="p p-Indicator">,</span><span class="nt"> columns</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">tenant</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">app_id</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">to</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> table</span><span class="p">:</span><span class="w"> </span><span class="nv">inventory.apps</span><span class="p p-Indicator">,</span><span class="nt"> columns</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">tenant</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">id</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">cardinality</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">many_to_one</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">on_missing_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">omit</span>
+</span></code></pre></div>
+<p><code>many_to_one</code> is the only supported written cardinality. Without the optional check, uniqueness is
 an operator assertion. With it, the catalog's own connection checks nonnull full target keys on its
 first successful dictionary read. A duplicate or a row/key-byte cap overflow refuses the load: a truncated
 prefix never certifies uniqueness. Database window comparison decides duplicates, preserving
@@ -3275,7 +3293,11 @@ the existing consistency and fan-out checks; these declarations change none of t
 <p>In <code>documentation_schema</code> mode, <code>relationships_view: relationships</code> opts into a second view in
 <code>dictionary_schema</code>. Absence makes no second-view query. Its rows are authored many-to-one
 assertions with the same endpoint/type checks as configuration, without a uniqueness probe.
-Configuration declarations can also be used with documentation catalogs.</p>
+Configuration declarations can also be used with documentation catalogs. <strong><code>on_missing_endpoint</code>
+is a configuration-declaration setting only: a view row with an endpoint the reading identity
+cannot see still refuses the whole load</strong> - the view has no column to opt a row out, so an
+operator who needs <code>omit</code> for a view-sourced relationship keeps it as a configuration declaration
+instead.</p>
 <table>
 <thead>
 <tr>

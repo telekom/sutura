@@ -2750,6 +2750,11 @@ its message names the key under <code>sources.&lt;catalog name&gt;</code> rather
 <p>A typed column, an operator from a closed set, and a value only <code>equals</code> reads - never a SQL
 string. The column parses through <code>ColumnName</code>, so it holds nothing that would need escaping;
 the value is arbitrary text, and <strong>a reader must bind it as a parameter, never interpolate it.</strong></p>
+<h2 id="use-missingendpointpolicy"><code>use MissingEndpointPolicy</code><a class="headerlink" href="#use-missingendpointpolicy" title="Permanent link">&para;</a></h2>
+<p>What a declared relationship's endpoint not being visible to the reading identity does.</p>
+<p><code>Refuse</code> is the default: the exact behaviour before this field existed, so a written catalog
+with no <code>on_missing_endpoint</code> key reads unchanged. <code>Omit</code> is the opt-in <code>telekom/sutura#2039</code>
+asks for, per relationship.</p>
 <h2 id="use-oraclecatalogconnection"><code>use OracleCatalogConnection</code><a class="headerlink" href="#use-oraclecatalogconnection" title="Permanent link">&para;</a></h2>
 <p>An Oracle dictionary connection over verified TLS or explicitly acknowledged native encryption.
 Native encryption does not authenticate the server. No plaintext channel is representable.</p>
@@ -3992,6 +3997,11 @@ its message names the key under <code>sources.&lt;catalog name&gt;</code> rather
 <p>A typed column, an operator from a closed set, and a value only <code>equals</code> reads - never a SQL
 string. The column parses through <code>ColumnName</code>, so it holds nothing that would need escaping;
 the value is arbitrary text, and <strong>a reader must bind it as a parameter, never interpolate it.</strong></p>
+<h3 id="use-missingendpointpolicy_1"><code>use MissingEndpointPolicy</code><a class="headerlink" href="#use-missingendpointpolicy_1" title="Permanent link">&para;</a></h3>
+<p>What a declared relationship's endpoint not being visible to the reading identity does.</p>
+<p><code>Refuse</code> is the default: the exact behaviour before this field existed, so a written catalog
+with no <code>on_missing_endpoint</code> key reads unchanged. <code>Omit</code> is the opt-in <code>telekom/sutura#2039</code>
+asks for, per relationship.</p>
 <h3 id="use-oraclecatalogconnection_1"><code>use OracleCatalogConnection</code><a class="headerlink" href="#use-oraclecatalogconnection_1" title="Permanent link">&para;</a></h3>
 <p>An Oracle dictionary connection over verified TLS or explicitly acknowledged native encryption.
 Native encryption does not authenticate the server. No plaintext channel is representable.</p>
@@ -4280,6 +4290,11 @@ its message names the key under <code>sources.&lt;catalog name&gt;</code> rather
 <h4 id="use-descriptionsource"><code>use DescriptionSource</code><a class="headerlink" href="#use-descriptionsource" title="Permanent link">&para;</a></h4>
 <h4 id="use-invaliddescriptionsource"><code>use InvalidDescriptionSource</code><a class="headerlink" href="#use-invaliddescriptionsource" title="Permanent link">&para;</a></h4>
 <h4 id="use-declaredrelationship"><code>use DeclaredRelationship</code><a class="headerlink" href="#use-declaredrelationship" title="Permanent link">&para;</a></h4>
+<h4 id="use-missingendpointpolicy_2"><code>use MissingEndpointPolicy</code><a class="headerlink" href="#use-missingendpointpolicy_2" title="Permanent link">&para;</a></h4>
+<p>What a declared relationship's endpoint not being visible to the reading identity does.</p>
+<p><code>Refuse</code> is the default: the exact behaviour before this field existed, so a written catalog
+with no <code>on_missing_endpoint</code> key reads unchanged. <code>Omit</code> is the opt-in <code>telekom/sutura#2039</code>
+asks for, per relationship.</p>
 <h4 id="use-relationshipendpoint"><code>use RelationshipEndpoint</code><a class="headerlink" href="#use-relationshipendpoint" title="Permanent link">&para;</a></h4>
 <h4 id="use-uniquenesscheck"><code>use UniquenessCheck</code><a class="headerlink" href="#use-uniquenesscheck" title="Permanent link">&para;</a></h4>
 <h4 id="use-invalidrdbmscatalog_2"><code>use InvalidRdbmsCatalog</code><a class="headerlink" href="#use-invalidrdbmscatalog_2" title="Permanent link">&para;</a></h4>
