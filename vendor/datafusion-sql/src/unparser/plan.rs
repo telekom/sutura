@@ -635,6 +635,28 @@ impl Unparser<'_> {
             }
             seen
         };
+        // The parent may not reference the wrapped plan's columns at all - a
+        // `count(1)` over a filtered scan, say - in which case no qualifier is
+        // ever out of scope and the alias/rename machinery below has nothing to
+        // fix: skip it rather than decorate every derived table unconditionally.
+        let referenced_names: Vec<String> = plan
+            .schema()
+            .iter()
+            .filter_map(|(name, field)| {
+                let name = name.as_ref()?;
+                let prefix = if self.dialect.full_qualified_col() {
+                    name.to_vec()
+                } else {
+                    vec![name.table().to_string()]
+                };
+                from_qualifiers
+                    .contains(&prefix)
+                    .then(|| field.name().clone())
+            })
+            .collect();
+        if !select.references_any(&referenced_names) {
+            return self.derive(plan, relation, None, lateral);
+        }
         let synthetic_alias = {
             let n = self.derived_alias_counter.get();
             self.derived_alias_counter.set(n + 1);
@@ -649,7 +671,7 @@ impl Unparser<'_> {
         // Give every such column its own output name instead.
         let (column_mapping, renames) =
             self.disambiguate_derived_output_columns(plan, &from_qualifiers)?;
-        select.rewrite_qualifiers(&column_mapping, &synthetic_alias);
+        select.rewrite_qualifiers(&column_mapping, &synthetic_alias)?;
         self.derive_with_output_renames(
             plan,
             relation,
