@@ -33,6 +33,12 @@ pub(crate) struct RawDescriptionKey {
     pub(crate) column: String,
     #[serde(default)]
     pub(crate) via: Option<RawDescriptionKeyVia>,
+    /// How a mapped row's own `schema_name`/`table_name`/`column_name` values are matched against
+    /// the main dictionary's physical identity: `exact` (default) or `case_insensitive`
+    /// (`telekom/sutura#1975`, `telekom/sutura#2040`). Never changes how this table's own SQL
+    /// identifiers are quoted or bound - only how the two sides are compared after readback.
+    #[serde(default, rename = "match")]
+    pub(crate) key_match: Option<String>,
 }
 
 /// A key reached through a declared parent table (a SQL join), for a documentation system that
@@ -63,6 +69,7 @@ pub struct DescriptionMapping {
     predicates: Vec<DescriptionPredicate>,
     max_rows: Option<NonZeroU64>,
     max_bytes: Option<NonZeroU64>,
+    case_insensitive: bool,
 }
 
 /// Where a mapped row's schema and physical table name come from: either columns on the mapped
@@ -123,6 +130,8 @@ pub enum InvalidDescriptionSource {
     PredicateListEmpty,
     #[error("live_row_predicates entries' table must name the mapped table or its key.via table")]
     PredicateTable,
+    #[error("key.match must be exact or case_insensitive")]
+    KeyMatch,
 }
 
 pub(crate) fn parse(name: &SourceName, raw: &[RawDescriptionSource]) -> Result<Vec<DescriptionSource>, InvalidRdbmsCatalog> {
@@ -191,7 +200,16 @@ fn parse_one(name: &SourceName, raw: &RawDescriptionSource) -> Result<Descriptio
         predicates,
         max_rows: non_zero("max_dictionary_rows", raw.max_dictionary_rows)?,
         max_bytes: non_zero("max_dictionary_bytes", raw.max_dictionary_bytes)?,
+        case_insensitive: key_match(key)?,
     })))
+}
+
+fn key_match(key: &RawDescriptionKey) -> Result<bool, InvalidRdbmsCatalog> {
+    match key.key_match.as_deref() {
+        None | Some("exact") => Ok(false),
+        Some("case_insensitive") => Ok(true),
+        Some(_) => Err(invalid(InvalidDescriptionSource::KeyMatch)),
+    }
 }
 
 fn physical_table(raw: &str) -> Result<QualifiedTable, InvalidRdbmsCatalog> {
@@ -301,6 +319,10 @@ impl DescriptionMapping {
     }
     pub const fn max_bytes(&self) -> Option<NonZeroU64> {
         self.max_bytes
+    }
+    /// Whether a mapped row's own identity columns match the main dictionary case-insensitively.
+    pub const fn case_insensitive(&self) -> bool {
+        self.case_insensitive
     }
 }
 

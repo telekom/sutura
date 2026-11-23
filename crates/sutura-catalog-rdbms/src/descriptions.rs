@@ -44,6 +44,9 @@ pub type OverlaidDictionary = (Dictionary, u64);
 pub struct DescriptionOverlay {
     tables: BTreeMap<QualifiedTable, Description>,
     columns: BTreeMap<PhysicalColumn, Description>,
+    /// Whether this source's own keys were folded to lower case at construction, so [`apply`]
+    /// knows to probe it with a folded physical identity instead of the dictionary's exact one.
+    case_insensitive: bool,
 }
 
 struct Projection {
@@ -54,11 +57,12 @@ struct Projection {
 }
 
 impl Projection {
-    const fn new(bounds: DictionaryBounds) -> Self {
+    const fn new(bounds: DictionaryBounds, case_insensitive: bool) -> Self {
         Self {
             overlay: DescriptionOverlay {
                 tables: BTreeMap::new(),
                 columns: BTreeMap::new(),
+                case_insensitive,
             },
             bounds,
             rows: 0,
@@ -83,7 +87,12 @@ impl Projection {
     }
 
     fn column(&mut self, table: &QualifiedTable, column: &str, prose: &str) -> Result<(), DescriptionError> {
-        let column = exact(column)
+        let folded = if self.overlay.case_insensitive {
+            column.to_lowercase()
+        } else {
+            column.to_owned()
+        };
+        let column = exact(&folded)
             .and_then(ColumnName::parse)
             .map_err(|cause| DescriptionError::Identifier { cause })?;
         let prose = Description::parse(prose).map_err(|cause| DescriptionError::Prose { cause })?;
@@ -105,11 +114,19 @@ fn exact(raw: &str) -> Result<&str, sutura_domain::model::InvalidIdentifier> {
 }
 
 fn physical(address: &TableAddress) -> Result<QualifiedTable, DescriptionError> {
+    physical_folded(address, false)
+}
+
+/// Like [`physical`], but when `fold` is set, lower-cases every identifier segment before parsing.
+/// Used only to compare a case-insensitive description source against the dictionary's own
+/// physical identity, never to change what SQL this crate emits.
+fn physical_folded(address: &TableAddress, fold: bool) -> Result<QualifiedTable, DescriptionError> {
+    let lower = |raw: &str| if fold { raw.to_lowercase() } else { raw.to_owned() };
     let parse = || {
-        let table = TableName::parse(exact(address.table())?)?;
-        let schema = DatasetName::parse(exact(address.schema())?)?;
+        let table = TableName::parse(exact(&lower(address.table()))?)?;
+        let schema = DatasetName::parse(exact(&lower(address.schema()))?)?;
         let qualifier = match address.catalog() {
-            Some(catalog) => TableQualifier::in_project(ProjectName::parse(exact(catalog)?)?, schema),
+            Some(catalog) => TableQualifier::in_project(ProjectName::parse(exact(&lower(catalog))?)?, schema),
             None => TableQualifier::in_dataset(schema),
         };
         Ok(QualifiedTable::new(Some(qualifier), table))
@@ -118,15 +135,19 @@ fn physical(address: &TableAddress) -> Result<QualifiedTable, DescriptionError> 
 }
 
 impl DescriptionOverlay {
-    pub fn from_dictionary(dictionary: &Dictionary, bounds: DictionaryBounds) -> Result<Self, DescriptionError> {
-        let mut projection = Projection::new(bounds);
+    pub fn from_dictionary(
+        dictionary: &Dictionary,
+        bounds: DictionaryBounds,
+        case_insensitive: bool,
+    ) -> Result<Self, DescriptionError> {
+        let mut projection = Projection::new(bounds, case_insensitive);
         for table in dictionary.tables() {
             let address_bytes = table.address.to_string().len();
             projection.admit(
                 address_bytes.saturating_add(table.description.as_deref().unwrap_or("").len()),
                 table.columns.is_empty(),
             )?;
-            let address = physical(&table.address)?;
+            let address = physical_folded(&table.address, case_insensitive)?;
             let description = Description::parse(table.description.as_deref().unwrap_or(""))
                 .map_err(|cause| DescriptionError::Prose { cause })?;
             if projection.overlay.tables.insert(address.clone(), description).is_some() {
@@ -145,7 +166,7 @@ impl DescriptionOverlay {
     }
 
     pub fn from_definitions(definitions: &Definitions, bounds: DictionaryBounds) -> Result<Self, DescriptionError> {
-        let mut projection = Projection::new(bounds);
+        let mut projection = Projection::new(bounds, false);
         for model in definitions.models().values() {
             let address = model.table();
             let address_bytes = address.to_string().len();
@@ -184,30 +205,44 @@ pub(crate) fn apply(mut dictionary: Dictionary, sources: &[DescriptionOverlay]) 
     let mut visible = BTreeSet::new();
     for table in &mut dictionary.tables {
         let address = physical(&table.address).map_err(|cause| RdbmsError::Read(Box::new(cause)))?;
+        let folded_address = physical_folded(&table.address, true).map_err(|cause| RdbmsError::Read(Box::new(cause)))?;
         if let Some(prose) = sources
             .iter()
-            .filter_map(|source| source.tables.get(&address))
+            .filter_map(|source| {
+                let probe = if source.case_insensitive { &folded_address } else { &address };
+                source.tables.get(probe)
+            })
             .find(|prose| !prose.is_empty())
         {
             table.description = Some(prose.as_str().to_owned());
         }
         for column in &table.columns {
-            let key = (
-                address.clone(),
-                ColumnName::parse(column).map_err(|cause| RdbmsError::ColumnName {
-                    table: address.to_string(),
-                    column: column.clone(),
-                    cause,
-                })?,
-            );
+            let column_key = ColumnName::parse(column).map_err(|cause| RdbmsError::ColumnName {
+                table: address.to_string(),
+                column: column.clone(),
+                cause,
+            })?;
+            let folded_column_key = ColumnName::parse(column.to_lowercase()).map_err(|cause| RdbmsError::ColumnName {
+                table: address.to_string(),
+                column: column.clone(),
+                cause,
+            })?;
+            let key = (address.clone(), column_key);
+            let folded_key = (folded_address.clone(), folded_column_key);
             if let Some(prose) = sources
                 .iter()
-                .filter_map(|source| source.columns.get(&key))
+                .filter_map(|source| {
+                    let probe = if source.case_insensitive { &folded_key } else { &key };
+                    source.columns.get(probe)
+                })
                 .find(|prose| !prose.is_empty())
             {
                 table.column_metadata.entry(column.clone()).or_default().description = Some(prose.as_str().to_owned());
             }
+            // Visible under both its exact and folded identity, so a case-insensitive source's
+            // already-matched key is never miscounted as an ignored, unmatched row below.
             visible.insert(key);
+            visible.insert(folded_key);
         }
     }
     let ignored = sources
@@ -264,7 +299,7 @@ mod tests {
         );
         let overlays = [first, second]
             .iter()
-            .map(|dictionary| DescriptionOverlay::from_dictionary(dictionary, bounds(100, 10000)).expect("bounded prose"))
+            .map(|dictionary| DescriptionOverlay::from_dictionary(dictionary, bounds(100, 10000), false).expect("bounded prose"))
             .collect::<Vec<_>>();
         let (actual, ignored) = base.clone().overlay_descriptions(&overlays).expect("overlaid");
         assert_eq!(ignored, 2);
@@ -294,7 +329,7 @@ mod tests {
         let mut docs = dictionary("PUBLIC", &[("id", "Wrong case")]);
         docs.tables.extend(dictionary("public", &[("id", "Wrong catalog")]).tables);
         docs.tables.last_mut().expect("second table").address.catalog = Some(String::from("other"));
-        let overlay = DescriptionOverlay::from_dictionary(&docs, bounds(100, 10000)).expect("exact records");
+        let overlay = DescriptionOverlay::from_dictionary(&docs, bounds(100, 10000), false).expect("exact records");
         let (actual, ignored) = dictionary("public", &[("id", "Native")])
             .overlay_descriptions(&[overlay])
             .expect("overlaid");
@@ -309,31 +344,57 @@ mod tests {
         );
     }
 
+    /// `key.match: case_insensitive` (`telekom/sutura#1975`, `telekom/sutura#2040`) is opt-in: it
+    /// relaxes only this source's own comparison, never the SQL this crate emits elsewhere, and
+    /// never the pinned exact-match default above.
+    #[test]
+    fn a_case_insensitive_source_matches_a_differently_cased_physical_identity() {
+        let docs = dictionary("PUBLIC", &[("ID", "Folded match")]);
+        let overlay = DescriptionOverlay::from_dictionary(&docs, bounds(100, 10000), true).expect("folded records");
+        let (actual, ignored) = dictionary("public", &[("id", "Native")])
+            .overlay_descriptions(&[overlay])
+            .expect("overlaid");
+        assert_eq!(ignored, 0);
+        assert_eq!(
+            actual
+                .tables()
+                .first()
+                .and_then(|table| table.column_metadata("id"))
+                .and_then(crate::ColumnMetadata::description),
+            Some("Folded match")
+        );
+    }
+
     #[test]
     fn description_projection_refuses_duplicate_keys_caps_and_control_characters() {
         let mut repeated = dictionary("public", &[("id", "One")]);
         repeated.tables.extend(dictionary("public", &[("id", "Two")]).tables);
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&repeated, bounds(100, 10000)),
+            DescriptionOverlay::from_dictionary(&repeated, bounds(100, 10000), false),
             Err(DescriptionError::DuplicateTable { .. })
         ));
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&dictionary("public", &[("id", "One"), ("id", "Two")]), bounds(100, 10000)),
+            DescriptionOverlay::from_dictionary(
+                &dictionary("public", &[("id", "One"), ("id", "Two")]),
+                bounds(100, 10000),
+                false
+            ),
             Err(DescriptionError::Duplicate { .. })
         ));
         assert!(matches!(
             DescriptionOverlay::from_dictionary(
                 &dictionary("public", &[("id", "Prose"), ("extra", "Prose")]),
-                bounds(1, 10000)
+                bounds(1, 10000),
+                false
             ),
             Err(DescriptionError::Rows { .. })
         ));
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&dictionary("public", &[("id", "Prose")]), bounds(100, 1)),
+            DescriptionOverlay::from_dictionary(&dictionary("public", &[("id", "Prose")]), bounds(100, 1), false),
             Err(DescriptionError::Bytes { .. })
         ));
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&dictionary("public", &[("id", "Bad\u{1b}prose")]), bounds(100, 10000)),
+            DescriptionOverlay::from_dictionary(&dictionary("public", &[("id", "Bad\u{1b}prose")]), bounds(100, 10000), false),
             Err(DescriptionError::Prose { .. })
         ));
     }

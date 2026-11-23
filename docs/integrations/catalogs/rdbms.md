@@ -262,6 +262,24 @@ mutually exclusive with the single-predicate `live_row_predicate`. A `key.via` j
 more than one parent row for the same key is refused as a duplicate physical column
 (`DescriptionError::Duplicate`), the same way a flat mapping refuses two rows for one key.
 
+`key.match` is `exact` (the default, including when omitted) or `case_insensitive`. It only
+changes how a mapped row's own `schema_name`/`table_name`/`column_name` values are compared
+against the main dictionary's physical identity after they are read back - never how this
+mapping's own SQL quotes or binds identifiers, and never the catalog or `key.via` side of a join,
+which stays an exact physical match regardless:
+
+```yaml
+descriptions_from:
+  - connection: { ... }
+    table: inventory.column_docs
+    key: { schema: object_owner, table: object_name, column: field_name, match: case_insensitive }
+    description: description
+```
+
+Use it for a documentation system whose own convention does not preserve the served dictionary's
+case, such as one that stores every identifier upper-cased regardless of how the source database
+spells it.
+
 Mappings use the existing read-only reader transaction, a returned-row cap plus one, inline byte
 accounting and the existing description byte, line and control-character checks. PostgreSQL's
 byte refusal runs after libpq has materialized its result; Oracle bills decoded cursor rows.

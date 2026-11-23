@@ -146,3 +146,52 @@ fn live_row_predicates_empty_list_is_refused() {
     );
     assert_description_error(load(&text), &InvalidDescriptionSource::PredicateListEmpty);
 }
+
+/// `key.match` (`telekom/sutura#1975`, `telekom/sutura#2040`): opt-in case-insensitive matching of
+/// a mapped row's own identity columns against the main dictionary's physical names. Omitting it,
+/// or spelling it `exact`, keeps the default case-preserving comparison.
+#[test]
+fn description_key_match_defaults_to_case_sensitive_and_accepts_case_insensitive() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let default_text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n"
+    );
+    let settings = load(&default_text).expect("a mapping without key.match loads");
+    let entry = settings.catalogs().each().next().unwrap();
+    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = entry.rdbms().unwrap().descriptions_from().first().unwrap()
+    else {
+        panic!("a mapping")
+    };
+    assert!(!mapping.case_insensitive());
+
+    let exact_text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name, match: exact}}\n        description: prose\n"
+    );
+    let settings = load(&exact_text).expect("key.match: exact loads");
+    let entry = settings.catalogs().each().next().unwrap();
+    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = entry.rdbms().unwrap().descriptions_from().first().unwrap()
+    else {
+        panic!("a mapping")
+    };
+    assert!(!mapping.case_insensitive());
+
+    let folded_text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name, match: case_insensitive}}\n        description: prose\n"
+    );
+    let settings = load(&folded_text).expect("key.match: case_insensitive loads");
+    let entry = settings.catalogs().each().next().unwrap();
+    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = entry.rdbms().unwrap().descriptions_from().first().unwrap()
+    else {
+        panic!("a mapping")
+    };
+    assert!(mapping.case_insensitive());
+}
+
+#[test]
+fn description_key_match_rejects_an_unknown_value() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name, match: insensitive}}\n        description: prose\n"
+    );
+    assert_description_error(load(&text), &InvalidDescriptionSource::KeyMatch);
+}
