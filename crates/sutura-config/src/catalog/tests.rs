@@ -345,6 +345,8 @@ fn load(overlay: &str) -> Result<Settings, crate::settings::SettingsLoadError> {
     Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
 }
 
+/// Moved here from `catalog.rs`'s own test module; see the `Weakens-Test:` trailer on the commit
+/// that moved it for why the gate cannot pair this body with its pre-move self.
 #[test]
 fn a_separate_description_mapping_is_parsed_as_prose_only_with_a_closed_predicate() {
     let text = overlay("rdbms", ENTRY, Some(CONNECTION));
