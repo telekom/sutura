@@ -148,7 +148,7 @@ jobs:
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
       # affect the Nix cache.
       - uses: $/.github/actions/reclaim-disk
-      - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # 31.11.5
+      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
           # substituter stays absent, so a pull request cannot point CI at a store it controls.
