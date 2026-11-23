@@ -285,19 +285,9 @@ jobs:
     # Never cancel a run on the default branch, and the correctness that used to rest on that
     # comment is now on the durable marker (#561): the default-branch base is the last fully
     # validated commit, so even an EVICTED pending run's commits are covered by the next run.
-    #
-    # Keyed on the HEAD SHA, not `github.ref`, and never cancels on a pull request either
-    # (#2061/#2062): `types: [opened, synchronize, reopened, labeled]` on this trigger means a
-    # label flip (`ci:full`) fires `pull_request` without a new commit, and `opened` plus a
-    # same-second `labeled` delivery for one push landed two `ci` runs for the SAME head a few
-    # seconds apart. Cancelling one left a `cancelled` check-run for the required `ci` context
-    # that a later green run of the same name does not retire, so the pull request stayed
-    # merge-blocked after `ci` had gone green. A head-scoped group makes same-head duplicates
-    # QUEUE behind each other instead of racing; a genuinely new push gets its own group and
-    # still runs immediately, so this changes nothing about how fast a real change is validated.
     concurrency:
-      group: ci-${{ github.event.pull_request.head.sha || github.sha }}
-      cancel-in-progress: false
+      group: ${{ github.workflow }}-${{ github.ref }}-ci
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # The version bump skips core CI and ordinary QA. The tag workflow runs full QA,
     # including live conformance and the linked-driver exercise.
     # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
