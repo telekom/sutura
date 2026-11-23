@@ -4286,9 +4286,21 @@ its message names the key under <code>sources.&lt;catalog name&gt;</code> rather
 </ul>
 <h5 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="use-descriptionkeysource"><code>use DescriptionKeySource</code><a class="headerlink" href="#use-descriptionkeysource" title="Permanent link">&para;</a></h4>
+<p>Where a mapped row's schema and physical table name come from: either columns on the mapped
+table itself, or columns on a declared parent table reached by a join on declared columns.</p>
 <h4 id="use-descriptionmapping"><code>use DescriptionMapping</code><a class="headerlink" href="#use-descriptionmapping" title="Permanent link">&para;</a></h4>
+<h4 id="use-descriptionpredicate"><code>use DescriptionPredicate</code><a class="headerlink" href="#use-descriptionpredicate" title="Permanent link">&para;</a></h4>
+<p>One closed-form live-row predicate naming the physical table it filters, so a mapping whose key
+is reached through a parent table can filter rows on either side of the join.</p>
 <h4 id="use-descriptionsource"><code>use DescriptionSource</code><a class="headerlink" href="#use-descriptionsource" title="Permanent link">&para;</a></h4>
+<h4 id="use-descriptionvia"><code>use DescriptionVia</code><a class="headerlink" href="#use-descriptionvia" title="Permanent link">&para;</a></h4>
+<p>The parent table a description key is resolved through, and the columns the join and the
+schema/table-name projection read off it.</p>
 <h4 id="use-invaliddescriptionsource"><code>use InvalidDescriptionSource</code><a class="headerlink" href="#use-invaliddescriptionsource" title="Permanent link">&para;</a></h4>
+<h4 id="use-predicatetable"><code>use PredicateTable</code><a class="headerlink" href="#use-predicatetable" title="Permanent link">&para;</a></h4>
+<p>Which physical table a <code>DescriptionPredicate</code> filters: the mapped table, or its <code>key.via</code>
+parent. There is never a third table to name.</p>
 <h4 id="use-declaredrelationship"><code>use DeclaredRelationship</code><a class="headerlink" href="#use-declaredrelationship" title="Permanent link">&para;</a></h4>
 <h4 id="use-missingendpointpolicy_2"><code>use MissingEndpointPolicy</code><a class="headerlink" href="#use-missingendpointpolicy_2" title="Permanent link">&para;</a></h4>
 <p>What a declared relationship's endpoint not being visible to the reading identity does.</p>

@@ -2942,6 +2942,15 @@ a reader back to all of them.</p>
 <h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="use-mappeddescriptions"><code>use MappedDescriptions</code><a class="headerlink" href="#use-mappeddescriptions" title="Permanent link">&para;</a></h3>
+<h3 id="use-mappedkeysource"><code>use MappedKeySource</code><a class="headerlink" href="#use-mappedkeysource" title="Permanent link">&para;</a></h3>
+<p>A mapped key's schema and physical table name: either columns on the mapped table, or columns
+on a declared parent table joined in on declared columns.</p>
+<h3 id="use-mappedpredicate"><code>use MappedPredicate</code><a class="headerlink" href="#use-mappedpredicate" title="Permanent link">&para;</a></h3>
+<p>One closed-form predicate, naming the table it filters.</p>
+<h3 id="use-mappedtable"><code>use MappedTable</code><a class="headerlink" href="#use-mappedtable" title="Permanent link">&para;</a></h3>
+<p>Which physical table a <code>MappedPredicate</code> filters: the mapped table, or its <code>key.via</code> parent.</p>
+<h3 id="use-mappedvia"><code>use MappedVia</code><a class="headerlink" href="#use-mappedvia" title="Permanent link">&para;</a></h3>
+<p>The parent table a mapped key is resolved through.</p>
 <h3 id="type_alias-overlaiddictionary"><code>type_alias OverlaidDictionary</code><a class="headerlink" href="#type_alias-overlaiddictionary" title="Permanent link">&para;</a></h3>
 <p>A dictionary with the number of description rows outside its visible columns.</p>
 <h2 id="module-fixture">Module <code>fixture</code><a class="headerlink" href="#module-fixture" title="Permanent link">&para;</a></h2>
