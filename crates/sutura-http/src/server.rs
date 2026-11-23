@@ -182,7 +182,9 @@ async fn bind(address: SocketAddr) -> Result<tokio::net::TcpListener, ServeFaile
 /// choose - is reported as the port it got.
 fn local(listener: &tokio::net::TcpListener) -> Result<SocketAddr, ServeFailed> {
     listener.local_addr().map_err(|cause| ServeFailed::Bind {
-        address: String::from("<socket already bound by the caller>"),
+        // Not a placeholder: this IS the listener whose own address could not be read back, so its
+        // `Debug` - the only representation of it this function has left - is what the error names.
+        address: format!("{listener:?}"),
         cause,
     })
 }

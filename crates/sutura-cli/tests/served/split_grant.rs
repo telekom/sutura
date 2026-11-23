@@ -22,9 +22,10 @@
 //! never guessed from a socket closed before the node binds, which a concurrent `nextest` run
 //! could rebind first. `nodes.own` is written as the same `0`: nothing here dials it (the serving
 //! node is the caller of every reader here, never their callee), but the server still resolves it
-//! to the port it bound before planning across the declared nodes, so an `own` naming a real,
-//! reachable address is exactly what a deployment with peers that DO dial it would see too. The
-//! caller is a mock issuer's token; nobody signs in.
+//! to the port it bound before planning across the declared nodes - no test here dials the
+//! resolved address, so this exercises only that the resolution itself runs without a peer
+//! declared at it, never that a peer which DOES dial it reaches the right port. The caller is a
+//! mock issuer's token; nobody signs in.
 
 #[cfg(test)]
 mod tests {
@@ -104,7 +105,7 @@ mod tests {
     impl Serving {
         /// The port the kernel bound it to, read back off its own `listening` line - the same
         /// fact [`url`] reads for a reader, and for the same reason: nothing pre-guesses it.
-        fn port(&self) -> u16 {
+        fn serving_bound_port(&self) -> u16 {
             self.served
                 .startup
                 .iter()
@@ -268,7 +269,7 @@ mod tests {
                 .expect("an address is a server name")
                 .to_owned();
             let connection = rustls::ClientConnection::new(Arc::new(config), name).expect("a client connection builds");
-            let port = serving.port();
+            let port = serving.serving_bound_port();
             let tcp = TcpStream::connect(("127.0.0.1", port)).expect("the serving node accepts a connection");
             tcp.set_read_timeout(Some(Duration::from_secs(120)))
                 .expect("a read timeout is settable");

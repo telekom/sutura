@@ -506,6 +506,18 @@ process resolves it to the port it actually bound, before planning across the de
 need a port picked in advance. Any other port, including the scheme's default when none is written, is read exactly
 as declared.
 
+**Trade-off:** resolving `own: 0` needs a real port before the combiner above runs, so for this case alone the
+listener is bound synchronously at the very start of boot, before every later startup refusal - node identity,
+telemetry, the outbound anchor set, an adapter. The socket is in `LISTEN` (a handshake completes into its backlog,
+a probe sees "up") for the span of boot that follows, even though one of those later refusals can still fail it. A
+deployment whose `own` names a real port, including the scheme's default, keeps the original late bind instead -
+this exposure is only the price of asking the process to resolve its own address.
+
+**Limit:** resolving `own: 0` is this node naming itself correctly, not telling a peer what that port turned out to
+be. A peer under `others` must still name this node's real, actually-bound port in its own `others` entry that
+dials back here - `own: 0` only fits a node no peer ever dials (one with no reader, or the planning root of a
+deployment where every link runs the other way), never a reading worker another node reaches.
+
 Each peer under `others` names its `role` (`worker` or `reading-worker`, never `serving`) and, for a `reading-worker`,
 the source aliases it reads - a `worker` naming any is refused, and a `reading-worker` naming none is. Every address is
 a bare origin, or one with a `#<ip>` fragment naming the address to dial it at: a path, query, userinfo or any other

@@ -214,8 +214,14 @@ pub(crate) fn run() -> Result<(), String> {
     #[cfg(not(feature = "flight"))]
     not_linked::flight_refused_if_enabled(&settings)?;
 
-    // Bound HERE, synchronously and before anything else - see `nodes::bind_server_socket` for why.
-    let (listener, bound_port) = nodes::bind_server_socket(&settings)?;
+    // Bound HERE, synchronously and before anything else, ONLY when `server.nodes.own` names the
+    // literal port `0` and so needs a real one resolved before `combiner` below runs - every other
+    // deployment keeps the original late bind, inside `serve_as_configured`, unchanged: binding
+    // early leaves a socket in `LISTEN` (handshakes complete into the backlog, a probe sees "up")
+    // while the refusals below - node identity, telemetry, outbound anchors, an adapter - may still
+    // fail, and that exposure is not handed to a deployment that never asked for it. See
+    // `nodes::socket_for`.
+    let (socket, bound_port) = nodes::socket_for(&settings)?;
 
     // Before any adapter opens, so an unusable node identity, or nodes declared on a build that
     // cannot reach them, is refused before the process does anything else.
@@ -461,7 +467,8 @@ pub(crate) fn run() -> Result<(), String> {
     );
 
     // 7. The router, then the runtime, then serving. In that order: see the note on this function.
-    // The listener itself was already bound, above - see that comment for why.
+    // `socket` was already decided, above - bound early only for an `own: 0` deployment, otherwise
+    // still the address `serve_as_configured` binds at its original, late timing.
     // Read out before the settings are moved into the state. The first two are about the LISTENER
     // rather than about a request, and the third is about stopping, so this is the last place any of
     // them is looked at.
@@ -526,7 +533,7 @@ pub(crate) fn run() -> Result<(), String> {
     let stopping = Shutdown::with_grace(grace);
     let served = runtime.block_on(serve_until_stopped(
         router,
-        listener,
+        socket,
         material,
         watching,
         stopping.clone(),
@@ -651,7 +658,7 @@ fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
 /// first place one is running.
 async fn serve_until_stopped(
     router: axum::Router,
-    listener: std::net::TcpListener,
+    socket: nodes::Socket,
     material: Option<TlsMaterial>,
     inbound: Option<Arc<sutura_http::InboundGate>>,
     stopping: Shutdown,
@@ -674,57 +681,7 @@ async fn serve_until_stopped(
     if let Some(gate) = inbound {
         gate.watch_keys_until_shutdown(&stopping);
     }
-    serve_as_configured(router, listener, stopping, material).await
-}
-
-/// Serves plaintext, or terminates TLS here, according to what was configured.
-///
-/// **Two bodies, chosen by the `tls` feature, and they are not equivalent.** The configuration
-/// cannot ask for something a build cannot do - `sutura-cli`'s `tls` feature turns on
-/// `sutura-config`'s, so a binary without it refuses `security.tls_termination: in-process` at
-/// startup with `NotFitToServe::InProcessTlsNotCompiledIn`, naming the feature. That refusal is the
-/// gate; this is not a second copy of it.
-///
-/// The check in the second body is narrower and is about the one failure that must never be quiet:
-/// it keys on the MATERIAL rather than on the declaration, so serving plaintext on a port that was
-/// given a certificate is impossible in this file rather than impossible two crates away. A `cfg`
-/// that silently fell through to `serve` would be exactly the silent fallback this is not allowed to
-/// have.
-#[cfg(feature = "tls")]
-async fn serve_as_configured(
-    router: axum::Router,
-    listener: std::net::TcpListener,
-    stopping: Shutdown,
-    material: Option<TlsMaterial>,
-) -> Result<(), String> {
-    let listener = nodes::tokio_listener(listener)?;
-    match material.as_ref() {
-        Some(material) => sutura_http::serve_tls_on(listener, router, stopping, material)
-            .await
-            .map_err(flatten),
-        None => sutura_http::serve_on(listener, router, stopping).await.map_err(flatten),
-    }
-}
-
-/// The same decision in a build with no TLS listener in it.
-#[cfg(not(feature = "tls"))]
-async fn serve_as_configured(
-    router: axum::Router,
-    listener: std::net::TcpListener,
-    stopping: Shutdown,
-    material: Option<TlsMaterial>,
-) -> Result<(), String> {
-    if material.is_some() {
-        return Err(String::from(
-            "server.tls_certificate and server.tls_key are set and this binary was built without \
-             the `tls` feature, so it has no TLS listener at all. Rebuild with `--features tls`, or \
-             terminate TLS in front of this process and remove the paths. Refusing to serve \
-             plaintext on a port that was configured to be encrypted",
-        ));
-    }
-    sutura_http::serve_on(nodes::tokio_listener(listener)?, router, stopping)
-        .await
-        .map_err(flatten)
+    nodes::serve_as_configured(router, socket, stopping, material).await
 }
 
 /// The adapter(s) this process opened its sources with, and everything the next step needs from

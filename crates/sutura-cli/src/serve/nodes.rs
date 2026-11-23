@@ -16,6 +16,8 @@
 use core::num::{NonZeroU64, NonZeroUsize};
 
 use sutura_app::Warehouses;
+#[cfg(feature = "distributed")]
+use sutura_config::InvalidDeclaredNode;
 use sutura_config::RuntimeSettings;
 use sutura_config::{DeclaredNode, TlsMaterial};
 use sutura_domain::warehouse::Warehouse;
@@ -44,6 +46,9 @@ pub(super) type Chosen = (DataFusionCombiner, Served);
 /// explicit claim about where it is reachable and is left untouched: this process opens exactly one
 /// listener, so a literal `0` is the only spelling that could mean "it", and there is nothing else
 /// for it to ambiguously mean - no second listener, no second bound port, to choose between.
+///
+/// Called only once [`own_wants_bound_port`] has already said `own` names the literal port `0`, so
+/// `bound_port` always names a real port here - never the fallback `own` itself would be.
 #[cfg(feature = "distributed")]
 pub(super) fn resolve_own(own: &url::Url, bound_port: u16) -> url::Url {
     if own.port() != Some(0) {
@@ -51,18 +56,64 @@ pub(super) fn resolve_own(own: &url::Url, bound_port: u16) -> url::Url {
     }
     let mut resolved = own.clone();
     // `own` is `with_nodes`-validated as an https URL with a host, so it always accepts a port;
-    // a URL `set_port` refuses (`cannot-be-a-base`) is not a shape this type can hold here.
-    if resolved.set_port(Some(bound_port)).is_err() {
-        return own.clone();
-    }
+    // the only way `Url::set_port` refuses is a cannot-be-a-base URL, which is not a shape this
+    // type can hold here - so this is a true invariant, not a case this fell through silently.
+    #[expect(
+        clippy::expect_used,
+        reason = "with_nodes validated `own` as an https URL with a host, which Url::set_port never refuses"
+    )]
+    resolved.set_port(Some(bound_port)).expect("own accepts a port");
     resolved
+}
+
+/// Whether `own` names the literal port `0` and so needs a real, bound port resolved for it before
+/// [`combiner`] builds the worker other nodes reach this one through.
+///
+/// This is the gate for the early bind in `run`: every other deployment keeps the original late
+/// bind, inside `serve_as_configured`, exactly as before this fix - a socket in `LISTEN` accepting
+/// handshakes into its backlog while boot may still refuse (telemetry, outbound anchors, an adapter)
+/// is new exposure this fix must not hand to a deployment that never asked for it.
+#[cfg(feature = "distributed")]
+pub(super) fn own_wants_bound_port(tls: Option<&TlsMaterial>) -> bool {
+    tls.and_then(TlsMaterial::nodes)
+        .is_some_and(|nodes| nodes.own().port() == Some(0))
+}
+
+#[cfg(not(feature = "distributed"))]
+pub(super) const fn own_wants_bound_port(_tls: Option<&TlsMaterial>) -> bool {
+    false
+}
+
+/// This node's declared `own`, resolved against `bound_port` when it names the literal port `0`.
+///
+/// # Errors
+///
+/// `own` names the literal port `0` but `bound_port` is `None` - [`own_wants_bound_port`] disagreeing
+/// with what `run` bound and handed [`combiner`]. That is this module's own invariant between the two
+/// functions, never a deployment mistake, so it is a typed refusal rather than a silent fallback to
+/// the undialable `own` a deployment never meant to ship.
+#[cfg(feature = "distributed")]
+fn declared_own(own: &url::Url, bound_port: Option<u16>) -> Result<url::Url, String> {
+    if own.port() != Some(0) {
+        return Ok(own.clone());
+    }
+    bound_port.map_or_else(
+        || {
+            Err(String::from(
+                "server.nodes.own names the literal port 0 but no bound port was resolved for it before \
+                 the combiner ran - this is sutura-cli's own early-bind gate disagreeing with itself, not \
+                 a configuration error",
+            ))
+        },
+        |bound_port| Ok(resolve_own(own, bound_port)),
+    )
 }
 
 /// What [`bind_server_socket`] hands back: the listener, and the port it actually bound.
 pub(super) type BoundSocket = (std::net::TcpListener, u16);
 
-/// Binds `settings.server().bind()`, synchronously and before anything else - rather than where
-/// `serve_as_configured` used to bind it - and reads the port actually bound back.
+/// Binds `settings.server().bind()`, synchronously and before anything else - only called when
+/// [`own_wants_bound_port`] says so.
 ///
 /// A declared node's own address can name port `0` for "whatever this process binds", and that has
 /// to be a real, dialable port before [`combiner`] builds the worker other nodes reach it through:
@@ -81,12 +132,8 @@ pub(super) fn bind_server_socket(settings: &sutura_config::Settings) -> Result<B
     Ok((listener, bound_port))
 }
 
-/// Hands the listener `run` already bound - synchronously, before the runtime existed - to the
-/// runtime now driving it.
-///
-/// Binding happens before [`combiner`] so a declared node's own address of port `0` can be
-/// resolved to the port actually bound; converting it into this runtime's listener has to wait
-/// until the runtime exists, which is inside `serve_until_stopped`'s `block_on`.
+/// Hands a listener - whether bound early by [`bind_server_socket`] or, the ordinary case, about to
+/// be bound here at its original, late timing - to the runtime now driving it.
 pub(super) fn tokio_listener(listener: std::net::TcpListener) -> Result<tokio::net::TcpListener, String> {
     listener
         .set_nonblocking(true)
@@ -94,38 +141,128 @@ pub(super) fn tokio_listener(listener: std::net::TcpListener) -> Result<tokio::n
     tokio::net::TcpListener::from_std(listener).map_err(|cause| format!("the bound listener could not be adopted: {cause}"))
 }
 
+/// Serves plaintext, or terminates TLS here, according to what was configured.
+///
+/// **Two bodies, chosen by the `tls` feature, and they are not equivalent.** The configuration
+/// cannot ask for something a build cannot do - `sutura-cli`'s `tls` feature turns on
+/// `sutura-config`'s, so a binary without it refuses `security.tls_termination: in-process` at
+/// startup with `NotFitToServe::InProcessTlsNotCompiledIn`, naming the feature. That refusal is the
+/// gate; this is not a second copy of it.
+///
+/// The check in the second body is narrower and is about the one failure that must never be quiet:
+/// it keys on the MATERIAL rather than on the declaration, so serving plaintext on a port that was
+/// given a certificate is impossible in this file rather than impossible two crates away. A `cfg`
+/// that silently fell through to `serve` would be exactly the silent fallback this is not allowed to
+/// have.
+#[cfg(feature = "tls")]
+pub(super) async fn serve_as_configured(
+    router: axum::Router,
+    socket: Socket,
+    stopping: sutura_runtime::Shutdown,
+    material: Option<TlsMaterial>,
+) -> Result<(), String> {
+    match (socket, material.as_ref()) {
+        (Socket::Bound(listener), Some(material)) => {
+            sutura_http::serve_tls_on(tokio_listener(listener)?, router, stopping, material)
+                .await
+                .map_err(super::flatten)
+        }
+        (Socket::Bound(listener), None) => sutura_http::serve_on(tokio_listener(listener)?, router, stopping)
+            .await
+            .map_err(super::flatten),
+        (Socket::Address(address), Some(material)) => sutura_http::serve_tls(router, address, stopping, material)
+            .await
+            .map_err(super::flatten),
+        (Socket::Address(address), None) => sutura_http::serve(router, address, stopping).await.map_err(super::flatten),
+    }
+}
+
+/// The same decision in a build with no TLS listener in it.
+#[cfg(not(feature = "tls"))]
+pub(super) async fn serve_as_configured(
+    router: axum::Router,
+    socket: Socket,
+    stopping: sutura_runtime::Shutdown,
+    material: Option<TlsMaterial>,
+) -> Result<(), String> {
+    if material.is_some() {
+        return Err(String::from(
+            "server.tls_certificate and server.tls_key are set and this binary was built without \
+             the `tls` feature, so it has no TLS listener at all. Rebuild with `--features tls`, or \
+             terminate TLS in front of this process and remove the paths. Refusing to serve \
+             plaintext on a port that was configured to be encrypted",
+        ));
+    }
+    match socket {
+        Socket::Bound(listener) => sutura_http::serve_on(tokio_listener(listener)?, router, stopping)
+            .await
+            .map_err(super::flatten),
+        Socket::Address(address) => sutura_http::serve(router, address, stopping).await.map_err(super::flatten),
+    }
+}
+
+/// A socket for `serve_as_configured`: either an address for it to bind at its original, late
+/// timing - the unchanged path for every deployment whose `own` is not resolved here - or a listener
+/// [`bind_server_socket`] already bound early, when [`own_wants_bound_port`] said this node's `own`
+/// needed a real port before [`combiner`] ran.
+pub(super) enum Socket {
+    Address(std::net::SocketAddr),
+    Bound(std::net::TcpListener),
+}
+
+/// What [`socket_for`] hands back: the socket `run` serves through, and the port it was bound to
+/// early - [`Some`] only when [`own_wants_bound_port`] said `settings.server().nodes.own` needed a
+/// real port resolved before [`combiner`] runs; every other deployment keeps the original late
+/// bind, unchanged.
+pub(super) type EarlySocket = (Socket, Option<u16>);
+
+pub(super) fn socket_for(settings: &sutura_config::Settings) -> Result<EarlySocket, String> {
+    if own_wants_bound_port(settings.server().tls()) {
+        let (listener, bound_port) = bind_server_socket(settings)?;
+        Ok((Socket::Bound(listener), Some(bound_port)))
+    } else {
+        Ok((Socket::Address(settings.server().bind().socket()), None))
+    }
+}
+
 /// The combiner, and the worker the listener serves when it plans across declared nodes.
 ///
-/// `bound_port` is the port this process's own listener was already bound to - see
-/// [`resolve_own`] for what it is used for.
+/// `bound_port` is the port this process's own listener was already bound to, when
+/// [`own_wants_bound_port`] said binding early was needed - see [`declared_own`] for what it is
+/// used for, and why it is `None` on every deployment that kept the original late bind.
 ///
 /// # Errors
 ///
 /// A pair or an authority that cannot be read or does not make a node's identity. Declared nodes
-/// never fall back to a combine on one node.
+/// never fall back to a combine on one node. [`own_wants_bound_port`] disagreeing with `bound_port`
+/// (see [`declared_own`]), or a peer declared at the address `own` resolves to.
 #[cfg(feature = "distributed")]
-pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings, bound_port: u16) -> Result<Chosen, String> {
+pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings, bound_port: Option<u16>) -> Result<Chosen, String> {
     use sutura_exec_datafusion::Nodes;
 
     let Some((tls, nodes)) = tls.and_then(|tls| tls.nodes().map(|nodes| (tls, nodes))) else {
         return Ok((crate::catalog::one_node_combiner()?, None));
     };
     let identity = identity(tls, nodes.authority())?;
+    let own_url = declared_own(nodes.own(), bound_port)?;
+    // `TlsMaterial::with_nodes` already refused a peer declared at `own`'s own, LITERAL address -
+    // but a peer declared at the port `own: 0` resolves to is a self-reference that check could not
+    // see, so it is re-checked here, after resolution, against the address `own` now actually names.
+    if let Some(node) = nodes.others().iter().find(|node| node.url().origin() == own_url.origin()) {
+        return Err(super::flatten(InvalidDeclaredNode::NodeNamesItself {
+            url: node.url().to_string(),
+        }));
+    }
     let working_set = crate::sources::working_set(runtime);
     let own = Nodes::worker(working_set, identity.clone())
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     let wait = nodes
         .wait_for_workers()
         .map(|seconds| core::time::Duration::from_secs(core::num::NonZeroU64::from(seconds).get()));
-    let across = Nodes::declared(
-        own,
-        resolve_own(nodes.own(), bound_port),
-        nodes.others().iter().map(|node| node.url().clone()),
-        identity,
-    )
-    .across_above(nodes.across_above())
-    .wait_for_workers(wait)
-    .address_family(nodes.address_family());
+    let across = Nodes::declared(own, own_url, nodes.others().iter().map(|node| node.url().clone()), identity)
+        .across_above(nodes.across_above())
+        .wait_for_workers(wait)
+        .address_family(nodes.address_family());
     let across = nodes
         .others()
         .iter()
@@ -146,7 +283,7 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings, boun
 
 /// The same, on a build that cannot plan across nodes: declared ones are refused.
 #[cfg(not(feature = "distributed"))]
-pub(super) fn combiner(tls: Option<&TlsMaterial>, _runtime: RuntimeSettings, _bound_port: u16) -> Result<Chosen, String> {
+pub(super) fn combiner(tls: Option<&TlsMaterial>, _runtime: RuntimeSettings, _bound_port: Option<u16>) -> Result<Chosen, String> {
     super::not_linked::nodes_refused_if_declared(tls)?;
     Ok((crate::catalog::one_node_combiner()?, ()))
 }
