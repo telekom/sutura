@@ -305,37 +305,87 @@ impl Unparser<'_> {
     /// `Limit`/`Sort` inside the branch stays on it instead of leaking onto the whole UNION. A
     /// branch that is itself a nested UNION already writes its body back through `take_body`
     /// inside `select_to_sql_expr`; a DISTINCT nested UNION no longer promotes the outer UNION
-    /// ALL to DISTINCT, since that bit now lives on this branch's own, discarded builder.
+    /// ALL to DISTINCT, since that bit now lives on this branch's own, discarded builder - but
+    /// only in the leftmost position: `sqlparser` prints a nested `SetOperation` without its own
+    /// parentheses, so a DISTINCT nested UNION in any other position would still leak onto the
+    /// statement unless it, too, gets the derived-table wrap (`union_branch_as_non_leftmost`
+    /// below), following `spiceai/datafusion#261` (commit `51790d40`).
     fn union_branch_to_sql_expr(&self, input: &LogicalPlan, branch_index: usize) -> Result<SetExpr> {
+        let field_count = input.schema().fields().len();
         let mut own = Some(QueryBuilder::default());
         let set_expr = self.select_to_sql_expr(input, &mut own)?;
         let Some(mut own) = own else {
-            return Ok(set_expr);
+            return self.union_branch_as_non_leftmost(set_expr, branch_index, field_count);
         };
+        assert_or_internal_err!(
+            !own.has_unhandled_branch_clauses(),
+            "a UNION branch's own WITH, locking or FOR clause has no path to the statement"
+        );
         if !own.has_own_row_window() {
-            return Ok(set_expr);
+            return self.union_branch_as_non_leftmost(set_expr, branch_index, field_count);
         }
         let windowed = own.body(Box::new(set_expr)).build()?;
-        self.union_branch_as_derived_table(windowed, branch_index)
+        self.union_branch_as_derived_table(windowed, branch_index, field_count)
+    }
+
+    /// A non-leftmost branch whose own body is itself a `SetExpr::SetOperation` (a nested UNION)
+    /// still needs the derived-table wrap even with no row window of its own: `sqlparser` only
+    /// parenthesizes a `SetOperation` operand when it is the left child of its parent, so one
+    /// appearing anywhere else renders bare and its DISTINCT-ness (or operator precedence) leaks
+    /// onto the statement around it. The leftmost branch never needs this - it is the left child
+    /// of the first reduction step, where `sqlparser` already parenthesizes correctly.
+    fn union_branch_as_non_leftmost(
+        &self,
+        set_expr: SetExpr,
+        branch_index: usize,
+        field_count: usize,
+    ) -> Result<SetExpr> {
+        if branch_index == 0 || !matches!(set_expr, SetExpr::SetOperation { .. }) {
+            return Ok(set_expr);
+        }
+        let bare = QueryBuilder::default().body(Box::new(set_expr)).build()?;
+        self.union_branch_as_derived_table(bare, branch_index, field_count)
     }
 
     /// `PushDownLimit` pushes an outer `LIMIT` into every UNION input, so a branch's own row
     /// window is common even for a statement whose UNION itself has no per-branch clause in the
     /// caller's SQL. A bare parenthesized operand (`(SELECT ... LIMIT n) UNION ALL ...`) is
     /// rejected by some dialects, so the branch is wrapped as a derived table instead, the form
-    /// every dialect accepts: `SELECT * FROM (<branch>) AS <alias>`.
-    fn union_branch_as_derived_table(&self, windowed: ast::Query, branch_index: usize) -> Result<SetExpr> {
+    /// every dialect accepts: `SELECT c0, c1, ... FROM (<branch>) AS <alias> (c0, c1, ...)`. The
+    /// alias carries an explicit, synthetic column list (`c0`, `c1`, ...) rather than reusing the
+    /// branch's own field names, so two differently-qualified input columns that share a bare
+    /// name (e.g. `t1.a` and `t2.a`) can never collide into two identically-named output columns
+    /// - and the outer `SELECT` projects that same synthetic list by name rather than `*`, since
+    /// a wildcard reaching a source is refused by a downstream admission guard.
+    fn union_branch_as_derived_table(
+        &self,
+        windowed: ast::Query,
+        branch_index: usize,
+        field_count: usize,
+    ) -> Result<SetExpr> {
+        let columns: Vec<Ident> = (0..field_count)
+            .map(|i| self.new_ident_quoted_if_needs(format!("c{i}")))
+            .collect();
+        // A source-admission guard downstream refuses any `SELECT *` reaching the statement a
+        // source actually runs, so the wrapper projects the alias's own synthetic column names
+        // back out explicitly instead of a wildcard - it still selects every one of the branch's
+        // columns, just by the name the alias just gave them.
         let mut select_builder = SelectBuilder::default();
-        select_builder.projection(vec![ast::SelectItem::Wildcard(
-            ast::WildcardAdditionalOptions::default(),
-        )]);
+        select_builder.projection(
+            columns
+                .iter()
+                .cloned()
+                .map(|column| ast::SelectItem::UnnamedExpr(ast::Expr::Identifier(column)))
+                .collect(),
+        );
         let mut derived_builder = DerivedRelationBuilder::default();
         derived_builder
             .lateral(false)
             .subquery(Box::new(windowed))
-            .alias(Some(
-                self.new_table_alias(format!("derived_union_branch_{branch_index}"), vec![]),
-            ));
+            .alias(Some(self.new_table_alias(
+                format!("derived_union_branch_{branch_index}"),
+                columns,
+            )));
         let mut relation_builder = RelationBuilder::default();
         relation_builder.derived(derived_builder);
         let mut twj = TableWithJoinsBuilder::default();

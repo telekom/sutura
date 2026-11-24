@@ -635,16 +635,16 @@ fn a_raw_union_statement_keeps_its_own_order_by_and_limit_in_every_dialect() {
 
 #[test]
 fn a_union_under_a_top_level_limit_runs_in_every_dialect() {
-    // `PushDownLimit` pushes an outer `LIMIT` into every UNION input, so this statement's two
-    // branches each carry their own row window even though neither branch asked for one in the
-    // caller's SQL. This already ran correctly on `origin/main` (before the union-branch fix in
-    // this PR): the bug there bound a branch's *own* clause to the whole statement, but every
-    // branch here wants the *same* pushed-down limit, so the collision was silent. The fix adds a
-    // derived-table wrapper (`SELECT * FROM (<branch>) AS <alias>`) around any branch carrying a
-    // row window - including one that only exists because of this push-down, not because the
-    // caller wrote one - so this is a plain regression cell, not a red-on-base reproduction: it
-    // passes on both trees, and is pinned by a killing mutation rather than causality.
-    let sql = r#"select "region" from "dim_region" where "sales_area" = 'emea' union all select "region" from "dim_region" where "sales_area" = 'north' limit 1"#;
+    // `PushDownLimit` pushes a copy of the outer `LIMIT` into every UNION input, wrapped as a
+    // derived table per this PR's fix, but it does not remove the original `Limit` node above the
+    // `Union` - that one keeps writing onto the statement's own (shared) query builder, same as
+    // before this PR. This cell pins that the top-level LIMIT still bounds a union whose branches
+    // are wrapped, not the wrapper mechanism itself: a mutation that drops the outer write (or
+    // skips it specifically for a `Union` input) would let both now-unbounded branches through and
+    // sum to more rows than the statement's own LIMIT allows. It is a plain regression cell, not a
+    // red-on-base reproduction - it passes on both trees, and is pinned by a killing mutation
+    // rather than causality.
+    let sql = r#"select "region" from "dim_region" where "sales_area" = 'emea' union all select "region" from "dim_region" where "sales_area" = 'apac' limit 1"#;
     for dialect in [
         TypeDialect::DuckDb,
         TypeDialect::DataFusion,
@@ -691,6 +691,67 @@ fn a_union_under_a_top_level_limit_runs_in_every_dialect() {
             rows.rows().len(),
             1,
             "{dialect:?}: the top-level LIMIT 1 must still bound the whole union: {:?}",
+            legs.statements
+        );
+    }
+}
+
+#[test]
+fn a_right_nested_distinct_union_does_not_dedup_its_left_sibling_in_every_dialect() {
+    // `sqlparser` only parenthesizes a `SetExpr::SetOperation` operand when it is the *left*
+    // child of its parent, so a nested `DISTINCT` branch in any other position used to render
+    // bare: `c UNION ALL (a UNION b)` came out as `c UNION ALL a UNION b`, and left-to-right
+    // UNION precedence then applied the trailing (plain, DISTINCT) `UNION` across the whole
+    // left-hand side, deduping `c`'s rows against the nested branch's even though the caller
+    // wrote `UNION ALL` for `c`. The left-position case (`(a UNION b) UNION ALL c`) already
+    // rendered correctly before this cell was added - this is the right-position sibling of it.
+    let sql = r#"select "region" from "dim_region" where "sales_area" = 'emea' union all (select "region" from "dim_region" where "sales_area" = 'emea' union select "region" from "dim_region" where "sales_area" = 'emea')"#;
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!(
+                "{dialect:?}: the right-nested DISTINCT union must run: {answer:?}: {:?}",
+                legs.statements
+            );
+        };
+        assert_eq!(
+            legs.statements.len(),
+            1,
+            "{dialect:?}: one pushed statement: {:?}",
+            legs.statements
+        );
+        assert_eq!(
+            sorted_rows(rows),
+            sorted_rows(legs.engines.as_one(sql)),
+            "{dialect:?}: a right-nested DISTINCT union branch deduped its UNION ALL sibling: {:?}",
             legs.statements
         );
     }
