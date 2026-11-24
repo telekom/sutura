@@ -978,3 +978,23 @@ fn the_composed_warehouse_preserves_known_source_rows_and_materialization_bytes(
         assert_eq!(serde_json::to_value(bound).expect("bound serializes"), expected);
     }
 }
+
+/// A `catalog.kind: entropy` entry loads, and every build refuses to open it by name: no build links
+/// its reader yet, so there is no feature to name as the remedy.
+#[test]
+fn a_declared_entropy_catalog_is_refused_by_every_build_naming_it() {
+    let overlay = "security:\n  identity: single-user\n  single_user_because: a composition-root test\n\
+         sources:\n  analytics:\n    kind: duckdb\n    database_file: /srv/sutura/warehouse.duckdb\n    \
+         posture: shared-service-user\n\
+         catalogs:\n  - name: marketplace\n    kind: entropy\n    version: market-1\n    \
+         endpoint: https://marketplace.example.com\n    metric_property: sutura_metrics\n    \
+         api_key_file: /run/secrets/entropy-api-key\n    bindings:\n      - match:\n          type: duckdb\n          \
+         database: warehouse\n        source: analytics\n";
+    let settings = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect("the settings tree is well-formed; the refusal is the composition root's");
+    let err = crate::catalog::open_catalog(settings.catalogs(), None).expect_err("no build opens an entropy catalog");
+    assert!(err.contains("catalog.kind: entropy"), "{err}");
+    assert!(err.contains("no build links its reader"), "{err}");
+}

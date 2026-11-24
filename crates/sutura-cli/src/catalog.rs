@@ -169,6 +169,9 @@ fn open_catalog_without_descriptions(
             "catalog.kind: openapi names an EXPERIMENTAL metadata adapter this binary was not built to link - \
              build sutura-cli with --features openapi, or declare markdown catalogs",
         )),
+        sutura_config::CatalogKind::Entropy => Err(String::from(
+            "catalog.kind: entropy is declarable, and no build links its reader yet",
+        )),
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
         sutura_config::CatalogKind::Rdbms => {

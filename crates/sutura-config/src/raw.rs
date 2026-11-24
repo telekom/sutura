@@ -782,6 +782,38 @@ pub(crate) struct RawCatalog {
     /// stays `refuse`, the behaviour before this key existed.
     #[serde(default)]
     pub(crate) on_missing_endpoint: Option<String>,
+    /// `catalog.kind: entropy` only, like the two keys below it: the API key FILE, never the key.
+    /// `parse_catalogs` refuses each on any other kind.
+    #[serde(default)]
+    pub(crate) api_key_file: Option<String>,
+    /// The client credentials grant, in place of an API key.
+    #[serde(default)]
+    pub(crate) oidc: Option<RawEntropyOidc>,
+    /// Which servers the catalog's contracts and ports may name, and the declared source serving each.
+    #[serde(default)]
+    pub(crate) bindings: Option<Vec<RawEntropyBinding>>,
+}
+
+/// An entropy catalog's `oidc:` block, as read.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawEntropyOidc {
+    pub(crate) token_endpoint: String,
+    pub(crate) client_id: String,
+    /// A path read at boot, never the secret itself.
+    pub(crate) client_secret_file: String,
+    #[serde(default)]
+    pub(crate) scope: Option<String>,
+}
+
+/// One `bindings:` entry, as read: the `match:` fields that pick a server out, each value as text,
+/// and the declared source serving it.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawEntropyBinding {
+    #[serde(rename = "match")]
+    pub(crate) server: std::collections::BTreeMap<String, String>,
+    pub(crate) source: String,
 }
 
 /// Native dictionary include pair. Patterns are data, never SQL fragments.
