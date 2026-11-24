@@ -639,3 +639,67 @@ fn a_federation_cannot_search_an_oracle_lob_after_a_bounded_leaf() {
     assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
     assert!(legs.ran.is_empty(), "no source should run: {:?}", legs.ran);
 }
+
+/// #2058: no SQL shape was found where binding succeeds, the wrapped join collides, and a bare
+/// `ORDER BY` still reaches the unparser naming the colliding column - `DataFusion`'s binder refuses
+/// it first as an ambiguous reference. This pins that refusal; it passes on base, so it is a claim
+/// cell with a committed killing mutation.
+#[test]
+fn a_bare_order_by_over_a_colliding_column_is_refused_by_the_binder() {
+    let table = || {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, true),
+                Field::new("sales_area", DataType::Utf8, true),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec![Some("a"), Some("a")])),
+                Arc::new(StringArray::from(vec![Some("x"), Some("y")])),
+            ],
+        )
+        .expect("two rectangular source rows")
+    };
+    let schema = || {
+        Arc::new(Schema::new(vec![
+            Field::new("region", DataType::Utf8, true),
+            Field::new("sales_area", DataType::Utf8, true),
+        ]))
+    };
+    let sql = r#"select m."region", count(distinct m."sales_area") as n1, count(distinct p."sales_area") as n2
+               from "dim_region_self" m join "dim_region_self" p on m."region" = p."region"
+               where m."region" <> 'missing' and p."sales_area" <> 'y' group by m."region"
+               order by "sales_area" limit 50"#;
+
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region_self").unwrap(),
+            dialect,
+            schema(),
+        )];
+        let mut legs = Engines::new(None);
+        drop(legs.at.insert(named("geo"), holding(&[("dim_region_self", table())])));
+        let statement = RawStatement::parse(sql).expect("a fixture question");
+        let answer = DataFusionCombiner::new().expect("a combiner").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        assert!(
+            matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+            "{dialect:?}: a bare ORDER BY over a colliding column must be refused by the binder \
+             before any unparse: {answer:?}"
+        );
+    }
+}
