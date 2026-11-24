@@ -1,0 +1,1 @@
+var e=``+new URL(`../shared/sutura.svg`,import.meta.url).href;export{e as t};
