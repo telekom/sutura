@@ -2712,13 +2712,20 @@ The reason is required, trimmed, at most 400 characters, and may contain no cont
 formatting characters. At least one <code>redact</code> rule is required, because the prefilter only narrows a
 redacted search; the declaration is refused otherwise. Omitting the object disables the prefilter. The complete declaration is
 persisted and participates in catalog and schema identity; aliases of a physical column must agree.</p>
+<p>Every column that declares <code>raw_prefilter</code> logs one <code>INFO</code> line at load only (<code>sutura-app</code>'s
+<code>verify_and_validate</code>; a later refresh re-pins the schema through <code>pin_schemas</code> directly and does not
+repeat the line) naming the model, the column and the distinct characters its replacements contain -
+the bytes an admitted term must avoid at a position that could overlap one, per the barrier proof
+below. The replacement text itself is config, not a secret, and participates in schema identity
+already; logging the character set it contains discloses nothing a definitions review would not.</p>
 <p>The acknowledgement accepts a timing disclosure. A secret containing the requested term can make
 an extra row pass the raw test and incur redaction work, even though it contributes no answer.
 Repeated timing observations can therefore reveal information about raw values. Database grants
 and restricted source views remain the primary defense; this option does not authorize broader
 access. The reason records the operator's decision, never proof that the disclosure is harmless.</p>
 <p>Eligibility is deliberately narrow: one physical table, one query scope, a positive conjunctive
-<code>column LIKE '%TERM%'</code>, and a nonempty ASCII alphanumeric term of at most 128 bytes. Every other
+<code>column LIKE '%TERM%'</code>, and a nonempty term of at most 128 bytes, each byte ASCII alphanumeric or
+<code>_</code> (LIKE's own single-character wildcard). Every other
 conjunct beside it must be unable to raise on any row: a plain column compared (<code>=</code>, <code>&lt;&gt;</code>, <code>&lt;</code>,
 <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>IS [NOT] NULL</code>, <code>IN</code>, <code>BETWEEN</code>) with literals of that column's own type, with no
 function, cast, arithmetic, subquery or second column. A string literal qualifies against declared
@@ -2731,13 +2738,52 @@ A source may test the raw text before a
 sibling, so a sibling that can raise on one row would make "error" versus "empty answer" a result
 signal about that row's unredacted text. Any other sibling, including a second <code>LIKE</code>, keeps
 redacted-only execution. Joins, nested
-queries, CTEs, disjunctions, negations, collation overrides, escapes, inner wildcards and uncertain
-alias scopes retain redacted-only execution. Each ordered replacement must be nonempty ASCII,
-contain no full term, and start and end with characters absent from that term. These barriers
-prevent a replacement from creating a match or bridging deleted text. Where clipping happens
-before search, the truncation marker must pass the same proof. Unknown shapes fall back.</p>
+queries, CTEs, disjunctions, negations, collation overrides, escapes, an inner <code>%</code> (a term that is
+not exactly <code>LIKE '%TERM%'</code> once its one leading and one trailing <code>%</code> are stripped - an inner <code>_</code> is
+the admitted wildcard above, not this) and uncertain alias scopes retain redacted-only execution.</p>
+<p>Each replacement must be nonempty ASCII. Soundness needs every alignment of the term (read as a
+<code>_</code>-wildcard pattern) against the replacement, at every shift with a nonempty overlap, to carry at
+least one <em>literal</em> (non-<code>_</code>) term byte that disagrees with the replacement's byte there - a <code>_</code>
+never forces a mismatch, because it is LIKE's own wildcard and agrees with anything, including a
+replacement's own byte.</p>
+<p><strong>This is wider than the pre-<code>_</code> rule, including for a term with no <code>_</code> in it.</strong> The old rule refused
+a term that contained the replacement's first or last byte at all; this rule only needs each overlap
+to carry a disagreement somewhere in it. Term <code>ac</code> against replacement <code>ab</code>, or <code>MXY</code> against
+<code>MASKED</code>, or <code>PRODUCTFEEAMT</code> against <code>PASSWORD=***</code>, are refused by the old rule (each shares a
+boundary byte with its replacement) but admitted here, because every alignment that overlaps still
+carries a byte that disagrees. A term that contains <code>_</code> is admitted by the identical rule, with a <code>_</code>
+position never counted as a disagreement - so a replacement that was eligible for a term is not
+guaranteed to stay eligible once a byte in that term is changed to <code>_</code>, and a term that starts or ends
+with <code>_</code> is refused against every replacement (the overlap that is that lone <code>_</code> alone can never
+carry a disagreement). These barriers prevent a replacement from creating a match or bridging deleted
+text. Where clipping happens before search, the truncation marker must pass the same proof. Unknown
+shapes fall back. No dialect's <code>ESCAPE</code> clause is read on this path (<code>escape_char</code> must be absent), so
+an escaped literal <code>_</code> is not distinguished from the wildcard and does not change eligibility.</p>
+<p>An alignment whose entire overlap is a lone <code>_</code> is refused even though the <code>_</code> itself cannot force a
+mismatch: admitting it would also need every redaction rule to replace exactly one raw character
+with exactly one character, because a rule that matches an empty span or a span of any other length
+shifts what the needle lines up against on either side. Concretely, pattern <code>$</code> (end of input, a
+zero-width match) with replacement <code>[m]</code> against raw text <code>ab</code>: the redacted text is <code>ab[m]</code>, which
+matches <code>%ab_%</code> (<code>_</code> standing for <code>[</code>), while the raw text <code>ab</code> does not. Or pattern <code>b+</code> (a
+multi-character match) with replacement <code>x</code> against raw text <code>abba</code>: the redacted text is <code>axa</code>,
+which matches <code>%a_a%</code> (<code>_</code> standing for <code>x</code>), while the raw text <code>abba</code> does not. Refusing every
+lone-<code>_</code> overlap outright is cheaper than proving each rule's pattern always matches exactly one
+character, and is not a case where the refusal is known to be unnecessary.</p>
+<p>A term containing <code>_</code> also lets a caller skip positions it does not know, trading away part of the
+timing protection the acknowledgement already accepts: a term like <code>KEY________</code> (one literal prefix,
+the rest wildcards) probes only the stored length and prefix at that position, at the single-character
+granularity LIKE's <code>_</code> gives it, without needing the right byte at any of the wildcarded positions.</p>
+<p><strong>Recommendation:</strong> choose a replacement that starts and ends with a non-alphanumeric, non-<code>_</code>
+character (for example <code>[masked]</code> rather than <code>MASKED</code>). Since an admitted term is ASCII alphanumeric
+or <code>_</code> only, such a replacement can never be fully matched by an overlap confined to its boundary
+bytes, which keeps the barrier argument easy to re-check by eye. This only helps an <em>inner</em> <code>_</code> (not
+at either end of the term) against a replacement of two or more characters. It changes neither of
+the two cases the lone-<code>_</code>-overlap rule decides outright: a term with <code>_</code> at either end is refused
+against every replacement regardless (that lone <code>_</code> is the whole overlap at the boundary alignment
+and can never carry a disagreement), and a one-character replacement refuses a term with <code>_</code>
+anywhere in it (every alignment's overlap with a single-byte replacement is exactly that one byte).</p>
 <p>The eligible comparison arms are DataFusion's binary <code>LIKE</code>, ClickHouse's <code>LIKE</code> for the
-admitted ASCII-alphanumeric needle, Oracle native CLOB/NCLOB <code>LIKE</code> with an optional <code>UPPER</code>, and
+admitted ASCII-alphanumeric-or-<code>_</code> needle, Oracle native CLOB/NCLOB <code>LIKE</code> with an optional <code>UPPER</code>, and
 PostgreSQL, DuckDB and BigQuery text columns pinned <code>binary</code>. Cube's local policy execution adds
 no raw condition on a policy column. Oracle uses its binary character-set uppercase mapping, not
 <code>NLS_UPPER</code>; only a binary <code>NLS_SORT</code> permits raw row rejection, and any other or NULL value retains
@@ -2769,9 +2815,10 @@ deterministic one, keeps redacted-only execution, and PostgreSQL has no <code>UP
 effect at the next re-pin. The tier's database default is <code>C</code>; a non-<code>C</code> deterministic default is
 documented, not exercised. For a <code>postgres_fdw</code> foreign table the collation read is the local
 declaration, while the remote server does the comparing, so the record is the operator's to keep
-true. A <code>char(n)</code> column is eligible: the view reads it as <code>text</code> without the padding, and the raw
-condition is always <code>'%needle%'</code> over an ASCII alphanumeric needle, which padding spaces can
-neither create nor hide.</p>
+true. A <code>char(n)</code> column is eligible: the view reads it as <code>text</code> without the padding, so the raw
+condition (<code>'%needle%'</code> over an ASCII-alphanumeric-or-<code>_</code> needle, literal bytes and <code>_</code> alike) runs
+against the same unpadded text the redacted comparison does - there is no padding space either side
+could match, create or hide.</p>
 <p>Pinned text columns carry a collation fact, <code>sutura:collation</code> in the schema's field metadata and
 under the schema digest, so a change re-pins. <code>binary</code> means byte-for-byte comparison; a named
 collation is never binary; absent means unknown, and unknown is never binary. The fact is pinned
@@ -2793,11 +2840,14 @@ a type can still change equality: Postgres <code>bpchar</code> ignores trailing 
 MySQL engine compare <code>=</code>, <code>&lt;</code> and <code>&gt;</code> on the MySQL server, and the raw <code>LIKE</code> is forwarded there
 too: ClickHouse's external-database query transform allows <code>like</code> and <code>notLike</code>, and the MySQL
 storage engine passes no blocklist, so on a MySQL or PostgreSQL engine table the raw test runs
-under the remote's collation. That is safe for the admitted needle (ASCII alphanumeric, no
-wildcard, no escape): a case- or accent-insensitive remote returns more rows, never fewer, and
-the exact redacted predicate still decides. Before PostgreSQL 18 a nondeterministic collation
-makes the remote refuse <code>LIKE</code>, which costs availability, not secrecy. This is read from
-ClickHouse's behaviour, not measured here.
+under the remote's collation. That is safe for a literal needle byte: a case- or accent-insensitive
+remote returns more rows, never fewer, and the exact redacted predicate still decides. A needle's
+<code>_</code> adds a second, unmeasured cross-engine question - whether the remote MySQL or PostgreSQL server's
+own <code>LIKE</code> gives <code>_</code> the same one-character wildcard meaning ClickHouse's <code>LIKE</code> does, which this
+forwarding path never checks and the native cells do not exercise (they measure ClickHouse's own
+<code>LIKE</code>, not a forwarded one) - stated here as a limit, not relied on. Before PostgreSQL 18 a
+nondeterministic collation makes the remote refuse <code>LIKE</code>, which costs availability, not secrecy.
+This is read from ClickHouse's behaviour, not measured here.
 DuckDB's global <code>default_collation</code> changes <code>=</code> and <code>ILIKE</code>, but not <code>LIKE</code> (measured on 2.0.0);
 a raw statement cannot set it. Adding the fact moves the schema digest of every schema that now carries one, once, at upgrade: any with a
 DataFusion or ClickHouse text column, and any native Postgres read. Declared scalar-text provenance
@@ -2820,8 +2870,14 @@ still refuses named or unknown facts in a hand-built statement schema; the capab
 that guard. DataFusion needs no column fact because its comparison is fixed by the engine.</p>
 <p>ClickHouse has no column collation and its <code>LIKE</code> is case-sensitive. ClickHouse documents <code>LIKE</code>
 matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds for the admitted
-needle shape only: ASCII alphanumeric, no <code>_</code>, no escape, which makes the pattern a plain substring
-search. A column of its pinned schema carries the collation fact <code>binary</code> and a column pinned
+needle shape only: ASCII alphanumeric or <code>_</code>, no escape. A needle with no <code>_</code> makes the pattern a
+plain substring search; a needle that uses <code>_</code> relies on ClickHouse's <code>LIKE</code> giving <code>_</code> the
+one-character (one UTF-8 code point, not one byte) wildcard meaning the barrier proof assumes, which
+it does, because the raw test and the redacted test both run as ClickHouse's own <code>LIKE</code>: one engine
+evaluates both sides, so they necessarily agree on what <code>_</code> means. That stops holding for a table on
+the MySQL or PostgreSQL engine above, where the raw test can be forwarded to a different engine's own
+<code>LIKE</code> while the redacted test still runs locally - exactly the cross-engine agreement left unmeasured
+there. A column of its pinned schema carries the collation fact <code>binary</code> and a column pinned
 anything else (unknown or a
 named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
 test reads the stored column qualified by its table, in the form <code>`table`.`column`</code>: ClickHouse
