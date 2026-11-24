@@ -66,6 +66,12 @@ fn a_primary_key_naming_a_real_column_is_evidence_and_licenses_nothing_else() {
 }
 
 #[test]
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "a fixture count derived from two byte constants, not a measurement - truncation is \
+              the point: it is how many whole items of the divisor's size fit the dividend"
+)]
 fn a_column_s_type_and_description_count_toward_the_aggregate_byte_cap() {
     // The two fields `MAX_DEFINITIONS_BYTES` did not bound before this type existed. That they move
     // the DIGEST too is `pinned::tests::a_column_s_type_or_description_arriving_moves_the_digest`;
@@ -77,9 +83,12 @@ fn a_column_s_type_and_description_count_toward_the_aggregate_byte_cap() {
     );
     // One column at the description cap, repeated enough times to cross the aggregate limit -
     // the same shape `enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load` already
-    // proves for a metric's own description.
+    // proves for a metric's own description. Sized from the constants, not a hand-counted literal,
+    // so it exceeds the bound on either tree's value for `MAX_DEFINITIONS_BYTES`.
+    let column_count = MAX_DEFINITIONS_BYTES / MAX_DESCRIPTION_BYTES + 1;
+    let column_count = u32::try_from(column_count).expect("well under u32::MAX");
     let mut columns = Vec::new();
-    for index in 0..33_u32 {
+    for index in 0..column_count {
         let filler = Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
         columns.push(Column::new(column(&format!("c{index}")), None, filler, None));
     }
@@ -105,13 +114,22 @@ fn a_column_s_type_and_description_count_toward_the_aggregate_byte_cap() {
 /// the cap on its own, and only adding column TYPES on top crosses it - isolating the half the
 /// other test could not.
 #[test]
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "a fixture count derived from byte constants, not a measurement - truncation is the \
+              point: it is how many whole items of the divisor's size fit the dividend"
+)]
 fn a_column_s_type_alone_can_push_the_bundle_over_the_aggregate_byte_cap() {
     let description_filler =
         Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
-    // 31 metric descriptions at the cap: 126976 bytes, comfortably under 131072 -
+    // One metric description short of the aggregate cap's own count: comfortably under the bound on
+    // either tree's value for `MAX_DEFINITIONS_BYTES` -
     // `enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load` already proves this half
     // alone loads.
-    let metrics: Vec<Metric> = (0..31_u32)
+    let metrics_count = MAX_DEFINITIONS_BYTES / MAX_DESCRIPTION_BYTES - 1;
+    let metrics_count_u32 = u32::try_from(metrics_count).expect("well under u32::MAX");
+    let metrics: Vec<Metric> = (0..metrics_count_u32)
         .map(|index| {
             Metric::new(
                 metric_name(&format!("metric_{index}")),
@@ -133,15 +151,19 @@ fn a_column_s_type_alone_can_push_the_bundle_over_the_aggregate_byte_cap() {
     let bare_orders = model("orders", "local", &["amount_cents", "order_date"]);
     assert!(
         Definitions::assemble(vec![bare_orders], vec![], metrics.clone()).is_ok(),
-        "31 max descriptions and no column types stay under the cap"
+        "one short of the cap's own count of max descriptions, with no column types, stays under the cap"
     );
 
-    // The remaining headroom (131072 - 126976 = 4096 bytes) cannot absorb nine columns at the
-    // 512-character type cap (4608 bytes) plus their own names - so adding only TYPES, with every
-    // description still empty, is what has to cross it.
+    // The remaining headroom - the cap minus the metric descriptions already counted above -
+    // cannot absorb enough columns at the type cap plus their own names, so adding only TYPES, with
+    // every description still empty, is what has to cross it. The `+ 2` is slack for the column
+    // names' own bytes and the model's own name/table bytes, neither counted in `headroom` itself.
+    let headroom = MAX_DEFINITIONS_BYTES - metrics_count * MAX_DESCRIPTION_BYTES;
+    let typed_column_count = headroom / MAX_COLUMN_TYPE_CHARS + 2;
+    let typed_column_count = u32::try_from(typed_column_count).expect("well under u32::MAX");
     let type_filler = ColumnType::parse("x".repeat(MAX_COLUMN_TYPE_CHARS)).expect("exactly the type cap is a type");
     let mut typed_columns: Vec<Column> = vec![Column::from(column("amount_cents")), Column::from(column("order_date"))];
-    typed_columns.extend((0..9_u32).map(|index| {
+    typed_columns.extend((0..typed_column_count).map(|index| {
         Column::new(
             column(&format!("c{index}")),
             Some(type_filler.clone()),
@@ -193,11 +215,23 @@ fn a_catalog_between_the_former_fixed_bound_and_the_new_default_loads_under_the_
 }
 
 #[test]
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "a fixture count derived from two byte constants, not a measurement - truncation is \
+              the point: it is how many whole items of the divisor's size fit the dividend"
+)]
 fn many_empty_models_cannot_make_an_unbounded_schema_listing() {
-    let models = (0..2500_u32)
+    // Sized from `MAX_DEFINITIONS_BYTES` rather than a hand-counted literal, so it exceeds the bound
+    // on either tree's value. A fixed-width, zero-padded index keeps every name the same length
+    // (well under `MAX_IDENTIFIER_LEN`) regardless of how many models that takes.
+    let name_len = format!("m_{:06}_{}", 0_u32, "x".repeat(48)).len();
+    let model_count = MAX_DEFINITIONS_BYTES / name_len + 2;
+    let model_count = u32::try_from(model_count).expect("well under u32::MAX");
+    let models = (0..model_count)
         .map(|index| {
             Model::new(
-                model_name(&format!("m_{index:04}_{}", "x".repeat(48))),
+                model_name(&format!("m_{index:06}_{}", "x".repeat(48))),
                 SourceName::parse("local").expect("a test source"),
                 TableName::parse("t").expect("a test table"),
                 Vec::<Column>::new(),

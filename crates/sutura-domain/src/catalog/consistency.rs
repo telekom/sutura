@@ -338,10 +338,13 @@ impl Definitions {
     /// first has already silently dropped one of a duplicated pair, and "the second declaration of
     /// revenue won" is not a thing to discover from a number.
     ///
-    /// Behind `test-fakes` for the same reason [`Self::from_parts`] is: every shipped adapter and
-    /// composer calls [`Self::assemble_bounded`] directly with its own or its composed bound, so
-    /// this unbounded convenience never reaches a shipped artefact.
-    #[cfg(any(test, feature = "test-fakes"))]
+    /// Not behind `test-fakes` like [`Self::from_parts`] is: every shipped adapter and composer
+    /// calls [`Self::assemble_bounded`] directly with its own or its composed bound, so this
+    /// unbounded convenience never reaches a shipped artefact in practice - but its callers are
+    /// test code in OTHER crates (`sutura-cli`, `sutura-conformance`), where `cfg(test)` on this
+    /// crate does not hold: that cfg only turns on when `sutura-domain` itself is under test, not
+    /// when a dependent crate's own tests are. Gating it that way left it absent from those
+    /// crates' test builds entirely, so it stays a plain, ungated function instead.
     pub fn assemble(
         models: Vec<Model>,
         relationships: Vec<Relationship>,
@@ -924,9 +927,9 @@ fn sum_bytes(counts: impl Iterator<Item = usize>) -> usize {
     counts.fold(0, usize::saturating_add)
 }
 
-/// This file's own implementation change (`assemble_bounded`, and gating `assemble` behind
-/// `test-fakes`) makes it `impl_only` under the causality gate's partition - it has no `#[test]`
-/// of its own, so the base run simply reverts it like any other implementation file. The tests
+/// This file's own implementation change (`assemble_bounded`, and `assemble` now calling through
+/// it) makes it `impl_only` under the causality gate's partition - it has no `#[test]` of its own,
+/// so the base run simply reverts it like any other implementation file. The tests
 /// that exercise the bound this function now reads live in `consistency_bound_tests` instead,
 /// declared below: that file is new, calls `assemble_bounded` directly, and has no base
 /// counterpart to be measured against - `devco/causality-no-base-exemptions` names them.
