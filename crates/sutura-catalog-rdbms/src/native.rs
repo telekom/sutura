@@ -1,6 +1,6 @@
 //! Native selection and the physical allowlist used by composed catalogs.
 
-use crate::{Dictionary, RdbmsCatalog, RdbmsError};
+use crate::{Dictionary, RdbmsCatalog, RdbmsError, TableAddress};
 use std::collections::BTreeMap;
 use sutura_domain::catalog::{ColumnType, DictionarySelection, EmptyTablePolicy, Model, UnsupportedColumnPolicy};
 use sutura_domain::model::{ColumnName, QualifiedTable, SourceName};
@@ -15,14 +15,14 @@ pub(crate) mod sql;
 /// per restart.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedColumn {
-    table: String,
+    table: TableAddress,
     column: String,
     data_type: String,
 }
 
 impl UnsupportedColumn {
     #[must_use]
-    pub fn table(&self) -> &str {
+    pub const fn table(&self) -> &TableAddress {
         &self.table
     }
     #[must_use]
@@ -49,7 +49,7 @@ impl std::fmt::Display for UnsupportedColumn {
 /// misconfigured catalog over a large dictionary could otherwise produce an unreadable refusal.
 const REFUSAL_PREVIEW: usize = 20;
 
-fn render_refusal(columns: &[UnsupportedColumn], empty_tables: &[String]) -> String {
+fn render_refusal(columns: &[UnsupportedColumn], empty_tables: &[TableAddress]) -> String {
     let mut parts = Vec::new();
     for column in columns.iter().take(REFUSAL_PREVIEW) {
         parts.push(column.to_string());
@@ -89,7 +89,7 @@ pub enum NativeSelectionError {
     )]
     Unsupported {
         columns: Vec<UnsupportedColumn>,
-        empty_tables: Vec<String>,
+        empty_tables: Vec<TableAddress>,
     },
     #[error("composed model {model} on source {source_alias} names table {table} outside its native allowlist")]
     TableExcluded {
@@ -226,7 +226,7 @@ pub(crate) fn select(
                     }
                     UnsupportedColumnPolicy::Refuse => {
                         unsupported.push(UnsupportedColumn {
-                            table: table.address.to_string(),
+                            table: table.address.clone(),
                             column: column.clone(),
                             data_type: native.to_owned(),
                         });
@@ -245,7 +245,7 @@ pub(crate) fn select(
                     tracing::warn!(table = %table.address, "omitting native table: no included column remains");
                 }
                 EmptyTablePolicy::Refuse => {
-                    empty_tables.push(table.address.to_string());
+                    empty_tables.push(table.address.clone());
                 }
             }
             continue;
@@ -450,25 +450,28 @@ mod tests {
             let error = Dictionary::new(vec![table(name, &[("opaque", "jsonb")])], vec![])
                 .native(&selected, TypeDialect::Postgres)
                 .expect_err("a native dictionary cannot be partially admitted");
-            assert!(matches!(
-                (expected, error),
+            let matched = match (expected, &error) {
                 (
                     "unmatched",
                     RdbmsError::Native {
-                        cause: NativeSelectionError::UnmatchedInclude { .. }
-                    }
-                ) | (
+                        cause: NativeSelectionError::UnmatchedInclude { .. },
+                    },
+                ) => true,
+                (
                     "empty",
                     RdbmsError::Native {
-                        cause: NativeSelectionError::Unsupported { .. }
-                    }
-                ) | (
+                        cause: NativeSelectionError::Unsupported { empty_tables, .. },
+                    },
+                ) => !empty_tables.is_empty(),
+                (
                     "type",
                     RdbmsError::Native {
-                        cause: NativeSelectionError::Unsupported { .. }
-                    }
-                )
-            ));
+                        cause: NativeSelectionError::Unsupported { columns, .. },
+                    },
+                ) => !columns.is_empty(),
+                _ => false,
+            };
+            assert!(matched, "{expected}: {error:?}");
         }
         for kind in [
             "NUMBER",
@@ -539,11 +542,42 @@ mod tests {
         assert_eq!(
             columns
                 .iter()
-                .map(|column| (column.table(), column.column(), column.data_type()))
+                .map(|column| (
+                    column.table().to_string(),
+                    column.column().to_owned(),
+                    column.data_type().to_owned()
+                ))
                 .collect::<Vec<_>>(),
-            [("public.events", "a", "real"), ("public.events", "b", "bytea")]
+            [
+                (String::from("public.events"), String::from("a"), String::from("real")),
+                (String::from("public.events"), String::from("b"), String::from("bytea")),
+            ]
         );
-        assert_eq!(empty_tables, ["public.totals"]);
+        assert_eq!(
+            empty_tables.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["public.totals"]
+        );
+    }
+
+    #[test]
+    fn native_selection_refusal_states_the_true_count_past_the_preview() {
+        let mut columns = vec![(String::from("id"), String::from("bigint"))];
+        columns.extend((0..21).map(|index| (format!("c{index}"), String::from("real"))));
+        let columns: Vec<(&str, &str)> = columns.iter().map(|(name, kind)| (name.as_str(), kind.as_str())).collect();
+        let error = Dictionary::new(vec![table("events", &columns)], vec![])
+            .native(&selection("events", &[], &[]), TypeDialect::Postgres)
+            .expect_err("21 unsupported columns refuse together, past the 20-entry preview");
+        let RdbmsError::Native {
+            cause: NativeSelectionError::Unsupported { columns, empty_tables },
+        } = error
+        else {
+            panic!("expected Unsupported, got {error:?}");
+        };
+        assert_eq!(columns.len(), 21);
+        assert_eq!(empty_tables, Vec::<TableAddress>::new());
+        let message = NativeSelectionError::Unsupported { columns, empty_tables }.to_string();
+        assert!(message.contains("21 unsupported column(s)"), "{message}");
+        assert!(message.contains("... and 1 more unsupported column(s)"), "{message}");
     }
 
     #[test]

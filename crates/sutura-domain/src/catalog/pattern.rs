@@ -91,10 +91,9 @@ impl DictionaryInclude {
 
 /// What native selection does with a column whose native type has no exact supported mapping.
 ///
-/// `Refuse` is the default: the exact prior behaviour, so a catalog with no `on_unsupported_column`
-/// key still refuses the load over such a column. `Omit` is the opt-in `telekom/sutura#2070` asks
-/// for: the column is dropped - not served, not listed by `describe_catalog`, exactly like a column
-/// an exclusion pattern already removes - and the drop is logged rather than silent.
+/// `Refuse` is the default: a catalog with no `on_unsupported_column` key refuses the load over
+/// such a column. `Omit` drops the column instead - not served, not listed by `describe_catalog`,
+/// exactly like a column an exclusion pattern already removes - and logs the drop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UnsupportedColumnPolicy {
     #[default]
@@ -122,9 +121,8 @@ impl UnsupportedColumnPolicy {
 /// What native selection does with a table left with no included column.
 ///
 /// Every one of its columns is excluded, type-omitted or otherwise unselected - for example an
-/// invalid view whose every column reads an unsupported native type. `Refuse` is the default,
-/// unchanged from before this policy existed. `Omit` drops the table (logged) instead of refusing
-/// the whole catalog.
+/// invalid view whose every column reads an unsupported native type. `Refuse` is the default.
+/// `Omit` drops the table (logged) instead of refusing the whole catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EmptyTablePolicy {
     #[default]
