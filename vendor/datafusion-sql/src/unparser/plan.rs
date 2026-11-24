@@ -301,15 +301,11 @@ impl Unparser<'_> {
         Ok(SetExpr::Select(Box::new(select_builder.build()?)))
     }
 
-    /// A UNION's own branch, rendered with a fresh, branch-only `QueryBuilder` rather than the
-    /// surrounding statement's, so a `Limit`, `Sort` or `Fetch` inside this branch binds to the
-    /// branch alone instead of leaking onto the whole UNION or a sibling branch - the shared
-    /// builder `select_to_sql_expr`'s callers normally thread through every nested query. A
-    /// branch with no row window of its own (the common case) is unaffected: nothing is ever
-    /// written to the fresh builder's `body`, `limit`, `offset`, `order_by` or `fetch`, and its
-    /// `SetExpr` renders exactly as `select_to_sql_expr(input, query)` would have. A branch that
-    /// IS itself a nested UNION still resolves through the same `take_body` path inside
-    /// `select_to_sql_expr`, now scoped to its own builder, which is self-consistent either way.
+    /// A UNION branch gets its own `QueryBuilder` instead of the statement's shared one, so a
+    /// `Limit`/`Sort` inside the branch stays on it instead of leaking onto the whole UNION. A
+    /// branch that is itself a nested UNION already writes its body back through `take_body`
+    /// inside `select_to_sql_expr`; a DISTINCT nested UNION no longer promotes the outer UNION
+    /// ALL to DISTINCT, since that bit now lives on this branch's own, discarded builder.
     fn union_branch_to_sql_expr(&self, input: &LogicalPlan) -> Result<SetExpr> {
         let mut own = Some(QueryBuilder::default());
         let set_expr = self.select_to_sql_expr(input, &mut own)?;

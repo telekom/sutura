@@ -85,10 +85,7 @@ impl QueryBuilder {
     pub fn is_distinct_union(&self) -> bool {
         self.distinct_union
     }
-    /// Whether a `Limit` or `Sort` wrote its own row window (order, limit, offset or a fetch
-    /// clause) onto this builder, as opposed to it only ever receiving a `body`. A UNION branch
-    /// given its own builder uses this to tell "a plain branch" from "a branch that needs
-    /// deriving so its window stays on it alone" - see `plan.rs`'s `union_branch_to_sql_expr`.
+    /// Whether a `Limit` or `Sort` wrote its own order, limit, offset or fetch onto this builder.
     pub fn has_own_row_window(&self) -> bool {
         self.order_by_kind.is_some()
             || self.limit.is_some()

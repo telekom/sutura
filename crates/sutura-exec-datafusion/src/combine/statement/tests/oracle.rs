@@ -570,6 +570,61 @@ fn a_union_branch_keeps_its_own_order_by_and_limit_off_its_sibling_in_every_dial
 }
 
 #[test]
+fn a_raw_union_statement_keeps_its_own_order_by_and_limit_in_every_dialect() {
+    // End-to-end through `run_sql`: DataFusion's own planner/optimizer builds the right
+    // branch's row window as a `Limit` over `Sort(fetch)` (the merged shape `combine_limit`
+    // folds before rendering), which the hand-built plan in the sibling test above skips - this
+    // proves the bug is reachable from a caller's raw statement, not just from a hand-built plan.
+    let sql = r#"select "region" from "dim_region" where "sales_area" = 'emea' union all (select "region" from "dim_region" where "sales_area" = 'emea' order by "region" limit 1)"#;
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!("{dialect:?}: the single-source union must run: {answer:?}");
+        };
+        assert_eq!(
+            legs.statements.len(),
+            1,
+            "{dialect:?}: one pushed statement: {:?}",
+            legs.statements
+        );
+        assert_eq!(
+            rows,
+            legs.engines.as_one(sql),
+            "{dialect:?}: a branch's own ORDER BY/LIMIT leaked onto the whole UNION: {:?}",
+            legs.statements
+        );
+    }
+}
+
+#[test]
 fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect() {
     let _logging = tracing::subscriber::set_default(
         tracing_subscriber::fmt()
