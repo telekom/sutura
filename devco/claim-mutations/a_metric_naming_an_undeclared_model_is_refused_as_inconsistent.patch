@@ -1,14 +1,11 @@
-diff --git a/crates/sutura-catalog-local/src/lib.rs b/crates/sutura-catalog-local/src/lib.rs
 --- a/crates/sutura-catalog-local/src/lib.rs
 +++ b/crates/sutura-catalog-local/src/lib.rs
-@@ -597,8 +597,11 @@
-     /// edit here.
-     fn assemble(self) -> Result<Declared, LocalCatalogError> {
+@@ -660,7 +660,10 @@
+     fn assemble(self, definitions_bound: DefinitionsByteBound) -> Result<Declared, LocalCatalogError> {
          let declared = self.declared.unwrap_or_else(<LocalCatalog as SemanticCatalog>::capabilities);
--        let definitions = Definitions::assemble(self.models, self.relationships, self.metrics)
+         let definitions = Definitions::assemble_bounded(self.models, self.relationships, self.metrics, definitions_bound)
 -            .map_err(|cause| LocalCatalogError::Inconsistent { cause })?;
-+        let definitions =
-+            Definitions::assemble(self.models, self.relationships, self.metrics).map_err(|cause| LocalCatalogError::Model {
++            .map_err(|cause| LocalCatalogError::Model {
 +                path: PathBuf::new(),
 +                cause: InvalidModelDocument::PrimaryKey(Box::new(cause)),
 +            })?;

@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 // the unit of API and the files are not.
 mod audience;
 mod authored;
+mod bounds;
 mod calendar;
 mod collation;
 mod consistency;
@@ -38,6 +39,7 @@ pub use authored::{
     AnchorValue, ColumnType, Description, DimensionValue, InvalidColumnType, InvalidDescription, InvalidDimensionValue,
     MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
+pub use bounds::{DEFAULT_DEFINITIONS_BYTES, DEFINITIONS_BYTES_CEILING, DefinitionsByteBound, InvalidDefinitionsByteBound};
 pub use calendar::{InvalidSharedCalendars, SharedCalendars};
 pub use collation::{COLLATION_METADATA_KEY, Collation, CollationName, InvalidCollationName, MAX_COLLATION_NAME_CHARS};
 pub use consistency::{Definitions, InconsistentDefinitions};
@@ -82,42 +84,9 @@ pub const TIME_BUCKET_LABEL: &str = "period";
 /// which is the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes for notes.
 ///
 /// What it does not bound, said plainly. It bounds ONE dimension: nothing here caps how many
-/// dimensions a metric declares or how many metrics a catalog holds. [`MAX_DEFINITIONS_BYTES`] is
+/// dimensions a metric declares or how many metrics a catalog holds. [`DefinitionsByteBound`] is
 /// the fix for that other half.
 pub const MAX_VALUES_PER_DIMENSION: usize = 64;
-
-/// The most bytes a whole [`Definitions`] may carry of authored content and physical model identifiers.
-///
-/// Every model and table name, every column a model declares, every required filter and dimension
-/// value a metric declares, and every model's and metric's description count toward it.
-///
-/// **The count [`MAX_VALUES_PER_DIMENSION`]'s own note names as missing**: that bound is one
-/// dimension's, and nothing capped how many dimensions a metric declares, how many required filters
-/// a metric declares, how many columns a model declares, or how many models and metrics a catalog
-/// holds. Per-item caps alone let N conforming declarations do what one oversized declaration
-/// cannot, the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes for a bundle of notes,
-/// applied to the catalog that bundle is checked against.
-///
-/// **Measured before it was chosen, and re-measured for issue #966's column type and column
-/// description, which this bound did not cover before either existed, and again once every column
-/// in the shipped corpus carried both.** This repository's shipped `single-player` catalog - the
-/// larger of the two example catalogs - is the reference: its widest model (`subscriptions`)
-/// declares 8 columns, no metric declares more than one required filter, and all 21 of its columns
-/// carry a declared type and a description. Its column names and types, relationship keys, required
-/// filters and dimension values together sum to 1127 bytes (~1.1 KiB), and the five model names and
-/// table paths add 120. Descriptions are the rest of it, at 26056 bytes (~25.4 KiB) across eleven
-/// metrics, five models and their columns - each individually inside [`MAX_DESCRIPTION_BYTES`], and
-/// it is their COUNT that was uncapped. `Definitions::authored_bytes` over the loaded corpus reads
-/// 27303 bytes, ~26.7 KiB in total.
-///
-/// [`MAX_DEFINITIONS_BYTES`] is 128 KiB: about 4.8 times that reference catalog's ~26.7 KiB, less
-/// headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
-/// than left to say a smaller bundle than the corpus now is. Still more than
-/// [`crate::knowledge::MAX_KNOWLEDGE_BYTES`]'s five times its own reference, because a definitions
-/// bundle also carries the identifiers a knowledge bundle does not. Argued the way
-/// [`crate::query::MAX_RANGE_DAYS`] is: what it bounds is the size of the document, not whether what
-/// is in it is worth reading.
-pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 
 /// One column a [`Model`] exposes: its name, and what a source's own dictionary says about it.
 ///

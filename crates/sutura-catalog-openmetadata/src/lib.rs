@@ -63,7 +63,8 @@ pub mod http;
 pub mod test_support;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, JoinKey, JoinKeys, Model, Relationship,
+    Column, Definitions, DefinitionsByteBound, Description, InconsistentDefinitions, InvalidDescription, JoinKey, JoinKeys,
+    Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
@@ -155,6 +156,7 @@ pub struct OpenMetadataCatalog<R> {
     version: DefinitionVersion,
     sources: std::collections::BTreeMap<String, SourceName>,
     reader: R,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl<R: SnapshotReader> OpenMetadataCatalog<R> {
@@ -163,7 +165,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
     /// `sources` is the deployment's mapping from a service/database alias to the `sources.<alias>` a
     /// model on that platform reads from. A model on a platform with no entry is refused at load
     /// ([`OpenMetadataError::UnknownSource`]) rather than guessed.
-    pub const fn new(
+    pub fn new(
         name: SourceName,
         version: DefinitionVersion,
         sources: std::collections::BTreeMap<String, SourceName>,
@@ -174,7 +176,16 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
             version,
             sources,
             reader,
+            definitions_bound: DefinitionsByteBound::default(),
         }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::default`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     /// The conversion: a snapshot into the two halves of a bundle.
@@ -197,7 +208,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
         // holds. The `Metrics`/`Grains`/`Cardinality` kinds are declared-and-empty may-provide, so the
         // bundle agrees with the declaration either way.
 
-        let definitions = Definitions::assemble(models, relationships, Vec::new())
+        let definitions = Definitions::assemble_bounded(models, relationships, Vec::new(), self.definitions_bound)
             .map_err(|cause| OpenMetadataError::Inconsistent { cause })?;
         let knowledge =
             Knowledge::assemble(&definitions, KnowledgeInput::none()).map_err(|cause| OpenMetadataError::Knowledge { cause })?;

@@ -25,7 +25,9 @@ pub mod fixture;
 pub mod http;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Model};
+use sutura_domain::catalog::{
+    Column, Definitions, DefinitionsByteBound, Description, InconsistentDefinitions, InvalidDescription, Model,
+};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, InvalidIdentifier, ModelName, SourceName, TableName};
@@ -102,16 +104,26 @@ pub struct CubeCatalog<R> {
     version: DefinitionVersion,
     source: SourceName,
     reader: R,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl<R: MetaReader> CubeCatalog<R> {
-    pub const fn new(name: SourceName, version: DefinitionVersion, source: SourceName, reader: R) -> Self {
+    pub fn new(name: SourceName, version: DefinitionVersion, source: SourceName, reader: R) -> Self {
         Self {
             name,
             version,
             source,
             reader,
+            definitions_bound: DefinitionsByteBound::default(),
         }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::default`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     fn assemble(&self, meta: &document::Meta) -> Result<Content, CubeError> {
@@ -120,8 +132,8 @@ impl<R: MetaReader> CubeCatalog<R> {
             .iter()
             .map(|cube| self.convert_model(cube))
             .collect::<Result<Vec<_>, _>>()?;
-        let definitions =
-            Definitions::assemble(models, Vec::new(), Vec::new()).map_err(|cause| CubeError::Inconsistent { cause })?;
+        let definitions = Definitions::assemble_bounded(models, Vec::new(), Vec::new(), self.definitions_bound)
+            .map_err(|cause| CubeError::Inconsistent { cause })?;
         let knowledge =
             Knowledge::assemble(&definitions, KnowledgeInput::none()).map_err(|cause| CubeError::Knowledge { cause })?;
         Ok((definitions, knowledge))

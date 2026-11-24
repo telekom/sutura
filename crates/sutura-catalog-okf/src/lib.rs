@@ -48,7 +48,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, Model};
+use sutura_domain::catalog::{
+    Column, Definitions, DefinitionsByteBound, Description, InconsistentDefinitions, InvalidDescription, Model,
+};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
@@ -72,6 +74,7 @@ pub struct OkfCatalog {
     name: SourceName,
     root: PathBuf,
     version: DefinitionVersion,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl OkfCatalog {
@@ -79,8 +82,21 @@ impl OkfCatalog {
     ///
     /// The version is supplied rather than derived, because what identifies a snapshot of a directory
     /// is not something the directory knows - it is a commit id or a tag that only the caller has.
-    pub const fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
-        Self { name, root, version }
+    pub fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
+        Self {
+            name,
+            root,
+            version,
+            definitions_bound: DefinitionsByteBound::default(),
+        }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::default`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     /// The declared name this contributor is recorded under in a bundle's contribution manifest.
@@ -214,8 +230,8 @@ impl OkfCatalog {
             total_bytes += text.len() as u64;
             models.push(self.descriptor_to_model(&path, &text)?);
         }
-        let definitions =
-            Definitions::assemble(models, Vec::new(), Vec::new()).map_err(|cause| OkfCatalogError::Inconsistent { cause })?;
+        let definitions = Definitions::assemble_bounded(models, Vec::new(), Vec::new(), self.definitions_bound)
+            .map_err(|cause| OkfCatalogError::Inconsistent { cause })?;
         // This adapter supplies no referent-bearing knowledge. `KnowledgeInput::none()` assembles an
         // empty knowledge that declares nothing - which is what `capabilities()` says it declares.
         let knowledge = Knowledge::assemble(&definitions, KnowledgeInput::none())

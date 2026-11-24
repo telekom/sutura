@@ -19,7 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Column, Dimension, MAX_DEFINITIONS_BYTES, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use super::{Column, DefinitionsByteBound, Dimension, MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL};
 use crate::measure::Term;
 use crate::model::{
     Aggregate, ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName,
@@ -240,14 +240,29 @@ pub enum InconsistentDefinitions {
         table: TableName,
     },
     /// The aggregate cap over every column, required filter, dimension value and description this
-    /// bundle carries. What [`MAX_DEFINITIONS_BYTES`] bounds.
+    /// bundle carries. What [`DefinitionsByteBound`] bounds.
     ///
     /// A model's own column count and a metric's own required-filter count are both uncapped, so a
     /// catalog of many small, individually-legal declarations is not a catalog any per-item cap can
     /// see - the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes over a bundle of
     /// notes.
-    #[error("this catalog's definitions carry {bytes} authored bytes, and the limit is {limit}")]
-    DefinitionsTooLarge { bytes: usize, limit: usize },
+    ///
+    /// `columns`, `descriptions` and `metric_prose` split the total three ways - identifiers and
+    /// declared types, model/column description text, and everything from the metric layer
+    /// (required filters, dimension values, metric and dimension descriptions) - so an operator
+    /// whose catalog is over the bound can see what to trim rather than guess
+    /// (`github.com/telekom/sutura#2071`).
+    #[error(
+        "this catalog's definitions carry {bytes} authored bytes, and the limit is {limit} \
+         ({columns} in column definitions, {descriptions} in descriptions, {metric_prose} in metric prose)"
+    )]
+    DefinitionsTooLarge {
+        bytes: usize,
+        limit: usize,
+        columns: usize,
+        descriptions: usize,
+        metric_prose: usize,
+    },
     /// A cross-model ratio's shared calendar is not reachable from one of its fact models
     /// (`telekom/sutura#780`). The metric lists its shared calendars, and every model a ratio term
     /// names - including the metric's own - must declare a relationship FROM itself TO the calendar
@@ -321,6 +336,18 @@ impl Definitions {
         relationships: Vec<Relationship>,
         metrics: Vec<Metric>,
     ) -> Result<Self, InconsistentDefinitions> {
+        Self::assemble_bounded(models, relationships, metrics, DefinitionsByteBound::default())
+    }
+
+    /// Same as [`Self::assemble`], checked against a caller-declared bound rather than
+    /// [`DefinitionsByteBound::default`] - `catalogs[].max_definitions_bytes`, per catalog
+    /// (`github.com/telekom/sutura#2071`).
+    pub fn assemble_bounded(
+        models: Vec<Model>,
+        relationships: Vec<Relationship>,
+        metrics: Vec<Metric>,
+        bound: DefinitionsByteBound,
+    ) -> Result<Self, InconsistentDefinitions> {
         let mut model_map: BTreeMap<ModelName, Model> = BTreeMap::new();
         for model in models {
             if let Some(existing) = model_map.insert(model.name.clone(), model) {
@@ -354,11 +381,16 @@ impl Definitions {
             relationships: relationship_map,
             metrics: metric_map,
         };
-        let bytes = assembled.authored_bytes();
-        if bytes > MAX_DEFINITIONS_BYTES {
+        let breakdown = assembled.authored_bytes();
+        let bytes = breakdown.total();
+        let limit = bound.get();
+        if bytes > limit {
             return Err(InconsistentDefinitions::DefinitionsTooLarge {
                 bytes,
-                limit: MAX_DEFINITIONS_BYTES,
+                limit,
+                columns: breakdown.columns,
+                descriptions: breakdown.descriptions,
+                metric_prose: breakdown.metric_prose,
             });
         }
         Ok(assembled)
@@ -384,12 +416,25 @@ impl Definitions {
         }
     }
 
-    /// The authored bytes across the whole bundle. What [`MAX_DEFINITIONS_BYTES`] bounds.
-    fn authored_bytes(&self) -> usize {
-        let models = sum_bytes(self.models.values().map(model_bytes));
+    /// The authored bytes across the whole bundle, split by what an operator over the bound could
+    /// trade off. What [`DefinitionsByteBound`] bounds.
+    fn authored_bytes(&self) -> DefinitionsByteBreakdown {
+        let models = self
+            .models
+            .values()
+            .map(model_breakdown)
+            .fold(DefinitionsByteBreakdown::default(), DefinitionsByteBreakdown::plus);
         let relationships = sum_bytes(self.relationships.values().map(relationship_bytes));
-        let metrics = sum_bytes(self.metrics.values().map(metric_bytes));
-        models.saturating_add(relationships).saturating_add(metrics)
+        let metrics = self
+            .metrics
+            .values()
+            .map(metric_breakdown)
+            .fold(DefinitionsByteBreakdown::default(), DefinitionsByteBreakdown::plus);
+        DefinitionsByteBreakdown {
+            columns: models.columns.saturating_add(relationships).saturating_add(metrics.columns),
+            descriptions: models.descriptions.saturating_add(metrics.descriptions),
+            metric_prose: metrics.metric_prose,
+        }
     }
 
     fn check_relationship(
@@ -739,30 +784,68 @@ impl Definitions {
         self.relationships.get(name)
     }
 }
-/// The bytes a physical-schema listing can expose for one model.
-fn model_bytes(model: &Model) -> usize {
-    model
-        .name()
-        .as_str()
-        .len()
-        .saturating_add(model.table().to_string().len())
-        .saturating_add(sum_bytes(model.columns().map(column_bytes)))
-        .saturating_add(model.description().len())
+/// [`InconsistentDefinitions::DefinitionsTooLarge`]'s three-way split of
+/// [`Definitions::authored_bytes`], added up elsewhere the same way `knowledge`'s own `sum_bytes`
+/// is: saturating, so no category can wrap into a small number and pass the cap it exists to fail.
+#[derive(Debug, Clone, Copy, Default)]
+struct DefinitionsByteBreakdown {
+    /// Model and table names, column names and declared types, and relationship key columns -
+    /// physical identifiers a dictionary read supplies whether or not anything is described.
+    columns: usize,
+    /// Model and column description text.
+    descriptions: usize,
+    /// Everything from the metric layer: required filters as they would render, dimension allowed
+    /// values, and metric and dimension descriptions.
+    metric_prose: usize,
 }
 
-/// The authored bytes behind one column: its name, its data type if declared, and its description.
+impl DefinitionsByteBreakdown {
+    const fn plus(self, other: Self) -> Self {
+        Self {
+            columns: self.columns.saturating_add(other.columns),
+            descriptions: self.descriptions.saturating_add(other.descriptions),
+            metric_prose: self.metric_prose.saturating_add(other.metric_prose),
+        }
+    }
+
+    const fn total(&self) -> usize {
+        self.columns
+            .saturating_add(self.descriptions)
+            .saturating_add(self.metric_prose)
+    }
+}
+
+/// The bytes a physical-schema listing can expose for one model, by category.
+fn model_breakdown(model: &Model) -> DefinitionsByteBreakdown {
+    let columns = model.name().as_str().len().saturating_add(model.table().to_string().len());
+    model
+        .columns()
+        .map(column_breakdown)
+        .fold(DefinitionsByteBreakdown::default(), DefinitionsByteBreakdown::plus)
+        .plus(DefinitionsByteBreakdown {
+            columns,
+            descriptions: model.description().len(),
+            metric_prose: 0,
+        })
+}
+
+/// The authored bytes behind one column: its name and declared type as `columns`, its description
+/// as `descriptions`.
 ///
-/// The name counted here too, unchanged from before this type existed - a model with many columns
+/// The name counted here too, unchanged from before this split existed - a model with many columns
 /// still adds up, whether or not any of them carries a type or a description.
-fn column_bytes(column: &Column) -> usize {
+fn column_breakdown(column: &Column) -> DefinitionsByteBreakdown {
     let name = column.name().as_str().len();
     let data_type = column.data_type().map_or(0, |data_type| data_type.as_str().len());
-    let description = column.description().len();
-    name.saturating_add(data_type).saturating_add(description)
+    DefinitionsByteBreakdown {
+        columns: name.saturating_add(data_type),
+        descriptions: column.description().len(),
+        metric_prose: 0,
+    }
 }
 
 /// The authored bytes behind one relationship beyond its own name: every column of every key it
-/// joins on.
+/// joins on - a `columns` identifier, like the model and column names it joins.
 fn relationship_bytes(relationship: &Relationship) -> usize {
     relationship.keys().iter().fold(0, |acc, key| {
         acc.saturating_add(key.origin().as_str().len())
@@ -770,21 +853,33 @@ fn relationship_bytes(relationship: &Relationship) -> usize {
     })
 }
 
-/// The authored bytes behind one metric beyond its own name: every required filter as it would
-/// render, every dimension it declares, and its description.
-fn metric_bytes(metric: &Metric) -> usize {
+/// The authored bytes behind one metric beyond its own name, as `metric_prose`: every required
+/// filter as it would render, every dimension it declares, and its own description.
+fn metric_breakdown(metric: &Metric) -> DefinitionsByteBreakdown {
     let filters = sum_bytes(metric.required_filters().iter().map(|filter| filter.to_string().len()));
-    let dimensions = sum_bytes(metric.dimensions().values().map(dimension_bytes));
-    filters.saturating_add(dimensions).saturating_add(metric.description().len())
+    let dimensions = metric
+        .dimensions()
+        .values()
+        .map(dimension_breakdown)
+        .fold(DefinitionsByteBreakdown::default(), DefinitionsByteBreakdown::plus);
+    dimensions.plus(DefinitionsByteBreakdown {
+        columns: 0,
+        descriptions: 0,
+        metric_prose: filters.saturating_add(metric.description().len()),
+    })
 }
 
-/// The authored bytes behind one dimension beyond its own name: every allowed value, and its
-/// description.
-fn dimension_bytes(dimension: &Dimension) -> usize {
+/// The authored bytes behind one dimension beyond its own name, as `metric_prose`: every allowed
+/// value, and its description.
+fn dimension_breakdown(dimension: &Dimension) -> DefinitionsByteBreakdown {
     let values = dimension
         .allowed_values()
         .map_or(0, |values| sum_bytes(values.iter().map(|value| value.as_str().len())));
-    values.saturating_add(dimension.description().len())
+    DefinitionsByteBreakdown {
+        columns: 0,
+        descriptions: 0,
+        metric_prose: values.saturating_add(dimension.description().len()),
+    }
 }
 
 /// Whether the two key columns' declared types contradict the comparison the relationship declares.

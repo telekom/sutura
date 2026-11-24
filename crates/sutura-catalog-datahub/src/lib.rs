@@ -106,8 +106,8 @@ use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Audience, Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, JoinKey, JoinKeys, Metric, Model,
-    Relationship,
+    Audience, Column, Definitions, DefinitionsByteBound, Description, InconsistentDefinitions, InvalidDescription, JoinKey,
+    JoinKeys, Metric, Model, Relationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::KnowledgeCapabilities;
@@ -268,6 +268,7 @@ pub struct DataHubCatalog<R> {
     version: DefinitionVersion,
     sources: BTreeMap<String, SourceName>,
     reader: R,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl<R: AspectReader> DataHubCatalog<R> {
@@ -277,13 +278,22 @@ impl<R: AspectReader> DataHubCatalog<R> {
     /// on that platform reads from. A model on a platform with no entry is refused at load (see
     /// [`DataHubError::UnknownPlatform`]) rather than guessed, which is what makes opening the model's
     /// data system the deployment's decision rather than this adapter's.
-    pub const fn new(name: SourceName, version: DefinitionVersion, sources: BTreeMap<String, SourceName>, reader: R) -> Self {
+    pub fn new(name: SourceName, version: DefinitionVersion, sources: BTreeMap<String, SourceName>, reader: R) -> Self {
         Self {
             name,
             version,
             sources,
             reader,
+            definitions_bound: DefinitionsByteBound::default(),
         }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::default`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     /// The conversion: a snapshot into the two halves of a bundle.
@@ -312,8 +322,8 @@ impl<R: AspectReader> DataHubCatalog<R> {
             metrics.push(Self::convert_metric(metric, property)?);
         }
 
-        let definitions =
-            Definitions::assemble(models, relationships, metrics).map_err(|cause| DataHubError::Inconsistent { cause })?;
+        let definitions = Definitions::assemble_bounded(models, relationships, metrics, self.definitions_bound)
+            .map_err(|cause| DataHubError::Inconsistent { cause })?;
         // No knowledge: a snapshot has no knowledge aspect to read (see the crate header), so the
         // bundle carries none and the declaration agrees - not because no metric exists for a
         // `Referent` to name, which stopped being true when a certified metric arrived. The

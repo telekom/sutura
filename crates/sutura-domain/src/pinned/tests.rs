@@ -533,7 +533,7 @@ fn the_digest_a_bundle_carries_is_computed_from_the_definitions_it_holds() {
 
 #[test]
 fn a_column_s_type_or_description_arriving_moves_the_digest() {
-    // `MAX_DEFINITIONS_BYTES` did not bound either field before `Column` existed, and neither
+    // The aggregate byte bound did not cover either field before `Column` existed, and neither
     // travelled under the digest. Both now do: a source that starts typing or describing its
     // columns has changed what the bundle carries, and a caller trusting the digest to notice a
     // catalog edit must see it move.

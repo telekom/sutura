@@ -86,7 +86,9 @@ pub(super) fn open_one_rdbms_catalog(settings: &sutura_config::CatalogSettings) 
         super::descriptions::Reader::new(reader),
     )
     .with_source_alias(rdbms.source_alias().clone())
-    .with_bounds(bounds);
+    .with_bounds(bounds)
+    .with_definitions_bound(settings.max_definitions_bytes());
+    super::log_definitions_bound(settings);
     Ok(match rdbms.audience() {
         Some(audience) => catalog.with_audience(audience.clone()),
         None => catalog,

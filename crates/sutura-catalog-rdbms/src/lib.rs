@@ -166,7 +166,7 @@ use std::collections::btree_map::Entry;
 use std::num::NonZeroU64;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Audience, Column, Definitions, Description, Model};
+use sutura_domain::catalog::{Audience, Column, Definitions, DefinitionsByteBound, Description, Model};
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::model::{
     ColumnName, DatasetName, InvalidIdentifier, ModelName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
@@ -216,6 +216,7 @@ pub struct RdbmsCatalog<R> {
     reader: R,
     bounds: Option<DictionaryBounds>,
     audience: Option<Audience>,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl<R> RdbmsCatalog<R> {
@@ -229,6 +230,7 @@ impl<R> RdbmsCatalog<R> {
             reader,
             bounds: None,
             audience: None,
+            definitions_bound: DefinitionsByteBound::default(),
         }
     }
 
@@ -241,7 +243,16 @@ impl<R> RdbmsCatalog<R> {
             reader: map(self.reader),
             bounds: self.bounds,
             audience: self.audience,
+            definitions_bound: self.definitions_bound,
         }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::default`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     /// Binds models from this dictionary to a separately declared data source.
@@ -320,8 +331,8 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             relationships.push(Self::convert_relationship(relationship, &models_by_table)?);
         }
 
-        let definitions =
-            Definitions::assemble(models, relationships, Vec::new()).map_err(|cause| RdbmsError::Inconsistent { cause })?;
+        let definitions = Definitions::assemble_bounded(models, relationships, Vec::new(), self.definitions_bound)
+            .map_err(|cause| RdbmsError::Inconsistent { cause })?;
         Ok((definitions, Knowledge::none()))
     }
 
