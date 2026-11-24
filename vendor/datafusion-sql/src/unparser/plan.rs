@@ -22,7 +22,8 @@ use super::{
         SelectBuilder, TableRelationBuilder, TableWithJoinsBuilder,
     },
     rewrite::{
-        TableAliasRewriter, inject_column_aliases_into_subquery, normalize_union_schema,
+        TableAliasRewriter, fold_aggregate_rename_projection,
+        inject_column_aliases_into_subquery, normalize_union_schema,
         rewrite_plan_for_sort_on_non_projected_fields,
         subquery_alias_inner_query_and_columns,
     },
@@ -172,6 +173,7 @@ impl Unparser<'_> {
 
     fn plan_to_sql_unchecked(&self, plan: &LogicalPlan) -> Result<ast::Statement> {
         let mut plan = normalize_union_schema(plan)?;
+        plan = fold_aggregate_rename_projection(&plan)?;
         if !self.dialect.supports_qualify() {
             plan = rewrite_qualify(plan)?;
         }

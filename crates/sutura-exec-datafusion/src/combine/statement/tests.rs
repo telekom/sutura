@@ -672,6 +672,32 @@ fn an_exists_in_a_projection_over_a_second_source_is_not_planned() {
     }
 }
 
+/// The unparser's own refusal to name a column back against an `Aggregate` it rewrote (the shape
+/// behind #2068: a two-level aggregate from `count(DISTINCT ..)`, still naming the inner column
+/// after some plan shape the fold in `fold_aggregate_rename_projection` does not reach, such as a
+/// grouping set) is an internal planner gap, not a database failure - the caller is told not to
+/// retry rather than reading the generic `StatementFailed`.
+#[test]
+fn an_unprojected_aggregate_is_named_as_an_unsupported_construct_not_a_generic_failure() {
+    let cause = datafusion::common::DataFusionError::Internal(
+        "Tried to unproject agg expr for column 'count(DISTINCT test.b)' that was not found in the provided Aggregate!"
+            .to_owned(),
+    );
+    let stopped: StatementStopped<()> = super::unwritten("a part did not unparse", &cause);
+    assert!(
+        matches!(stopped, StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)),
+        "{stopped:?}"
+    );
+}
+
+/// An unrelated unparse failure still falls through to the generic `NotPlanned` refusal.
+#[test]
+fn an_unrelated_unparse_failure_is_still_a_generic_not_planned() {
+    let cause = datafusion::common::DataFusionError::Internal("some other invariant did not hold".to_owned());
+    let stopped: StatementStopped<()> = super::unwritten("a part did not unparse", &cause);
+    assert!(matches!(stopped, StatementStopped::NotPlanned), "{stopped:?}");
+}
+
 #[cfg(test)]
 mod bounds;
 #[cfg(test)]

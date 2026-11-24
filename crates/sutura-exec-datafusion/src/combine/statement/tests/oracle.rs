@@ -689,3 +689,78 @@ fn native_numeric_duplicate_outputs_restore_names_and_distinct_positions() {
         assert_eq!(legs.statements.len(), 1);
     }
 }
+
+/// A `RawRows` sorted by its own `Debug` text: a stand-in for a multiset comparison where the
+/// engine's bare `GROUP BY` order is unspecified and the fixture's own ordering cannot be assumed.
+fn multiset(rows: RawRows) -> RawRows {
+    let (columns, mut rows) = rows.into_parts();
+    rows.sort_by_key(|row| format!("{row:?}"));
+    RawRows::of(columns, rows)
+}
+
+/// `count(DISTINCT x)` in the select list, repeated in `HAVING`, is rewritten by `DataFusion`'s
+/// `SingleDistinctToGroupBy` into two stacked aggregates wrapped in a renaming `Projection`
+/// restoring the original display name - part of #2068's own repro. A `Limit` above that shape
+/// left the renaming `Projection` in place instead of an optimizer pass folding it away, and the
+/// unparser's single-`Projection` allowance between a clause and its `Aggregate` then could not
+/// find the `HAVING` predicate's column on the (still internally-named) `Aggregate` itself.
+#[test]
+fn count_distinct_repeated_in_having_unparses_with_and_without_order_and_limit_in_every_dialect() {
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        for sql in [
+            "select region, count(distinct sales_area) as c from dim_region \
+             group by region having count(distinct sales_area) > 0",
+            "select region, count(distinct sales_area) as c from dim_region \
+             group by region having count(distinct sales_area) > 0 limit 10",
+            "select region, count(distinct sales_area) as c from dim_region \
+             group by region having count(distinct sales_area) > 0 order by region",
+            "select region, count(distinct sales_area) as c from dim_region \
+             group by region having count(distinct sales_area) > 0 order by region limit 10",
+        ] {
+            let mut legs = OracleLegs {
+                engines: Engines::new(None),
+                statements: Vec::new(),
+            };
+            let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    false,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut legs,
+            );
+            let Some(Ok(rows)) = answer else {
+                panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
+            };
+            let expected = legs.engines.as_one(sql);
+            if sql.contains("order by") {
+                assert_eq!(rows, expected, "{dialect:?}: {sql}; source SQL: {:?}", legs.statements);
+            } else {
+                assert_eq!(
+                    multiset(rows),
+                    multiset(expected),
+                    "{dialect:?}: {sql}; source SQL: {:?}",
+                    legs.statements
+                );
+            }
+            assert_eq!(legs.statements.len(), 1, "{dialect:?}: {sql}");
+        }
+    }
+}

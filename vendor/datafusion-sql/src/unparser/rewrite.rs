@@ -23,7 +23,7 @@ use datafusion_common::{
     tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRewriter},
 };
 use datafusion_expr::expr::{Alias, UNNEST_COLUMN_PREFIX};
-use datafusion_expr::{Expr, LogicalPlan, Projection, Sort, SortExpr};
+use datafusion_expr::{Aggregate, Expr, LogicalPlan, Projection, Sort, SortExpr};
 use sqlparser::ast::Ident;
 
 /// Normalize the schema of a union plan to remove qualifiers from the schema fields and sort expressions.
@@ -97,6 +97,81 @@ fn rewrite_sort_expr_for_union(exprs: Vec<SortExpr>) -> Result<Vec<SortExpr>> {
         .data()?;
 
     Ok(sort_exprs)
+}
+
+/// Fold a `Projection` that does nothing but rename the `Aggregate` directly below it back onto
+/// that aggregate's own expressions, so no more than one `Projection` ever sits between a clause
+/// and the `Aggregate` it names.
+///
+/// `SingleDistinctToGroupBy` rewrites `count(DISTINCT x) GROUP BY g` into two stacked
+/// aggregates and wraps the result in a `Projection` that restores the original aggregate's
+/// display name (lost by the rewrite) onto the outer aggregate's raw output column. Every clause
+/// that renders an aggregate expression (`find_agg_node_within_select` and friends) expects at
+/// most one `Projection` between itself and the `Aggregate`; an optimizer pass ordinarily merges
+/// this purely cosmetic `Projection` away, but leaves it in place for some plan shapes (observed
+/// with a `Limit` above a `HAVING` repeating the aggregate), and unparsing such a plan then fails
+/// to find the clause's column in the (still internally-named) `Aggregate` schema.
+pub(super) fn fold_aggregate_rename_projection(plan: &LogicalPlan) -> Result<LogicalPlan> {
+    plan.clone()
+        .transform_up(|plan| match plan {
+            LogicalPlan::Projection(p) => match fold_aggregate_rename(&p)? {
+                Some(agg) => Ok(Transformed::yes(LogicalPlan::Aggregate(agg))),
+                None => Ok(Transformed::no(LogicalPlan::Projection(p))),
+            },
+            _ => Ok(Transformed::no(plan)),
+        })
+        .data()
+}
+
+/// `Some(agg)` when `p` is nothing but a positional rename of its own `Aggregate` input: every
+/// projected expression is a bare column, or an alias of one, naming that aggregate's own output
+/// field at the same position. Grouping sets are left alone (out of scope for this fold).
+fn fold_aggregate_rename(p: &Projection) -> Result<Option<Aggregate>> {
+    let LogicalPlan::Aggregate(agg) = p.input.as_ref() else {
+        return Ok(None);
+    };
+    if matches!(agg.group_expr.as_slice(), [Expr::GroupingSet(_)]) {
+        return Ok(None);
+    }
+    if p.expr.len() != agg.schema.fields().len() {
+        return Ok(None);
+    }
+
+    let mut renamed = Vec::with_capacity(p.expr.len());
+    for (i, proj_expr) in p.expr.iter().enumerate() {
+        let (target_col, display_name) = match proj_expr {
+            Expr::Column(c) => (c, c.name.clone()),
+            Expr::Alias(Alias { expr, name, .. }) => match expr.as_ref() {
+                Expr::Column(c) => (c, name.clone()),
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        match agg.schema.index_of_column(target_col) {
+            Ok(idx) if idx == i => {}
+            _ => return Ok(None),
+        }
+        let agg_expr = agg
+            .group_expr
+            .iter()
+            .chain(agg.aggr_expr.iter())
+            .nth(i)
+            .expect("checked against agg.schema.fields().len() above");
+        renamed.push(if display_name == *agg.schema.field(i).name() {
+            agg_expr.clone()
+        } else {
+            agg_expr.clone().alias(display_name)
+        });
+    }
+
+    let group_len = agg.group_expr.len();
+    let new_group_expr = renamed[..group_len].to_vec();
+    let new_aggr_expr = renamed[group_len..].to_vec();
+    Ok(Some(Aggregate::try_new(
+        Arc::clone(&agg.input),
+        new_group_expr,
+        new_aggr_expr,
+    )?))
 }
 
 /// Rewrite Filter plans that have a Window as their input by inserting a SubqueryAlias.
