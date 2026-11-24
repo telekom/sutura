@@ -15,6 +15,24 @@ use crate::{Dictionary, DictionaryBounds, RdbmsError, TableAddress};
 /// The colliding table, and the two column identifiers that fold to the same identity under it.
 type AmbiguousColumn = (QualifiedTable, ColumnName, ColumnName);
 
+/// What a matched row's unusable prose does.
+///
+/// Governs only a row whose key has already matched a visible table or column in the served
+/// dictionary - a row whose key resolves to no selected column is never checked at all (ask 1 of
+/// `telekom/sutura#2069`).
+///
+/// `Refuse` is the conservative default, the exact behaviour this crate had before the per-source
+/// choice existed, so an existing deployment reads unchanged. `Omit` is the opt-in that drops just
+/// that row, falling back to the next ordered source or the dictionary's own native comment - the
+/// same fallback an unmatched row already takes. An omitted row is logged with its key (schema,
+/// table, column), never with its text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InvalidDescriptionPolicy {
+    #[default]
+    Refuse,
+    Omit,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DescriptionError {
     #[error("description source exceeds its row bound of {limit}")]
@@ -34,8 +52,18 @@ pub enum DescriptionError {
         #[source]
         cause: sutura_domain::model::InvalidIdentifier,
     },
-    #[error("description source contains invalid prose")]
-    Prose {
+    /// A matched table's description is not usable. Names the key, never the offending text.
+    #[error("the description of table {table} is not usable")]
+    TableProse {
+        table: QualifiedTable,
+        #[source]
+        cause: sutura_domain::catalog::InvalidDescription,
+    },
+    /// A matched column's description is not usable. Names the key, never the offending text.
+    #[error("the description of column {table}.{column} is not usable")]
+    ColumnProse {
+        table: QualifiedTable,
+        column: ColumnName,
         #[source]
         cause: sutura_domain::catalog::InvalidDescription,
     },
@@ -46,14 +74,19 @@ type PhysicalColumn = (QualifiedTable, ColumnName);
 /// A dictionary with the number of description rows outside its visible columns.
 pub type OverlaidDictionary = (Dictionary, u64);
 
-/// One ordered source's complete prose projection, already checked and bounded.
+/// One ordered source's complete prose projection, bounded but **not yet validated**.
+///
+/// Prose is parsed only once its key has matched a visible table or column in [`apply`], so an
+/// unmatched row's invalid prose never reaches [`Description::parse`] at all.
 #[derive(Debug)]
 pub struct DescriptionOverlay {
-    tables: BTreeMap<QualifiedTable, Description>,
-    columns: BTreeMap<PhysicalColumn, Description>,
+    tables: BTreeMap<QualifiedTable, String>,
+    columns: BTreeMap<PhysicalColumn, String>,
     /// Whether this source's own keys were folded to lower case at construction, so [`apply`]
     /// knows to probe it with a folded physical identity instead of the dictionary's exact one.
     case_insensitive: bool,
+    /// What a matched row of this source does if its prose fails [`Description::parse`].
+    on_invalid_description: InvalidDescriptionPolicy,
 }
 
 struct Projection {
@@ -64,12 +97,13 @@ struct Projection {
 }
 
 impl Projection {
-    const fn new(bounds: DictionaryBounds, case_insensitive: bool) -> Self {
+    const fn new(bounds: DictionaryBounds, case_insensitive: bool, on_invalid_description: InvalidDescriptionPolicy) -> Self {
         Self {
             overlay: DescriptionOverlay {
                 tables: BTreeMap::new(),
                 columns: BTreeMap::new(),
                 case_insensitive,
+                on_invalid_description,
             },
             bounds,
             rows: 0,
@@ -93,6 +127,8 @@ impl Projection {
         Ok(())
     }
 
+    /// Records a column's raw prose unparsed - only its physical identifier is checked here, never
+    /// its text. [`apply`] parses it lazily, after matching.
     fn column(&mut self, table: &QualifiedTable, column: &str, prose: &str) -> Result<(), DescriptionError> {
         let folded = if self.overlay.case_insensitive {
             column.to_lowercase()
@@ -102,8 +138,12 @@ impl Projection {
         let column = exact(&folded)
             .and_then(ColumnName::parse)
             .map_err(|cause| DescriptionError::Identifier { cause })?;
-        let prose = Description::parse(prose).map_err(|cause| DescriptionError::Prose { cause })?;
-        if self.overlay.columns.insert((table.clone(), column.clone()), prose).is_some() {
+        if self
+            .overlay
+            .columns
+            .insert((table.clone(), column.clone()), prose.to_owned())
+            .is_some()
+        {
             return Err(DescriptionError::Duplicate {
                 table: table.clone(),
                 column,
@@ -146,8 +186,9 @@ impl DescriptionOverlay {
         dictionary: &Dictionary,
         bounds: DictionaryBounds,
         case_insensitive: bool,
+        on_invalid_description: InvalidDescriptionPolicy,
     ) -> Result<Self, DescriptionError> {
-        let mut projection = Projection::new(bounds, case_insensitive);
+        let mut projection = Projection::new(bounds, case_insensitive, on_invalid_description);
         for table in dictionary.tables() {
             let address_bytes = table.address.to_string().len();
             projection.admit(
@@ -155,8 +196,7 @@ impl DescriptionOverlay {
                 table.columns.is_empty(),
             )?;
             let address = physical_folded(&table.address, case_insensitive)?;
-            let description = Description::parse(table.description.as_deref().unwrap_or(""))
-                .map_err(|cause| DescriptionError::Prose { cause })?;
+            let description = table.description.as_deref().unwrap_or("").to_owned();
             if projection.overlay.tables.insert(address.clone(), description).is_some() {
                 return Err(DescriptionError::DuplicateTable { table: address });
             }
@@ -172,8 +212,12 @@ impl DescriptionOverlay {
         Ok(projection.overlay)
     }
 
+    /// A catalog reference never carries its own `on_invalid_description` - that knob is `Table`
+    /// mapping-only - so a row here keeps the one behaviour this crate always had: refuse, once
+    /// matched. The deferral below still holds, so an unmatched row's invalid prose is still
+    /// ignored exactly as a mapped source's is.
     pub fn from_definitions(definitions: &Definitions, bounds: DictionaryBounds) -> Result<Self, DescriptionError> {
-        let mut projection = Projection::new(bounds, false);
+        let mut projection = Projection::new(bounds, false, InvalidDescriptionPolicy::Refuse);
         for model in definitions.models().values() {
             let address = model.table();
             let address_bytes = address.to_string().len();
@@ -184,10 +228,7 @@ impl DescriptionOverlay {
             if projection
                 .overlay
                 .tables
-                .insert(
-                    address.clone(),
-                    Description::parse(model.description()).map_err(|cause| DescriptionError::Prose { cause })?,
-                )
+                .insert(address.clone(), model.description().to_owned())
                 .is_some()
             {
                 return Err(DescriptionError::DuplicateTable { table: address.clone() });
@@ -206,8 +247,75 @@ impl DescriptionOverlay {
     }
 }
 
-/// Applies only prose after dictionary selection. Returns the number of ignored column rows,
-/// including empty rows and repeated unknown columns from different ordered sources.
+/// The first nonempty, valid table prose across the ordered candidates, applying each candidate's
+/// own policy to an invalid row before falling through to the next one. Never returns the offending
+/// text, and an `Ok(description)` whose text trims to empty is treated as "no prose" here - the same
+/// fallback an absent row already takes - so a blank override still lets the next source show
+/// through.
+fn resolve_table_prose<'a>(
+    candidates: impl Iterator<Item = (&'a str, InvalidDescriptionPolicy)>,
+    table: &QualifiedTable,
+) -> Result<Option<String>, DescriptionError> {
+    for (raw, policy) in candidates {
+        match Description::parse(raw) {
+            Ok(description) if description.is_empty() => {}
+            Ok(description) => return Ok(Some(description.as_str().to_owned())),
+            Err(cause) => match policy {
+                InvalidDescriptionPolicy::Refuse => {
+                    return Err(DescriptionError::TableProse {
+                        table: table.clone(),
+                        cause,
+                    });
+                }
+                InvalidDescriptionPolicy::Omit => {
+                    tracing::warn!(
+                        table = %table,
+                        cause = %cause,
+                        "omitting description overlay row: table prose is not usable"
+                    );
+                }
+            },
+        }
+    }
+    Ok(None)
+}
+
+/// Like [`resolve_table_prose`], for a column's matched candidates.
+fn resolve_column_prose<'a>(
+    candidates: impl Iterator<Item = (&'a str, InvalidDescriptionPolicy)>,
+    table: &QualifiedTable,
+    column: &ColumnName,
+) -> Result<Option<String>, DescriptionError> {
+    for (raw, policy) in candidates {
+        match Description::parse(raw) {
+            Ok(description) if description.is_empty() => {}
+            Ok(description) => return Ok(Some(description.as_str().to_owned())),
+            Err(cause) => match policy {
+                InvalidDescriptionPolicy::Refuse => {
+                    return Err(DescriptionError::ColumnProse {
+                        table: table.clone(),
+                        column: column.clone(),
+                        cause,
+                    });
+                }
+                InvalidDescriptionPolicy::Omit => {
+                    tracing::warn!(
+                        table = %table,
+                        column = %column,
+                        cause = %cause,
+                        "omitting description overlay row: column prose is not usable"
+                    );
+                }
+            },
+        }
+    }
+    Ok(None)
+}
+
+/// Applies only prose after dictionary selection: a source row is parsed and validated only once
+/// its key has matched a table or column the selection actually kept (ask 1 of
+/// `telekom/sutura#2069`). Returns the number of ignored column rows, including empty rows and
+/// repeated unknown columns from different ordered sources.
 pub(crate) fn apply(mut dictionary: Dictionary, sources: &[DescriptionOverlay]) -> Result<OverlaidDictionary, RdbmsError> {
     // Folding runs only when some source actually asked for it: with none, this must be
     // byte-identical to the exact-only path, and a served identifier whose lower case does not
@@ -230,18 +338,18 @@ pub(crate) fn apply(mut dictionary: Dictionary, sources: &[DescriptionOverlay]) 
         } else {
             None
         };
-        if let Some(prose) = sources
-            .iter()
-            .filter_map(|source| {
-                let probe = match (source.case_insensitive, &folded_address) {
-                    (true, Some(folded)) => folded,
-                    _ => &address,
-                };
-                source.tables.get(probe)
-            })
-            .find(|prose| !prose.is_empty())
-        {
-            table.description = Some(prose.as_str().to_owned());
+        let table_candidates = sources.iter().filter_map(|source| {
+            let probe = match (source.case_insensitive, &folded_address) {
+                (true, Some(folded)) => folded,
+                _ => &address,
+            };
+            source
+                .tables
+                .get(probe)
+                .map(|raw| (raw.as_str(), source.on_invalid_description))
+        });
+        if let Some(prose) = resolve_table_prose(table_candidates, &address).map_err(|cause| RdbmsError::Read(Box::new(cause)))? {
+            table.description = Some(prose);
         }
         let mut folded_columns: BTreeMap<ColumnName, ColumnName> = BTreeMap::new();
         for column in &table.columns {
@@ -267,19 +375,21 @@ pub(crate) fn apply(mut dictionary: Dictionary, sources: &[DescriptionOverlay]) 
             } else {
                 None
             };
-            let key = (address.clone(), column_key);
-            if let Some(prose) = sources
-                .iter()
-                .filter_map(|source| {
-                    let probe = match (source.case_insensitive, &folded_key) {
-                        (true, Some(folded)) => folded,
-                        _ => &key,
-                    };
-                    source.columns.get(probe)
-                })
-                .find(|prose| !prose.is_empty())
+            let key = (address.clone(), column_key.clone());
+            let column_candidates = sources.iter().filter_map(|source| {
+                let probe = match (source.case_insensitive, &folded_key) {
+                    (true, Some(folded)) => folded,
+                    _ => &key,
+                };
+                source
+                    .columns
+                    .get(probe)
+                    .map(|raw| (raw.as_str(), source.on_invalid_description))
+            });
+            if let Some(prose) = resolve_column_prose(column_candidates, &address, &column_key)
+                .map_err(|cause| RdbmsError::Read(Box::new(cause)))?
             {
-                table.column_metadata.entry(column.clone()).or_default().description = Some(prose.as_str().to_owned());
+                table.column_metadata.entry(column.clone()).or_default().description = Some(prose);
             }
             visible.insert(key);
             // Visible under its folded identity too, so a case-insensitive source's already-
@@ -327,6 +437,15 @@ mod tests {
         Dictionary::new(vec![table], Vec::new())
     }
 
+    fn from_dictionary(dictionary: &Dictionary, case_insensitive: bool) -> Result<DescriptionOverlay, DescriptionError> {
+        DescriptionOverlay::from_dictionary(
+            dictionary,
+            bounds(100, 10000),
+            case_insensitive,
+            InvalidDescriptionPolicy::Refuse,
+        )
+    }
+
     #[test]
     fn ordered_prose_overlays_keep_dictionary_structure_and_count_unexposed_columns() {
         let base = dictionary(
@@ -344,7 +463,7 @@ mod tests {
         );
         let overlays = [first, second]
             .iter()
-            .map(|dictionary| DescriptionOverlay::from_dictionary(dictionary, bounds(100, 10000), false).expect("bounded prose"))
+            .map(|dictionary| from_dictionary(dictionary, false).expect("bounded prose"))
             .collect::<Vec<_>>();
         let (actual, ignored) = base.clone().overlay_descriptions(&overlays).expect("overlaid");
         assert_eq!(ignored, 2);
@@ -374,7 +493,7 @@ mod tests {
         let mut docs = dictionary("PUBLIC", &[("id", "Wrong case")]);
         docs.tables.extend(dictionary("public", &[("id", "Wrong catalog")]).tables);
         docs.tables.last_mut().expect("second table").address.catalog = Some(String::from("other"));
-        let overlay = DescriptionOverlay::from_dictionary(&docs, bounds(100, 10000), false).expect("exact records");
+        let overlay = from_dictionary(&docs, false).expect("exact records");
         let (actual, ignored) = dictionary("public", &[("id", "Native")])
             .overlay_descriptions(&[overlay])
             .expect("overlaid");
@@ -395,7 +514,7 @@ mod tests {
     #[test]
     fn a_case_insensitive_source_matches_a_differently_cased_physical_identity() {
         let docs = dictionary("PUBLIC", &[("ID", "Folded match")]);
-        let overlay = DescriptionOverlay::from_dictionary(&docs, bounds(100, 10000), true).expect("folded records");
+        let overlay = from_dictionary(&docs, true).expect("folded records");
         let (actual, ignored) = dictionary("public", &[("id", "Native")])
             .overlay_descriptions(&[overlay])
             .expect("overlaid");
@@ -418,7 +537,7 @@ mod tests {
     fn exact_mode_counts_a_source_row_matching_only_by_fold_as_ignored() {
         let served = dictionary("PUBLIC", &[("ID", "Served")]);
         let source = dictionary("public", &[("id", "Should not attach")]);
-        let overlay = DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), false).expect("exact records");
+        let overlay = from_dictionary(&source, false).expect("exact records");
         let (actual, ignored) = served.overlay_descriptions(&[overlay]).expect("overlaid");
         assert_eq!(ignored, 1, "an exact-only source must never match by a folded identity");
         assert_eq!(
@@ -437,8 +556,8 @@ mod tests {
     fn an_exact_source_and_a_case_insensitive_source_are_probed_independently() {
         let exact_docs = dictionary("public", &[("id", "Exact match")]);
         let folded_docs = dictionary("PUBLIC", &[("AMOUNT", "Folded match")]);
-        let exact_overlay = DescriptionOverlay::from_dictionary(&exact_docs, bounds(100, 10000), false).expect("exact records");
-        let folded_overlay = DescriptionOverlay::from_dictionary(&folded_docs, bounds(100, 10000), true).expect("folded records");
+        let exact_overlay = from_dictionary(&exact_docs, false).expect("exact records");
+        let folded_overlay = from_dictionary(&folded_docs, true).expect("folded records");
         let served = dictionary("public", &[("id", "Native id"), ("amount", "Native amount")]);
         let (actual, ignored) = served
             .overlay_descriptions(&[exact_overlay, folded_overlay])
@@ -463,7 +582,7 @@ mod tests {
         let mut source = dictionary("public", &[("id", "One")]);
         source.tables.extend(dictionary("PUBLIC", &[("id", "Two")]).tables);
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true),
+            from_dictionary(&source, true),
             Err(DescriptionError::DuplicateTable { .. })
         ));
     }
@@ -472,7 +591,7 @@ mod tests {
     fn two_case_insensitive_source_columns_differing_only_by_case_are_refused_as_duplicates() {
         let source = dictionary("public", &[("id", "One"), ("ID", "Two")]);
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true),
+            from_dictionary(&source, true),
             Err(DescriptionError::Duplicate { .. })
         ));
     }
@@ -484,7 +603,7 @@ mod tests {
     fn a_dictionary_with_two_columns_differing_only_by_case_refuses_a_case_insensitive_source() {
         let served = dictionary("public", &[("ID", "Upper"), ("id", "Lower")]);
         let source = dictionary("public", &[("whatever", "Prose")]);
-        let overlay = DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true).expect("folded records");
+        let overlay = from_dictionary(&source, true).expect("folded records");
         let error = served
             .overlay_descriptions(&[overlay])
             .expect_err("colliding columns must refuse, not silently attach to both");
@@ -503,7 +622,7 @@ mod tests {
         let mut served = dictionary("public", &[("id", "Lower table")]);
         served.tables.extend(dictionary("PUBLIC", &[("id", "Upper table")]).tables);
         let source = dictionary("public", &[("whatever", "Prose")]);
-        let overlay = DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), true).expect("folded records");
+        let overlay = from_dictionary(&source, true).expect("folded records");
         let error = served
             .overlay_descriptions(&[overlay])
             .expect_err("colliding tables must refuse, not silently attach to both");
@@ -518,37 +637,140 @@ mod tests {
     }
 
     #[test]
-    fn description_projection_refuses_duplicate_keys_caps_and_control_characters() {
+    fn description_projection_refuses_duplicate_keys_and_caps() {
         let mut repeated = dictionary("public", &[("id", "One")]);
         repeated.tables.extend(dictionary("public", &[("id", "Two")]).tables);
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&repeated, bounds(100, 10000), false),
+            from_dictionary(&repeated, false),
             Err(DescriptionError::DuplicateTable { .. })
         ));
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(
-                &dictionary("public", &[("id", "One"), ("id", "Two")]),
-                bounds(100, 10000),
-                false
-            ),
+            from_dictionary(&dictionary("public", &[("id", "One"), ("id", "Two")]), false),
             Err(DescriptionError::Duplicate { .. })
         ));
         assert!(matches!(
             DescriptionOverlay::from_dictionary(
                 &dictionary("public", &[("id", "Prose"), ("extra", "Prose")]),
                 bounds(1, 10000),
-                false
+                false,
+                InvalidDescriptionPolicy::Refuse
             ),
             Err(DescriptionError::Rows { .. })
         ));
         assert!(matches!(
-            DescriptionOverlay::from_dictionary(&dictionary("public", &[("id", "Prose")]), bounds(100, 1), false),
+            DescriptionOverlay::from_dictionary(
+                &dictionary("public", &[("id", "Prose")]),
+                bounds(100, 1),
+                false,
+                InvalidDescriptionPolicy::Refuse
+            ),
             Err(DescriptionError::Bytes { .. })
         ));
-        assert!(matches!(
-            DescriptionOverlay::from_dictionary(&dictionary("public", &[("id", "Bad\u{1b}prose")]), bounds(100, 10000), false),
-            Err(DescriptionError::Prose { .. })
-        ));
+    }
+
+    /// Ask 1 of `telekom/sutura#2069`: construction never validates prose - a row with a control
+    /// character must still be recorded, so matching (and only matching) decides whether it is ever
+    /// checked. The real-world shape was a `key.via` source where one control-character row
+    /// documented a table `exclude_tables` had already dropped.
+    #[test]
+    fn construction_defers_prose_validation_past_control_characters() {
+        let source = dictionary("public", &[("id", "Bad\u{96}prose")]);
+        assert!(
+            from_dictionary(&source, false).is_ok(),
+            "construction must defer prose validation until after key matching"
+        );
+    }
+
+    /// Ask 1: a row whose key resolves to no selected column is ignored and counted, and its prose
+    /// is never checked - the docs' own claim, which the eager-validation bug broke.
+    #[test]
+    fn invalid_prose_for_an_unmatched_column_is_ignored_and_never_refuses() {
+        let source = dictionary("public", &[("unknown", "Bad\u{96}prose")]);
+        let overlay = from_dictionary(&source, false).expect("construction never validates prose");
+        let (actual, ignored) = dictionary("public", &[("id", "Native")])
+            .overlay_descriptions(&[overlay])
+            .expect("an unmatched row's invalid prose must never refuse the load");
+        assert_eq!(ignored, 1);
+        assert_eq!(
+            actual
+                .tables()
+                .first()
+                .and_then(|table| table.column_metadata("id"))
+                .and_then(crate::ColumnMetadata::description),
+            Some("Native")
+        );
+    }
+
+    /// Ask 3: under the default `Refuse` policy, a matched row's invalid prose still refuses the
+    /// load, but the refusal names the key (schema, table, column), never the text.
+    #[test]
+    fn invalid_prose_for_a_matched_column_refuses_by_default_naming_the_key_not_the_text() {
+        let source = dictionary("public", &[("id", "Bad\u{96}prose")]);
+        let overlay = from_dictionary(&source, false).expect("construction never validates prose");
+        let error = dictionary("public", &[("id", "Native")])
+            .overlay_descriptions(&[overlay])
+            .expect_err("a matched row's invalid prose must refuse under the default policy");
+        let RdbmsError::Read(cause) = error else {
+            panic!("expected RdbmsError::Read, got {error:?}");
+        };
+        let cause = cause.downcast_ref::<DescriptionError>().expect("DescriptionError");
+        match cause {
+            DescriptionError::ColumnProse { table, column, .. } => {
+                assert_eq!(table.to_string(), "public.orders");
+                assert_eq!(column.as_str(), "id");
+            }
+            other => panic!("expected ColumnProse, got {other:?}"),
+        }
+        assert!(
+            !cause.to_string().contains("Bad") && !format!("{cause:?}").contains("Bad"),
+            "the refusal must never carry the offending prose"
+        );
+    }
+
+    /// Ask 2: `on_invalid_description: Omit` drops a matched row whose prose does not parse,
+    /// falling back to the next ordered source's prose for the same key.
+    #[test]
+    fn omit_policy_drops_an_invalid_row_and_falls_back_to_the_next_source() {
+        let first = dictionary("public", &[("id", "Bad\u{96}prose")]);
+        let second = dictionary("public", &[("id", "Second id")]);
+        let overlays = [
+            DescriptionOverlay::from_dictionary(&first, bounds(100, 10000), false, InvalidDescriptionPolicy::Omit)
+                .expect("omit never refuses at construction"),
+            from_dictionary(&second, false).expect("bounded prose"),
+        ];
+        let (actual, ignored) = dictionary("public", &[("id", "Native")])
+            .overlay_descriptions(&overlays)
+            .expect("an omitted row must never refuse the load");
+        assert_eq!(ignored, 0);
+        assert_eq!(
+            actual
+                .tables()
+                .first()
+                .and_then(|table| table.column_metadata("id"))
+                .and_then(crate::ColumnMetadata::description),
+            Some("Second id")
+        );
+    }
+
+    /// Ask 2: with no other source left, an omitted row falls back to the dictionary's own native
+    /// comment, exactly as an unmatched row already does.
+    #[test]
+    fn omit_policy_falls_back_to_the_dictionarys_own_native_comment_when_no_source_is_left() {
+        let source = dictionary("public", &[("id", "Bad\u{96}prose")]);
+        let overlay = DescriptionOverlay::from_dictionary(&source, bounds(100, 10000), false, InvalidDescriptionPolicy::Omit)
+            .expect("omit never refuses at construction");
+        let (actual, ignored) = dictionary("public", &[("id", "Native")])
+            .overlay_descriptions(&[overlay])
+            .expect("an omitted row with no other source must fall back to the native comment");
+        assert_eq!(ignored, 0);
+        assert_eq!(
+            actual
+                .tables()
+                .first()
+                .and_then(|table| table.column_metadata("id"))
+                .and_then(crate::ColumnMetadata::description),
+            Some("Native")
+        );
     }
 
     #[test]

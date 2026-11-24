@@ -25,8 +25,8 @@ use sutura_domain::model::{ColumnName, SourceName};
 
 pub(crate) mod descriptions;
 pub use descriptions::{
-    DescriptionKeySource, DescriptionMapping, DescriptionPredicate, DescriptionSource, DescriptionVia, InvalidDescriptionSource,
-    PredicateTable,
+    DescriptionKeySource, DescriptionMapping, DescriptionPredicate, DescriptionSource, DescriptionVia, InvalidDescriptionPolicy,
+    InvalidDescriptionSource, PredicateTable,
 };
 mod relationships;
 mod selection;

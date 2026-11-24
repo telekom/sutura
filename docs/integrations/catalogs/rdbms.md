@@ -218,9 +218,11 @@ transaction, and rolls it back.
 Entries are ordered: the first nonempty description wins, then the dictionary's own comment.
 The join uses the exact physical catalog (when present), schema, table and column. Names are
 not case-folded and catalog prefixes are not removed. Unknown and excluded columns are ignored;
-the load log records `ignored_columns`. Duplicate physical keys within one source refuse loading.
-Prose never changes columns, types, exclusions, audience, text policies or the execution allowlist.
-The catalog digest includes the resulting prose.
+the load log records `ignored_columns`. A row's prose is only parsed and validated once its key
+has matched a selected table or column: an unknown or excluded row's prose is never checked, even
+when it is unusable (`telekom/sutura#2069`). Duplicate physical keys within one source refuse
+loading. Prose never changes columns, types, exclusions, audience, text policies or the execution
+allowlist. The catalog digest includes the resulting prose.
 
 A source can name another declared RDBMS or DataHub catalog:
 
@@ -324,6 +326,27 @@ their own read bounds and their prose projection is additionally bounded by the 
 RDBMS catalog. Reloads read the description sources again before publishing a new pinned bundle.
 `prompt.list_physical_schema: true` exposes column descriptions through `describe_catalog`;
 `prompt.catalog_prose: omitted` continues to withhold them.
+
+A matched row whose own prose is unusable (a control character, an invisible character, or over
+the byte/line limit) follows `on_invalid_description`, default `refuse` (the behaviour above,
+unchanged): a written mapping with no `on_invalid_description` key reads exactly as before this
+field existed. The refusal names the key the row resolved to - schema, table and column - never
+the offending text, which this layer never logs or carries in an error
+(`telekom/sutura#2069`). `on_invalid_description: omit` drops just that one row with a `WARN` log
+naming the same key, falling back to the next ordered source and, if none is left, the
+dictionary's own native comment - the same fallback an empty or absent row already takes.
+
+```yaml
+descriptions_from:
+  - connection: { ... }
+    table: inventory.column_docs
+    key: { schema: object_owner, table: object_name, column: field_name }
+    description: description
+    on_invalid_description: omit
+```
+
+Unlike `on_missing_endpoint`, this policy is set per mapping only - there is no catalog-wide
+default to inherit, since a `catalog:` reference has no mapping fields of its own to carry it.
 
 ## Relationships
 
