@@ -513,11 +513,12 @@ fn condition(
     let Some(needle) = pattern.strip_prefix('%').and_then(|text| text.strip_suffix('%')) else {
         return Ok(None);
     };
-    // `_` is LIKE's own single-char wildcard, so the same needle sent as the raw condition matches
-    // one real byte wherever it matches one redacted byte - a `_` position can never itself be the
-    // reason a redacted match has no raw counterpart. `preserves` carries the rest of the soundness
-    // argument: every literal (non-`_`) position still has to defeat every possible replacement
-    // alignment, exactly as it did before `_` was admitted.
+    // `_` is LIKE's own single-char wildcard (one character, not one byte - see the ClickHouse
+    // paragraph in docs/raw-text-search.md for the one engine measured), so the same needle sent as
+    // the raw condition matches one real character wherever it matches one redacted character - a
+    // `_` position can never itself be the reason a redacted match has no raw counterpart.
+    // `preserves` carries the rest of the soundness argument, over every needle this admits,
+    // literal or not: every position still has to defeat every possible replacement alignment.
     if needle.is_empty() || needle.len() > 128 || !needle.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
         return Ok(None);
     }
@@ -679,18 +680,31 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
 /// adjacent, unconstrained byte could complete a match that the replacement's own fixed characters
 /// did not. A `_` at an overlap position never forces a mismatch (it is LIKE's own wildcard, so it
 /// agrees with anything), but a literal needle byte that differs from the replacement's byte there
-/// still blocks that whole alignment - exactly the barrier a pre-`_` needle relied on. This reduces to
-/// the original three-part check when the needle has no `_`: a full-needle overlap is the old `replacement
-/// does not contain needle`, and a partial overlap always touches the replacement's first or last byte,
-/// which the old `needle does not contain replacement's first/last byte` checks blocked outright.
+/// still blocks that whole alignment.
 ///
-/// Conservative, not maximal: an alignment whose overlap is a lone `_` is actually safe too (the real
-/// secret byte and the replacement's byte both satisfy it identically), but this still refuses it along
-/// with the genuinely unsafe alignments rather than special-case it - a narrower admitted set, never a
-/// wider one.
+/// **This widens eligibility beyond the pre-`_` rule even for a needle with no `_` in it.** The old
+/// rule refused whenever the needle contained the replacement's first or last byte, which is
+/// sufficient but not necessary: needle `ac` against replacement `ab` shares no substring with it and
+/// is refused by the old rule (`ac` contains `a`, the replacement's first byte) but admitted here,
+/// because the only overlaps - `ac`/`a` and `c`/`ab` - each still carry a disagreeing byte (`c` vs
+/// `a`, and `c` vs `a`). This is sound by the same argument as above; it was never implied by "this
+/// reduces to the old check," which does not hold.
+///
+/// Not maximal: an alignment whose overlap is a lone `_` still refuses here even though the `_`
+/// itself cannot force a mismatch, because leaving it admitted would require checking that no
+/// *redaction rule* can itself produce a zero-width match that shifts the alignment - a replacement
+/// rule built from a regex that matches an empty string (`$`, `^`, `a*`, a lookaround) inserts its
+/// replacement without consuming any raw text, so the same needle can be unsound against such a rule
+/// even where every overlap carries only `_`. Refusing every lone-`_` overlap, rather than proving
+/// each redaction rule's pattern cannot match empty, is the cheaper and safe choice.
 ///
 /// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
-fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
+///
+/// `pub(super)`, not `pub`: `combine::statement::tests::prefilter_property` is the only caller
+/// outside this module, and it reaches in at that visibility rather than through `condition`'s
+/// SQL-rewrite surface, because what it checks is this function's own admission rule against an
+/// actual regex-driven redaction, not the planner's rewrite of a statement.
+pub(super) fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
     if replacement.is_empty() || !replacement.is_ascii() {
         return false;
     }

@@ -221,6 +221,17 @@ fn an_underscore_needle_is_admitted_only_where_every_replacement_alignment_still
 }
 
 #[test]
+fn a_pure_literal_needle_sharing_a_boundary_byte_is_admitted_when_every_alignment_still_mismatches() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%MXY%'";
+    // The pre-`_` rule refused any needle containing the replacement's first or last byte; `MXY`
+    // contains `M`, `MASKED`'s first byte, and would have been refused by it. `preserves` admits
+    // it instead, because every alignment that overlaps `MASKED` still carries a disagreeing byte
+    // (`X` or `Y` against `MASKED`'s own bytes at every shift) - this needle has no `_` in it at
+    // all, so admitting it is strictly wider than the old rule, not a consequence of `_` alone.
+    assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["MASKED"], true, false, true))[0].is_some());
+}
+
+#[test]
 fn oracle_raw_lob_prefilter_uses_an_explicit_null_safe_binary_sort_guard() {
     let sql = "SELECT count(\"BODY\") FROM \"notes\" n WHERE UPPER(n.\"BODY\") LIKE '%TERM%'";
     let conditions = raw_predicates(sql, table(TypeDialect::Oracle, &["[masked]"], true, true, true));

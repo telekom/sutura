@@ -4819,6 +4819,7 @@ dependencies = [
  "parking_lot 0.13.0",
  "prost",
  "rcgen",
+ "regex",
  "ring",
  "serde_json",
  "sutura-conformance",
