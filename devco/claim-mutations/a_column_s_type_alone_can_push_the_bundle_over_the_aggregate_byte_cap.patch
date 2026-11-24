@@ -1,0 +1,11 @@
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -398,7 +398,7 @@
+         let breakdown = assembled.authored_bytes();
+         let bytes = breakdown.total();
+         let limit = bound.get();
+-        if bytes > limit {
++        if false && bytes > limit {
+             return Err(InconsistentDefinitions::DefinitionsTooLarge {
+                 bytes,
+                 limit,

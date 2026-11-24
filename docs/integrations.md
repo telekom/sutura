@@ -31,14 +31,15 @@ kind make one catalog.
 
 The catalogs are a list under `catalogs:`. Every entry has these keys:
 
-| Key               | Type    | Default    | Meaning                                                                         |
-| ----------------- | ------- | ---------- | ------------------------------------------------------------------------------- |
-| `name`            | string  | required   | The name of the entry                                                           |
-| `kind`            | string  | `markdown` | The catalog kind                                                                |
-| `dir`             | path    | required   | The directory that a file catalog reads. Optional for `rdbms`                   |
-| `data_dir`        | path    | required   | Required, and not read by any catalog. Optional for `rdbms`                     |
-| `version`         | string  | required   | The label of the snapshot, for example a commit ID. Up to 128 characters        |
-| `refresh_seconds` | integer | 900        | `sutura serve` reads all entries again at the shortest of these. `0` is refused |
+| Key                     | Type    | Default         | Meaning                                                                                                                                                             |
+| ----------------------- | ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                  | string  | required        | The name of the entry                                                                                                                                               |
+| `kind`                  | string  | `markdown`      | The catalog kind                                                                                                                                                    |
+| `dir`                   | path    | required        | The directory that a file catalog reads. Optional for `rdbms`                                                                                                       |
+| `data_dir`              | path    | required        | Required, and not read by any catalog. Optional for `rdbms`                                                                                                         |
+| `version`               | string  | required        | The label of the snapshot, for example a commit ID. Up to 128 characters                                                                                            |
+| `refresh_seconds`       | integer | 900             | `sutura serve` reads all entries again at the shortest of these. `0` is refused                                                                                     |
+| `max_definitions_bytes` | integer | 1048576 (1 MiB) | The authored byte bound every catalog kind assembles its definitions under (`github.com/telekom/sutura#2071`). `0` or above 16 MiB (`16777216`) is refused at parse |
 
 All entries must have the same `version`. A key that sutura does not know is an error.
 

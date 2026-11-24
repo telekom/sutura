@@ -82,6 +82,7 @@
 use std::sync::{Arc, PoisonError};
 
 use sutura_domain::audit::{AuditSink, CallRecord};
+use sutura_domain::catalog::DefinitionsByteBound;
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
@@ -587,6 +588,7 @@ where
         K: SemanticCatalog,
         K::Error: Send + Sync,
     {
+        let bound = DefinitionsByteBound::composed(catalogs.iter().map(SemanticCatalog::definitions_bound));
         let mut bundles = Vec::with_capacity(catalogs.len());
         for catalog in catalogs {
             let pinned = catalog
@@ -594,7 +596,8 @@ where
                 .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
             bundles.push(pinned);
         }
-        let pinned = crate::assemble::assemble(&bundles).map_err(|cause| ServiceNotStarted::Composition { cause })?;
+        let pinned =
+            crate::assemble::assemble_bounded(&bundles, bound).map_err(|cause| ServiceNotStarted::Composition { cause })?;
         Self::start_pinned(pinned, warehouses, sink, broker, combiner, working_set_bytes)
     }
 

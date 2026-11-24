@@ -47,7 +47,7 @@ pub use document::MAX_DOCUMENT_BYTES;
 pub use harvest::{MAX_CURSOR_BYTES, MAX_ENTRIES};
 pub use mapping::{OperationId, ParameterName};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Definitions, InconsistentDefinitions, InvalidDescription};
+use sutura_domain::catalog::{Definitions, DefinitionsByteBound, InconsistentDefinitions, InvalidDescription};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, InvalidIdentifier, ModelName, RelationshipName, SourceName};
@@ -189,6 +189,7 @@ pub struct OpenApiCatalog<R> {
     source: SourceName,
     contract: Contract,
     reader: R,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl<R: AnswerReader> OpenApiCatalog<R> {
@@ -199,7 +200,16 @@ impl<R: AnswerReader> OpenApiCatalog<R> {
             source,
             contract,
             reader,
+            definitions_bound: DefinitionsByteBound::DEFAULT,
         }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::DEFAULT`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     fn assemble(&self) -> Result<Content, OpenApiError> {
@@ -211,8 +221,8 @@ impl<R: AnswerReader> OpenApiCatalog<R> {
         };
         let models = harvest.models()?;
         let relationships = harvest.relationships(&models)?;
-        let definitions =
-            Definitions::assemble(models, relationships, Vec::new()).map_err(|cause| OpenApiError::Inconsistent { cause })?;
+        let definitions = Definitions::assemble_bounded(models, relationships, Vec::new(), self.definitions_bound)
+            .map_err(|cause| OpenApiError::Inconsistent { cause })?;
         let knowledge =
             Knowledge::assemble(&definitions, KnowledgeInput::none()).map_err(|cause| OpenApiError::Knowledge { cause })?;
         Ok((definitions, knowledge))
@@ -246,6 +256,10 @@ impl<R: AnswerReader> SemanticCatalog for OpenApiCatalog<R> {
             ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
         )
         .map_err(|cause| OpenApiError::Digest { cause })
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }
 

@@ -1,11 +1,11 @@
 --- a/crates/sutura-app/src/surface.rs
 +++ b/crates/sutura-app/src/surface.rs
-@@ -594,7 +594,7 @@
-                 .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
+@@ -597,7 +597,7 @@
              bundles.push(pinned);
          }
--        let pinned = crate::assemble::assemble(&bundles).map_err(|cause| ServiceNotStarted::Composition { cause })?;
-+        let pinned = crate::assemble::assemble(&bundles).map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
+         let pinned =
+-            crate::assemble::assemble_bounded(&bundles, bound).map_err(|cause| ServiceNotStarted::Composition { cause })?;
++            crate::assemble::assemble_bounded(&bundles, bound).map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
          Self::start_pinned(pinned, warehouses, sink, broker, combiner, working_set_bytes)
      }
  

@@ -65,8 +65,8 @@ use std::path::{Path, PathBuf};
 use document::{Contract, RelationshipDecl, RelationshipEndpoint, SchemaObject};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Column, Definitions, Description, InconsistentDefinitions, InvalidDescription, JoinKey, JoinKeys, Model,
-    Relationship as DomainRelationship,
+    Column, Definitions, DefinitionsByteBound, Description, InconsistentDefinitions, InvalidDescription, JoinKey, JoinKeys,
+    Model, Relationship as DomainRelationship,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
@@ -102,6 +102,7 @@ pub struct DataContractCatalog {
     name: SourceName,
     root: PathBuf,
     version: DefinitionVersion,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl DataContractCatalog {
@@ -110,7 +111,20 @@ impl DataContractCatalog {
     /// The version is supplied rather than derived, because what identifies a snapshot of a directory
     /// is not something the directory knows - it is a commit id or a tag that only the caller has.
     pub const fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
-        Self { name, root, version }
+        Self {
+            name,
+            root,
+            version,
+            definitions_bound: DefinitionsByteBound::DEFAULT,
+        }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::DEFAULT`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     /// The declared name this contributor is recorded under in a bundle's contribution manifest.
@@ -177,7 +191,7 @@ impl DataContractCatalog {
         for relationship in &relationships {
             domain_relationships.push(self.convert_relationship(relationship, &unique_columns)?);
         }
-        let definitions = Definitions::assemble(models, domain_relationships, Vec::new())
+        let definitions = Definitions::assemble_bounded(models, domain_relationships, Vec::new(), self.definitions_bound)
             .map_err(|cause| DataContractError::Inconsistent { cause })?;
         // This adapter supplies no referent-bearing knowledge. `KnowledgeInput::none()` assembles an
         // empty knowledge that declares nothing - which is what `capabilities()` says it declares.
@@ -761,5 +775,9 @@ impl SemanticCatalog for DataContractCatalog {
             ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
         )
         .map_err(|cause| DataContractError::Digest { cause })
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }

@@ -27,7 +27,7 @@
 use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{MetadataCapabilities, UnfaithfulDeclaration};
-use sutura_domain::catalog::{Definitions, InconsistentDefinitions, UnlinkedContribution};
+use sutura_domain::catalog::{Definitions, DefinitionsByteBound, InconsistentDefinitions, UnlinkedContribution};
 
 mod content;
 use content::Content;
@@ -103,8 +103,17 @@ pub enum CompositionError {
     },
     /// The composed definitions do not hold together - most often a metric naming a model some
     /// contributor should have provided and none did, and the domain's own refusal names it.
-    #[error("the composed definitions do not hold together")]
+    ///
+    /// `bound` is what `cause` checked the merge against when the refusal is
+    /// [`InconsistentDefinitions::DefinitionsTooLarge`](sutura_domain::catalog::InconsistentDefinitions::DefinitionsTooLarge):
+    /// never one contributor's own `max_definitions_bytes`, always
+    /// [`DefinitionsByteBound::composed`] over every one of `contributors` catalogs. Named in the
+    /// message only for that one cause - every other cause has nothing to do with the byte bound,
+    /// and stating it there would read as a per-catalog limit reapplied to the whole bundle.
+    #[error("{}", definitions_message(*contributors, *bound, cause))]
     Definitions {
+        contributors: usize,
+        bound: DefinitionsByteBound,
         #[source]
         cause: InconsistentDefinitions,
     },
@@ -120,6 +129,19 @@ pub enum CompositionError {
         #[source]
         cause: NotDigestible,
     },
+}
+
+/// [`CompositionError::Definitions`]'s message: the composed bound only belongs to the one cause
+/// it was checked against.
+fn definitions_message(contributors: usize, bound: DefinitionsByteBound, cause: &InconsistentDefinitions) -> String {
+    if matches!(cause, InconsistentDefinitions::DefinitionsTooLarge { .. }) {
+        format!(
+            "the composed definitions do not hold together: checked against a composed bound of {bound} bytes, \
+             the sum of {contributors} catalogs' own max_definitions_bytes capped at the ceiling"
+        )
+    } else {
+        "the composed definitions do not hold together".to_owned()
+    }
 }
 
 /// The six kinds of catalog element two sources may collide over.
@@ -193,15 +215,38 @@ struct Contributor<'a> {
 /// Takes a slice, not an owned `Vec`: every `Contributor` below borrows its bundle's
 /// `Definitions`/`Knowledge` rather than cloning them, so this function never needs to own a bundle
 /// to begin with - a caller that already has a `Vec` passes `&bundles`.
+///
+/// `bound` is the composed bound the merge is checked against - [`DefinitionsByteBound::composed`]
+/// over every contributing catalog's own declared bound, never
+/// [`DefinitionsByteBound::default`](sutura_domain::catalog::DefinitionsByteBound::default)
+/// picked up implicitly. A caller names it rather than this function defaulting it, because that
+/// implicit default is exactly how a raised per-catalog `max_definitions_bytes` was silently
+/// re-refused at composition (`github.com/telekom/sutura#2073`).
+pub fn assemble_bounded(
+    bundles: &[PinnedDefinitions],
+    bound: DefinitionsByteBound,
+) -> Result<PinnedDefinitions, CompositionError> {
+    assemble_linked_bounded(bundles, &[], bound)
+}
+
+/// [`assemble_bounded`] against [`DefinitionsByteBound::default`](sutura_domain::catalog::DefinitionsByteBound::default).
+///
+/// Every shipped composer names its own composed bound instead, so this convenience never reaches
+/// a shipped artefact. Only this crate's own tests call it (no cross-crate caller), so a plain
+/// `#[cfg(test)]` is enough - no `test-fakes` feature exists on this crate.
+#[cfg(test)]
 pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, CompositionError> {
-    assemble_linked(bundles, &[])
+    assemble_bounded(bundles, DefinitionsByteBound::default())
 }
 
 /// Links an explicit set of unlinked declarations beside independently pinned contributors.
 /// Ownership and declaration fidelity are checked before cross-contributor references resolve.
-pub fn assemble_linked(
+///
+/// See [`assemble_bounded`] for what `bound` must be.
+pub fn assemble_linked_bounded(
     bundles: &[PinnedDefinitions],
     unlinked: &[UnlinkedContribution],
+    bound: DefinitionsByteBound,
 ) -> Result<PinnedDefinitions, CompositionError> {
     let version = bundles
         .first()
@@ -287,8 +332,13 @@ pub fn assemble_linked(
         .flat_map(|c| c.content.relationships().cloned())
         .collect();
     let metrics = contributions.iter().flat_map(|c| c.content.metrics().cloned()).collect();
+    let contributors = contributions.len();
     let definitions =
-        Definitions::assemble(models, relationships, metrics).map_err(|cause| CompositionError::Definitions { cause })?;
+        Definitions::assemble_bounded(models, relationships, metrics, bound).map_err(|cause| CompositionError::Definitions {
+            contributors,
+            bound,
+            cause,
+        })?;
 
     let knowledge = Knowledge::assemble(
         &definitions,
@@ -312,6 +362,19 @@ pub fn assemble_linked(
     .map_err(|cause| CompositionError::Manifest { cause })?;
 
     PinnedDefinitions::pin(version, definitions, knowledge, manifest).map_err(|cause| CompositionError::Digest { cause })
+}
+
+/// [`assemble_linked_bounded`] against [`DefinitionsByteBound::default`](sutura_domain::catalog::DefinitionsByteBound::default).
+///
+/// Every shipped composer names its own composed bound instead, so this convenience never reaches
+/// a shipped artefact. Only this crate's own tests call it (no cross-crate caller), so a plain
+/// `#[cfg(test)]` is enough - no `test-fakes` feature exists on this crate.
+#[cfg(test)]
+pub fn assemble_linked(
+    bundles: &[PinnedDefinitions],
+    unlinked: &[UnlinkedContribution],
+) -> Result<PinnedDefinitions, CompositionError> {
+    assemble_linked_bounded(bundles, unlinked, DefinitionsByteBound::default())
 }
 
 /// No two sources may define one metric; the one element with no precedence at all.

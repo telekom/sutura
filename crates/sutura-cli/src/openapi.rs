@@ -46,11 +46,13 @@ pub(crate) fn open(
     let (agent, rotator) = HttpAnswerReader::rotating_agent(bounds, outbound.cloned())
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     crate::rotation::drive_rotation("security.outbound.transport_anchors (openapi reader)", rotator);
+    crate::catalog::log_definitions_bound(settings);
     Ok(OpenApiCatalog::new(
         name.clone(),
         settings.version().clone(),
         name.clone(),
         contract,
         HttpAnswerReader::rotating(endpoint, token, bounds, agent),
-    ))
+    )
+    .with_definitions_bound(settings.max_definitions_bytes()))
 }

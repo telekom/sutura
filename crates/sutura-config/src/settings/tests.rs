@@ -978,13 +978,11 @@ mod off_host;
 #[cfg(test)]
 mod refresh_seconds;
 
-/// The configurations that `docs/serving.md` and `docs/serving-behind-a-gateway.md` print. Same
-/// `#[cfg(test)]` reason as `governance` above.
+/// The configurations `docs/serving.md` and `docs/serving-behind-a-gateway.md` print. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod deployment_pages;
 
-/// `catalogs[].platforms` reaching a declared source, and its refusal of an undeclared one. Same
-/// `#[cfg(test)]` reason as `governance` above.
+/// `catalogs[].platforms` reaching a declared source, and its refusal of an undeclared one. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod datahub_platforms;
 
