@@ -75,7 +75,11 @@ pub(super) fn leg_statement(leg: &LegPlan, dialect: Dialect, also: Option<Expr>)
     let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
     // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
     // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
-    Ok(statement.group_by(grouping).order_by(tiebreak).build())
+    super::named_objects(
+        statement.group_by(grouping).order_by(tiebreak).build(),
+        std::iter::once(leg.table()).chain(joins.iter().map(PlanJoin::table)),
+        dialect,
+    )
 }
 
 /// `ast`, a statement of `leg`, rendered with the leg's parameters and checked against them.

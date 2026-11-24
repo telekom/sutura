@@ -173,22 +173,168 @@ fn a_link_that_does_not_fit_is_refused_by_name() {
 }
 
 #[test]
-fn an_answer_name_that_is_no_name_is_refused_before_it_is_used() {
-    let refused = load_edited(|answers| object_type(&mut answers.types, "Flight")["apiName"] = "Flight/../admin".into());
+fn an_answer_name_that_is_no_name_is_refused_naming_its_object_type() {
+    let refused = load_edited(|answers| {
+        let properties = object_type(&mut answers.types, "Airport")["properties"]
+            .as_object_mut()
+            .expect("a property map");
+        let property = properties.remove("city").expect("a recorded property");
+        properties.insert(String::from("city/../admin"), property);
+    });
     assert!(
-        matches!(refused, Err(FoundryError::Identifier { kind: "object type", .. })),
+        matches!(&refused, Err(FoundryError::Identifier { kind: "property", on, link: None, .. }) if on == "Airport"),
         "{refused:?}"
+    );
+    let rendered = refused.expect_err("refused").to_string();
+    assert!(
+        rendered.contains("\"Airport\"") && rendered.contains("city/../admin"),
+        "{rendered}"
+    );
+
+    let refused = load_edited(|answers| {
+        answers.links.get_mut("Flight").expect("recorded")[0]["foreignKeyPropertyApiName"] = "tail number".into();
+    });
+    assert!(
+        matches!(
+            &refused,
+            Err(FoundryError::Identifier { kind: "foreign key", on, link: Some(link), .. }) if on == "Flight" && link == "aircraft"
+        ),
+        "{refused:?}"
+    );
+    let rendered = refused.expect_err("refused").to_string();
+    assert!(
+        rendered.contains("\"Flight\"") && rendered.contains("\"aircraft\""),
+        "{rendered}"
     );
 
     let refused = load_edited(|answers| object_type(&mut answers.types, "Airport")["primaryKey"] = "noSuchProperty".into());
     assert!(matches!(refused, Err(FoundryError::Inconsistent { .. })), "{refused:?}");
 
     let long = "x".repeat(500);
-    let refused = load_edited(move |answers| object_type(&mut answers.types, "Airport")["apiName"] = long.into());
+    let refused = load_edited(move |answers| {
+        let properties = object_type(&mut answers.types, "Airport")["properties"]
+            .as_object_mut()
+            .expect("a property map");
+        let property = properties.remove("city").expect("a recorded property");
+        properties.insert(long, property);
+    });
     let Err(FoundryError::Identifier { value, .. }) = refused else {
         panic!("an over-long name loaded: {refused:?}");
     };
     assert_eq!(value.len(), 80, "a refusal quoted more of the answer than it may");
+}
+
+/// The recorded object types with the two platform-provided ones spliced in first, as a tenant's
+/// list serves them, and a `ONE` link from `Flight` to one of them.
+fn with_platform_types(answers: &mut Answers) {
+    let page: serde_json::Value = serde_json::from_str(fixture::PLATFORM_OBJECT_TYPES).expect("the platform page is JSON");
+    let platform = page["data"].as_array().expect("a data array").clone();
+    answers.types.splice(0..0, platform);
+    answers
+        .links
+        .get_mut("Flight")
+        .expect("recorded")
+        .as_array_mut()
+        .expect("a link list")
+        .push(serde_json::json!({
+            "apiName": "evolution",
+            "displayName": "Evolution",
+            "status": "ACTIVE",
+            "objectTypeApiName": "com.palantir.system.Evolution",
+            "cardinality": "ONE",
+            "foreignKeyPropertyApiName": "tailNumber",
+            "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000095"
+        }));
+}
+
+const PLATFORM: [&str; 2] = ["com.palantir.system.Evolution", "com.palantir.system.EvolutionProposal"];
+
+#[test]
+fn a_dotted_object_type_is_a_model_under_its_mapped_name_and_keeps_its_dotted_object() {
+    let pinned = load_edited(with_platform_types).expect("every object type loads, dotted or not");
+    let definitions = pinned.definitions();
+    assert_eq!(
+        definitions.models().keys().map(ModelName::as_str).collect::<Vec<_>>(),
+        [
+            "Aircraft",
+            "Airport",
+            "Employee",
+            "Flight",
+            "com_palantir_system_Evolution",
+            "com_palantir_system_EvolutionProposal"
+        ]
+    );
+    let evolution = &definitions.models()[&name("com_palantir_system_Evolution")];
+    assert_eq!(evolution.table().name().as_str(), "com_palantir_system_Evolution");
+    assert_eq!(
+        evolution
+            .table()
+            .object_path()
+            .map(sutura_domain::model::ObjectPath::dotted)
+            .as_deref(),
+        Some(PLATFORM[0]),
+        "the dotted API name stays the object a statement names"
+    );
+    assert_eq!(evolution.table().to_string(), format!("`{}`", PLATFORM[0]));
+    let link = &definitions.relationships()[&RelationshipName::parse("Flight_evolution").expect("a relationship name")];
+    assert_eq!(link.target_model().as_str(), "com_palantir_system_Evolution");
+    assert_eq!(link.keys().first().target().as_str(), "evolutionId");
+}
+
+#[test]
+fn two_api_names_that_map_to_one_model_name_are_refused_naming_both() {
+    let refused = load_edited(|answers| {
+        with_platform_types(answers);
+        let mut shadow = answers.types[0].clone();
+        shadow["apiName"] = "com_palantir_system_Evolution".into();
+        answers.types.push(shadow);
+    });
+    let Err(FoundryError::ModelNameCollision { first, second, model }) = &refused else {
+        panic!("a shadowing name loaded: {refused:?}");
+    };
+    assert_eq!(
+        (first.as_str(), second.as_str()),
+        (PLATFORM[0], "com_palantir_system_Evolution")
+    );
+    assert_eq!(model.as_str(), "com_palantir_system_Evolution");
+    let rendered = refused.expect_err("refused").to_string();
+    assert!(
+        rendered.contains(PLATFORM[0]) && rendered.contains("\"com_palantir_system_Evolution\""),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn an_api_name_that_cannot_be_mapped_is_refused_naming_it() {
+    for unmappable in [
+        "com..system.Evolution",
+        "com.palantir.system.",
+        "com.palantir/system.Evolution",
+        "com.9lives.Evolution",
+    ] {
+        let refused = load_edited(|answers| {
+            with_platform_types(answers);
+            answers.types[0]["apiName"] = unmappable.into();
+        });
+        assert!(
+            matches!(&refused, Err(FoundryError::ObjectTypeName { on, .. }) if on == unmappable),
+            "{unmappable}: {refused:?}"
+        );
+        let rendered = refused.expect_err("refused").to_string();
+        assert!(rendered.contains(unmappable), "{rendered}");
+    }
+}
+
+#[test]
+fn a_link_to_an_object_type_the_read_never_listed_is_still_refused() {
+    let refused = load_edited(|answers| {
+        with_platform_types(answers);
+        answers.types.retain(|object_type| object_type["apiName"] != PLATFORM[0]);
+    });
+    assert!(
+        matches!(&refused, Err(FoundryError::UnlistedTarget { on, link, target }) if on == "Flight" && link == "evolution" && target == PLATFORM[0]),
+        "{refused:?}"
+    );
 }
 
 #[test]

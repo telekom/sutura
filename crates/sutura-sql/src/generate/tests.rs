@@ -860,3 +860,114 @@ fn foundry_ontology_sql_keeps_values_bound_and_uses_spark_date_buckets() {
     assert!(!sql.contains("2026-07-01"), "{sql}");
     assert!(polyglot_sql::parse(sql, super::dialect_type(dialect)).is_ok(), "{sql}");
 }
+
+/// A Foundry plan over the dotted object `com.palantir.system.Evolution`, joined to the dotted
+/// object `com.palantir.system.EvolutionProposal`.
+fn dotted_object_plan() -> QueryPlan {
+    use sutura_domain::model::{ObjectPath, QualifiedTable};
+    use sutura_domain::plan::{PlanJoin, PlanJoinKey};
+
+    let object = |dotted: &str| {
+        QualifiedTable::object(
+            ObjectPath::parse(dotted)
+                .expect("dotted names parse")
+                .expect("a dotted name is an object path"),
+        )
+        .expect("the local name is a name")
+    };
+    let evolution = object("com.palantir.system.Evolution");
+    let proposal = object("com.palantir.system.EvolutionProposal");
+    let col = |table: &QualifiedTable, name: &str| {
+        PlanColumn::new(
+            table.name().clone(),
+            ColumnName::parse(name).expect("a test column is a column"),
+        )
+    };
+    let date = |raw: &str| Date::parse(raw).expect("a test date is a date");
+    let metric = MetricName::parse("evolutions").expect("a test metric is a metric");
+    let join = PlanJoin::new(
+        RelationshipName::parse("com_palantir_system_Evolution_proposal").expect("a relationship name"),
+        proposal.clone(),
+        JoinType::ManyToOne,
+        sutura_domain::nonempty::NonEmpty::one(PlanJoinKey::Equal {
+            origin: col(&evolution, "proposalId"),
+            target: col(&proposal, "proposalId"),
+        }),
+    );
+    let bindings = PlanBindings::parse(
+        vec![
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::AtOrAfter {
+                    column: col(&evolution, "created"),
+                    param: 0,
+                },
+            ),
+            PlanFilter::new(
+                PredicateOrigin::Definition,
+                PlanPredicate::Before {
+                    column: col(&evolution, "created"),
+                    param: 1,
+                },
+            ),
+        ],
+        vec![ParamValue::Date(date("2026-06-01")), ParamValue::Date(date("2026-07-01"))],
+    )
+    .expect("two range bounds bind in placeholder order");
+    QueryPlan::new(
+        SourceName::parse("ontology").expect("a test source is a source"),
+        metric.clone(),
+        StatementTables::parse(evolution.clone(), vec![join]).expect("two tables, two local names"),
+        PlanBucket::new(ResultLabel::bucket(), Grain::Month, col(&evolution, "created")),
+        Vec::new(),
+        PlanMeasure::Simple {
+            term: PlanTerm::Aggregate {
+                aggregate: Aggregate::Count,
+                column: col(&evolution, "evolutionId"),
+            },
+        },
+        ResultLabel::measure(&metric),
+        bindings,
+        TimeRange::new(date("2026-06-01"), date("2026-07-01")).expect("a test range is a range"),
+    )
+}
+
+#[test]
+fn foundry_names_a_dotted_object_as_one_quoted_identifier_aliased_to_its_local_name() {
+    let query = generate(&dotted_object_plan(), Dialect::Foundry).expect("a dotted object renders for Foundry");
+    let sql = query.sql();
+    for fragment in [
+        "FROM `com.palantir.system.Evolution` AS `com_palantir_system_Evolution`",
+        "JOIN `com.palantir.system.EvolutionProposal` AS `com_palantir_system_EvolutionProposal`",
+        "`com_palantir_system_Evolution`.`created`",
+        "`com_palantir_system_Evolution`.`proposalId` = `com_palantir_system_EvolutionProposal`.`proposalId`",
+    ] {
+        assert!(sql.contains(fragment), "missing {fragment:?} in:\n{sql}");
+    }
+    assert!(
+        !sql.contains("`com`.`palantir`"),
+        "a dotted object was split into a path:\n{sql}"
+    );
+    assert!(
+        polyglot_sql::parse(sql, super::dialect_type(Dialect::Foundry)).is_ok(),
+        "{sql}"
+    );
+}
+
+#[test]
+fn every_other_dialect_refuses_a_dotted_object() {
+    let plan = dotted_object_plan();
+    for dialect in ALL.iter().copied().filter(|dialect| *dialect != Dialect::Foundry) {
+        let refused = generate(&plan, dialect);
+        assert!(
+            matches!(
+                refused,
+                Err(GenerateError::QualificationUnsupported {
+                    carries: sutura_domain::model::Qualification::Object,
+                    ..
+                })
+            ),
+            "{dialect} must refuse a dotted object, not render it: {refused:?}"
+        );
+    }
+}

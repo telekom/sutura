@@ -31,6 +31,16 @@
 //! exactly [`crate::model::parse_identifier`]'s set. [`crate::model::Hyphens`] carries what widening
 //! that flag is and is not licensed to do.
 //!
+//! # One object named with dots: an [`ObjectPath`]
+//!
+//! A Foundry ontology lists platform-provided object types whose API name is dotted -
+//! `com.palantir.system.Evolution` - and that is ONE object's name, not a path to one. It is held as
+//! its own shape rather than by loosening any name parser: every segment is still a parsed
+//! [`TableName`], the table's local name is the segments joined with `_`, and its
+//! [`Qualification::Object`] is deeper than any dialect resolves by comparison, so every dialect
+//! refuses it unless the dialect layer renders it itself (`sutura_sql` does, for Foundry only, as one
+//! quoted identifier). Its text form is the dotted name in backticks, which no other path can be.
+//!
 //! **A legacy domain-scoped project - `example.com:project` - is refused rather than supported.** A
 //! `:` or a second `.` inside one part is the defect this module exists to prevent, so accepting the
 //! spelling that carries them would be reintroducing it in the one place it was designed out.
@@ -135,6 +145,10 @@ pub enum Qualification {
     Dataset,
     /// `project.dataset.table`, or `catalog.schema.table`.
     ProjectAndDataset,
+    /// One object whose single name holds dots - an [`ObjectPath`]. Deeper than every dialect's
+    /// declaration, so the comparison refuses it everywhere; a dialect that resolves it renders it
+    /// before comparing.
+    Object,
 }
 
 impl Qualification {
@@ -145,6 +159,7 @@ impl Qualification {
             Self::TableOnly => "table_only",
             Self::Dataset => "dataset",
             Self::ProjectAndDataset => "project_and_dataset",
+            Self::Object => "object",
         }
     }
 }
@@ -248,6 +263,75 @@ pub enum InvalidQualifiedTable {
         #[source]
         cause: InvalidIdentifier,
     },
+    /// A segment of a dotted object name is not a name - empty, or outside the identifier grammar.
+    #[error("a segment of the object name {value:?} is not a name")]
+    ObjectSegment {
+        value: String,
+        #[source]
+        cause: InvalidIdentifier,
+    },
+    /// The object name's segments joined with `_` are not a name - longer than a name may be.
+    #[error("the object name {value:?} has no local name: its segments joined with `_` are not a name")]
+    ObjectLocalName {
+        value: String,
+        #[source]
+        cause: InvalidIdentifier,
+    },
+}
+
+/// One object a data system names with dots inside a single name: `com.palantir.system.Evolution`.
+///
+/// At least two segments, each a parsed [`TableName`], so no segment holds a quote, a slash or a
+/// dot of its own, and the dotted text is reconstructed exactly. See the module header for why this
+/// is not a [`TableQualifier`]: nothing above the object is named.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ObjectPath(Vec<TableName>);
+
+impl ObjectPath {
+    /// Parses a dotted name of at least two segments. `None` for a name with no dot, which is a
+    /// [`TableName`]'s to parse.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidQualifiedTable::ObjectSegment`] for an empty segment or one outside the grammar.
+    pub fn parse(raw: &str) -> Result<Option<Self>, InvalidQualifiedTable> {
+        if !raw.contains('.') {
+            return Ok(None);
+        }
+        raw.split('.')
+            .map(|segment| {
+                // A segment is not trimmed: whitespace inside a name is no part of it.
+                if segment.trim() != segment {
+                    return Err(InvalidIdentifier::IllegalCharacter { offending: ' ' });
+                }
+                TableName::parse(segment)
+            })
+            .collect::<Result<Vec<TableName>, InvalidIdentifier>>()
+            .map(|segments| Some(Self(segments)))
+            .map_err(|cause| InvalidQualifiedTable::ObjectSegment {
+                value: String::from(raw),
+                cause,
+            })
+    }
+
+    /// The name inside the dialect's quotes: the segments joined with `.`.
+    #[must_use]
+    pub fn dotted(&self) -> String {
+        self.0.iter().map(TableName::as_str).collect::<Vec<&str>>().join(".")
+    }
+
+    /// The name everything inside sutura knows the object by: the segments joined with `_`.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidQualifiedTable::ObjectLocalName`] when the joined name is longer than a name may be.
+    pub fn local_name(&self) -> Result<TableName, InvalidQualifiedTable> {
+        let joined = self.0.iter().map(TableName::as_str).collect::<Vec<&str>>().join("_");
+        TableName::parse(joined).map_err(|cause| InvalidQualifiedTable::ObjectLocalName {
+            value: self.dotted(),
+            cause,
+        })
+    }
 }
 
 /// The most parts a table path may name.
@@ -272,6 +356,10 @@ pub struct QualifiedTable {
     /// grouped by where they live.
     qualifier: Option<TableQualifier>,
     table: TableName,
+    /// The dotted name a dialect renders in place of `table`, which is then this object's local
+    /// name. Absent for every table but an [`ObjectPath`]'s. Boxed so the rare case costs every
+    /// other table one pointer, not a vector.
+    object: Option<Box<ObjectPath>>,
 }
 
 impl QualifiedTable {
@@ -282,7 +370,32 @@ impl QualifiedTable {
     #[inline]
     #[must_use]
     pub const fn new(qualifier: Option<TableQualifier>, table: TableName) -> Self {
-        Self { qualifier, table }
+        Self {
+            qualifier,
+            table,
+            object: None,
+        }
+    }
+
+    /// One object named with dots: its local name is [`ObjectPath::local_name`], and nothing sits
+    /// above it.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidQualifiedTable::ObjectLocalName`], see there.
+    pub fn object(path: ObjectPath) -> Result<Self, InvalidQualifiedTable> {
+        Ok(Self {
+            qualifier: None,
+            table: path.local_name()?,
+            object: Some(Box::new(path)),
+        })
+    }
+
+    /// The dotted name a dialect that resolves it renders in place of [`Self::name`].
+    #[inline]
+    #[must_use]
+    pub fn object_path(&self) -> Option<&ObjectPath> {
+        self.object.as_deref()
     }
 
     /// Parses a dotted path: `table`, `dataset.table`, or `project.dataset.table`.
@@ -296,6 +409,19 @@ impl QualifiedTable {
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidQualifiedTable> {
         let raw = raw.as_ref();
         let trimmed = raw.trim();
+        // An object's own text form: a dotted name in backticks, which no other path can be.
+        if let Some(inner) = trimmed.strip_prefix('`').and_then(|rest| rest.strip_suffix('`')) {
+            return match ObjectPath::parse(inner)? {
+                Some(path) => Self::object(path),
+                None => Ok(Self::new(
+                    None,
+                    TableName::parse(inner).map_err(|cause| InvalidQualifiedTable::Table {
+                        value: String::from(trimmed),
+                        cause,
+                    })?,
+                )),
+            };
+        }
         let parts: Vec<&str> = trimmed.split('.').collect();
         let value = || String::from(trimmed);
         // Longest first, so the two-part and three-part arms read in the order a path is written.
@@ -354,6 +480,9 @@ impl QualifiedTable {
     #[inline]
     #[must_use]
     pub const fn qualification(&self) -> Qualification {
+        if self.object.is_some() {
+            return Qualification::Object;
+        }
         match self.qualifier {
             None => Qualification::TableOnly,
             Some(ref qualifier) => qualifier.qualification(),
@@ -383,6 +512,9 @@ impl TryFrom<String> for QualifiedTable {
 /// The dotted path, which is also the serialized form and the form a document writes.
 impl core::fmt::Display for QualifiedTable {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Some(object) = self.object.as_ref() {
+            return write!(f, "`{}`", object.dotted());
+        }
         if let Some(qualifier) = self.qualifier.as_ref() {
             if let Some(project) = qualifier.project.as_ref() {
                 write!(f, "{project}.")?;

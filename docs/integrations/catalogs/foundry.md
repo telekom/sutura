@@ -77,12 +77,30 @@ sutura reads `/api/v2/ontologies/{ontology}/objectTypes` and, for each object ty
 | Foundry                                              | In sutura                                          |
 | ---------------------------------------------------- | -------------------------------------------------- |
 | An object type                                       | A model. Its description, or else its display name |
+| A dotted object type API name                        | A model named with `_` for each `.`                |
 | Its properties                                       | The columns, with type and description             |
 | Its primary key                                      | The primary key of the model                       |
 | A link side with cardinality `ONE` and a foreign key | A many-to-one join, `<objectType>_<linkType>`      |
 | A `MANY` side, or a many-to-many link                | Not a join                                         |
 
 sutura binds every model to the source whose alias is the catalog `name`.
+
+Foundry lists platform-provided object types with dotted API names, such as
+`com.palantir.system.Evolution`, beside your own; the ontology editor does not show them. They load
+too. The model name is the API name with each `.` replaced by `_`, so
+`com.palantir.system.Evolution` is the model `com_palantir_system_Evolution`, and a link from it is
+`com_palantir_system_Evolution_<linkType>`. A `kind: foundry` data source still queries the
+object by its dotted API name, written as one backtick-quoted identifier. That form follows how
+Foundry's public Ontology SQL documentation quotes an object type's RID; whether a tenant accepts it
+for a dotted API name is not verified.
+
+sutura refuses the whole load, and names the object type, when:
+
+- two API names map to the same model name - both are named, because one would hide the other
+- a dotted API name has an empty segment or a segment that is not a name (letters, digits and
+  underscore, not starting with a digit), or its model name is longer than 63 characters
+- a property, primary key, foreign key or link type name is not a name - the property or link type
+  is named too; these are not mapped
 
 ## Identity
 

@@ -149,13 +149,58 @@ mod tests {
     }
 
     #[test]
-    fn an_object_type_name_that_is_no_name_never_reaches_a_path() {
+    fn an_object_type_name_that_is_no_name_never_reaches_a_path_and_is_named() {
         let mut page = json(fixture::OBJECT_TYPES);
         page["data"][0]["apiName"] = "../../admin".into();
         let server = FakeServer::start(vec![Scripted::ok(&page)]);
         let refused = catalog(&server, 1 << 20).load().expect_err("a path-shaped name is refused");
         assert_eq!(server.finish().len(), 1, "a link path was dialled for a name that is no name");
-        assert!(matches!(read_cause(&refused), HttpReaderError::ObjectTypeName(_)));
+        assert!(
+            matches!(read_cause(&refused), HttpReaderError::ObjectTypeName { api_name, .. } if api_name == "../../admin"),
+            "{}",
+            chain(&refused)
+        );
+        assert!(chain(&refused).contains("../../admin"), "{}", chain(&refused));
+    }
+
+    #[test]
+    fn a_dotted_object_type_is_asked_for_its_links_under_its_own_name_and_loads() {
+        let mut page = json(fixture::OBJECT_TYPES);
+        let platform = json(fixture::PLATFORM_OBJECT_TYPES)["data"]
+            .as_array()
+            .expect("a data array")
+            .clone();
+        let dotted: Vec<String> = platform
+            .iter()
+            .map(|object_type| String::from(object_type["apiName"].as_str().expect("an API name")))
+            .collect();
+        page["data"].as_array_mut().expect("a data array").splice(0..0, platform);
+        let none = serde_json::json!({ "data": [] });
+        let mut answers = vec![Scripted::ok(&page), Scripted::ok(&none), Scripted::ok(&none)];
+        answers.extend(fixture::OUTGOING.iter().map(|(_, page)| Scripted::ok(&json(page))));
+        let server = FakeServer::start(answers);
+        let pinned = catalog(&server, 1 << 20)
+            .load()
+            .expect("dotted object types load beside the ontology's own");
+        let requests = server.finish();
+        assert_eq!(requests.len(), 1 + 2 + fixture::OUTGOING.len(), "{requests:?}");
+        for (request, name) in requests[1..].iter().zip(&dotted) {
+            assert!(
+                request
+                    .request_line()
+                    .starts_with(&format!("GET {API_ROOT}/{ONTOLOGY}/objectTypes/{name}/outgoingLinkTypes?")),
+                "{}",
+                request.request_line()
+            );
+        }
+        let models = pinned.definitions().models();
+        assert_eq!(models.len(), 2 + fixture::OUTGOING.len());
+        assert!(
+            models
+                .keys()
+                .any(|model| model.as_str() == "com_palantir_system_EvolutionProposal"),
+            "{models:?}"
+        );
     }
 
     #[test]

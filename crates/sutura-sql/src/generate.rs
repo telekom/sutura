@@ -496,7 +496,16 @@ fn joined(statement: SelectBuilder, joins: &[PlanJoin], dialect: Dialect) -> Res
 /// hand-building the AST - which this module's header rules out for a reason. So the implicit alias is
 /// what holds, the live acceptance leg is what measures it on the target where a misquoted identifier
 /// is not a syntax error, and this paragraph is here so the next reader knows it was a choice.
+///
+/// **An object named with dots** (`sutura_domain::model::ObjectPath`) is the one shape that is not a
+/// path, and only Foundry resolves it: here it is named by its local name, and [`named_objects`]
+/// puts the dotted name back as ONE quoted identifier once the statement is built. Every other
+/// dialect refuses it at the comparison below, because no declaration reaches
+/// [`Qualification::Object`].
 fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, GenerateError> {
+    if dialect == Dialect::Foundry && table.object_path().is_some() {
+        return Ok(table.name().to_string());
+    }
     let carries = table.qualification();
     let resolves = dialect.qualification();
     if carries > resolves {
@@ -508,6 +517,55 @@ fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, Genera
         });
     }
     Ok(table.to_string())
+}
+
+/// `ast` with each object a Foundry statement names by its local name named by its dotted name, as
+/// one quoted identifier, aliased to the local name every column is qualified by:
+/// `` FROM `com.palantir.system.Evolution` AS `com_palantir_system_Evolution` ``.
+///
+/// **One quoted identifier, not a path, and the reason is read and not measured.** Foundry's public
+/// Ontology SQL documentation references an object type by its RID in backticks, dots inside one
+/// identifier, or by `` `ontologyApiName`.`objectTypeApiName` ``; it says nothing about an API name
+/// that is itself dotted. The whole name in backticks follows the RID form and Spark SQL's quoting;
+/// no tenant has accepted it, and `docs/integrations/catalogs/foundry.md` says so.
+///
+/// A no-op for every other dialect, which never renders an object (see [`table_path`]), and for a
+/// statement naming none.
+fn named_objects<'plan>(
+    ast: Expression,
+    tables: impl IntoIterator<Item = &'plan QualifiedTable>,
+    dialect: Dialect,
+) -> Result<Expression, GenerateError> {
+    use polyglot_sql::expressions::Identifier;
+
+    if dialect != Dialect::Foundry {
+        return Ok(ast);
+    }
+    let objects: std::collections::BTreeMap<String, String> = tables
+        .into_iter()
+        .filter_map(|table| Some((table.name().to_string(), table.object_path()?.dotted())))
+        .collect();
+    if objects.is_empty() {
+        return Ok(ast);
+    }
+    polyglot_sql::traversal::transform_all(ast, &|node| match node {
+        Expression::Table(mut table)
+            if table.schema.is_none()
+                && table.catalog.is_none()
+                && table.alias.is_none()
+                && objects.contains_key(&table.name.name) =>
+        {
+            let local = table.name.name.clone();
+            if let Some(dotted) = objects.get(&local) {
+                table.name = Identifier::quoted(dotted.as_str());
+                table.alias = Some(Identifier::quoted(local.as_str()));
+                table.alias_explicit_as = true;
+            }
+            Ok(Expression::Table(table))
+        }
+        other => Ok(other),
+    })
+    .map_err(|cause| GenerateError::Render { dialect, cause })
 }
 
 /// `expr`, nulls placed last, ascending unless `desc`.
@@ -793,6 +851,11 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         PlaceholderStyle::Question | PlaceholderStyle::Colon => emitted,
         PlaceholderStyle::Numbered => plan.params().to_vec(),
     };
+    let ast = named_objects(
+        ast,
+        std::iter::once(plan.table()).chain(plan.joins().iter().map(PlanJoin::table)),
+        dialect,
+    )?;
     let sql = render(&ast, dialect)?;
     assert_placeholder_count(&ast, dialect, &params)?;
     Ok(GeneratedQuery::new(plan.source().clone(), sql, params))

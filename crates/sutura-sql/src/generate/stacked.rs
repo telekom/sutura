@@ -48,7 +48,11 @@ pub fn generate_stacked(plan: &StackedPlan, dialect: Dialect) -> Result<Generate
                 });
             projection.push(aliased(expr, label)?);
         }
-        let grouped = super::grouped(arm, dialect, projection, grouping, &mut emitted)?.build();
+        let grouped = super::named_objects(
+            super::grouped(arm, dialect, projection, grouping, &mut emitted)?.build(),
+            std::iter::once(arm.table()).chain(arm.joins().iter().map(sutura_domain::plan::PlanJoin::table)),
+            dialect,
+        )?;
         let moved = shifted(grouped, shift, dialect)?;
         shift += arm.params().len();
         Ok(moved)

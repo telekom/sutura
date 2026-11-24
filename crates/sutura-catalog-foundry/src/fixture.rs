@@ -16,6 +16,13 @@ use crate::{FoundryCatalog, FoundryError, OntologyReader};
 /// The synthetic `objectTypes` page.
 pub const OBJECT_TYPES: &str = include_str!("fixture/object-types.json");
 
+/// Two platform-provided object types with dotted API names.
+///
+/// The object-type list serves such types beside an ontology's own, and their names are outside the
+/// identifier grammar. A cell splices them into [`OBJECT_TYPES`]; the catalog leaves them out and
+/// reports them.
+pub const PLATFORM_OBJECT_TYPES: &str = include_str!("fixture/platform-object-types.json");
+
 /// The synthetic `outgoingLinkTypes` page of each object type, by its API name.
 pub const OUTGOING: &[(&str, &str)] = &[
     ("Aircraft", include_str!("fixture/outgoing/Aircraft.json")),

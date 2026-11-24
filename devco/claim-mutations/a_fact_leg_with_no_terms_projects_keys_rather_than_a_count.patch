@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-sql/src/generate/leg.rs b/crates/sutura-sql/src/generate/leg.rs
 --- a/crates/sutura-sql/src/generate/leg.rs
 +++ b/crates/sutura-sql/src/generate/leg.rs
-@@ -75,7 +75,7 @@
-     let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
+@@ -76,7 +76,7 @@
      // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
      // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
--    Ok(statement.group_by(grouping).order_by(tiebreak).build())
-+    Ok(statement.order_by(tiebreak).build())
- }
- 
- /// `ast`, a statement of `leg`, rendered with the leg's parameters and checked against them.
+     super::named_objects(
+-        statement.group_by(grouping).order_by(tiebreak).build(),
++        statement.order_by(tiebreak).build(),
+         std::iter::once(leg.table()).chain(joins.iter().map(PlanJoin::table)),
+         dialect,
+     )

@@ -7,8 +7,9 @@
 //!
 //! Only the declared [`Endpoint`], at two fixed paths under [`API_ROOT`]: the object types, then
 //! each object type's outgoing link types. The ontology segment is an [`OntologyIdentifier`] and
-//! the object-type segment a [`ModelName`] parsed from the answer before it reaches a path; neither
-//! grammar can hold `/`, `?`, `#` or `%`, so an answer cannot steer a request off those paths. The
+//! the object-type segment an API name parsed by [`crate::object_table`] before it reaches a path -
+//! a name, or names joined by `.` with no segment empty; neither grammar can hold `/`, `?`, `#` or
+//! `%`, and no segment can be `.` or `..`, so an answer cannot steer a request off those paths. The
 //! one other piece of an answer a request carries is the `nextPageToken`, sent back as the
 //! `pageToken` query parameter of the same path, query-encoded and at most
 //! [`MAX_PAGE_TOKEN_BYTES`]. No URL in an answer is followed, and redirects are not followed.
@@ -28,7 +29,7 @@
 use std::collections::BTreeMap;
 
 use serde::de::DeserializeOwned;
-use sutura_domain::model::{InvalidIdentifier, ModelName};
+use sutura_domain::model::InvalidQualifiedTable;
 pub use sutura_http_client::token::{TokenSource, TokenUnavailable};
 use sutura_http_client::{Budget, PageReport, Pager};
 pub use sutura_http_client::{
@@ -140,9 +141,14 @@ pub enum HttpReaderError {
     },
     #[error("the Foundry {what} answer handed back a page token over {max} bytes")]
     PageTokenTooLong { what: &'static str, max: usize },
-    /// An object type whose API name is not a name, refused before it reaches a path.
-    #[error("an object type's API name is not a name, so its link types were not asked for")]
-    ObjectTypeName(#[source] InvalidIdentifier),
+    /// An object type whose API name is neither a name nor dotted names, refused before it reaches a
+    /// path. `api_name` is quoted as a refusal quotes answer text.
+    #[error("the object type API name {api_name:?} is not a name, so its link types were not asked for")]
+    ObjectTypeName {
+        api_name: String,
+        #[source]
+        cause: InvalidQualifiedTable,
+    },
 }
 
 const OBJECT_TYPES: &str = "object types";
@@ -294,9 +300,12 @@ impl OntologyReader for HttpOntologyReader {
         let object_types: Vec<ObjectType> = self.list(budget, OBJECT_TYPES, &root)?;
         let mut outgoing = BTreeMap::new();
         for object_type in &object_types {
-            let name = ModelName::parse(object_type.api_name()).map_err(HttpReaderError::ObjectTypeName)?;
-            let sides: Vec<LinkTypeSide> =
-                self.list(budget, LINK_TYPES, &format!("{root}/{}/outgoingLinkTypes", name.as_str()))?;
+            let api_name = object_type.api_name();
+            crate::object_table(api_name).map_err(|cause| HttpReaderError::ObjectTypeName {
+                api_name: api_name.chars().filter(|c| !c.is_control()).take(80).collect(),
+                cause,
+            })?;
+            let sides: Vec<LinkTypeSide> = self.list(budget, LINK_TYPES, &format!("{root}/{api_name}/outgoingLinkTypes"))?;
             outgoing.insert(String::from(object_type.api_name()), sides);
         }
         Ok(Ontology::new(object_types, outgoing))

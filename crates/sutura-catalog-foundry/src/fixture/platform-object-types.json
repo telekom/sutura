@@ -1,0 +1,51 @@
+{
+  "data": [
+    {
+      "apiName": "com.palantir.system.Evolution",
+      "displayName": "Evolution",
+      "status": "ACTIVE",
+      "pluralDisplayName": "Evolutions",
+      "description": "A platform-provided object type, served beside the ontology's own.",
+      "primaryKey": "evolutionId",
+      "properties": {
+        "evolutionId": {
+          "displayName": "Evolution ID",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000091",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL"
+        }
+      },
+      "rid": "ri.ontology.main.object-type.00000000-0000-0000-0000-000000000092",
+      "titleProperty": "evolutionId",
+      "visibility": "NORMAL"
+    },
+    {
+      "apiName": "com.palantir.system.EvolutionProposal",
+      "displayName": "Evolution proposal",
+      "status": "ACTIVE",
+      "pluralDisplayName": "Evolution proposals",
+      "primaryKey": "proposalId",
+      "properties": {
+        "proposalId": {
+          "displayName": "Proposal ID",
+          "dataType": {
+            "type": "string"
+          },
+          "rid": "ri.ontology.main.property.00000000-0000-0000-0000-000000000093",
+          "status": {
+            "type": "active"
+          },
+          "visibility": "NORMAL"
+        }
+      },
+      "rid": "ri.ontology.main.object-type.00000000-0000-0000-0000-000000000094",
+      "titleProperty": "proposalId",
+      "visibility": "NORMAL"
+    }
+  ]
+}

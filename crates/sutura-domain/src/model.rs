@@ -14,7 +14,7 @@
 
 mod qualified;
 
-pub use qualified::{DatasetName, InvalidQualifiedTable, ProjectName, Qualification, QualifiedTable, TableQualifier};
+pub use qualified::{DatasetName, InvalidQualifiedTable, ObjectPath, ProjectName, Qualification, QualifiedTable, TableQualifier};
 
 /// Whether a data system tells two identifiers in one statement apart by case.
 ///

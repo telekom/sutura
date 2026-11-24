@@ -234,3 +234,61 @@ fn surrounding_whitespace_is_not_part_of_a_path() {
     let parsed = QualifiedTable::parse("  sales.orders\n").expect("a trimmed path is a path");
     assert_eq!(parsed.to_string(), "sales.orders");
 }
+
+#[test]
+fn a_dotted_object_is_one_name_with_a_local_name_and_round_trips() {
+    use crate::model::ObjectPath;
+
+    let path = ObjectPath::parse("com.palantir.system.Evolution")
+        .expect("every segment is a name")
+        .expect("a dotted name is an object path");
+    assert_eq!(path.dotted(), "com.palantir.system.Evolution");
+    let object = QualifiedTable::object(path.clone()).expect("the local name is a name");
+    assert_eq!(object.name(), &table("com_palantir_system_Evolution"));
+    assert_eq!(object.qualifier(), None, "nothing sits above an object");
+    assert_eq!(object.object_path(), Some(&path));
+    assert_eq!(object.qualification(), Qualification::Object);
+    assert!(
+        Qualification::ProjectAndDataset < Qualification::Object,
+        "no path declaration reaches it"
+    );
+    // Its text form is distinct from every path's, so the digest over it is too.
+    assert_eq!(object.to_string(), "`com.palantir.system.Evolution`");
+    assert_ne!(object, QualifiedTable::from(table("com_palantir_system_Evolution")));
+    let json = serde_json::to_string(&object).expect("an object serializes");
+    let back: QualifiedTable = serde_json::from_str(&json).expect("what this type wrote, it reads");
+    assert_eq!(back, object);
+    // A three-segment object is not mistaken for a project, a dataset and a table.
+    let three = QualifiedTable::parse("`a.b.c`").expect("a quoted dotted name is an object");
+    assert_eq!(three.qualification(), Qualification::Object);
+    assert_eq!(
+        QualifiedTable::parse("a.b.c").expect("a path").qualification(),
+        Qualification::ProjectAndDataset
+    );
+}
+
+#[test]
+fn a_dotted_name_with_an_empty_or_unnamed_segment_is_refused() {
+    use crate::model::ObjectPath;
+
+    assert_eq!(ObjectPath::parse("orders"), Ok(None), "no dot is a table's to parse");
+    for refused in [
+        "com..Evolution",
+        ".Evolution",
+        "com.",
+        "com.9lives",
+        "com.a/b",
+        "com. Evolution",
+    ] {
+        assert!(
+            matches!(ObjectPath::parse(refused), Err(InvalidQualifiedTable::ObjectSegment { .. })),
+            "{refused:?} was accepted"
+        );
+    }
+    let long = format!("{}.{}", "a".repeat(40), "b".repeat(40));
+    let path = ObjectPath::parse(&long).expect("each segment is a name").expect("dotted");
+    assert!(matches!(
+        QualifiedTable::object(path),
+        Err(InvalidQualifiedTable::ObjectLocalName { .. })
+    ));
+}
