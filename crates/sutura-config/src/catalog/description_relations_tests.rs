@@ -207,3 +207,52 @@ fn description_key_match_case_insensitive_parses_through_the_ordinary_entry_poin
     );
     assert!(load(&text).is_ok(), "key.match: case_insensitive must be accepted");
 }
+
+/// `on_invalid_description` (`telekom/sutura#2069`): omitting it keeps the exact pre-existing
+/// `refuse` behaviour, mirroring `on_missing_endpoint`'s own default-preserving shape.
+#[test]
+fn on_invalid_description_defaults_to_refuse_and_accepts_omit() {
+    use crate::catalog::rdbms::InvalidDescriptionPolicy;
+
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let default_text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n"
+    );
+    let settings = load(&default_text).expect("a mapping without on_invalid_description loads");
+    let entry = settings.catalogs().each().next().unwrap();
+    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = entry.rdbms().unwrap().descriptions_from().first().unwrap()
+    else {
+        panic!("a mapping")
+    };
+    assert_eq!(mapping.on_invalid_description(), InvalidDescriptionPolicy::Refuse);
+
+    let omit_text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        on_invalid_description: omit\n"
+    );
+    let settings = load(&omit_text).expect("on_invalid_description: omit loads");
+    let entry = settings.catalogs().each().next().unwrap();
+    let crate::catalog::rdbms::DescriptionSource::Table(mapping) = entry.rdbms().unwrap().descriptions_from().first().unwrap()
+    else {
+        panic!("a mapping")
+    };
+    assert_eq!(mapping.on_invalid_description(), InvalidDescriptionPolicy::Omit);
+}
+
+#[test]
+fn on_invalid_description_rejects_an_unknown_value() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!(
+        "{text}    descriptions_from:\n      - connection: {{host: 127.0.0.1, port: 5432, database: docs, user: reader, password_file: /run/secrets/docs, transport_mode: plaintext}}\n        table: inventory.column_docs\n        key: {{schema: owner, table: object_name, column: field_name}}\n        description: prose\n        on_invalid_description: drop\n"
+    );
+    assert_description_error(load(&text), &InvalidDescriptionSource::InvalidDescriptionPolicy);
+}
+
+/// `on_invalid_description` on a `catalog:` reference is a shape error: that source has no mapping
+/// fields of its own, and there is no catalog-wide default to carry it the way `on_missing_endpoint`
+/// has one.
+#[test]
+fn on_invalid_description_on_a_catalog_reference_is_refused_as_shape() {
+    let text = overlay("rdbms", ENTRY, Some(CONNECTION));
+    let text = format!("{text}    descriptions_from:\n      - catalog: documentation\n        on_invalid_description: omit\n");
+    assert_description_error(load(&text), &InvalidDescriptionSource::Shape);
+}

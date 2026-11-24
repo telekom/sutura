@@ -89,7 +89,7 @@ pub use relationships::{
 mod documentation;
 pub mod fixture;
 mod native;
-pub use native::{NativeAllowlist, NativeLoad, NativeSelectionError};
+pub use native::{NativeAllowlist, NativeLoad, NativeSelectionError, UnsupportedColumn};
 #[cfg(feature = "live-oracle")]
 pub mod oracle_reader;
 #[cfg(feature = "live")]

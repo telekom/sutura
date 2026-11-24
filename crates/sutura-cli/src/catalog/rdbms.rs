@@ -8,6 +8,21 @@ const fn map_on_missing_endpoint(policy: sutura_config::MissingEndpointPolicy) -
     }
 }
 
+/// The config crate's own `on_invalid_description` policy, to the catalog-rdbms crate's own -
+/// two independent types for the same reason as `map_on_missing_endpoint` above.
+pub(super) const fn map_on_invalid_description(
+    policy: sutura_config::catalog::rdbms::InvalidDescriptionPolicy,
+) -> sutura_catalog_rdbms::descriptions::InvalidDescriptionPolicy {
+    match policy {
+        sutura_config::catalog::rdbms::InvalidDescriptionPolicy::Refuse => {
+            sutura_catalog_rdbms::descriptions::InvalidDescriptionPolicy::Refuse
+        }
+        sutura_config::catalog::rdbms::InvalidDescriptionPolicy::Omit => {
+            sutura_catalog_rdbms::descriptions::InvalidDescriptionPolicy::Omit
+        }
+    }
+}
+
 pub(super) fn open_one_rdbms_catalog(settings: &sutura_config::CatalogSettings) -> Result<super::native::Rdbms, String> {
     use sutura_catalog_rdbms::AnyDictionaryReader;
 
@@ -256,7 +271,7 @@ fn relationships(settings: &sutura_config::RdbmsSettings) -> Result<Vec<sutura_c
 
 #[cfg(test)]
 mod tests {
-    use super::map_on_missing_endpoint;
+    use super::{map_on_invalid_description, map_on_missing_endpoint};
 
     /// The composition root's own policy mapping (used for both the catalog-level default and a
     /// per-relationship override) must carry `Refuse`/`Omit` straight through, never swap or
@@ -270,6 +285,20 @@ mod tests {
         assert_eq!(
             map_on_missing_endpoint(sutura_config::MissingEndpointPolicy::Omit),
             sutura_catalog_rdbms::MissingEndpointPolicy::Omit
+        );
+    }
+
+    /// Same property for `on_invalid_description` (`telekom/sutura#2069`): a silent swap here
+    /// would make `omit` refuse or `refuse` silently drop a row.
+    #[test]
+    fn map_on_invalid_description_carries_each_variant_through_unchanged() {
+        assert_eq!(
+            map_on_invalid_description(sutura_config::catalog::rdbms::InvalidDescriptionPolicy::Refuse),
+            sutura_catalog_rdbms::descriptions::InvalidDescriptionPolicy::Refuse
+        );
+        assert_eq!(
+            map_on_invalid_description(sutura_config::catalog::rdbms::InvalidDescriptionPolicy::Omit),
+            sutura_catalog_rdbms::descriptions::InvalidDescriptionPolicy::Omit
         );
     }
 }

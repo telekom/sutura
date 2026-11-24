@@ -20,6 +20,8 @@ pub(crate) struct RawDescriptionSource {
     pub(crate) live_row_predicates: Option<Vec<RawTablePredicate>>,
     pub(crate) max_dictionary_rows: Option<u64>,
     pub(crate) max_dictionary_bytes: Option<u64>,
+    /// What a matched row's unusable prose does - `refuse` (default) or `omit`.
+    pub(crate) on_invalid_description: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -70,6 +72,32 @@ pub struct DescriptionMapping {
     max_rows: Option<NonZeroU64>,
     max_bytes: Option<NonZeroU64>,
     case_insensitive: bool,
+    on_invalid_description: InvalidDescriptionPolicy,
+}
+
+/// What a matched row's unusable prose does, once its key has matched a visible table or column -
+/// an unmatched row is ignored and never checked regardless of this policy.
+///
+/// `Refuse` is the default, unchanged. `Omit` is the opt-in that drops just that row, falling back
+/// to the next ordered source or the dictionary's own native comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InvalidDescriptionPolicy {
+    #[default]
+    Refuse,
+    Omit,
+}
+impl InvalidDescriptionPolicy {
+    const ALL: [Self; 2] = [Self::Refuse, Self::Omit];
+    pub(crate) fn parse(written: &str) -> Option<Self> {
+        let written = written.trim();
+        Self::ALL.into_iter().find(|policy| policy.as_str() == written)
+    }
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Omit => "omit",
+        }
+    }
 }
 
 /// Where a mapped row's schema and physical table name come from: either columns on the mapped
@@ -132,6 +160,8 @@ pub enum InvalidDescriptionSource {
     PredicateTable,
     #[error("key.match must be exact or case_insensitive")]
     KeyMatch,
+    #[error("on_invalid_description must be one of refuse, omit")]
+    InvalidDescriptionPolicy,
 }
 
 pub(crate) fn parse(name: &SourceName, raw: &[RawDescriptionSource]) -> Result<Vec<DescriptionSource>, InvalidRdbmsCatalog> {
@@ -151,6 +181,7 @@ fn parse_one(name: &SourceName, raw: &RawDescriptionSource) -> Result<Descriptio
             || raw.live_row_predicates.is_some()
             || raw.max_dictionary_rows.is_some()
             || raw.max_dictionary_bytes.is_some()
+            || raw.on_invalid_description.is_some()
         {
             return Err(invalid(InvalidDescriptionSource::Shape));
         }
@@ -201,6 +232,15 @@ fn parse_one(name: &SourceName, raw: &RawDescriptionSource) -> Result<Descriptio
         max_rows: non_zero("max_dictionary_rows", raw.max_dictionary_rows)?,
         max_bytes: non_zero("max_dictionary_bytes", raw.max_dictionary_bytes)?,
         case_insensitive: key_match(key)?,
+        on_invalid_description: raw
+            .on_invalid_description
+            .as_deref()
+            .map(|written| {
+                InvalidDescriptionPolicy::parse(written)
+                    .ok_or_else(|| invalid(InvalidDescriptionSource::InvalidDescriptionPolicy))
+            })
+            .transpose()?
+            .unwrap_or_default(),
     })))
 }
 
@@ -323,6 +363,10 @@ impl DescriptionMapping {
     /// Whether a mapped row's own identity columns match the main dictionary case-insensitively.
     pub const fn case_insensitive(&self) -> bool {
         self.case_insensitive
+    }
+    /// What a matched row's unusable prose does: `refuse` (default) or `omit`.
+    pub const fn on_invalid_description(&self) -> InvalidDescriptionPolicy {
+        self.on_invalid_description
     }
 }
 
