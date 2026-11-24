@@ -107,12 +107,10 @@ pub enum CompositionError {
     /// `bound` is what `cause` checked the merge against when the refusal is
     /// [`InconsistentDefinitions::DefinitionsTooLarge`](sutura_domain::catalog::InconsistentDefinitions::DefinitionsTooLarge):
     /// never one contributor's own `max_definitions_bytes`, always
-    /// [`DefinitionsByteBound::composed`] over every one of `contributors` catalogs - named here so
-    /// the refusal does not read as a per-catalog limit reapplied to the whole bundle.
-    #[error(
-        "the composed definitions do not hold together: checked against a composed bound of {bound} bytes, \
-         the sum of {contributors} catalogs' own max_definitions_bytes capped at the ceiling"
-    )]
+    /// [`DefinitionsByteBound::composed`] over every one of `contributors` catalogs. Named in the
+    /// message only for that one cause - every other cause has nothing to do with the byte bound,
+    /// and stating it there would read as a per-catalog limit reapplied to the whole bundle.
+    #[error("{}", definitions_message(*contributors, *bound, cause))]
     Definitions {
         contributors: usize,
         bound: DefinitionsByteBound,
@@ -131,6 +129,19 @@ pub enum CompositionError {
         #[source]
         cause: NotDigestible,
     },
+}
+
+/// [`CompositionError::Definitions`]'s message: the composed bound only belongs to the one cause
+/// it was checked against.
+fn definitions_message(contributors: usize, bound: DefinitionsByteBound, cause: &InconsistentDefinitions) -> String {
+    if matches!(cause, InconsistentDefinitions::DefinitionsTooLarge { .. }) {
+        format!(
+            "the composed definitions do not hold together: checked against a composed bound of {bound} bytes, \
+             the sum of {contributors} catalogs' own max_definitions_bytes capped at the ceiling"
+        )
+    } else {
+        "the composed definitions do not hold together".to_owned()
+    }
 }
 
 /// The six kinds of catalog element two sources may collide over.

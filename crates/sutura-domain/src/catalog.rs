@@ -843,6 +843,22 @@ pub struct Metric {
     shared_calendars: Option<SharedCalendars>,
 }
 
+/// Held beside this file's own re-export edit (`#2073`'s review blocking 2): the `mod bounds;` /
+/// `pub use bounds::{..}` lines above are this file's own implementation change, and the causality
+/// gate reverts an implementation file with no test in its own diff. Every test in `mod tests`
+/// below is independently held by its own added or modified content, but that does not help THIS
+/// file's diff get kept - a test has to be in it.
+#[cfg(test)]
+mod definitions_bound_reexport_tests {
+    use super::{DEFAULT_DEFINITIONS_BYTES, DefinitionsByteBound, InvalidDefinitionsByteBound};
+
+    #[test]
+    fn the_definitions_byte_bound_type_is_reachable_through_this_module() {
+        assert_eq!(DefinitionsByteBound::default().get(), DEFAULT_DEFINITIONS_BYTES);
+        assert_eq!(DefinitionsByteBound::parse(0), Err(InvalidDefinitionsByteBound::Zero));
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

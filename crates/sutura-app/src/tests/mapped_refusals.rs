@@ -115,6 +115,7 @@ fn two_catalogs_defining_the_same_metric_are_refused_at_startup() {
 
 #[test]
 fn an_empty_composition_is_refused() {
+    // Not a test about the bound - DEFAULT only because `assemble` now requires one.
     let error = assemble(&[], DefinitionsByteBound::DEFAULT).expect_err("an empty composition is not a bundle");
     assert!(
         matches!(error, CompositionError::Empty),
@@ -129,6 +130,7 @@ fn a_contribution_with_two_manifest_entries_is_refused() {
         (name("beta"), Contribution::of(capabilities())),
     ])
     .expect("two distinct sources parse");
+    // Not a test about the bound - DEFAULT only because `assemble` now requires one.
     let error = assemble(&[pinned("test-1", manifest)], DefinitionsByteBound::DEFAULT)
         .expect_err("a 2-entry manifest is not a single contribution");
     let CompositionError::NotASingleContribution { count } = error else {
@@ -139,6 +141,7 @@ fn a_contribution_with_two_manifest_entries_is_refused() {
 
 #[test]
 fn two_bundles_with_different_versions_are_refused() {
+    // Not a test about the bound - DEFAULT only because `assemble` now requires one.
     let error = assemble(
         &[pinned("test-1", single("local")), pinned("test-2", single("local"))],
         DefinitionsByteBound::DEFAULT,

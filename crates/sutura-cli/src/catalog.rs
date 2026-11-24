@@ -842,6 +842,25 @@ mod tests {
     }
 }
 
+/// Held beside `load_each`'s own bound-composing implementation (`#2073`'s review blocking 2): a
+/// file carrying an implementation change and a test of its own is kept at HEAD by the causality
+/// gate, so this crate's call into `sutura_app::assemble::assemble` with a composed rather than
+/// defaulted bound stays present in the base reconstruction `bound_tests.rs` (held by its own two
+/// tests) needs to compile against.
+#[cfg(test)]
+mod load_each_anchor_tests {
+    use super::LocalCatalog;
+
+    #[test]
+    fn an_empty_catalog_slice_is_refused_as_an_empty_composition() {
+        let refused = super::load_each::<LocalCatalog>(&[]).expect_err("nothing to compose is not a bundle");
+        assert!(
+            refused.contains("no contributions were assembled"),
+            "expected the empty-composition refusal, got: {refused}"
+        );
+    }
+}
+
 #[cfg(test)]
 mod planned_tests;
 

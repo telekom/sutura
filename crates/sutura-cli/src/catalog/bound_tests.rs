@@ -19,24 +19,39 @@ use std::path::{Path, PathBuf};
 
 use sutura_config::{Environment, Settings, Sources};
 
-/// A scratch copy of the example catalog, with one model's description grown past `extra_bytes`
-/// beyond its own, so a caller can push the bundle over an arbitrary byte count.
+/// Every synthetic padding model `scratch_catalog` adds carries one description this long - large
+/// enough that a few hundred of them clear the aggregate cap, comfortably under
+/// `sutura_domain::catalog::MAX_DESCRIPTION_BYTES` (4 KiB) so growing the AGGREGATE never trips the
+/// PER-DESCRIPTION cap `sutura_catalog_local`'s `authored.rs` enforces on each one individually -
+/// `#2073`'s review blocking 1: a single 2 MiB description is refused there before a bundle is ever
+/// composed, which cannot exercise the composer bug this file is about.
+const PADDING_MODEL_DESCRIPTION_BYTES: usize = 3000;
+
+/// A scratch copy of the example catalog, with `padding_models` extra synthetic models appended -
+/// each its own file, one column, one `PADDING_MODEL_DESCRIPTION_BYTES`-long description - so a
+/// caller can push the bundle's AGGREGATE authored bytes over an arbitrary count via many small,
+/// individually legal declarations rather than one oversized one.
 ///
 /// Copying rather than hand-authoring: `UnfaithfulDeclaration::Unprovided` refuses a markdown
 /// tree that declares a `DefinitionKind` (every one of them, since `LocalCatalog::capabilities`
 /// claims everything) and supplies none of it, and the example catalog is already a tree that
 /// supplies every kind this adapter can produce - the same fixture `tests/example.rs` loads.
-fn scratch_catalog(name: &str, extra_bytes: usize) -> PathBuf {
+fn scratch_catalog(name: &str, padding_models: usize) -> PathBuf {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let source = repo_root.join("examples/single-player/catalog");
     let root = std::env::temp_dir().join(format!("sutura-cli-definitions-bound-{name}-{}", std::process::id()));
     drop(std::fs::remove_dir_all(&root));
     copy_dir(&source, &root);
-    if extra_bytes > 0 {
-        let target = root.join("models/customers.md");
-        let mut content = std::fs::read_to_string(&target).expect("the copied model is readable");
-        content.push_str(&"x".repeat(extra_bytes));
-        std::fs::write(&target, content).expect("the grown model is writable");
+    if padding_models > 0 {
+        let models_dir = root.join("models");
+        let description = "x".repeat(PADDING_MODEL_DESCRIPTION_BYTES);
+        for i in 0..padding_models {
+            let doc = format!(
+                "---\nkind: model\nname: padding_{i:04}\nsource: local\ntable: padding_tbl_{i:04}\ncolumns:\n  \
+                 - name: id\n    type: BIGINT\n    nullable: false\n---\n{description}\n"
+            );
+            std::fs::write(models_dir.join(format!("padding_{i:04}.md")), doc).expect("a synthetic padding model is writable");
+        }
     }
     root
 }
@@ -73,9 +88,18 @@ fn settings_for(dir: &Path, max_definitions_bytes: Option<usize>) -> Settings {
 /// `sutura_app::assemble::{assemble, assemble_linked}` re-checked the merged bundle against the
 /// bound-less `Definitions::assemble`, which is `DefinitionsByteBound::default()` (1 MiB)
 /// regardless of what this catalog declared.
+///
+/// Grown via 400 small padding models (`400 * PADDING_MODEL_DESCRIPTION_BYTES` ≈ 1.14 MiB, each
+/// description a fraction of the 4 KiB per-description cap) rather than one oversized one, so the
+/// catalog adapter itself admits every individual declaration and only the COMPOSER's aggregate
+/// check is exercised. Red at `db20a558a` (`#2073`'s pre-fix tree): the adapter's own `load_each`
+/// pass admits the content - nothing here is individually over any per-item cap - and the composer
+/// re-checks against the default bound regardless of what the catalog declared, so the raised-bound
+/// half of this test refuses there too. Green now: `assemble`/`assemble_linked` take the caller's
+/// `bound` rather than defaulting it.
 #[test]
 fn a_catalog_over_the_default_bound_loads_once_its_own_bound_is_raised() {
-    let root = scratch_catalog("raised", 2 * 1024 * 1024);
+    let root = scratch_catalog("raised", 400);
 
     let default_settings = settings_for(&root, None);
     let default_catalogs = default_settings.catalogs();

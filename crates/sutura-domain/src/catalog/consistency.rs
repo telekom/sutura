@@ -330,18 +330,9 @@ pub enum InconsistentDefinitions {
 impl Definitions {
     /// Convenience over [`Self::assemble_bounded`] at [`DefinitionsByteBound::default`], for a
     /// single-catalog fixture that has no `max_definitions_bytes` to read - a test, or
-    /// `sutura-conformance`'s golden harness.
-    ///
-    /// **Not where `github.com/telekom/sutura#2073`'s bug lived**, and not restricted to
-    /// `#[cfg(test)]`: every one of the eight catalog adapters already calls
-    /// [`Self::assemble_bounded`] with its own declared bound directly (confirmed by
-    /// `grep -rn "Definitions::assemble(" crates/sutura-catalog-*/src` finding none), and the actual
-    /// bug was the *composer* - `sutura_app::assemble::assemble`/`assemble_linked` - reaching for
-    /// this at composition time regardless of what each contributor declared. Those two now take an
-    /// explicit `bound` parameter instead, so a raised per-catalog bound is no longer silently
-    /// overridden at composition. Gating this convenience itself to `#[cfg(test)]` would additionally
-    /// require a `test-fakes`-shaped dev-dependency feature on every one of the ~9 crates whose own
-    /// tests call it - a wider change than this fix needs, and not made here.
+    /// `sutura-conformance`'s golden harness. Every catalog adapter calls
+    /// [`Self::assemble_bounded`] directly with its own declared bound; a composer merging several
+    /// contributors must do the same with [`DefinitionsByteBound::composed`], never default this.
     ///
     /// Takes vectors rather than maps so the duplicate checks are ours: a caller that built a map
     /// first has already silently dropped one of a duplicated pair, and "the second declaration of
@@ -926,4 +917,33 @@ fn comparison_contradicted(declared: LinkKind, relationship: &Relationship, from
 /// seam for three lines of arithmetic is a bigger change than the duplication it would remove.
 fn sum_bytes(counts: impl Iterator<Item = usize>) -> usize {
     counts.fold(0, usize::saturating_add)
+}
+
+/// Held beside `assemble_bounded`'s own implementation (`#2073`'s review blocking 2): a file
+/// carrying both an implementation change and a test of its own is kept at HEAD by the causality
+/// gate, so the caller-declared `bound` this function now checks against stays present in the base
+/// reconstruction for every other held test that calls it. The exhaustive breakdown cases live in
+/// `catalog/tests/column_metadata.rs` instead; this is only enough to prove the bound is read at all.
+#[cfg(test)]
+mod tests {
+    use super::{Definitions, DefinitionsByteBound, InconsistentDefinitions, Model, ModelName, SourceName, TableName};
+    use crate::catalog::Description;
+    use crate::model::ColumnName;
+
+    #[test]
+    fn a_bundle_over_its_caller_declared_bound_is_refused_naming_the_limit() {
+        let model = Model::new(
+            ModelName::parse("m").expect("a test model name is a name"),
+            SourceName::parse("s").expect("a test source name is a name"),
+            TableName::parse("t").expect("a test table name is a name"),
+            Vec::<ColumnName>::new(),
+            Description::parse("some authored prose").expect("under the per-description cap"),
+        );
+        let error = Definitions::assemble_bounded(vec![model], vec![], vec![], DefinitionsByteBound::parse(1).unwrap())
+            .expect_err("one description already exceeds a bound of 1 byte");
+        let InconsistentDefinitions::DefinitionsTooLarge { limit, .. } = error else {
+            panic!("over-bound is the too-large variant, not {error:?}");
+        };
+        assert_eq!(limit, 1);
+    }
 }

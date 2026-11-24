@@ -70,9 +70,10 @@ impl DefinitionsByteBound {
     /// fixed default is exactly how a raised per-catalog bound got silently re-refused at
     /// composition regardless of what each contributor declared.
     ///
-    /// `bounds.into_iter().next().is_none()` composes to [`Self::DEFAULT`] (a saturating sum of
-    /// nothing is `0`, clamped up to the smallest valid bound) - a degenerate input no caller here
-    /// reaches, since every composer refuses an empty catalog list before checking a size.
+    /// An empty `bounds` composes to the smallest valid bound, `Self(1)` - NOT [`Self::DEFAULT`]:
+    /// a saturating sum of nothing is `0`, clamped up only by the `1` floor below, which happens to
+    /// be far under the 1 MiB default. A degenerate input no caller here reaches, since every
+    /// composer refuses an empty catalog list before checking a size.
     pub fn composed(bounds: impl IntoIterator<Item = Self>) -> Self {
         let summed = bounds
             .into_iter()
@@ -101,4 +102,45 @@ pub enum InvalidDefinitionsByteBound {
     Zero,
     #[error("max_definitions_bytes is {bytes}, and {ceiling} is the most a deployment may declare")]
     AboveCeiling { bytes: usize, ceiling: usize },
+}
+
+/// Held beside this file's own implementation (`#2073`'s review blocking 2): the causality gate
+/// reverts an implementation file with no test of its own, and `bounds.rs` has none at base to
+/// revert to - it did not exist there. A test here keeps this type, its `parse`/`composed` and both
+/// refusal variants present in the base reconstruction every other crate's held test calls into;
+/// the larger assertions over the bound actually enforced live beside `Definitions::assemble_bounded`
+/// and the composition-root call sites instead, each a non-verdict pass for the same reason.
+#[cfg(test)]
+mod tests {
+    use super::{DEFINITIONS_BYTES_CEILING, DefinitionsByteBound, InvalidDefinitionsByteBound};
+
+    #[test]
+    fn zero_is_refused_and_the_ceiling_is_the_most_a_bound_may_declare() {
+        assert_eq!(DefinitionsByteBound::parse(0), Err(InvalidDefinitionsByteBound::Zero));
+        assert_eq!(
+            DefinitionsByteBound::parse(DEFINITIONS_BYTES_CEILING + 1),
+            Err(InvalidDefinitionsByteBound::AboveCeiling {
+                bytes: DEFINITIONS_BYTES_CEILING + 1,
+                ceiling: DEFINITIONS_BYTES_CEILING,
+            })
+        );
+        assert_eq!(
+            DefinitionsByteBound::parse(DEFINITIONS_BYTES_CEILING)
+                .expect("the ceiling itself is a valid bound")
+                .get(),
+            DEFINITIONS_BYTES_CEILING
+        );
+    }
+
+    #[test]
+    fn composed_sums_and_clamps_at_the_ceiling() {
+        let one = DefinitionsByteBound::parse(1000).expect("1000 is a valid bound");
+        let two = DefinitionsByteBound::parse(2000).expect("2000 is a valid bound");
+        assert_eq!(DefinitionsByteBound::composed([one, two]).get(), 3000);
+        assert_eq!(
+            DefinitionsByteBound::composed([DefinitionsByteBound::parse(DEFINITIONS_BYTES_CEILING).unwrap(), one]).get(),
+            DEFINITIONS_BYTES_CEILING
+        );
+        assert_eq!(DefinitionsByteBound::composed([]).get(), 1);
+    }
 }
