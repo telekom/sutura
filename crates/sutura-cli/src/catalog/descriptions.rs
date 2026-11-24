@@ -15,8 +15,13 @@ pub(crate) struct Reader {
 #[derive(Debug)]
 enum Input {
     Catalog(Box<OpenedCatalogs>),
-    /// A table mapping's reader, with whether its key matches the main dictionary case-insensitively.
-    Mapping(AnyDictionaryReader, bool),
+    /// A table mapping's reader, with whether its key matches the main dictionary
+    /// case-insensitively, and what an unusable matched row's prose does.
+    Mapping(
+        AnyDictionaryReader,
+        bool,
+        sutura_catalog_rdbms::descriptions::InvalidDescriptionPolicy,
+    ),
 }
 
 impl Reader {
@@ -44,10 +49,13 @@ impl DictionaryReader for Reader {
                     DescriptionOverlay::from_definitions(bundle.definitions(), bounds)
                         .map_err(|cause| RdbmsError::Read(Box::new(cause)))
                 }
-                Input::Mapping(reader, case_insensitive) => {
-                    DescriptionOverlay::from_dictionary(&reader.read_dictionary()?, reader.bounds(), *case_insensitive)
-                        .map_err(|cause| RdbmsError::Read(Box::new(cause)))
-                }
+                Input::Mapping(reader, case_insensitive, on_invalid_description) => DescriptionOverlay::from_dictionary(
+                    &reader.read_dictionary()?,
+                    reader.bounds(),
+                    *case_insensitive,
+                    *on_invalid_description,
+                )
+                .map_err(|cause| RdbmsError::Read(Box::new(cause))),
             })
             .collect::<Result<Vec<_>, _>>()?;
         let (dictionary, ignored_columns) = dictionary.overlay_descriptions(&overlays)?;
@@ -132,9 +140,13 @@ fn inputs(
         .iter()
         .map(|source| match source {
             DescriptionSource::Catalog(name) => referenced(name, all, outbound).map(|catalog| Input::Catalog(Box::new(catalog))),
-            DescriptionSource::Table(mapping) => {
-                mapped_reader(settings, rdbms, mapping).map(|reader| Input::Mapping(reader, mapping.case_insensitive()))
-            }
+            DescriptionSource::Table(mapping) => mapped_reader(settings, rdbms, mapping).map(|reader| {
+                Input::Mapping(
+                    reader,
+                    mapping.case_insensitive(),
+                    super::rdbms::map_on_invalid_description(mapping.on_invalid_description()),
+                )
+            }),
         })
         .collect()
 }
