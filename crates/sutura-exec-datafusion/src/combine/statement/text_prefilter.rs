@@ -684,10 +684,10 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
 ///
 /// **This widens eligibility beyond the pre-`_` rule even for a needle with no `_` in it.** The old
 /// rule refused whenever the needle contained the replacement's first or last byte, which is
-/// sufficient but not necessary: needle `ac` against replacement `ab` shares no substring with it and
-/// is refused by the old rule (`ac` contains `a`, the replacement's first byte) but admitted here,
-/// because the only overlaps - `ac`/`a` and `c`/`ab` - each still carry a disagreeing byte (`c` vs
-/// `a`, and `c` vs `a`). This is sound by the same argument as above; it was never implied by "this
+/// sufficient but not necessary: needle `ac` against replacement `ab` is refused by the old rule
+/// (`ac` contains `a`, the replacement's first byte) but admitted here, because the only overlaps -
+/// `ac`/`b`, `ac`/`ab`, and `c`/`ab` - each still carry a disagreeing byte (`a` vs `b`, `c` vs `b`,
+/// and `c` vs `a`). This is sound by the same argument as above; it was never implied by "this
 /// reduces to the old check," which does not hold.
 ///
 /// Not maximal: an alignment whose overlap is a lone `_` still refuses here even though the `_`

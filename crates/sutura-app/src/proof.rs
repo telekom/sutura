@@ -252,7 +252,7 @@ fn log_barred_characters(definitions: &sutura_domain::catalog::Definitions) {
                 model = %model.name(),
                 column = %column.name(),
                 barred = ?barred,
-                "raw-prefilter barrier: a needle byte at a position overlapping one of these characters may make the search ineligible for the raw prefilter"
+                "raw-prefilter barrier: a needle whose alignment overlap with one of these characters is not forced to disagree may make the search ineligible for the raw prefilter"
             );
         }
     }

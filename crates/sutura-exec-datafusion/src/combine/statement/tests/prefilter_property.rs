@@ -9,6 +9,10 @@
 //! surface: the property under test is the admission rule against an actual regex-driven
 //! redaction, not the planner's statement rewrite, which `text_prefilter.rs`'s own tests already
 //! cover.
+//!
+//! Every call here passes `upper = false, folded = false`: the sweep does not exercise
+//! `preserves`'s uppercasing or case-folding branches. `text_prefilter.rs`'s own tests cover those
+//! through the SQL-rewrite surface instead.
 
 use regex::{NoExpand, Regex};
 
@@ -46,6 +50,14 @@ const RULES: &[Rule] = &[
     Rule {
         pattern: "a*",
         replacement: "y",
+    },
+    Rule {
+        pattern: "^",
+        replacement: "[m]",
+    },
+    Rule {
+        pattern: "b",
+        replacement: "aab",
     },
 ];
 
@@ -166,10 +178,7 @@ fn preserves_refuses_a_lone_underscore_overlap_against_a_zero_width_replacement(
     assert!(!like_contains("ab", "ab_"));
 }
 
-/// The widening counterexample from the review: a pure-literal needle the pre-`_` rule refused
-/// (it shares the replacement's first byte) but `preserves` admits, soundly.
-#[test]
-fn preserves_admits_a_pure_literal_needle_the_old_boundary_byte_rule_refused() {
-    assert!(preserves("ac", "ab", false, false));
-    assert!(preserves("MXY", "MASKED", false, false));
-}
+// The widening counterexample from the review - a pure-literal needle the pre-`_` rule refused but
+// `preserves` admits, soundly - is already measured through the SQL-rewrite surface by
+// `a_pure_literal_needle_sharing_a_boundary_byte_is_admitted_when_every_alignment_still_mismatches`
+// in `tests/text_prefilter.rs`; it is not repeated here.

@@ -90,8 +90,12 @@ granularity LIKE's `_` gives it, without needing the right byte at any of the wi
 **Recommendation:** choose a replacement that starts and ends with a non-alphanumeric, non-`_`
 character (for example `[masked]` rather than `MASKED`). Since an admitted term is ASCII alphanumeric
 or `_` only, such a replacement can never be fully matched by an overlap confined to its boundary
-bytes, which keeps the barrier argument easy to re-check by eye and avoids the lone-`_`-overlap
-refusal above ever being the thing standing between a term and eligibility.
+bytes, which keeps the barrier argument easy to re-check by eye. This only helps an *inner* `_` (not
+at either end of the term) against a replacement of two or more characters. It changes neither of
+the two cases the lone-`_`-overlap rule decides outright: a term with `_` at either end is refused
+against every replacement regardless (that lone `_` is the whole overlap at the boundary alignment
+and can never carry a disagreement), and a one-character replacement refuses a term with `_`
+anywhere in it (every alignment's overlap with a single-byte replacement is exactly that one byte).
 
 The eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's `LIKE` for the
 admitted ASCII-alphanumeric-or-`_` needle, Oracle native CLOB/NCLOB `LIKE` with an optional `UPPER`, and
@@ -192,8 +196,11 @@ matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds f
 needle shape only: ASCII alphanumeric or `_`, no escape. A needle with no `_` makes the pattern a
 plain substring search; a needle that uses `_` relies on ClickHouse's `LIKE` giving `_` the
 one-character (one UTF-8 code point, not one byte) wildcard meaning the barrier proof assumes, which
-it does - the admitted needle's own bytes are all single-byte ASCII, so this distinction only matters
-for the stored text to either side of a match, which the proof never bounds. A column of its pinned schema carries the collation fact `binary` and a column pinned
+it does, because the raw test and the redacted test both run as ClickHouse's own `LIKE`: one engine
+evaluates both sides, so they necessarily agree on what `_` means. That stops holding for a table on
+the MySQL or PostgreSQL engine above, where the raw test can be forwarded to a different engine's own
+`LIKE` while the redacted test still runs locally - exactly the cross-engine agreement left unmeasured
+there. A column of its pinned schema carries the collation fact `binary` and a column pinned
 anything else (unknown or a
 named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
 test reads the stored column qualified by its table, in the form `` `table`.`column` ``: ClickHouse
