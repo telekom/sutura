@@ -5,8 +5,8 @@
 //! several. The assembler is where they stop being several:
 //!
 //! - **Application code in this crate, not an adapter over adapters** - ADR 0011's three reasons
-//!   are recorded on the [`assemble`] function, and this crate is the one that owns the two driving
-//!   ports.
+//!   are recorded on the [`assemble_bounded`] function, and this crate is the one that owns the two
+//!   driving ports.
 //! - **One source may provide a given kind for a given entity.** Two sources defining one metric is
 //!   refused, always, and refused naming both sources - "guessing which wins is how a metric
 //!   silently means something different after a configuration change", which is the exact sentence
