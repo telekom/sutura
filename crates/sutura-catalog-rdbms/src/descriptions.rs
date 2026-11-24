@@ -629,18 +629,28 @@ mod tests {
         );
     }
 
+    // Renamed from description_projection_refuses_duplicate_keys_caps_and_control_characters:
+    // construction no longer validates prose (#2069), so the control-character case moved out
+    // to invalid_prose_for_a_matched_column_refuses_by_default_naming_the_key_not_the_text. What
+    // remains here is duplicate-key and row/byte-cap refusal, unchanged from base.
     #[test]
     fn description_projection_refuses_duplicate_keys_and_caps() {
         let mut repeated = dictionary("public", &[("id", "One")]);
         repeated.tables.extend(dictionary("public", &[("id", "Two")]).tables);
-        assert!(matches!(
-            from_dictionary(&repeated, false),
-            Err(DescriptionError::DuplicateTable { .. })
-        ));
-        assert!(matches!(
-            from_dictionary(&dictionary("public", &[("id", "One"), ("id", "Two")]), false),
-            Err(DescriptionError::Duplicate { .. })
-        ));
+        assert!(
+            matches!(
+                from_dictionary(&repeated, false),
+                Err(DescriptionError::DuplicateTable { .. })
+            ),
+            "a duplicate table key refuses"
+        );
+        assert!(
+            matches!(
+                from_dictionary(&dictionary("public", &[("id", "One"), ("id", "Two")]), false),
+                Err(DescriptionError::Duplicate { .. })
+            ),
+            "a duplicate column key refuses"
+        );
         assert!(matches!(
             DescriptionOverlay::from_dictionary(
                 &dictionary("public", &[("id", "Prose"), ("extra", "Prose")]),
