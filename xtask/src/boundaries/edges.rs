@@ -248,6 +248,16 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     "wit-bindgen",
     "zerocopy",
     "zerocopy-derive",
+    // `catalog::prefilter_eligibility`'s property test is a dev-dependency only (`cargo tree -p
+    // sutura-domain -e normal -i regex` finds nothing): it applies each redaction rule's own regex,
+    // in sequence, to emulate the data system's `regexp_replace` and check the eligibility rule
+    // against what actually happened to the text. Nothing non-test calls a regex engine. Already
+    // resolved transitively in the workspace lock (the root manifest says where), so these four are
+    // a new EDGE, not a new dependency.
+    "aho-corasick",
+    "regex",
+    "regex-automata",
+    "regex-syntax",
 ];
 
 pub(crate) const DOMAIN: &str = "sutura-domain";

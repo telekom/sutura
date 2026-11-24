@@ -30,7 +30,6 @@ mod names;
 mod oracle;
 mod oracle_prefilter;
 mod policy_search;
-mod prefilter_property;
 mod raw_condition;
 #[cfg(test)]
 mod registration;
@@ -319,7 +318,7 @@ fn holding(tables: &[(&str, RecordBatch)]) -> SessionContext {
 /// `statement` with each `ClickHouse` UTF-8 function spelled as the `DataFusion` function it stands
 /// for, so the engine standing in for a source can run text written for `ClickHouse`.
 fn as_datafusion(statement: &str) -> String {
-    super::CHARACTER_FUNCTIONS
+    super::unparse::CHARACTER_FUNCTIONS
         .iter()
         .fold(statement.to_owned(), |text, (plain, utf8)| {
             text.replace(&format!("{utf8}("), &format!("{plain}("))

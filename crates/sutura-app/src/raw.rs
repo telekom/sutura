@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Instant;
 
+use sutura_domain::catalog::PrefilterIneligible;
 use sutura_domain::identity::{
     Agreed, BoundToTheRequest, CredentialBroker, Expiry, PresentedDisagreesWithPosture, RequestContext, SourceSet,
 };
@@ -417,6 +418,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         statement: &RawStatement,
         tables: Option<&BTreeSet<QualifiedTable>>,
         policy: PolicyRead,
+        ineligible: Option<PrefilterIneligible>,
     ) -> LegResult<B::Error>
     where
         W: Warehouse,
@@ -442,7 +444,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         // the same split the port-level `deadline_exceeded` branch below draws.
         if self.deadline.remaining_at(Instant::now()).is_none() {
             return Err(LegStop::Refused(if policy.is_read() {
-                RawRefusalReason::PolicySearchNeedsNarrowing
+                RawRefusalReason::PolicySearchNeedsNarrowing { ineligible }
             } else {
                 RawRefusalReason::DeadlineExceeded { budget_seconds }
             }));
@@ -457,13 +459,13 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         let rows = executed.map_err(|cause| {
             LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
                 if policy == PolicyRead::Locally {
-                    RawRefusalReason::PolicySearchNeedsNarrowing
+                    RawRefusalReason::PolicySearchNeedsNarrowing { ineligible }
                 } else {
                     RawRefusalReason::ResultTooLarge
                 }
             } else if warehouse.deadline_exceeded(&cause) {
                 if policy.is_read() {
-                    RawRefusalReason::PolicySearchNeedsNarrowing
+                    RawRefusalReason::PolicySearchNeedsNarrowing { ineligible }
                 } else {
                     RawRefusalReason::DeadlineExceeded { budget_seconds }
                 }
@@ -475,7 +477,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         })?;
         if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
             return Err(LegStop::Refused(if policy == PolicyRead::Locally {
-                RawRefusalReason::PolicySearchNeedsNarrowing
+                RawRefusalReason::PolicySearchNeedsNarrowing { ineligible }
             } else {
                 RawRefusalReason::TooManyRows { limit: MAX_ROWS }
             }));
@@ -521,7 +523,7 @@ where
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-        self.run_at(source, statement, None, PolicyRead::Unread)
+        self.run_at(source, statement, None, PolicyRead::Unread, None)
     }
 
     fn run_planned(
@@ -530,8 +532,9 @@ where
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
+        ineligible: Option<PrefilterIneligible>,
     ) -> Result<RawRows, Self::Stop> {
-        self.run_at(source, statement, Some(tables), policy)
+        self.run_at(source, statement, Some(tables), policy, ineligible)
     }
 }
 

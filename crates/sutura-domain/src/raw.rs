@@ -27,6 +27,7 @@
 use core::fmt;
 use std::collections::BTreeSet;
 
+use crate::catalog;
 use crate::model::SourceName;
 use crate::source::ExecutedAs;
 
@@ -219,7 +220,15 @@ pub enum RawRefusalReason {
     /// Planning, pre-leg and local-part deadlines retain [`Self::DeadlineExceeded`].
     /// **What it discloses:** a column the caller can already read carries a text policy, and
     /// nothing about that policy.
-    PolicySearchNeedsNarrowing,
+    ///
+    /// `ineligible` names WHY the raw prefilter could not push the search down in the first place -
+    /// [`catalog::eligible`]'s own answer over the same needle and policy, computed before dispatch
+    /// and re-checked after one, never from how long the search ran or what it returned. `None` when
+    /// the pushdown was never attempted because the column resolution path that computes it did not
+    /// run (a projection-only read, or a planning-time refusal before any column is reached).
+    PolicySearchNeedsNarrowing {
+        ineligible: Option<catalog::PrefilterIneligible>,
+    },
 }
 
 impl RawRefusalReason {
@@ -242,7 +251,7 @@ impl RawRefusalReason {
             Self::SourceRefused => "source_refused",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::PlanSpansMoreThanOneSource => "plan_spans_more_than_one_source",
-            Self::PolicySearchNeedsNarrowing => "policy_search_needs_narrowing",
+            Self::PolicySearchNeedsNarrowing { .. } => "policy_search_needs_narrowing",
         }
     }
 }
@@ -272,7 +281,14 @@ impl fmt::Display for RawRefusalReason {
                 f,
                 "the statement reads from more than one data system, and this deployment runs a statement against one"
             ),
-            Self::PolicySearchNeedsNarrowing => write!(
+            Self::PolicySearchNeedsNarrowing {
+                ineligible: Some(reason),
+            } => write!(
+                f,
+                "a statement over a column under a text policy reached a time or source result bound \
+                 ({reason}); add a filter on a column without a policy"
+            ),
+            Self::PolicySearchNeedsNarrowing { ineligible: None } => write!(
                 f,
                 "a statement over a column under a text policy reached a time or source result bound; add a filter on a column without a policy"
             ),
@@ -474,7 +490,7 @@ mod tests {
             RawRefusalReason::SourceRefused,
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
             RawRefusalReason::PlanSpansMoreThanOneSource,
-            RawRefusalReason::PolicySearchNeedsNarrowing,
+            RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None },
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -502,7 +518,7 @@ mod tests {
             "plan_spans_more_than_one_source"
         );
         assert_eq!(
-            RawRefusalReason::PolicySearchNeedsNarrowing.code(),
+            RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None }.code(),
             "policy_search_needs_narrowing"
         );
     }

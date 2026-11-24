@@ -11,11 +11,14 @@ use datafusion::sql::sqlparser::ast::{
     Ident, ObjectName, Query, Select, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value, Visit as _, Visitor,
     WildcardAdditionalOptions,
 };
-use sutura_domain::catalog::{Collation, PrefilterCapability, TextPolicy};
+use sutura_domain::catalog::{self, Collation, PrefilterCapability, TextPolicy};
 use sutura_domain::plan::StatementTable;
 use sutura_domain::warehouse::schema::TypeDialect;
 
 use super::text::raw_column;
+
+/// A found prefilter (or condition) alongside why one was not found, when it was not: never both.
+type Found<T> = Result<(Option<T>, Option<catalog::PrefilterIneligible>)>;
 
 pub(super) struct Prefilter {
     table: String,
@@ -189,12 +192,12 @@ const fn pure_query(query: &Query) -> bool {
         && query.format_clause.is_none()
 }
 
-pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect: TypeDialect) -> Result<Option<Prefilter>> {
+pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect: TypeDialect) -> Found<Prefilter> {
     let Some(capability) = PrefilterCapability::of(dialect) else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let Statement::Query(query) = statement else {
-        return Ok(None);
+        return Ok((None, None));
     };
 
     // The unparser wraps one derived table per plan node it cannot flatten into a single `SELECT`
@@ -211,7 +214,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     let address = loop {
         levels += 1;
         let SetExpr::Select(select) = current.body.as_ref() else {
-            return Ok(None);
+            return Ok((None, None));
         };
         if current.with.is_some()
             || !current.pipe_operators.is_empty()
@@ -220,13 +223,13 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
             || select.prewhere.is_some()
             || !select.connect_by.is_empty()
         {
-            return Ok(None);
+            return Ok((None, None));
         }
         let [from] = select.from.as_slice() else {
-            return Ok(None);
+            return Ok((None, None));
         };
         if !from.joins.is_empty() {
-            return Ok(None);
+            return Ok((None, None));
         }
         let (TableFactor::Table {
             alias: relation_alias, ..
@@ -235,10 +238,10 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
             alias: relation_alias, ..
         }) = &from.relation
         else {
-            return Ok(None);
+            return Ok((None, None));
         };
         if relation_alias.as_ref().is_some_and(|alias| !alias.columns.is_empty()) {
-            return Ok(None);
+            return Ok((None, None));
         }
         // Strictly below the owner: a pure, row-preserving projection, and every name the owner's
         // predicate depends on must still cross unchanged.
@@ -247,13 +250,13 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
                 || !pure_projection(select)
                 || owner_names.iter().any(|name| !passes_through(name, &select.projection)))
         {
-            return Ok(None);
+            return Ok((None, None));
         }
         if let Some(selection) = &select.selection {
             if owner.is_some() {
                 // More than one level filters: not the benign unparser-wrapping shape this walk
                 // recognizes, and scope across two independent predicates is unknown.
-                return Ok(None);
+                return Ok((None, None));
             }
             let mut names = ColumnNames::default();
             let _never_breaks = selection.visit(&mut names);
@@ -278,7 +281,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
                 ..
             } => {
                 if !with_hints.is_empty() || !partitions.is_empty() || !index_hints.is_empty() {
-                    return Ok(None);
+                    return Ok((None, None));
                 }
                 let Some(path) = name
                     .0
@@ -286,7 +289,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
                     .map(|part| part.as_ident().map(|part| part.value.as_str()))
                     .collect::<Option<Vec<_>>>()
                 else {
-                    return Ok(None);
+                    return Ok((None, None));
                 };
                 break path.join(".");
             }
@@ -296,16 +299,16 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
                 sample: None,
                 ..
             } => current = subquery.as_ref(),
-            _ => return Ok(None),
+            _ => return Ok((None, None)),
         }
     };
 
     let mut matching = tables.iter().filter(|table| table.table().to_string() == address);
     let Some(table) = matching.next() else {
-        return Ok(None);
+        return Ok((None, None));
     };
     if matching.next().is_some() {
-        return Ok(None);
+        return Ok((None, None));
     }
     let Some(Owner {
         selection,
@@ -313,7 +316,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
         alias,
     }) = owner
     else {
-        return Ok(None);
+        return Ok((None, None));
     };
     // Any `Query` node anywhere in the statement besides the ones the chain walk above itself
     // stepped through - a correlated subquery, a UNION, a CTE - is unknown, as is a collation
@@ -321,7 +324,7 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     // exactly, not merely stay under it; see `Scope`'s own doc for why a bound alone is not enough.
     let mut scope = Scope::default();
     if statement.visit(&mut scope).is_break() || scope.queries != levels {
-        return Ok(None);
+        return Ok((None, None));
     }
     let aliases = projection
         .iter()
@@ -333,28 +336,38 @@ pub(super) fn discover(statement: &Statement, tables: &[StatementTable], dialect
     let mut terms = Vec::new();
     conjuncts(selection, &mut terms);
     let mut chosen = None;
+    let mut ineligible = None;
     for (index, term) in terms.iter().enumerate() {
-        if let Some(condition) = condition(term, table, alias, &aliases, (dialect, capability))? {
-            chosen = Some((index, condition));
+        let (found, reason) = condition(term, table, alias, &aliases, (dialect, capability))?;
+        if let Some(found) = found {
+            chosen = Some((index, found));
             break;
         }
+        // The first conjunct's own reason, not the last - a later sibling's shape mismatch is not
+        // why the search as a whole could not push down.
+        ineligible = ineligible.or(reason);
     }
     let Some((chosen, condition)) = chosen else {
-        return Ok(None);
+        return Ok((None, ineligible));
     };
     // The source may test the raw text before any sibling, so a sibling that can raise on one row
-    // would turn "error or empty answer" into a signal about that row's unredacted text.
+    // would turn "error or empty answer" into a signal about that row's unredacted text. This is a
+    // SQL-shape refusal, not a [`PrefilterIneligible`] one - the chosen conjunct's own needle and
+    // policy agreed, so no domain reason names it.
     if terms
         .iter()
         .enumerate()
         .any(|(index, term)| index != chosen && !cannot_raise(term, table, alias, &aliases, capability))
     {
-        return Ok(None);
+        return Ok((None, None));
     }
-    Ok(Some(Prefilter {
-        table: address,
-        condition,
-    }))
+    Ok((
+        Some(Prefilter {
+            table: address,
+            condition,
+        }),
+        None,
+    ))
 }
 
 fn conjuncts<'a>(expression: &'a Expr, terms: &mut Vec<&'a Expr>) {
@@ -493,7 +506,7 @@ fn condition(
     alias: Option<&Ident>,
     aliases: &[&str],
     (dialect, capability): (TypeDialect, PrefilterCapability),
-) -> Result<Option<Expr>> {
+) -> Found<Expr> {
     let Expr::Like {
         negated: false,
         any: false,
@@ -502,30 +515,29 @@ fn condition(
         escape_char: None,
     } = term
     else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let Expr::Value(value) = pattern.as_ref() else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let Value::SingleQuotedString(pattern) = &value.value else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let Some(needle) = pattern.strip_prefix('%').and_then(|text| text.strip_suffix('%')) else {
-        return Ok(None);
+        return Ok((None, None));
     };
     // `_` is LIKE's own single-char wildcard (one character, not one byte - see the ClickHouse
     // paragraph in docs/raw-text-search.md for the one engine measured), so the same needle sent as
     // the raw condition matches one real character wherever it matches one redacted character - a
     // `_` position can never itself be the reason a redacted match has no raw counterpart.
-    // `preserves` carries the rest of the soundness argument, over every needle this admits,
-    // literal or not: every position still has to defeat every possible replacement alignment.
-    if needle.is_empty() || needle.len() > 128 || !needle.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-        return Ok(None);
-    }
+    // The needle/policy eligibility rule itself - length and alphabet, whether a raw prefilter is
+    // declared at all, and whether the needle agrees with any redaction's replacement or the
+    // truncation marker - is `catalog::eligible`, a pure function of query and config that lives in
+    // the domain; checked once, below, once the policy, folding and LOB-ness it needs are all in hand.
     let (input, upper) = match expr.as_ref() {
         Expr::Function(function) if capability == PrefilterCapability::Oracle => {
             let [name] = function.name.0.as_slice() else {
-                return Ok(None);
+                return Ok((None, None));
             };
             if !name.as_ident().is_some_and(|name| name.value.eq_ignore_ascii_case("upper"))
                 || function.uses_odbc_syntax
@@ -535,60 +547,52 @@ fn condition(
                 || function.over.is_some()
                 || !function.within_group.is_empty()
             {
-                return Ok(None);
+                return Ok((None, None));
             }
             let FunctionArguments::List(arguments) = &function.args else {
-                return Ok(None);
+                return Ok((None, None));
             };
             let [FunctionArg::Unnamed(FunctionArgExpr::Expr(input))] = arguments.args.as_slice() else {
-                return Ok(None);
+                return Ok((None, None));
             };
             if arguments.duplicate_treatment.is_some() || !arguments.clauses.is_empty() {
-                return Ok(None);
+                return Ok((None, None));
             }
             (input, true)
         }
         other => (other, false),
     };
     let Some(column) = column_of(input, table, alias) else {
-        return Ok(None);
+        return Ok((None, None));
     };
     if aliases.contains(&column.value.as_str()) {
-        return Ok(None);
+        return Ok((None, None));
     }
     let Ok(field) = table.schema().field_with_name(&column.value) else {
-        return Ok(None);
+        return Ok((None, None));
     };
     if !capability.admits(&Collation::of_field(field)) {
-        return Ok(None);
+        return Ok((None, None));
     }
     let Some(encoded) = field.metadata().get("sutura:text_policy") else {
-        return Ok(None);
+        return Ok((None, None));
     };
     let policy: TextPolicy =
         serde_json::from_str(encoded).map_err(|cause| plan_datafusion_err!("invalid pinned text policy: {cause}"))?;
-    if policy.raw_prefilter().is_none() || policy.redactions().is_empty() {
-        return Ok(None);
-    }
     let lob = field
         .metadata()
         .get("sutura:oracle_lob")
         .is_some_and(|kind| matches!(kind.as_str(), "clob" | "nclob"));
     if capability == PrefilterCapability::Oracle && !lob {
-        return Ok(None);
+        return Ok((None, None));
     }
     // A wrong authored binary pin must not let case folding create a replacement match.
     let folded = capability == PrefilterCapability::DuckDb;
-    if !policy
-        .redactions()
-        .iter()
-        .all(|rule| preserves(needle, rule.replacement(), upper, folded))
-        || (!lob && policy.max_text_bytes().is_some() && !preserves(needle, "...[truncated]", upper, folded))
-    {
-        return Ok(None);
+    if let Err(reason) = catalog::eligible(needle, &policy, upper, folded, lob) {
+        return Ok((None, Some(reason)));
     }
     let column = raw_column(dialect, table.table().name().as_str(), field.name());
-    Ok(Some(raw_condition(capability, column, needle, upper)))
+    Ok((Some(raw_condition(capability, column, needle, upper)), None))
 }
 
 fn string(value: &str) -> Expr {
@@ -669,69 +673,4 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
             }
         }
     }
-}
-
-/// No needle occurrence may be *forced to exist* by the replacement alone.
-///
-/// Slide the needle (as a `_`-wildcard pattern) over the replacement at every alignment that shares
-/// at least one byte with it - call that shared span the overlap. Outside the overlap sits text this
-/// function knows nothing about (real, unredacted bytes to either side), so soundness needs every
-/// alignment where the *overlap itself* cannot already force a mismatch to be refused: otherwise an
-/// adjacent, unconstrained byte could complete a match that the replacement's own fixed characters
-/// did not. A `_` at an overlap position never forces a mismatch (it is LIKE's own wildcard, so it
-/// agrees with anything), but a literal needle byte that differs from the replacement's byte there
-/// still blocks that whole alignment.
-///
-/// **This widens eligibility beyond the pre-`_` rule even for a needle with no `_` in it.** The old
-/// rule refused whenever the needle contained the replacement's first or last byte, which is
-/// sufficient but not necessary: needle `ac` against replacement `ab` shares no substring with it and
-/// is refused by the old rule (`ac` contains `a`, the replacement's first byte) but admitted here,
-/// because the only overlaps - `ac`/`a` and `c`/`ab` - each still carry a disagreeing byte (`c` vs
-/// `a`, and `c` vs `a`). This is sound by the same argument as above; it was never implied by "this
-/// reduces to the old check," which does not hold.
-///
-/// Not maximal: an alignment whose overlap is a lone `_` still refuses here even though the `_`
-/// itself cannot force a mismatch, because leaving it admitted would require checking that no
-/// *redaction rule* can itself produce a zero-width match that shifts the alignment - a replacement
-/// rule built from a regex that matches an empty string (`$`, `^`, `a*`, a lookaround) inserts its
-/// replacement without consuming any raw text, so the same needle can be unsound against such a rule
-/// even where every overlap carries only `_`. Refusing every lone-`_` overlap, rather than proving
-/// each redaction rule's pattern cannot match empty, is the cheaper and safe choice.
-///
-/// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
-///
-/// `pub(super)`, not `pub`: `combine::statement::tests::prefilter_property` is the only caller
-/// outside this module, and it reaches in at that visibility rather than through `condition`'s
-/// SQL-rewrite surface, because what it checks is this function's own admission rule against an
-/// actual regex-driven redaction, not the planner's rewrite of a statement.
-pub(super) fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
-    if replacement.is_empty() || !replacement.is_ascii() {
-        return false;
-    }
-    let normalized = if upper {
-        replacement.to_ascii_uppercase()
-    } else {
-        String::from(replacement)
-    };
-    let (needle, normalized) = if folded {
-        (needle.to_ascii_lowercase(), normalized.to_ascii_lowercase())
-    } else {
-        (String::from(needle), normalized)
-    };
-    let needle = needle.as_bytes();
-    let replacement = normalized.as_bytes();
-    // Every alignment with a nonempty overlap, as a pair of tails zipped together (the shorter one
-    // bounds the overlap): either the replacement starts `skip` bytes before needle[0], so the
-    // overlap is `replacement[skip..]` against the whole needle, or it starts `skip` bytes into the
-    // needle, so the overlap is the whole replacement against `needle[skip..]`. `.get` turns every
-    // index into a bounds check rather than a potential panic, though `skip` never runs past either
-    // slice's length here.
-    let leading = (1..replacement.len()).filter_map(|skip| Some((needle, replacement.get(skip..)?)));
-    let trailing = (0..needle.len()).filter_map(|skip| Some((needle.get(skip..)?, replacement)));
-    leading.chain(trailing).all(|(needle_tail, replacement_tail)| {
-        needle_tail
-            .iter()
-            .zip(replacement_tail)
-            .any(|(&needle_byte, &replacement_byte)| needle_byte != b'_' && needle_byte != replacement_byte)
-    })
 }

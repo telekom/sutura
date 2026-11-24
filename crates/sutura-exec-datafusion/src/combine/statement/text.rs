@@ -425,13 +425,17 @@ pub(super) fn protected(table: &StatementTable) -> bool {
     table.schema().fields().iter().any(|field| field.metadata().contains_key(KEY))
 }
 
-pub(super) fn apply_to(statement: &mut Statement, tables: &[StatementTable], dialect: TypeDialect) -> Result<()> {
+pub(super) fn apply_to(
+    statement: &mut Statement,
+    tables: &[StatementTable],
+    dialect: TypeDialect,
+) -> Result<Option<sutura_domain::catalog::PrefilterIneligible>> {
     rewrite(statement, tables, dialect, true)
 }
 
 /// The Cube local policy path: Cube is not an eligible comparison arm, so it keeps the redacted-only plan.
 pub(super) fn cube_local_to(statement: &mut Statement, tables: &[StatementTable]) -> Result<()> {
-    rewrite(statement, tables, TypeDialect::DataFusion, false)
+    rewrite(statement, tables, TypeDialect::DataFusion, false).map(|_ineligible| ())
 }
 
 /// `text` through [`apply_to`], its literals written for `dialect`: the policy cells' entry.
@@ -441,7 +445,9 @@ pub(super) fn cube_local_to(statement: &mut Statement, tables: &[StatementTable]
     reason = "the policy cells pass the text as the production entry once took it"
 )]
 pub(super) fn apply(text: String, tables: &[StatementTable], dialect: TypeDialect) -> Result<String> {
-    on_text(&text, dialect, |statement| apply_to(statement, tables, dialect))
+    on_text(&text, dialect, |statement| {
+        apply_to(statement, tables, dialect).map(|_ineligible| ())
+    })
 }
 
 /// `text` through [`cube_local_to`]: the policy cells' entry.
@@ -464,14 +470,19 @@ fn on_text(text: &str, dialect: TypeDialect, policed: impl FnOnce(&mut Statement
     spelled(statement, dialect)
 }
 
-fn rewrite(statement: &mut Statement, tables: &[StatementTable], dialect: TypeDialect, prefiltering: bool) -> Result<()> {
+fn rewrite(
+    statement: &mut Statement,
+    tables: &[StatementTable],
+    dialect: TypeDialect,
+    prefiltering: bool,
+) -> Result<Option<sutura_domain::catalog::PrefilterIneligible>> {
     if !tables.iter().any(protected) {
-        return Ok(());
+        return Ok(None);
     }
-    let prefilter = if prefiltering {
+    let (prefilter, ineligible) = if prefiltering {
         super::text_prefilter::discover(statement, tables, dialect)?
     } else {
-        None
+        (None, None)
     };
     if let ControlFlow::Break(cause) = statement.visit(&mut Views {
         tables,
@@ -480,7 +491,7 @@ fn rewrite(statement: &mut Statement, tables: &[StatementTable], dialect: TypeDi
     }) {
         return Err(cause);
     }
-    Ok(())
+    Ok(ineligible)
 }
 
 struct Views<'a> {

@@ -62,6 +62,7 @@ impl StatementLegs for Native<'_> {
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
         _policy: PolicyRead,
+        _ineligible: Option<sutura_domain::catalog::PrefilterIneligible>,
     ) -> Result<RawRows, Self::Stop> {
         if source != &self::source() {
             return Err(NativeStop::Source {

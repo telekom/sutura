@@ -74,7 +74,7 @@ fn a_planned_only_adapter_receives_scan_tables_but_cannot_receive_passthrough_te
     legs.open(&BTreeSet::from([source()])).expect("the broker answers");
     let tables = BTreeSet::from([QualifiedTable::parse("orders").expect("a table")]);
     assert_eq!(
-        legs.run_planned(&source(), &text, &tables, PolicyRead::Unread)
+        legs.run_planned(&source(), &text, &tables, PolicyRead::Unread, None)
             .expect("planned path answers")
             .rows()
             .len(),

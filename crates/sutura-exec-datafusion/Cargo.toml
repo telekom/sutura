@@ -97,11 +97,6 @@ bzip2 = { workspace = true }
 # The localhost nodes `combine::tests::across` serves a worker on, and the layer that counts what
 # each one is sent. `tonic` is already a dependency of the workspace's Flight transports.
 tonic = { workspace = true }
-# The raw-prefilter soundness property test (`combine/statement/tests/prefilter_property.rs`) applies
-# each redaction's own regex, in sequence, to emulate the data system's `regexp_replace`. Already in
-# the graph via `adbc_driver_manager` (`sutura-exec-bigquery`'s own dev-dependencies), so this is a
-# new edge, not a new crate.
-regex = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
 # The node authorities those nodes' certificates are signed by.
 rcgen = { workspace = true }

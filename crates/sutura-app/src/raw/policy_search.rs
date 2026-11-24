@@ -4,6 +4,7 @@
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
+use sutura_domain::catalog::PrefilterIneligible;
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::federated::{FederatedAnswerRefusal, FederatedPlan, Legs};
@@ -86,8 +87,19 @@ impl Warehouse for Planned {
     }
 }
 
-/// What the combiner says of the one leg it plans: whether it reads a policy column.
-struct Combiner(PolicyRead);
+/// What the combiner says of the one leg it plans: whether it reads a policy column, and why the
+/// raw prefilter could not push the search down (if it ever tried).
+struct Combiner(PolicyRead, Option<PrefilterIneligible>);
+
+impl Combiner {
+    fn new(read: PolicyRead) -> Self {
+        Self(read, None)
+    }
+
+    fn with_ineligible(read: PolicyRead, ineligible: PrefilterIneligible) -> Self {
+        Self(read, Some(ineligible))
+    }
+}
 
 impl FederationCombiner for Combiner {
     type Error = core::fmt::Error;
@@ -118,12 +130,16 @@ impl FederationCombiner for Combiner {
     {
         let ran = legs
             .open(&BTreeSet::from([source()]))
-            .and_then(|()| legs.run_planned(&source(), question.statement(), &BTreeSet::new(), self.0));
+            .and_then(|()| legs.run_planned(&source(), question.statement(), &BTreeSet::new(), self.0, self.1));
         Some(ran.map_err(StatementStopped::Leg))
     }
 }
 
 fn refused(read: PolicyRead, ends: Ends) -> RawRefusalReason {
+    refused_with(&Combiner::new(read), ends)
+}
+
+fn refused_with(combiner: &Combiner, ends: Ends) -> RawRefusalReason {
     let warehouses = Warehouses::of(Planned {
         inner: RawCapableWarehouse::answering_rows(source(), shared(), 0),
         ends,
@@ -137,7 +153,7 @@ fn refused(read: PolicyRead, ends: Ends) -> RawRefusalReason {
         &statement,
         &CountingBroker::default(),
         &warehouses,
-        &Combiner(read),
+        combiner,
         &scope,
         1 << 20,
         test_deadline(),
@@ -165,11 +181,30 @@ fn a_leg_past_its_deadline_is_named_wherever_it_read_a_policy_column() {
     for read in [PolicyRead::AtSource, PolicyRead::Locally] {
         assert_eq!(
             refused(read, Ends::TimedOut),
-            RawRefusalReason::PolicySearchNeedsNarrowing,
+            RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None },
             "{read:?}"
         );
     }
     assert_eq!(refused(PolicyRead::Unread, Ends::TimedOut), deadline_exceeded());
+}
+
+/// A policy search that timed out after dispatch carries WHY the raw prefilter could not push it
+/// down - the same [`PrefilterIneligible`] value `catalog::eligible` computed over the needle and
+/// the column's policy, not read back from how long the leg ran or what it returned.
+#[test]
+fn a_leg_past_its_deadline_names_why_the_prefilter_could_not_push_it_down() {
+    for read in [PolicyRead::AtSource, PolicyRead::Locally] {
+        assert_eq!(
+            refused_with(
+                &Combiner::with_ineligible(read, PrefilterIneligible::NotDeclared),
+                Ends::TimedOut
+            ),
+            RawRefusalReason::PolicySearchNeedsNarrowing {
+                ineligible: Some(PrefilterIneligible::NotDeclared)
+            },
+            "{read:?}"
+        );
+    }
 }
 
 /// Only Cube's local policy names a size refusal: the cap counts input rows before local filtering.
@@ -178,7 +213,7 @@ fn a_size_refusal_is_named_only_where_the_policy_runs_after_the_leg() {
     for ends in [Ends::TooMuchData, Ends::Rows(past_the_cap())] {
         assert_eq!(
             refused(PolicyRead::Locally, ends),
-            RawRefusalReason::PolicySearchNeedsNarrowing
+            RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None }
         );
     }
     for read in [PolicyRead::Unread, PolicyRead::AtSource] {
@@ -214,7 +249,7 @@ fn refused_already_out_of_time(read: PolicyRead) -> RawRefusalReason {
         &statement,
         &CountingBroker::default(),
         &warehouses,
-        &Combiner(read),
+        &Combiner::new(read),
         &scope,
         1 << 20,
         spent,
@@ -234,7 +269,7 @@ fn a_leg_already_out_of_time_before_it_runs_is_named_wherever_it_reads_a_policy_
     for read in [PolicyRead::AtSource, PolicyRead::Locally] {
         assert_eq!(
             refused_already_out_of_time(read),
-            RawRefusalReason::PolicySearchNeedsNarrowing,
+            RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None },
             "{read:?}"
         );
     }
@@ -309,7 +344,7 @@ fn a_genuine_source_refusal_over_a_policy_column_stays_source_failed() {
         &statement,
         &CountingBroker::default(),
         &warehouses,
-        &Combiner(PolicyRead::AtSource),
+        &Combiner::new(PolicyRead::AtSource),
         &scope,
         1 << 20,
         test_deadline(),
