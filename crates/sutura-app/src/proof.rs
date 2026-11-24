@@ -162,6 +162,7 @@ where
     W: Warehouse,
 {
     let schemas = pin_schemas(&pinned, warehouses)?;
+    log_barred_characters(pinned.definitions());
     validate_with(pinned, schemas, warehouses)
 }
 
@@ -226,4 +227,33 @@ where
         .map(|(source, _)| source.clone())
         .collect();
     PinnedSchemas::pin_with_unbounded_numbers(pinned.definitions(), &dialects, &numbers)
+}
+
+/// Per column that opted into the raw prefilter, the ASCII bytes any of its redactions' replacements
+/// contain - the bytes a raw prefilter needle cannot carry, per the barrier proof in
+/// `text_prefilter::preserves` (`sutura-exec-datafusion`), at a position that could overlap one of
+/// them, without risking ineligibility. Logged once, at load: `pin_schemas` also runs on every
+/// refresh, and a replacement an operator is actively iterating on would otherwise log repeatedly for
+/// no new information. The replacement text itself is config, not a secret, so logging it (or its
+/// byte set) leaks nothing a definitions review would not already show.
+fn log_barred_characters(definitions: &sutura_domain::catalog::Definitions) {
+    for model in definitions.models().values() {
+        for column in model.columns() {
+            let policy = column.text_policy();
+            if policy.raw_prefilter().is_none() {
+                continue;
+            }
+            let barred: std::collections::BTreeSet<char> = policy
+                .redactions()
+                .iter()
+                .flat_map(|rule| rule.replacement().chars())
+                .collect();
+            tracing::info!(
+                model = %model.name(),
+                column = %column.name(),
+                barred = ?barred,
+                "raw-prefilter barrier: a needle whose alignment overlap with one of these characters is not forced to disagree may make the search ineligible for the raw prefilter"
+            );
+        }
+    }
 }
