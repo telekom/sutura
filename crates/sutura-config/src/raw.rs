@@ -766,6 +766,16 @@ pub(crate) struct RawCatalog {
     pub(crate) exclude_types: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) column_rules: Option<Vec<crate::catalog::RawColumnRule>>,
+    /// Native selection only: what to do with a column whose native type has no exact supported
+    /// mapping. Absent stays `refuse`, the behaviour before this key existed - `omit` drops the
+    /// column (logged) instead of refusing the whole catalog. `telekom/sutura#2070`.
+    #[serde(default)]
+    pub(crate) on_unsupported_column: Option<String>,
+    /// Native selection only: what to do with a table left with no included column after exclusion
+    /// and `on_unsupported_column` have run. Absent stays `refuse` - `omit` drops the table (logged).
+    /// `telekom/sutura#2070`.
+    #[serde(default)]
+    pub(crate) on_empty_table: Option<String>,
     /// The catalog's OWN read-only connection - never borrowed from a `sources:` entry, because a
     /// catalog read has no caller to run as.
     #[serde(default)]

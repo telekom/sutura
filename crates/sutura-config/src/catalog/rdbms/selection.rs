@@ -1,7 +1,7 @@
 //! Native dictionary selection and text policy declarations.
 
 use super::{DictionarySelection, InvalidRdbmsCatalog, RawCatalog};
-use sutura_domain::catalog::{DictionaryInclude, DictionaryPattern};
+use sutura_domain::catalog::{DictionaryInclude, DictionaryPattern, EmptyTablePolicy, UnsupportedColumnPolicy};
 
 pub(super) fn native_selection(raw: &RawCatalog) -> Result<DictionarySelection, InvalidRdbmsCatalog> {
     let pattern = |text: &str| DictionaryPattern::parse(text).map_err(|cause| InvalidRdbmsCatalog::Pattern { cause });
@@ -39,9 +39,26 @@ pub(super) fn native_selection(raw: &RawCatalog) -> Result<DictionarySelection, 
             Ok((pattern(&rule.column)?, policy))
         })
         .collect::<Result<Vec<_>, InvalidRdbmsCatalog>>()?;
+    let on_unsupported_column = raw
+        .on_unsupported_column
+        .as_deref()
+        .map(|written| UnsupportedColumnPolicy::parse(written).ok_or(InvalidRdbmsCatalog::UnsupportedColumnPolicy))
+        .transpose()?
+        .unwrap_or_default();
+    let on_empty_table = raw
+        .on_empty_table
+        .as_deref()
+        .map(|written| EmptyTablePolicy::parse(written).ok_or(InvalidRdbmsCatalog::EmptyTablePolicy))
+        .transpose()?
+        .unwrap_or_default();
     selected
         .with_text_rules(rules)
         .map_err(|cause| InvalidRdbmsCatalog::Selection { cause })
+        .map(|selected| {
+            selected
+                .with_unsupported_column_policy(on_unsupported_column)
+                .with_empty_table_policy(on_empty_table)
+        })
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

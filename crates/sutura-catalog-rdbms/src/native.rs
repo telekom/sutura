@@ -2,7 +2,7 @@
 
 use crate::{Dictionary, RdbmsCatalog, RdbmsError};
 use std::collections::BTreeMap;
-use sutura_domain::catalog::{ColumnType, DictionarySelection, Model};
+use sutura_domain::catalog::{ColumnType, DictionarySelection, EmptyTablePolicy, Model, UnsupportedColumnPolicy};
 use sutura_domain::model::{ColumnName, QualifiedTable, SourceName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::warehouse::schema::TypeDialect;
@@ -10,19 +10,86 @@ use sutura_domain::warehouse::schema::TypeDialect;
 #[cfg(feature = "live")]
 pub(crate) mod sql;
 
+/// One native column refused for carrying no exact supported mapping. Named in full, with its
+/// table, so a single refusal can tell an operator every offending column at once rather than one
+/// per restart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedColumn {
+    table: String,
+    column: String,
+    data_type: String,
+}
+
+impl UnsupportedColumn {
+    #[must_use]
+    pub fn table(&self) -> &str {
+        &self.table
+    }
+    #[must_use]
+    pub fn column(&self) -> &str {
+        &self.column
+    }
+    #[must_use]
+    pub fn data_type(&self) -> &str {
+        &self.data_type
+    }
+}
+
+impl std::fmt::Display for UnsupportedColumn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}.{} has no exact supported mapping for {}",
+            self.table, self.column, self.data_type
+        )
+    }
+}
+
+/// How many offending columns or tables a refusal message names before it switches to a count. A
+/// misconfigured catalog over a large dictionary could otherwise produce an unreadable refusal.
+const REFUSAL_PREVIEW: usize = 20;
+
+fn render_refusal(columns: &[UnsupportedColumn], empty_tables: &[String]) -> String {
+    let mut parts = Vec::new();
+    for column in columns.iter().take(REFUSAL_PREVIEW) {
+        parts.push(column.to_string());
+    }
+    if columns.len() > REFUSAL_PREVIEW {
+        parts.push(format!(
+            "... and {} more unsupported column(s)",
+            columns.len() - REFUSAL_PREVIEW
+        ));
+    }
+    for table in empty_tables.iter().take(REFUSAL_PREVIEW) {
+        parts.push(format!("{table} has no included column"));
+    }
+    if empty_tables.len() > REFUSAL_PREVIEW {
+        parts.push(format!(
+            "... and {} more table(s) with no included column",
+            empty_tables.len() - REFUSAL_PREVIEW
+        ));
+    }
+    parts.join("; ")
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum NativeSelectionError {
     #[error("column {column} matches conflicting text policies")]
     ConflictingTextPolicy { column: String },
     #[error("native include {index} ({schema}, {table}) matches no visible table")]
     UnmatchedInclude { index: usize, schema: String, table: String },
-    #[error("native table {table} has no included column")]
-    NoColumns { table: String },
-    #[error("native column {table}.{column} has no exact supported mapping for {data_type}")]
-    UnsupportedType {
-        table: String,
-        column: String,
-        data_type: String,
+    /// Every unsupported column and every table left with no included column, collected over one
+    /// read rather than refused one at a time across restarts. `columns.len()` and
+    /// `empty_tables.len()` are always stated even when the listed detail is truncated.
+    #[error(
+        "native dictionary refused {} unsupported column(s) and {} table(s) with no included column: {}",
+        columns.len(),
+        empty_tables.len(),
+        render_refusal(columns, empty_tables)
+    )]
+    Unsupported {
+        columns: Vec<UnsupportedColumn>,
+        empty_tables: Vec<String>,
     },
     #[error("composed model {model} on source {source_alias} names table {table} outside its native allowlist")]
     TableExcluded {
@@ -85,6 +152,8 @@ pub(crate) fn select(
 ) -> Result<Dictionary, RdbmsError> {
     let mut matched = vec![false; selection.include().len()];
     let mut tables = Vec::new();
+    let mut unsupported = Vec::new();
+    let mut empty_tables = Vec::new();
     for mut table in dictionary.tables {
         let mut included = false;
         for (matched, include) in matched.iter_mut().zip(selection.include()) {
@@ -146,12 +215,24 @@ pub(crate) fn select(
                 .and_then(|(precision, _)| precision.parse::<u8>().ok())
                 .is_some_and(|precision| precision > 6);
             if !precise || unreadable || timestamp_too_precise {
-                return Err(NativeSelectionError::UnsupportedType {
-                    table: table.address.to_string(),
-                    column: column.clone(),
-                    data_type: native.to_owned(),
+                match selection.on_unsupported_column() {
+                    UnsupportedColumnPolicy::Omit => {
+                        tracing::warn!(
+                            table = %table.address,
+                            column = %column,
+                            native_type = native,
+                            "omitting native column: no exact supported mapping"
+                        );
+                    }
+                    UnsupportedColumnPolicy::Refuse => {
+                        unsupported.push(UnsupportedColumn {
+                            table: table.address.to_string(),
+                            column: column.clone(),
+                            data_type: native.to_owned(),
+                        });
+                    }
                 }
-                .into());
+                continue;
             }
             if let Some(policy) = policy {
                 table.column_metadata.entry(column.clone()).or_default().text = policy.clone();
@@ -159,10 +240,15 @@ pub(crate) fn select(
             columns.push(column.clone());
         }
         if columns.is_empty() {
-            return Err(NativeSelectionError::NoColumns {
-                table: table.address.to_string(),
+            match selection.on_empty_table() {
+                EmptyTablePolicy::Omit => {
+                    tracing::warn!(table = %table.address, "omitting native table: no included column remains");
+                }
+                EmptyTablePolicy::Refuse => {
+                    empty_tables.push(table.address.to_string());
+                }
             }
-            .into());
+            continue;
         }
         table.column_metadata.retain(|column, _| columns.contains(column));
         if table.primary_key.iter().any(|column| !columns.contains(column)) {
@@ -170,6 +256,13 @@ pub(crate) fn select(
         }
         table.columns = columns;
         tables.push(table);
+    }
+    if !unsupported.is_empty() || !empty_tables.is_empty() {
+        return Err(NativeSelectionError::Unsupported {
+            columns: unsupported,
+            empty_tables,
+        }
+        .into());
     }
     for (index, (matched, include)) in matched.iter().zip(selection.include()).enumerate() {
         if !matched {
@@ -243,7 +336,10 @@ mod tests {
     use crate::{
         ColumnMetadata, Dictionary, DictionaryReader, NativeSelectionError, RdbmsCatalog, RdbmsError, Table, TableAddress,
     };
-    use sutura_domain::catalog::{Column, Description, DictionaryInclude, DictionaryPattern, DictionarySelection, Model};
+    use sutura_domain::catalog::{
+        Column, Description, DictionaryInclude, DictionaryPattern, DictionarySelection, EmptyTablePolicy, Model,
+        UnsupportedColumnPolicy,
+    };
     use sutura_domain::model::{ColumnName, ModelName, QualifiedTable, SourceName};
     use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog as _};
     use sutura_domain::warehouse::schema::TypeDialect;
@@ -339,7 +435,7 @@ mod tests {
         assert!(matches!(
             refused,
             RdbmsError::Native {
-                cause: NativeSelectionError::UnsupportedType { .. }
+                cause: NativeSelectionError::Unsupported { .. }
             }
         ));
     }
@@ -364,12 +460,12 @@ mod tests {
                 ) | (
                     "empty",
                     RdbmsError::Native {
-                        cause: NativeSelectionError::NoColumns { .. }
+                        cause: NativeSelectionError::Unsupported { .. }
                     }
                 ) | (
                     "type",
                     RdbmsError::Native {
-                        cause: NativeSelectionError::UnsupportedType { .. }
+                        cause: NativeSelectionError::Unsupported { .. }
                     }
                 )
             ));
@@ -389,7 +485,7 @@ mod tests {
                     Dictionary::new(vec![table("events", &[("value", kind)])], vec![])
                         .native(&selection("events", &[], &[]), TypeDialect::Oracle),
                     Err(RdbmsError::Native {
-                        cause: NativeSelectionError::UnsupportedType { .. }
+                        cause: NativeSelectionError::Unsupported { .. }
                     })
                 ),
                 "{kind}"
@@ -410,7 +506,7 @@ mod tests {
                     Dictionary::new(vec![table("events", &[("value", kind)])], vec![])
                         .native(&selection("events", &[], &[]), TypeDialect::Postgres),
                     Err(RdbmsError::Native {
-                        cause: NativeSelectionError::UnsupportedType { .. }
+                        cause: NativeSelectionError::Unsupported { .. }
                     })
                 ),
                 "{kind}"
@@ -421,6 +517,94 @@ mod tests {
                 .native(&selection("event*", &[], &[]), TypeDialect::Postgres),
             Err(RdbmsError::NoVisibleTables)
         ));
+    }
+
+    #[test]
+    fn native_selection_refuses_with_the_complete_list_in_one_pass() {
+        let error = Dictionary::new(
+            vec![
+                table("events", &[("id", "bigint"), ("a", "real"), ("b", "bytea")]),
+                table("totals", &[("c", "blob")]),
+            ],
+            vec![],
+        )
+        .native(&selection("*", &["c"], &[]), TypeDialect::Postgres)
+        .expect_err("two unsupported columns and one emptied table refuse together");
+        let RdbmsError::Native {
+            cause: NativeSelectionError::Unsupported { columns, empty_tables },
+        } = error
+        else {
+            panic!("expected Unsupported, got {error:?}");
+        };
+        assert_eq!(
+            columns
+                .iter()
+                .map(|column| (column.table(), column.column(), column.data_type()))
+                .collect::<Vec<_>>(),
+            [("public.events", "a", "real"), ("public.events", "b", "bytea")]
+        );
+        assert_eq!(empty_tables, ["public.totals"]);
+    }
+
+    #[test]
+    fn native_selection_omits_an_unsupported_column_instead_of_refusing_when_opted_in() {
+        let selected = Dictionary::new(vec![table("events", &[("id", "bigint"), ("junk", "bytea")])], vec![])
+            .native(
+                &selection("events", &[], &[]).with_unsupported_column_policy(UnsupportedColumnPolicy::Omit),
+                TypeDialect::Postgres,
+            )
+            .expect("an omitted unsupported column no longer refuses the load");
+        let model = &selected.tables()[0];
+        assert_eq!(model.columns(), [String::from("id")]);
+        assert!(model.column_metadata("junk").is_none());
+    }
+
+    #[test]
+    fn native_selection_omits_an_empty_table_instead_of_refusing_when_opted_in() {
+        let selected = Dictionary::new(
+            vec![table("events", &[("id", "bigint")]), table("totals", &[("junk", "bigint")])],
+            vec![],
+        )
+        .native(
+            &selection("*", &["junk"], &[]).with_empty_table_policy(EmptyTablePolicy::Omit),
+            TypeDialect::Postgres,
+        )
+        .expect("a table left with no included column is dropped, not refused");
+        assert_eq!(
+            selected
+                .tables()
+                .iter()
+                .map(|table| table.address().to_string())
+                .collect::<Vec<_>>(),
+            ["public.events"]
+        );
+    }
+
+    #[test]
+    fn native_physical_allowlist_omits_an_unsupported_column_so_a_composed_model_cannot_reintroduce_it() {
+        let catalog = RdbmsCatalog::new(
+            SourceName::parse("dictionary").unwrap(),
+            DefinitionVersion::parse("dict-1").unwrap(),
+            OmittingReader,
+        )
+        .with_source_alias(SourceName::parse("warehouse").unwrap());
+        let (_, allowlist) = catalog.load_with_allowlist().unwrap();
+        let allowlist = allowlist.expect("native reads carry their own effective authority");
+        let refused = allowlist
+            .check_model(&alias("warehouse", "public.events", "junk"))
+            .expect_err("the omitted column is outside the allowlist, exactly like an excluded one");
+        assert!(matches!(refused, NativeSelectionError::ColumnExcluded { .. }));
+    }
+
+    struct OmittingReader;
+
+    impl DictionaryReader for OmittingReader {
+        fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
+            Dictionary::new(vec![table("events", &[("id", "bigint"), ("junk", "bytea")])], vec![]).native(
+                &selection("events", &[], &[]).with_unsupported_column_policy(UnsupportedColumnPolicy::Omit),
+                TypeDialect::Postgres,
+            )
+        }
     }
 
     fn alias(source: &str, address: &str, column: &str) -> Model {

@@ -89,6 +89,66 @@ impl DictionaryInclude {
     }
 }
 
+/// What native selection does with a column whose native type has no exact supported mapping.
+///
+/// `Refuse` is the default: the exact prior behaviour, so a catalog with no `on_unsupported_column`
+/// key still refuses the load over such a column. `Omit` is the opt-in `telekom/sutura#2070` asks
+/// for: the column is dropped - not served, not listed by `describe_catalog`, exactly like a column
+/// an exclusion pattern already removes - and the drop is logged rather than silent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnsupportedColumnPolicy {
+    #[default]
+    Refuse,
+    Omit,
+}
+
+impl UnsupportedColumnPolicy {
+    const ALL: [Self; 2] = [Self::Refuse, Self::Omit];
+
+    pub fn parse(written: &str) -> Option<Self> {
+        let written = written.trim();
+        Self::ALL.into_iter().find(|policy| policy.as_str() == written)
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Omit => "omit",
+        }
+    }
+}
+
+/// What native selection does with a table left with no included column.
+///
+/// Every one of its columns is excluded, type-omitted or otherwise unselected - for example an
+/// invalid view whose every column reads an unsupported native type. `Refuse` is the default,
+/// unchanged from before this policy existed. `Omit` drops the table (logged) instead of refusing
+/// the whole catalog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EmptyTablePolicy {
+    #[default]
+    Refuse,
+    Omit,
+}
+
+impl EmptyTablePolicy {
+    const ALL: [Self; 2] = [Self::Refuse, Self::Omit];
+
+    pub fn parse(written: &str) -> Option<Self> {
+        let written = written.trim();
+        Self::ALL.into_iter().find(|policy| policy.as_str() == written)
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "refuse",
+            Self::Omit => "omit",
+        }
+    }
+}
+
 /// Native dictionary selection. Counts bound matching work independently of metadata read bounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DictionarySelection {
@@ -97,6 +157,8 @@ pub struct DictionarySelection {
     exclude_columns: Vec<DictionaryPattern>,
     exclude_types: Vec<DictionaryPattern>,
     text_rules: Vec<(DictionaryPattern, super::TextPolicy)>,
+    on_unsupported_column: UnsupportedColumnPolicy,
+    on_empty_table: EmptyTablePolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -128,6 +190,8 @@ impl DictionarySelection {
             exclude_columns,
             exclude_types,
             text_rules: Vec::new(),
+            on_unsupported_column: UnsupportedColumnPolicy::default(),
+            on_empty_table: EmptyTablePolicy::default(),
         })
     }
     pub fn with_text_rules(
@@ -140,8 +204,26 @@ impl DictionarySelection {
         self.text_rules = rules;
         Ok(self)
     }
+    #[must_use]
+    pub const fn with_unsupported_column_policy(mut self, policy: UnsupportedColumnPolicy) -> Self {
+        self.on_unsupported_column = policy;
+        self
+    }
+    #[must_use]
+    pub const fn with_empty_table_policy(mut self, policy: EmptyTablePolicy) -> Self {
+        self.on_empty_table = policy;
+        self
+    }
     pub fn text_rules(&self) -> &[(DictionaryPattern, super::TextPolicy)] {
         &self.text_rules
+    }
+    #[must_use]
+    pub const fn on_unsupported_column(&self) -> UnsupportedColumnPolicy {
+        self.on_unsupported_column
+    }
+    #[must_use]
+    pub const fn on_empty_table(&self) -> EmptyTablePolicy {
+        self.on_empty_table
     }
     pub fn include(&self) -> &[DictionaryInclude] {
         &self.include

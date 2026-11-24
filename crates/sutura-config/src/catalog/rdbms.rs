@@ -81,6 +81,8 @@ impl RdbmsSettings {
                     || raw.exclude_columns.is_some()
                     || raw.exclude_types.is_some()
                     || raw.column_rules.is_some()
+                    || raw.on_unsupported_column.is_some()
+                    || raw.on_empty_table.is_some()
                 {
                     return Err(InvalidRdbmsCatalog::NativeKeysOnView);
                 }
