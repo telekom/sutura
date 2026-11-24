@@ -10,10 +10,13 @@ use arrow_schema::{DataType, Field, Schema};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::{Presented, Secret};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
-use sutura_domain::plan::{Executable, PlanBindings, PlanBucket, PlanColumn, PlanMeasure, PlanTerm, QueryPlan, ResultLabel};
+use sutura_domain::plan::{
+    Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin,
+    QueryPlan, ResultLabel,
+};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{ResultBudget, Warehouse};
+use sutura_domain::warehouse::{ParamValue, ResultBudget, Warehouse};
 
 use super::{FoundryError, FoundryTransport, FoundryWarehouse, OntologyIdentifier, SqlRequest};
 
@@ -116,7 +119,30 @@ fn plan() -> QueryPlan {
             },
         },
         ResultLabel::measure(&metric),
-        PlanBindings::none(),
+        // The generator renders no statement without the time range's own two predicates.
+        PlanBindings::parse(
+            vec![
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::AtOrAfter {
+                        column: column("order_date"),
+                        param: 0,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::Before {
+                        column: column("order_date"),
+                        param: 1,
+                    },
+                ),
+            ],
+            vec![
+                ParamValue::Date(Date::new(2026, 6, 1).expect("the date parses")),
+                ParamValue::Date(Date::new(2026, 7, 1).expect("the date parses")),
+            ],
+        )
+        .expect("the bindings parse"),
         june,
     )
 }
