@@ -114,13 +114,10 @@ fn rewrite_sort_expr_for_union(exprs: Vec<SortExpr>) -> Result<Vec<SortExpr>> {
 /// The fold is narrowed to the exact four-level shape `Projection -> Filter ->
 /// Projection(rename) -> Aggregate`, matched structurally wherever it occurs - the `Filter`'s
 /// immediate parent must itself be a `Projection` (the statement's own select list, or, inside a
-/// `Union`, a branch's own), never a mere ancestor further up. An earlier version instead
-/// threaded a "some `Projection` was seen higher up" flag down the whole plan, which let a
-/// `Union` branch's own `HAVING` rename get folded on the strength of a `Projection` elsewhere
-/// in the tree - at best a no-op, at worst a positional column swap between branches once their
-/// shapes diverged. Requiring the direct-parent `Projection` removes that: the fold only ever
-/// fires where a select list already sits right above the `Filter`, so it can never apply to,
-/// or be enabled by, a `Projection` outside that `Filter`'s own subtree. Outside this exact
+/// `Union`, a branch's own), never a mere ancestor further up. Requiring the direct-parent
+/// `Projection` means the fold only ever fires where a select list already sits right above the
+/// `Filter`, so it can never apply to, or be enabled by, a `Projection` outside that `Filter`'s
+/// own subtree - in particular, never across a `Union` branch boundary. Outside this exact
 /// shape, the rename `Projection` is left alone: the unparser's `Aggregate` arm relies on it
 /// being there to recover `GROUP BY`/`SELECT` column order whenever no projection has set the
 /// select list yet, and folding it away for a plain, unfiltered `GROUP BY` silently reverses

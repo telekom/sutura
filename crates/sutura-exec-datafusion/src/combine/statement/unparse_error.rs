@@ -4,16 +4,19 @@
 use datafusion::common::{DataFusionError, SchemaError};
 use datafusion::sql::unparser::{UnprojectableAggregateColumn, UnquotableName};
 
-/// Whether `cause` is the unparser's own refusal to name a column back against an `Aggregate` it
-/// rewrote - an internal planner gap, not a result the source produced or a database failure, so
-/// the caller is told not to retry rather than reading a generic `StatementFailed`.
-pub(super) fn unprojected_agg(cause: &DataFusionError) -> bool {
+/// The column name the unparser's own refusal to name back against an `Aggregate` it rewrote
+/// names, if `cause` is that refusal - an internal planner gap, not a result the source produced
+/// or a database failure, so the caller is told not to retry rather than reading a generic
+/// `StatementFailed`.
+pub(super) fn unprojected_agg(cause: &DataFusionError) -> Option<&str> {
     match cause {
-        DataFusionError::External(cause) => cause.downcast_ref::<UnprojectableAggregateColumn>().is_some(),
+        DataFusionError::External(cause) => cause
+            .downcast_ref::<UnprojectableAggregateColumn>()
+            .map(|cause| cause.column.as_str()),
         DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unprojected_agg(cause),
         DataFusionError::Shared(cause) => unprojected_agg(cause),
-        DataFusionError::Collection(causes) => !causes.is_empty() && causes.iter().all(unprojected_agg),
-        _ => false,
+        DataFusionError::Collection(causes) => causes.iter().find_map(unprojected_agg),
+        _ => None,
     }
 }
 
@@ -45,8 +48,8 @@ mod tests {
     /// The unparser's own refusal to name a column back against an `Aggregate` it rewrote (the
     /// shape behind #2068: a two-level aggregate from `count(DISTINCT ..)`, still naming the
     /// inner column after some plan shape the fold in `fold_aggregate_rename_projection` does not
-    /// reach, such as a grouping set) is an internal planner gap, not a database failure - the
-    /// caller is told not to retry rather than reading the generic `StatementFailed`.
+    /// reach) is an internal planner gap, not a database failure - the caller is told not to retry
+    /// rather than reading the generic `StatementFailed`.
     #[test]
     fn an_unprojected_aggregate_is_named_as_an_unsupported_construct_not_a_generic_failure() {
         let cause =

@@ -824,7 +824,8 @@ enum PlanningStopped {
 fn unwritten<S>(why: &str, cause: &DataFusionError) -> StatementStopped<S> {
     if unquotable(cause) {
         stopped(resolve::Refused::UnquotableName)
-    } else if unprojected_agg(cause) {
+    } else if let Some(column) = unprojected_agg(cause) {
+        tracing::debug!(column, "run_sql: the unparser could not name an aggregate rewrite's column");
         StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)
     } else {
         unplanned(why, cause)

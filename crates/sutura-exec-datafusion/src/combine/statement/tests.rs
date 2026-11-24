@@ -672,11 +672,6 @@ fn an_exists_in_a_projection_over_a_second_source_is_not_planned() {
     }
 }
 
-// The unparser's own `UnprojectableAggregateColumn` routing is pinned in
-// `combine/statement/unparse_error.rs`'s own `#[cfg(test)] mod tests` - that file does not exist
-// on `main`, so its tests stay isolated there rather than naming a symbol absent at base inside
-// this already-established file.
-
 #[cfg(test)]
 mod bounds;
 #[cfg(test)]
