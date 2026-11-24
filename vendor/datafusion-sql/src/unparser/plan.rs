@@ -304,72 +304,70 @@ impl Unparser<'_> {
     /// A UNION branch gets its own `QueryBuilder` instead of the statement's shared one, so a
     /// `Limit`/`Sort` inside the branch stays on it instead of leaking onto the whole UNION. A
     /// branch that is itself a nested UNION already writes its body back through `take_body`
-    /// inside `select_to_sql_expr`; a DISTINCT nested UNION no longer promotes the outer UNION
-    /// ALL to DISTINCT, since that bit now lives on this branch's own, discarded builder - but
-    /// only in the leftmost position: `sqlparser` prints a nested `SetOperation` without its own
-    /// parentheses, so a DISTINCT nested UNION in any other position would still leak onto the
-    /// statement unless it, too, gets the derived-table wrap (`union_branch_as_non_leftmost`
-    /// below), following `spiceai/datafusion#261` (commit `51790d40`).
+    /// inside `select_to_sql_expr`.
+    ///
+    /// `spiceai/datafusion#261` (commit `51790d40`) separately closes a DISTINCT leak from a
+    /// non-leftmost nested `SetOperation` branch (`sqlparser` only parenthesizes a `SetOperation`
+    /// operand on its parent's left), but that shape is unreachable on this crate's optimized
+    /// path: `ReplaceDistinctWithAggregate` rewrites `Distinct(Union(..))` into an `Aggregate`
+    /// before the unparser ever sees it, so there is no DISTINCT-flavored nested UNION left to
+    /// wrap by the time this function runs. Not ported; left for an unoptimized-plan caller to
+    /// pick up if one is ever added in this crate.
     fn union_branch_to_sql_expr(&self, input: &LogicalPlan, branch_index: usize) -> Result<SetExpr> {
-        let field_count = input.schema().fields().len();
+        let field_names: Vec<&String> =
+            input.schema().fields().iter().map(|field| field.name()).collect();
         let mut own = Some(QueryBuilder::default());
         let set_expr = self.select_to_sql_expr(input, &mut own)?;
+        // `own` stays `Some` once `select_to_sql_expr` returns: `take_body` above only clears the
+        // builder's `body` field for a nested-UNION branch, it never discards the builder itself.
+        // The `None` case has no mechanism to reach it today, so there is nothing to guard - a
+        // trivial pass, not a silent skip.
         let Some(mut own) = own else {
-            return self.union_branch_as_non_leftmost(set_expr, branch_index, field_count);
+            return Ok(set_expr);
         };
         assert_or_internal_err!(
             !own.has_unhandled_branch_clauses(),
             "a UNION branch's own WITH, locking or FOR clause has no path to the statement"
         );
         if !own.has_own_row_window() {
-            return self.union_branch_as_non_leftmost(set_expr, branch_index, field_count);
-        }
-        let windowed = own.body(Box::new(set_expr)).build()?;
-        self.union_branch_as_derived_table(windowed, branch_index, field_count)
-    }
-
-    /// A non-leftmost branch whose own body is itself a `SetExpr::SetOperation` (a nested UNION)
-    /// still needs the derived-table wrap even with no row window of its own: `sqlparser` only
-    /// parenthesizes a `SetOperation` operand when it is the left child of its parent, so one
-    /// appearing anywhere else renders bare and its DISTINCT-ness (or operator precedence) leaks
-    /// onto the statement around it. The leftmost branch never needs this - it is the left child
-    /// of the first reduction step, where `sqlparser` already parenthesizes correctly.
-    fn union_branch_as_non_leftmost(
-        &self,
-        set_expr: SetExpr,
-        branch_index: usize,
-        field_count: usize,
-    ) -> Result<SetExpr> {
-        if branch_index == 0 || !matches!(set_expr, SetExpr::SetOperation { .. }) {
             return Ok(set_expr);
         }
-        let bare = QueryBuilder::default().body(Box::new(set_expr)).build()?;
-        self.union_branch_as_derived_table(bare, branch_index, field_count)
+        let windowed = own.body(Box::new(set_expr)).build()?;
+        self.union_branch_as_derived_table(windowed, branch_index, &field_names)
     }
 
-    /// `PushDownLimit` pushes an outer `LIMIT` into every UNION input, so a branch's own row
-    /// window is common even for a statement whose UNION itself has no per-branch clause in the
-    /// caller's SQL. A bare parenthesized operand (`(SELECT ... LIMIT n) UNION ALL ...`) is
-    /// rejected by some dialects, so the branch is wrapped as a derived table instead, the form
-    /// every dialect accepts: `SELECT c0, c1, ... FROM (<branch>) AS <alias> (c0, c1, ...)`. The
-    /// alias carries an explicit, synthetic column list (`c0`, `c1`, ...) rather than reusing the
-    /// branch's own field names, so two differently-qualified input columns that share a bare
-    /// name (e.g. `t1.a` and `t2.a`) can never collide into two identically-named output columns
-    /// - and the outer `SELECT` projects that same synthetic list by name rather than `*`, since
-    /// a wildcard reaching a source is refused by a downstream admission guard.
+    /// `PushDownLimit` pushes a copy of an outer `LIMIT` below each UNION input's own
+    /// `Projection` as an inner `Limit`, rendering as a `derived_limit` subquery under that
+    /// branch rather than wrapping the branch itself - so a branch's own row window here is as
+    /// likely to come from the caller's own per-branch `ORDER BY`/`LIMIT`/`OFFSET` as from that
+    /// pushdown. A bare parenthesized operand (`(SELECT ... LIMIT n) UNION ALL ...`) is rejected
+    /// by some dialects, so the branch is wrapped as a derived table instead, the form every
+    /// dialect accepts: `SELECT <f1>, ..., <fn> FROM (<branch>) AS <alias>`.
+    ///
+    /// The alias itself carries no column list: Oracle, BigQuery and ClickHouse all refuse a
+    /// table alias with one (`supports_column_alias_in_table_alias() == false`), and a synthetic
+    /// list would also rename the branch's output away from the names an enclosing clause already
+    /// resolves by (e.g. the union's own output name surfacing in an outer `ORDER BY`). The outer
+    /// `SELECT` instead projects the branch's own output field names back out explicitly, since a
+    /// downstream admission guard refuses any `SELECT *` reaching a source. Two of those names
+    /// colliding would make that projection ambiguous, so a collision is refused up front instead
+    /// of emitted as ambiguous SQL.
     fn union_branch_as_derived_table(
         &self,
         windowed: ast::Query,
         branch_index: usize,
-        field_count: usize,
+        field_names: &[&String],
     ) -> Result<SetExpr> {
-        let columns: Vec<Ident> = (0..field_count)
-            .map(|i| self.new_ident_quoted_if_needs(format!("c{i}")))
+        let mut distinct = std::collections::HashSet::with_capacity(field_names.len());
+        assert_or_internal_err!(
+            field_names.iter().all(|name| distinct.insert(name.as_str())),
+            "a UNION branch with duplicate output column names cannot be wrapped as a derived \
+             table without renaming them ambiguously: {field_names:?}"
+        );
+        let columns: Vec<Ident> = field_names
+            .iter()
+            .map(|name| self.new_ident_quoted_if_needs((*name).clone()))
             .collect();
-        // A source-admission guard downstream refuses any `SELECT *` reaching the statement a
-        // source actually runs, so the wrapper projects the alias's own synthetic column names
-        // back out explicitly instead of a wildcard - it still selects every one of the branch's
-        // columns, just by the name the alias just gave them.
         let mut select_builder = SelectBuilder::default();
         select_builder.projection(
             columns
@@ -384,7 +382,7 @@ impl Unparser<'_> {
             .subquery(Box::new(windowed))
             .alias(Some(self.new_table_alias(
                 format!("derived_union_branch_{branch_index}"),
-                columns,
+                vec![],
             )));
         let mut relation_builder = RelationBuilder::default();
         relation_builder.derived(derived_builder);

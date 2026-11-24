@@ -29,6 +29,7 @@ pub(super) mod literals;
 mod names;
 mod oracle;
 mod oracle_prefilter;
+mod oracle_union;
 mod policy_search;
 mod raw_condition;
 #[cfg(test)]
