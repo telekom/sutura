@@ -298,7 +298,8 @@ pub enum SqlConstruct {
     TableFunction,
     /// A numeric source value cannot be ordered or evaluated locally as its text representation.
     NumberText,
-    /// The planner's own rewrite of an aggregate could not be named back as text for this shape.
+    /// The planner's own rewrite of an aggregate could not be named back as text for this shape:
+    /// a planner limit, not a result the source produced, so retrying the same query will not help.
     AggregateRewrite,
 }
 
@@ -311,7 +312,9 @@ impl fmt::Display for SqlConstruct {
             Self::FetchFirst => "FETCH FIRST is not supported; use LIMIT",
             Self::TableFunction => "table functions are not supported",
             Self::NumberText => "value-dependent operations over an unbounded NUMBER column require one Oracle source",
-            Self::AggregateRewrite => "this aggregate shape is not supported",
+            Self::AggregateRewrite => {
+                "this aggregate shape hits a planner limit, not a source error; rephrase the query rather than retry it"
+            }
         })
     }
 }

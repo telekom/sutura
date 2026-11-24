@@ -2,14 +2,14 @@
 //! `Shared`/`Collection` wrapper variants, so `statement.rs` can route it to a typed refusal.
 
 use datafusion::common::{DataFusionError, SchemaError};
-use datafusion::sql::unparser::UnquotableName;
+use datafusion::sql::unparser::{UnprojectableAggregateColumn, UnquotableName};
 
 /// Whether `cause` is the unparser's own refusal to name a column back against an `Aggregate` it
 /// rewrote - an internal planner gap, not a result the source produced or a database failure, so
 /// the caller is told not to retry rather than reading a generic `StatementFailed`.
 pub(super) fn unprojected_agg(cause: &DataFusionError) -> bool {
     match cause {
-        DataFusionError::Internal(message) => message.contains("Tried to unproject agg expr"),
+        DataFusionError::External(cause) => cause.downcast_ref::<UnprojectableAggregateColumn>().is_some(),
         DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unprojected_agg(cause),
         DataFusionError::Shared(cause) => unprojected_agg(cause),
         DataFusionError::Collection(causes) => !causes.is_empty() && causes.iter().all(unprojected_agg),

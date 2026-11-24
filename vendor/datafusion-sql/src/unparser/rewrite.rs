@@ -99,33 +99,62 @@ fn rewrite_sort_expr_for_union(exprs: Vec<SortExpr>) -> Result<Vec<SortExpr>> {
     Ok(sort_exprs)
 }
 
-/// Fold a `Projection` that does nothing but rename the `Aggregate` directly below it back onto
-/// that aggregate's own expressions, so no more than one `Projection` ever sits between a clause
-/// and the `Aggregate` it names.
+/// Fold a `Projection` that does nothing but rename the `Aggregate` directly below a `Filter`
+/// back onto that aggregate's own expressions, so a `HAVING` clause never has to unproject
+/// through more than the one `Projection` its helpers already tolerate.
 ///
 /// `SingleDistinctToGroupBy` rewrites `count(DISTINCT x) GROUP BY g` into two stacked
 /// aggregates and wraps the result in a `Projection` that restores the original aggregate's
-/// display name (lost by the rewrite) onto the outer aggregate's raw output column. Every clause
-/// that renders an aggregate expression (`find_agg_node_within_select` and friends) expects at
-/// most one `Projection` between itself and the `Aggregate`; an optimizer pass ordinarily merges
-/// this purely cosmetic `Projection` away, but leaves it in place for some plan shapes (observed
-/// with a `Limit` above a `HAVING` repeating the aggregate), and unparsing such a plan then fails
-/// to find the clause's column in the (still internally-named) `Aggregate` schema.
+/// display name (lost by the rewrite) onto the outer aggregate's raw output column. Observed
+/// with a `Limit` above a `HAVING` that repeats the aggregate, this renaming `Projection` ends
+/// up sitting directly between the `Filter` for `HAVING` and the `Aggregate` it names, and
+/// `find_agg_node_within_select`'s `HAVING` path only looks through at most one `Projection` -
+/// so it fails to find the clause's column in the (still internally-named) `Aggregate` schema.
+///
+/// The fold is narrowed to exactly that shape, `Filter -> Projection(rename) -> Aggregate`, and
+/// only once a select-producing `Projection` has already been seen higher up on the same path -
+/// never the topmost projection, which is what sets the statement's own column order. Outside a
+/// `Filter`'s immediate input, the same rename `Projection` is left alone: the unparser's
+/// `Aggregate` arm relies on it being there to recover `GROUP BY`/`SELECT` column order whenever
+/// no projection has set the select list yet, and folding it away for a plain, unfiltered
+/// `GROUP BY` silently reverses that order instead of fixing anything.
 pub(super) fn fold_aggregate_rename_projection(plan: &LogicalPlan) -> Result<LogicalPlan> {
-    plan.clone()
-        .transform_up(|plan| match plan {
-            LogicalPlan::Projection(p) => match fold_aggregate_rename(&p)? {
-                Some(agg) => Ok(Transformed::yes(LogicalPlan::Aggregate(agg))),
-                None => Ok(Transformed::no(LogicalPlan::Projection(p))),
-            },
-            _ => Ok(Transformed::no(plan)),
-        })
-        .data()
+    fold_rename_below_filter(plan.clone(), false)
+}
+
+/// Walks `plan` top-down threading `projected` - whether a select-producing `Projection` has
+/// already been seen on the path from the root - and, once it is `true`, folds a rename-only
+/// `Projection` sitting directly under a `Filter` back onto its `Aggregate`. See
+/// [`fold_aggregate_rename_projection`] for why the fold is scoped to exactly that position.
+fn fold_rename_below_filter(plan: LogicalPlan, projected: bool) -> Result<LogicalPlan> {
+    if let LogicalPlan::Filter(mut filter) = plan {
+        let mut input = Arc::unwrap_or_clone(filter.input);
+        if projected {
+            if let LogicalPlan::Projection(inner) = &input {
+                if let Some(agg) = fold_aggregate_rename(inner)? {
+                    input = LogicalPlan::Aggregate(agg);
+                }
+            }
+        }
+        filter.input = Arc::new(fold_rename_below_filter(input, projected)?);
+        return Ok(LogicalPlan::Filter(filter));
+    }
+
+    let next_projected = projected || matches!(plan, LogicalPlan::Projection(_));
+    let exprs = plan.expressions();
+    let new_inputs = plan
+        .inputs()
+        .into_iter()
+        .map(|input| fold_rename_below_filter(input.clone(), next_projected))
+        .collect::<Result<Vec<_>>>()?;
+    plan.with_new_exprs(exprs, new_inputs)
 }
 
 /// `Some(agg)` when `p` is nothing but a positional rename of its own `Aggregate` input: every
-/// projected expression is a bare column, or an alias of one, naming that aggregate's own output
-/// field at the same position. Grouping sets are left alone (out of scope for this fold).
+/// projected expression is a bare column, or an unqualified alias of one, naming that
+/// aggregate's own output field at the same position. An alias that carries its own `relation`
+/// changes the column's qualifier, not just its display name, so it is left alone (`None`), as
+/// is a grouping-set aggregate (out of scope for this fold).
 fn fold_aggregate_rename(p: &Projection) -> Result<Option<Aggregate>> {
     let LogicalPlan::Aggregate(agg) = p.input.as_ref() else {
         return Ok(None);
@@ -141,7 +170,12 @@ fn fold_aggregate_rename(p: &Projection) -> Result<Option<Aggregate>> {
     for (i, proj_expr) in p.expr.iter().enumerate() {
         let (target_col, display_name) = match proj_expr {
             Expr::Column(c) => (c, c.name.clone()),
-            Expr::Alias(Alias { expr, name, .. }) => match expr.as_ref() {
+            Expr::Alias(Alias {
+                expr,
+                name,
+                relation: None,
+                ..
+            }) => match expr.as_ref() {
                 Expr::Column(c) => (c, name.clone()),
                 _ => return Ok(None),
             },

@@ -151,6 +151,10 @@ fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
             legs.opened, legs.ran
         )
     };
+    // A federated grouped part is sent to a source labelled `c0..cn` (`labelled`, statement.rs),
+    // so a flipped `group_expr`/`aggr_expr` order would surface here as a type mismatch against
+    // the leg's own schema, not a silent swap - pinned explicitly anyway.
+    assert_eq!(rows.columns(), ["sales_area", "customers"]);
     assert_eq!(rows, legs.as_one(AREAS));
     assert_eq!(legs.opened, [BTreeSet::from([named("crm"), named("geo")])]);
     assert_eq!(legs.ran.len(), 2);
@@ -679,10 +683,10 @@ fn an_exists_in_a_projection_over_a_second_source_is_not_planned() {
 /// retry rather than reading the generic `StatementFailed`.
 #[test]
 fn an_unprojected_aggregate_is_named_as_an_unsupported_construct_not_a_generic_failure() {
-    let cause = datafusion::common::DataFusionError::Internal(
-        "Tried to unproject agg expr for column 'count(DISTINCT test.b)' that was not found in the provided Aggregate!"
-            .to_owned(),
-    );
+    let cause =
+        datafusion::common::DataFusionError::External(Box::new(datafusion::sql::unparser::UnprojectableAggregateColumn {
+            column: "count(DISTINCT test.b)".to_owned(),
+        }));
     let stopped: StatementStopped<()> = super::unwritten("a part did not unparse", &cause);
     assert!(
         matches!(stopped, StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)),

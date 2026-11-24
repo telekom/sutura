@@ -721,15 +721,18 @@ fn count_distinct_repeated_in_having_unparses_with_and_without_order_and_limit_i
             dialect,
             regions().schema(),
         )];
+        // `sales_area` repeats across regions in the fixture ("emea" for both `north` and `south`,
+        // "apac" for `east` alone) so `count(distinct region) > 1`, grouped by `sales_area`,
+        // actually filters a group out (`apac`) rather than admitting every group unconditionally.
         for sql in [
-            "select region, count(distinct sales_area) as c from dim_region \
-             group by region having count(distinct sales_area) > 0",
-            "select region, count(distinct sales_area) as c from dim_region \
-             group by region having count(distinct sales_area) > 0 limit 10",
-            "select region, count(distinct sales_area) as c from dim_region \
-             group by region having count(distinct sales_area) > 0 order by region",
-            "select region, count(distinct sales_area) as c from dim_region \
-             group by region having count(distinct sales_area) > 0 order by region limit 10",
+            "select sales_area, count(distinct region) as c from dim_region \
+             group by sales_area having count(distinct region) > 1",
+            "select sales_area, count(distinct region) as c from dim_region \
+             group by sales_area having count(distinct region) > 1 limit 10",
+            "select sales_area, count(distinct region) as c from dim_region \
+             group by sales_area having count(distinct region) > 1 order by sales_area",
+            "select sales_area, count(distinct region) as c from dim_region \
+             group by sales_area having count(distinct region) > 1 order by sales_area limit 10",
         ] {
             let mut legs = OracleLegs {
                 engines: Engines::new(None),
@@ -762,5 +765,63 @@ fn count_distinct_repeated_in_having_unparses_with_and_without_order_and_limit_i
             }
             assert_eq!(legs.statements.len(), 1, "{dialect:?}: {sql}");
         }
+    }
+}
+
+/// A plain `GROUP BY` with no `HAVING` keeps `group_expr` before `aggr_expr` in its output: the
+/// regression this guards is `fold_aggregate_rename_projection` folding away the topmost,
+/// select-producing `Projection` too - the unparser's `Aggregate` arm then has no `Projection`
+/// left to set the select list and falls back to `aggr_expr` before `group_expr`, silently
+/// flipping `region, c` to `c, region`. The fold must stay scoped to a rename `Projection`
+/// directly under a `Filter` (a `HAVING`), never this one.
+#[test]
+fn plain_group_by_keeps_column_order_in_every_dialect() {
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        let sql = "select region, count(*) as c from dim_region group by region";
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                false,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
+        };
+        assert_eq!(
+            rows.columns(),
+            ["region", "c"],
+            "{dialect:?}: source SQL: {:?}",
+            legs.statements
+        );
+        assert_eq!(
+            multiset(rows),
+            multiset(legs.engines.as_one(sql)),
+            "{dialect:?}; source SQL: {:?}",
+            legs.statements
+        );
+        assert_eq!(legs.statements.len(), 1, "{dialect:?}");
     }
 }
