@@ -4303,6 +4303,11 @@ is reached through a parent table can filter rows on either side of the join.</p
 <h4 id="use-descriptionvia"><code>use DescriptionVia</code><a class="headerlink" href="#use-descriptionvia" title="Permanent link">&para;</a></h4>
 <p>The parent table a description key is resolved through, and the columns the join and the
 schema/table-name projection read off it.</p>
+<h4 id="use-invaliddescriptionpolicy"><code>use InvalidDescriptionPolicy</code><a class="headerlink" href="#use-invaliddescriptionpolicy" title="Permanent link">&para;</a></h4>
+<p>What a matched row's unusable prose does, once its key has matched a visible table or column -
+an unmatched row is ignored and never checked regardless of this policy.</p>
+<p><code>Refuse</code> is the default, unchanged. <code>Omit</code> is the opt-in that drops just that row, falling back
+to the next ordered source or the dictionary's own native comment.</p>
 <h4 id="use-invaliddescriptionsource"><code>use InvalidDescriptionSource</code><a class="headerlink" href="#use-invaliddescriptionsource" title="Permanent link">&para;</a></h4>
 <h4 id="use-predicatetable"><code>use PredicateTable</code><a class="headerlink" href="#use-predicatetable" title="Permanent link">&para;</a></h4>
 <p>Which physical table a <code>DescriptionPredicate</code> filters: the mapped table, or its <code>key.via</code>
