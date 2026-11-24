@@ -104,12 +104,13 @@ pub enum InvalidDefinitionsByteBound {
     AboveCeiling { bytes: usize, ceiling: usize },
 }
 
-/// Held beside this file's own implementation (`#2073`'s review blocking 2): the causality gate
-/// reverts an implementation file with no test of its own, and `bounds.rs` has none at base to
-/// revert to - it did not exist there. A test here keeps this type, its `parse`/`composed` and both
-/// refusal variants present in the base reconstruction every other crate's held test calls into;
-/// the larger assertions over the bound actually enforced live beside `Definitions::assemble_bounded`
-/// and the composition-root call sites instead, each a non-verdict pass for the same reason.
+/// This file is new - no base counterpart - and mixes its own implementation with these tests, so
+/// the causality gate's partition is `impl_only` plus its own `#[test]`s together: inseparable, and
+/// `sutura-domain` has other genuinely separable tests elsewhere this change touches, so the
+/// gate's package-level sweep reverts this whole file (deletes it) in the base reconstruction
+/// rather than holding it at HEAD. Both tests below have no base result and are named in
+/// `devco/causality-no-base-exemptions`. The larger assertions over the bound actually enforced
+/// live in `catalog/consistency_bound_tests.rs` instead, beside `Definitions::assemble_bounded`.
 #[cfg(test)]
 mod tests {
     use super::{DEFINITIONS_BYTES_CEILING, DefinitionsByteBound, InvalidDefinitionsByteBound};

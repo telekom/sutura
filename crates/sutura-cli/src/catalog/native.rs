@@ -67,5 +67,5 @@ pub(super) fn load(rdbms: &[Rdbms], markdown: &[sutura_catalog_local::LocalCatal
             allowlist.check_model(model).map_err(|cause| flatten(&cause))?;
         }
     }
-    sutura_app::assemble::assemble_linked(&bundles, &unlinked, bound).map_err(|cause| flatten(&cause))
+    sutura_app::assemble::assemble_linked_bounded(&bundles, &unlinked, bound).map_err(|cause| flatten(&cause))
 }

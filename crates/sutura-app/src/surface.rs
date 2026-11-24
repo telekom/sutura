@@ -596,7 +596,8 @@ where
                 .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
             bundles.push(pinned);
         }
-        let pinned = crate::assemble::assemble(&bundles, bound).map_err(|cause| ServiceNotStarted::Composition { cause })?;
+        let pinned =
+            crate::assemble::assemble_bounded(&bundles, bound).map_err(|cause| ServiceNotStarted::Composition { cause })?;
         Self::start_pinned(pinned, warehouses, sink, broker, combiner, working_set_bytes)
     }
 

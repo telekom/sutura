@@ -337,6 +337,11 @@ impl Definitions {
     /// Takes vectors rather than maps so the duplicate checks are ours: a caller that built a map
     /// first has already silently dropped one of a duplicated pair, and "the second declaration of
     /// revenue won" is not a thing to discover from a number.
+    ///
+    /// Behind `test-fakes` for the same reason [`Self::from_parts`] is: every shipped adapter and
+    /// composer calls [`Self::assemble_bounded`] directly with its own or its composed bound, so
+    /// this unbounded convenience never reaches a shipped artefact.
+    #[cfg(any(test, feature = "test-fakes"))]
     pub fn assemble(
         models: Vec<Model>,
         relationships: Vec<Relationship>,
@@ -919,31 +924,11 @@ fn sum_bytes(counts: impl Iterator<Item = usize>) -> usize {
     counts.fold(0, usize::saturating_add)
 }
 
-/// Held beside `assemble_bounded`'s own implementation (`#2073`'s review blocking 2): a file
-/// carrying both an implementation change and a test of its own is kept at HEAD by the causality
-/// gate, so the caller-declared `bound` this function now checks against stays present in the base
-/// reconstruction for every other held test that calls it. The exhaustive breakdown cases live in
-/// `catalog/tests/column_metadata.rs` instead; this is only enough to prove the bound is read at all.
+/// This file's own implementation change (`assemble_bounded`, and gating `assemble` behind
+/// `test-fakes`) makes it `impl_only` under the causality gate's partition - it has no `#[test]`
+/// of its own, so the base run simply reverts it like any other implementation file. The tests
+/// that exercise the bound this function now reads live in `consistency_bound_tests` instead,
+/// declared below: that file is new, calls `assemble_bounded` directly, and has no base
+/// counterpart to be measured against - `devco/causality-no-base-exemptions` names them.
 #[cfg(test)]
-mod tests {
-    use super::{Definitions, DefinitionsByteBound, InconsistentDefinitions, Model, ModelName, SourceName, TableName};
-    use crate::catalog::Description;
-    use crate::model::ColumnName;
-
-    #[test]
-    fn a_bundle_over_its_caller_declared_bound_is_refused_naming_the_limit() {
-        let model = Model::new(
-            ModelName::parse("m").expect("a test model name is a name"),
-            SourceName::parse("s").expect("a test source name is a name"),
-            TableName::parse("t").expect("a test table name is a name"),
-            Vec::<ColumnName>::new(),
-            Description::parse("some authored prose").expect("under the per-description cap"),
-        );
-        let error = Definitions::assemble_bounded(vec![model], vec![], vec![], DefinitionsByteBound::parse(1).unwrap())
-            .expect_err("one description already exceeds a bound of 1 byte");
-        let InconsistentDefinitions::DefinitionsTooLarge { limit, .. } = error else {
-            panic!("over-bound is the too-large variant, not {error:?}");
-        };
-        assert_eq!(limit, 1);
-    }
-}
+mod consistency_bound_tests;

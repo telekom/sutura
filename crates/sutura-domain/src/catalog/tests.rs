@@ -8,7 +8,7 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Column, ColumnType, Definitions, DefinitionsByteBound, Description, Dimension, DimensionValue,
+    Audience, Column, ColumnType, DEFAULT_DEFINITIONS_BYTES, Definitions, Description, Dimension, DimensionValue,
     InconsistentDefinitions, InvalidViaChain, JoinKey, JoinKeys, MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES,
     MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL, ViaChain,
 };
@@ -873,9 +873,6 @@ fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
 /// cap - here, [`super::MAX_DESCRIPTION_BYTES`] - are not individually a catalog nobody would read.
 #[test]
 fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
-    // An explicit bound rather than `DefinitionsByteBound::default()`'s 1 MiB, so this fixture's
-    // byte count (sized against the former fixed 128 KiB bound) still crosses the cap it exercises.
-    let bound = DefinitionsByteBound::parse(128 * 1024).expect("a positive bound inside the ceiling parses");
     let filler = Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
     let too_many: Vec<Metric> = (0..33_u32)
         .map(|index| {
@@ -895,12 +892,16 @@ fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
         })
         .collect();
     let (models, relationships) = two_models();
-    let error =
-        Definitions::assemble_bounded(models, relationships, too_many, bound).expect_err("33 max descriptions exceed the cap");
+    let error = Definitions::assemble(models, relationships, too_many).expect_err("33 max descriptions exceed the cap");
     match error {
+        // `..` reads identically whether `DefinitionsTooLarge` carries the base 2 fields or HEAD's
+        // 5 - this test is not about the breakdown, so it does not name the extra ones.
         InconsistentDefinitions::DefinitionsTooLarge { bytes, limit, .. } => {
-            assert_eq!(limit, bound.get());
-            assert!(bytes > limit, "{bytes} must exceed {limit}");
+            assert_eq!(limit, DEFAULT_DEFINITIONS_BYTES);
+            assert!(
+                bytes > DEFAULT_DEFINITIONS_BYTES,
+                "{bytes} must exceed {DEFAULT_DEFINITIONS_BYTES}"
+            );
         }
         other => panic!("the aggregate cap must be what refuses this: {other:?}"),
     }
@@ -925,7 +926,7 @@ fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
         .collect();
     let (models, relationships) = two_models();
     assert_eq!(
-        Definitions::assemble_bounded(models, relationships, inside, bound)
+        Definitions::assemble(models, relationships, inside)
             .expect("31 max descriptions is inside the cap")
             .metrics()
             .len(),

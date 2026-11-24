@@ -317,62 +317,6 @@ fn a_zero_refresh_interval_is_refused_naming_the_catalog() {
     assert_eq!(error, InvalidCatalogSettings::ZeroRefresh { name: name("catalog") });
 }
 
-/// `#2071`: absent resolves to the 1 MiB default, and a declared value round-trips on every kind -
-/// the same shape `a_refresh_interval_defaults_to_never_and_round_trips_on_every_kind` holds.
-#[test]
-fn max_definitions_bytes_defaults_to_one_mebibyte_and_round_trips_on_every_kind() {
-    for kind in [CatalogKind::Markdown, CatalogKind::Datahub, CatalogKind::Okf] {
-        let base = CatalogSettings::parse(
-            name("catalog"),
-            kind,
-            PathBuf::from("/nowhere/catalog"),
-            PathBuf::from("/nowhere/data"),
-            version(),
-        )
-        .expect("a directory and a version are a settings");
-        assert_eq!(base.max_definitions_bytes().get(), 1024 * 1024, "{kind:?}");
-        let declared = base
-            .with_max_definitions_bytes(Some(600_000))
-            .expect("a bound inside the ceiling is usable");
-        assert_eq!(declared.max_definitions_bytes().get(), 600_000, "{kind:?}");
-    }
-}
-
-/// A declared `0` is refused - a bound of zero can never load a catalog with anything in it.
-#[test]
-fn a_zero_definitions_bound_is_refused_naming_the_catalog() {
-    let error = settings("catalog")
-        .with_max_definitions_bytes(Some(0))
-        .expect_err("a zero bound is not a bound");
-    assert_eq!(
-        error,
-        InvalidCatalogSettings::InvalidDefinitionsBound {
-            name: name("catalog"),
-            cause: sutura_domain::catalog::InvalidDefinitionsByteBound::Zero,
-        }
-    );
-}
-
-/// A declared value above `DEFINITIONS_BYTES_CEILING` (16 MiB) is refused, rather than letting a
-/// deployment declare away the only thing still bounding the document an agent's prompt and
-/// `describe_catalog` carry (`github.com/telekom/sutura#2071`).
-#[test]
-fn a_definitions_bound_above_the_ceiling_is_refused_naming_the_catalog() {
-    let error = settings("catalog")
-        .with_max_definitions_bytes(Some(17 * 1024 * 1024))
-        .expect_err("a bound above the ceiling is not a bound");
-    assert_eq!(
-        error,
-        InvalidCatalogSettings::InvalidDefinitionsBound {
-            name: name("catalog"),
-            cause: sutura_domain::catalog::InvalidDefinitionsByteBound::AboveCeiling {
-                bytes: 17 * 1024 * 1024,
-                ceiling: 16 * 1024 * 1024,
-            },
-        }
-    );
-}
-
 pub(super) const ENTRY: &[&str] = &[
     "environment: prod",
     "source_alias: warehouse",

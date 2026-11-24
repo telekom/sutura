@@ -222,15 +222,28 @@ struct Contributor<'a> {
 /// picked up implicitly. A caller names it rather than this function defaulting it, because that
 /// implicit default is exactly how a raised per-catalog `max_definitions_bytes` was silently
 /// re-refused at composition (`github.com/telekom/sutura#2073`).
-pub fn assemble(bundles: &[PinnedDefinitions], bound: DefinitionsByteBound) -> Result<PinnedDefinitions, CompositionError> {
-    assemble_linked(bundles, &[], bound)
+pub fn assemble_bounded(
+    bundles: &[PinnedDefinitions],
+    bound: DefinitionsByteBound,
+) -> Result<PinnedDefinitions, CompositionError> {
+    assemble_linked_bounded(bundles, &[], bound)
+}
+
+/// [`assemble_bounded`] against [`DefinitionsByteBound::default`](sutura_domain::catalog::DefinitionsByteBound::default).
+///
+/// Every shipped composer names its own composed bound instead, so this convenience never reaches
+/// a shipped artefact. Only this crate's own tests call it (no cross-crate caller), so a plain
+/// `#[cfg(test)]` is enough - no `test-fakes` feature exists on this crate.
+#[cfg(test)]
+pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, CompositionError> {
+    assemble_bounded(bundles, DefinitionsByteBound::default())
 }
 
 /// Links an explicit set of unlinked declarations beside independently pinned contributors.
 /// Ownership and declaration fidelity are checked before cross-contributor references resolve.
 ///
-/// See [`assemble`] for what `bound` must be.
-pub fn assemble_linked(
+/// See [`assemble_bounded`] for what `bound` must be.
+pub fn assemble_linked_bounded(
     bundles: &[PinnedDefinitions],
     unlinked: &[UnlinkedContribution],
     bound: DefinitionsByteBound,
@@ -351,6 +364,19 @@ pub fn assemble_linked(
     PinnedDefinitions::pin(version, definitions, knowledge, manifest).map_err(|cause| CompositionError::Digest { cause })
 }
 
+/// [`assemble_linked_bounded`] against [`DefinitionsByteBound::default`](sutura_domain::catalog::DefinitionsByteBound::default).
+///
+/// Every shipped composer names its own composed bound instead, so this convenience never reaches
+/// a shipped artefact. Only this crate's own tests call it (no cross-crate caller), so a plain
+/// `#[cfg(test)]` is enough - no `test-fakes` feature exists on this crate.
+#[cfg(test)]
+pub fn assemble_linked(
+    bundles: &[PinnedDefinitions],
+    unlinked: &[UnlinkedContribution],
+) -> Result<PinnedDefinitions, CompositionError> {
+    assemble_linked_bounded(bundles, unlinked, DefinitionsByteBound::default())
+}
+
 /// No two sources may define one metric; the one element with no precedence at all.
 fn check_no_metric_collisions(contributions: &[Contributor<'_>]) -> Result<(), CompositionError> {
     let mut by_name: BTreeMap<&MetricName, &SourceName> = BTreeMap::new();
@@ -465,9 +491,7 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{
-        Audience, Definitions, DefinitionsByteBound, Description, JoinKey, JoinKeys, Metric, Model, Relationship,
-    };
+    use sutura_domain::catalog::{Audience, Definitions, Description, JoinKey, JoinKeys, Metric, Model, Relationship};
     use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -603,8 +627,7 @@ mod tests {
         // The wave-one deployment, and the requirement this issue exists for: DataHub's structure
         // and prose beside the metrics certified here, in ONE bundle, and a question the certified
         // source certifies answered against it.
-        let composed =
-            assemble(&[certified(), narrow()], DefinitionsByteBound::default()).expect("structure and measures compose");
+        let composed = assemble(&[certified(), narrow()]).expect("structure and measures compose");
 
         // The composed bundle carries BOTH contributors, records both in its manifest, and is a
         // different bundle than the certified source alone - the digest moved with the composition.
@@ -661,8 +684,7 @@ mod tests {
         // ADR 0011: for metrics there is no precedence at all, declared or otherwise. Two
         // definitions of one number is the failure this system exists to prevent - and the refusal
         // names both sources so nobody has to guess which won.
-        let err = assemble(&[certified(), certified()], DefinitionsByteBound::default())
-            .expect_err("two definitions of revenue must not compose");
+        let err = assemble(&[certified(), certified()]).expect_err("two definitions of revenue must not compose");
         match err {
             CompositionError::MetricCollision { metric, first, second } => {
                 assert_eq!(metric.as_str(), "recurring_revenue");
@@ -700,7 +722,7 @@ mod tests {
             ),
         )
         .expect("a lying declaration still pins");
-        let err = assemble(&[lying, narrow()], DefinitionsByteBound::default()).expect_err("an undeclared kind must not compose");
+        let err = assemble(&[lying, narrow()]).expect_err("an undeclared kind must not compose");
         match err {
             CompositionError::Unfaithful { source, .. } => assert_eq!(source.as_str(), "lying"),
             other => panic!("expected an unfaithful declaration, got {other:?}"),
@@ -717,11 +739,8 @@ mod tests {
         // off the served path is `Catalogs::parse` in `sutura-config` refusing it at configuration
         // time, before assembly ever runs - this is `assemble`'s own defence, reachable through the
         // public function directly, not only defence in depth behind that gate.
-        let err = assemble(
-            &[certified(), narrow_declaring_itself_certified()],
-            DefinitionsByteBound::default(),
-        )
-        .expect_err("two contributors under one declared name must not compose silently");
+        let err = assemble(&[certified(), narrow_declaring_itself_certified()])
+            .expect_err("two contributors under one declared name must not compose silently");
         match err {
             CompositionError::Manifest {
                 cause: InvalidManifest::DuplicateSource { source_name },
@@ -761,11 +780,8 @@ mod tests {
             .expect("a single model pins")
         }
 
-        let err = assemble(
-            &[model_only("geo", "alpha"), model_only("geo", "beta")],
-            DefinitionsByteBound::default(),
-        )
-        .expect_err("two sources providing the same model must not compose");
+        let err = assemble(&[model_only("geo", "alpha"), model_only("geo", "beta")])
+            .expect_err("two sources providing the same model must not compose");
         match err {
             CompositionError::ElementCollision {
                 kind,
@@ -834,11 +850,8 @@ mod tests {
 
         // Each contributor names its own models (`orders_a`/`customers_a` vs `orders_b`/`customers_b`),
         // so no model collision fires first - only the shared relationship name does.
-        let err = assemble(
-            &[relationship_only("a", "alpha"), relationship_only("b", "beta")],
-            DefinitionsByteBound::default(),
-        )
-        .expect_err("two sources providing the same relationship must not compose");
+        let err = assemble(&[relationship_only("a", "alpha"), relationship_only("b", "beta")])
+            .expect_err("two sources providing the same relationship must not compose");
         match err {
             CompositionError::ElementCollision {
                 kind,

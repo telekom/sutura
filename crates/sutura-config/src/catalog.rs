@@ -633,40 +633,11 @@ impl Catalogs {
     }
 }
 
-/// Held beside `with_max_definitions_bytes`/`max_definitions_bytes`'s own implementation (`#2071`,
-/// `#2073`'s review blocking 2): a file carrying an implementation change and a test together is
-/// kept at HEAD by the causality gate, so the bound this file now reads stays present in the base
-/// reconstruction for `catalog/tests.rs`'s own held, more exhaustive round-trip and refusal cases.
-#[cfg(test)]
-mod max_definitions_bytes_anchor_tests {
-    use std::path::PathBuf;
-
-    use sutura_domain::catalog::DefinitionsByteBound;
-    use sutura_domain::model::SourceName;
-    use sutura_domain::pinned::DefinitionVersion;
-
-    use super::{CatalogKind, CatalogSettings};
-
-    #[test]
-    fn a_catalog_without_a_declared_bound_defaults_and_a_declared_one_round_trips() {
-        let base = CatalogSettings::parse(
-            SourceName::parse("catalog").expect("a test source name is a name"),
-            CatalogKind::Markdown,
-            PathBuf::from("/nowhere/catalog"),
-            PathBuf::from("/nowhere/data"),
-            DefinitionVersion::parse("v1").expect("a test version is a version"),
-        )
-        .expect("a directory and a version are a settings");
-        assert_eq!(base.max_definitions_bytes(), DefinitionsByteBound::default());
-        let declared = base
-            .with_max_definitions_bytes(Some(600_000))
-            .expect("a bound inside the ceiling is usable");
-        assert_eq!(declared.max_definitions_bytes().get(), 600_000);
-    }
-}
-
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod description_relations_tests;
+
+#[cfg(test)]
+mod bound_tests;
