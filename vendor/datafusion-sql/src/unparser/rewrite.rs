@@ -111,17 +111,23 @@ fn rewrite_sort_expr_for_union(exprs: Vec<SortExpr>) -> Result<Vec<SortExpr>> {
 /// `find_agg_node_within_select`'s `HAVING` path only looks through at most one `Projection` -
 /// so it fails to find the clause's column in the (still internally-named) `Aggregate` schema.
 ///
-/// The fold is narrowed to the exact four-level shape `Projection -> Filter ->
-/// Projection(rename) -> Aggregate`, matched structurally wherever it occurs - the `Filter`'s
-/// immediate parent must itself be a `Projection` (the statement's own select list, or, inside a
-/// `Union`, a branch's own), never a mere ancestor further up. Requiring the direct-parent
-/// `Projection` means the fold only ever fires where a select list already sits right above the
-/// `Filter`, so it can never apply to, or be enabled by, a `Projection` outside that `Filter`'s
-/// own subtree - in particular, never across a `Union` branch boundary. Outside this exact
-/// shape, the rename `Projection` is left alone: the unparser's `Aggregate` arm relies on it
-/// being there to recover `GROUP BY`/`SELECT` column order whenever no projection has set the
-/// select list yet, and folding it away for a plain, unfiltered `GROUP BY` silently reverses
-/// that order instead of fixing anything.
+/// The fold is narrowed to the shape `Projection -> (Limit | Sort)* -> Filter ->
+/// Projection(rename) -> Aggregate`, matched structurally wherever it occurs. The `Limit`/`Sort`
+/// run is required because `PushDownLimit` commutes a `Limit` (and, with an `ORDER BY`, a `Sort`)
+/// below the select-producing `Projection` - `Limit: Projection(p) => { limit.input =
+/// p.input; p.input = limit }` in `datafusion-optimizer`'s `push_down_limit.rs` - leaving exactly
+/// this chain between the select list and the `HAVING` `Filter` once a `Limit` sits above it.
+/// The unparser's own `Projection` arm (`plan.rs`) walks the same `Limit`/`Sort` run without
+/// opening a new `SELECT`, so the two agree on what still counts as "this statement's select
+/// list" above the `Filter`. Below that run, the `Filter`'s immediate child must still be a
+/// `Projection` (the statement's own select list, or, inside a `Union`, a branch's own), never a
+/// mere ancestor further up - so the fold only ever fires where a select list, possibly with a
+/// `Limit`/`Sort` run, sits directly above the `Filter`, and it can never apply to, or be enabled
+/// by, a `Projection` outside that `Filter`'s own subtree - in particular, never across a `Union`
+/// branch boundary. Outside this shape, the rename `Projection` is left alone: the unparser's
+/// `Aggregate` arm relies on it being there to recover `GROUP BY`/`SELECT` column order whenever
+/// no projection has set the select list yet, and folding it away for a plain, unfiltered
+/// `GROUP BY` silently reverses that order instead of fixing anything.
 pub(super) fn fold_aggregate_rename_projection(plan: &LogicalPlan) -> Result<LogicalPlan> {
     plan.clone()
         .transform_down(fold_select_over_having_rename)
@@ -129,31 +135,52 @@ pub(super) fn fold_aggregate_rename_projection(plan: &LogicalPlan) -> Result<Log
 }
 
 /// The single rewrite step for [`fold_aggregate_rename_projection`]: matches `plan` against the
-/// exact shape `Projection -> Filter -> Projection(rename) -> Aggregate` and, only then, folds
-/// the inner rename `Projection` onto the `Aggregate` it wraps.
+/// shape `Projection -> (Limit | Sort)* -> Filter -> Projection(rename) -> Aggregate` and, only
+/// then, folds the inner rename `Projection` onto the `Aggregate` it wraps. The outer,
+/// select-producing `Projection` is never itself folded or rewritten - only its input chain is.
 fn fold_select_over_having_rename(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
-    let LogicalPlan::Projection(outer) = &plan else {
-        return Ok(Transformed::no(plan));
-    };
-    let LogicalPlan::Filter(filter) = outer.input.as_ref() else {
-        return Ok(Transformed::no(plan));
-    };
-    let LogicalPlan::Projection(inner) = filter.input.as_ref() else {
-        return Ok(Transformed::no(plan));
-    };
-    let Some(agg) = fold_aggregate_rename(inner)? else {
-        return Ok(Transformed::no(plan));
-    };
-
     let LogicalPlan::Projection(mut outer) = plan else {
-        unreachable!("matched above")
+        return Ok(Transformed::no(plan));
     };
-    let LogicalPlan::Filter(mut filter) = Arc::unwrap_or_clone(outer.input) else {
-        unreachable!("matched above")
-    };
-    filter.input = Arc::new(LogicalPlan::Aggregate(agg));
-    outer.input = Arc::new(LogicalPlan::Filter(filter));
-    Ok(Transformed::yes(LogicalPlan::Projection(outer)))
+    let input = Arc::unwrap_or_clone(outer.input);
+    let rewritten = fold_through_limit_sort_to_having_rename(input)?;
+    let transformed = rewritten.transformed;
+    outer.input = Arc::new(rewritten.data);
+    Ok(Transformed::new_transformed(LogicalPlan::Projection(outer), transformed))
+}
+
+/// Walks a run of `Limit`/`Sort` nodes - the shape `PushDownLimit` leaves between a select list
+/// and the `HAVING` `Filter` it used to sit directly above - looking for the exact shape
+/// `Filter -> Projection(rename) -> Aggregate` at the bottom of that run, and folds it in place
+/// if found. Any other node ends the walk without matching.
+fn fold_through_limit_sort_to_having_rename(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
+    match plan {
+        LogicalPlan::Limit(mut limit) => {
+            let input = Arc::unwrap_or_clone(limit.input);
+            let rewritten = fold_through_limit_sort_to_having_rename(input)?;
+            let transformed = rewritten.transformed;
+            limit.input = Arc::new(rewritten.data);
+            Ok(Transformed::new_transformed(LogicalPlan::Limit(limit), transformed))
+        }
+        LogicalPlan::Sort(mut sort) => {
+            let input = Arc::unwrap_or_clone(sort.input);
+            let rewritten = fold_through_limit_sort_to_having_rename(input)?;
+            let transformed = rewritten.transformed;
+            sort.input = Arc::new(rewritten.data);
+            Ok(Transformed::new_transformed(LogicalPlan::Sort(sort), transformed))
+        }
+        LogicalPlan::Filter(mut filter) => {
+            let LogicalPlan::Projection(inner) = filter.input.as_ref() else {
+                return Ok(Transformed::no(LogicalPlan::Filter(filter)));
+            };
+            let Some(agg) = fold_aggregate_rename(inner)? else {
+                return Ok(Transformed::no(LogicalPlan::Filter(filter)));
+            };
+            filter.input = Arc::new(LogicalPlan::Aggregate(agg));
+            Ok(Transformed::yes(LogicalPlan::Filter(filter)))
+        }
+        other => Ok(Transformed::no(other)),
+    }
 }
 
 /// `Some(agg)` when `p` is nothing but a positional rename of its own `Aggregate` input: every
