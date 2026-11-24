@@ -340,12 +340,12 @@ impl Definitions {
     ///
     /// Not behind `test-fakes` like [`Self::from_parts`] is: every shipped adapter and composer
     /// calls [`Self::assemble_bounded`] directly with its own or its composed bound, so nothing
-    /// shipped is meant to reach this unbounded convenience instead - but that is held by review
-    /// only, not by a gate, since its callers are test code in OTHER crates (`sutura-cli`,
-    /// `sutura-conformance`), where `cfg(test)` on this crate does not hold: that cfg only turns on
-    /// when `sutura-domain` itself is under test, not when a dependent crate's own tests are.
-    /// Gating it that way left it absent from those crates' test builds entirely, so it stays a
-    /// plain, ungated function instead.
+    /// shipped is meant to reach this convenience - checked against the default bound, never
+    /// unbounded - instead; but that is held by review only, not by a gate, since its callers are
+    /// test code in OTHER crates (`sutura-cli`, `sutura-conformance`), where `cfg(test)` on this
+    /// crate does not hold: that cfg only turns on when `sutura-domain` itself is under test, not
+    /// when a dependent crate's own tests are. Gating it that way left it absent from those crates'
+    /// test builds entirely, so it stays a plain, ungated function instead.
     pub fn assemble(
         models: Vec<Model>,
         relationships: Vec<Relationship>,

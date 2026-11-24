@@ -187,33 +187,6 @@ fn a_column_s_type_alone_can_push_the_bundle_over_the_aggregate_byte_cap() {
     }
 }
 
-/// `#2071`: a dictionary catalog between the former fixed 128 KiB bound and the new 1 MiB default
-/// loads under the default - the issue's own complaint, that a real catalog this size refused to
-/// load at all. `Definitions::assemble` (no explicit bound) is what every one of the eight catalog
-/// adapters calls through `assemble_bounded`'s default, so this is what changes for an operator who
-/// declares no `max_definitions_bytes`.
-#[test]
-fn a_catalog_between_the_former_fixed_bound_and_the_new_default_loads_under_the_default() {
-    let mut columns = Vec::new();
-    for index in 0..40_u32 {
-        let filler = Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
-        columns.push(Column::new(column(&format!("c{index}")), None, filler, None));
-    }
-    // 40 * 4096 = 163840 bytes: past the former fixed 131072 bound, comfortably under the 1 MiB
-    // default.
-    let heavy = Model::new(
-        model_name("orders"),
-        SourceName::parse("local").expect("a test source is a source"),
-        TableName::parse("orders").expect("a test table is a table"),
-        columns,
-        Description::default(),
-    );
-    assert!(
-        Definitions::assemble(vec![heavy], vec![], vec![]).is_ok(),
-        "a catalog sized between 128 KiB and 1 MiB loads under the new default"
-    );
-}
-
 #[test]
 #[expect(
     clippy::integer_division,
@@ -245,5 +218,32 @@ fn many_empty_models_cannot_make_an_unbounded_schema_listing() {
             Err(InconsistentDefinitions::DefinitionsTooLarge { .. })
         ),
         "model identifiers count toward the existing definition cap"
+    );
+}
+
+/// `#2071`: a dictionary catalog between the former fixed 128 KiB bound and the new 1 MiB default
+/// loads under the default - the issue's own complaint, that a real catalog this size refused to
+/// load at all. `Definitions::assemble` (no explicit bound) is what every one of the eight catalog
+/// adapters calls through `assemble_bounded`'s default, so this is what changes for an operator who
+/// declares no `max_definitions_bytes`.
+#[test]
+fn a_catalog_between_the_former_fixed_bound_and_the_new_default_loads_under_the_default() {
+    let mut columns = Vec::new();
+    for index in 0..40_u32 {
+        let filler = Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
+        columns.push(Column::new(column(&format!("c{index}")), None, filler, None));
+    }
+    // 40 * 4096 = 163840 bytes: past the former fixed 131072 bound, comfortably under the 1 MiB
+    // default.
+    let heavy = Model::new(
+        model_name("orders"),
+        SourceName::parse("local").expect("a test source is a source"),
+        TableName::parse("orders").expect("a test table is a table"),
+        columns,
+        Description::default(),
+    );
+    assert!(
+        Definitions::assemble(vec![heavy], vec![], vec![]).is_ok(),
+        "a catalog sized between 128 KiB and 1 MiB loads under the new default"
     );
 }
