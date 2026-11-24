@@ -8,9 +8,9 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Audience, Column, ColumnType, DEFAULT_DEFINITIONS_BYTES, Definitions, Description, Dimension, DimensionValue,
-    InconsistentDefinitions, InvalidViaChain, JoinKey, JoinKeys, MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES,
-    MAX_VALUES_PER_DIMENSION, Metric, Model, Relationship, TIME_BUCKET_LABEL, ViaChain,
+    Audience, Column, ColumnType, Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, InvalidViaChain,
+    JoinKey, JoinKeys, MAX_COLUMN_TYPE_CHARS, MAX_DEFINITIONS_BYTES, MAX_DESCRIPTION_BYTES, MAX_VALUES_PER_DIMENSION, Metric,
+    Model, Relationship, TIME_BUCKET_LABEL, ViaChain,
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
@@ -897,11 +897,8 @@ fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
         // `..` reads identically whether `DefinitionsTooLarge` carries the base 2 fields or HEAD's
         // 5 - this test is not about the breakdown, so it does not name the extra ones.
         InconsistentDefinitions::DefinitionsTooLarge { bytes, limit, .. } => {
-            assert_eq!(limit, DEFAULT_DEFINITIONS_BYTES);
-            assert!(
-                bytes > DEFAULT_DEFINITIONS_BYTES,
-                "{bytes} must exceed {DEFAULT_DEFINITIONS_BYTES}"
-            );
+            assert_eq!(limit, MAX_DEFINITIONS_BYTES);
+            assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
         }
         other => panic!("the aggregate cap must be what refuses this: {other:?}"),
     }

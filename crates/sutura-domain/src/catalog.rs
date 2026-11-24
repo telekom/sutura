@@ -89,6 +89,9 @@ pub const TIME_BUCKET_LABEL: &str = "period";
 /// the fix for that other half.
 pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 
+/// Retired name for [`DEFAULT_DEFINITIONS_BYTES`], kept so base-pinned tests still resolve it.
+pub const MAX_DEFINITIONS_BYTES: usize = DEFAULT_DEFINITIONS_BYTES;
+
 /// One column a [`Model`] exposes: its name, and what a source's own dictionary says about it.
 ///
 /// `data_type` and `description` are independent of each other and both optional - a database

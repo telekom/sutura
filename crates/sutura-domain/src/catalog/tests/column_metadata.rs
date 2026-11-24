@@ -67,7 +67,7 @@ fn a_primary_key_naming_a_real_column_is_evidence_and_licenses_nothing_else() {
 
 #[test]
 fn a_column_s_type_and_description_count_toward_the_aggregate_byte_cap() {
-    // The two fields `DEFAULT_DEFINITIONS_BYTES` did not bound before this type existed. That they move
+    // The two fields `MAX_DEFINITIONS_BYTES` did not bound before this type existed. That they move
     // the DIGEST too is `pinned::tests::a_column_s_type_or_description_arriving_moves_the_digest`;
     // this asserts the narrower claim, over the byte count `assemble` actually caps.
     let bare = model("orders", "local", &["amount_cents"]);
@@ -92,11 +92,8 @@ fn a_column_s_type_and_description_count_toward_the_aggregate_byte_cap() {
     );
     match Definitions::assemble(vec![heavy], vec![], vec![]).unwrap_err() {
         InconsistentDefinitions::DefinitionsTooLarge { bytes, limit, .. } => {
-            assert_eq!(limit, DEFAULT_DEFINITIONS_BYTES);
-            assert!(
-                bytes > DEFAULT_DEFINITIONS_BYTES,
-                "{bytes} must exceed {DEFAULT_DEFINITIONS_BYTES}"
-            );
+            assert_eq!(limit, MAX_DEFINITIONS_BYTES);
+            assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
         }
         other => panic!("column description bytes must be what refuses this: {other:?}"),
     }
@@ -161,11 +158,8 @@ fn a_column_s_type_alone_can_push_the_bundle_over_the_aggregate_byte_cap() {
     );
     match Definitions::assemble(vec![typed_orders], vec![], metrics).unwrap_err() {
         InconsistentDefinitions::DefinitionsTooLarge { bytes, limit, .. } => {
-            assert_eq!(limit, DEFAULT_DEFINITIONS_BYTES);
-            assert!(
-                bytes > DEFAULT_DEFINITIONS_BYTES,
-                "{bytes} must exceed {DEFAULT_DEFINITIONS_BYTES}"
-            );
+            assert_eq!(limit, MAX_DEFINITIONS_BYTES);
+            assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
         }
         other => panic!("column type bytes must be what refuses this: {other:?}"),
     }
