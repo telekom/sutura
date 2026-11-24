@@ -103,12 +103,13 @@ secret-dependent search timing. It does not permit a raw result decision. The co
 a raw necessary condition only for a positive conjunctive literal contains search in one table
 and scope, beside only conjuncts that cannot raise on any row (a plain column against literals
 of its own type, a string only against a text-policy column), with proved comparison semantics and replacement barriers. Unknown shapes preserve
-the original redacted-only path. Each nonempty replacement must contain no whole term and block
-both boundary overlaps; the proof composes over ordered replacements and the truncation marker
+the original redacted-only path. Each nonempty replacement must leave every alignment of the needle
+(read as a `_`-wildcard pattern) against it, at every shift with a nonempty overlap, carrying a
+literal disagreement; the proof composes over ordered replacements and the truncation marker
 where it is searched. No inference about arbitrary regex languages is required.
 
 DataFusion binary comparison, guarded Oracle CLOB/NCLOB comparison, ClickHouse comparison for the
-admitted ASCII-alphanumeric needle, DuckDB and BigQuery text pinned `binary`, and PostgreSQL
+admitted ASCII-alphanumeric-or-`_` needle, DuckDB and BigQuery text pinned `binary`, and PostgreSQL
 columns pinned binary (read from the dictionary, or authored in a local catalog document) are the
 eligible venues.
 A wrong authored `binary` is the operator's error and exposes what the acknowledgement already
