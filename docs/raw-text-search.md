@@ -74,13 +74,15 @@ shapes fall back. No dialect's `ESCAPE` clause is read on this path (`escape_cha
 an escaped literal `_` is not distinguished from the wildcard and does not change eligibility.
 
 An alignment whose entire overlap is a lone `_` is refused even though the `_` itself cannot force a
-mismatch: admitting it would also need every redaction rule's own pattern to be unable to match an
-empty span, because a zero-width match inserts its replacement without consuming raw text and can
-shift what the needle lines up against. Concretely, pattern `$` (end of input) with replacement
-`[m]` against raw text `ab`: the redacted text is `ab[m]`, which matches `%ab_%` (`_` standing for
-`[`), while the raw text `ab` does not. Refusing every lone-`_` overlap outright is cheaper than
-proving each rule's pattern cannot match empty, and is not a case where the refusal is known to be
-unnecessary.
+mismatch: admitting it would also need every redaction rule to replace exactly one raw character
+with exactly one character, because a rule that matches an empty span or a span of any other length
+shifts what the needle lines up against on either side. Concretely, pattern `$` (end of input, a
+zero-width match) with replacement `[m]` against raw text `ab`: the redacted text is `ab[m]`, which
+matches `%ab_%` (`_` standing for `[`), while the raw text `ab` does not. Or pattern `b+` (a
+multi-character match) with replacement `x` against raw text `abba`: the redacted text is `axa`,
+which matches `%a_a%` (`_` standing for `x`), while the raw text `abba` does not. Refusing every
+lone-`_` overlap outright is cheaper than proving each rule's pattern always matches exactly one
+character, and is not a case where the refusal is known to be unnecessary.
 
 A term containing `_` also lets a caller skip positions it does not know, trading away part of the
 timing protection the acknowledgement already accepts: a term like `KEY________` (one literal prefix,

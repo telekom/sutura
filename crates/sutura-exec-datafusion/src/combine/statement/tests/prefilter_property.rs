@@ -131,7 +131,9 @@ fn preserves_admitting_every_rule_in_a_sequence_implies_redacted_match_implies_r
             if !sequence.iter().all(|rule| preserves(needle, rule.replacement, false, false)) {
                 continue;
             }
-            checked_zero_width |= sequence.iter().any(|rule| rule.pattern == "$" || rule.pattern == "a*");
+            checked_zero_width |= sequence
+                .iter()
+                .any(|rule| rule.pattern == "$" || rule.pattern == "^" || rule.pattern == "a*");
             checked_two_rules |= sequence.len() == 2;
             for raw in &raws {
                 let redacted = redact(raw, sequence);

@@ -691,12 +691,15 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
 /// reduces to the old check," which does not hold.
 ///
 /// Not maximal: an alignment whose overlap is a lone `_` still refuses here even though the `_`
-/// itself cannot force a mismatch, because leaving it admitted would require checking that no
-/// *redaction rule* can itself produce a zero-width match that shifts the alignment - a replacement
-/// rule built from a regex that matches an empty string (`$`, `^`, `a*`, a lookaround) inserts its
-/// replacement without consuming any raw text, so the same needle can be unsound against such a rule
-/// even where every overlap carries only `_`. Refusing every lone-`_` overlap, rather than proving
-/// each redaction rule's pattern cannot match empty, is the cheaper and safe choice.
+/// itself cannot force a mismatch, because leaving it admitted would require checking that every
+/// *redaction rule* replaces exactly one raw character with exactly one character. A rule whose
+/// pattern matches an empty string (`$`, `^`, `a*`, a lookaround) inserts its replacement without
+/// consuming any raw text, and a rule whose pattern consumes more than one character (`b+` against
+/// `abba`, replaced with `x`: raw `abba` becomes `axa`, and `%a_a%` matches `axa` but not `abba`) is
+/// just as unsound - either shifts what the needle lines up against on either side of the overlap,
+/// so the same needle can be unsound against such a rule even where every overlap carries only `_`.
+/// Refusing every lone-`_` overlap, rather than proving each redaction rule's pattern always matches
+/// exactly one character, is the cheaper and safe choice.
 ///
 /// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
 ///
