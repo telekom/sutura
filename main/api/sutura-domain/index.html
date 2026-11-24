@@ -12189,6 +12189,7 @@ derivation function would be a coupling this module's whole reason for existing 
 <li><code>FetchFirst</code> - The planner's input dialect uses LIMIT instead.</li>
 <li><code>TableFunction</code> - The session registers no table function.</li>
 <li><code>NumberText</code> - A numeric source value cannot be ordered or evaluated locally as its text representation.</li>
+<li><code>AggregateRewrite</code> - The planner's own rewrite of an aggregate could not be named back as text for this shape - the whole class of an <code>Aggregate</code> the optimizer rewrote (e.g. <code>SingleDistinctToGroupBy</code>'s two-level <code>count(DISTINCT ..)</code> split) under a plan the unparser's fold does not reach: a planner limit, not a result the source produced, so retrying the same query will not help.</li>
 </ul>
 <h4 id="implements_166">Implements<a class="headerlink" href="#implements_166" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
