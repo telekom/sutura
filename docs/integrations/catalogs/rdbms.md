@@ -151,11 +151,38 @@ pattern. SQL schema prefilters bind escaped pattern values; post-read matching i
 Table exclusions match table names; column exclusions match column names within selected tables.
 Type exclusions match the exact native type or its base name before `(`. Each remaining table
 becomes one model named after its table, with its physical `schema.table`, exact supported types
-and comments. Duplicate model names across schemas, a table with no remaining columns, an empty
-selection and an unsupported unexcluded type refuse the entire load. Unbounded Oracle `NUMBER`,
-negative-scale or over-38-digit decimals, Oracle `FLOAT` / `BINARY_FLOAT` / `RAW` / `BLOB`,
-PostgreSQL `real` / `bytea` / timestamps, and unsupported Oracle timestamp precision are
-refused rather than converted to a less precise type. Eligible complete primary keys and foreign keys are read as described below; no metric is inferred.
+and comments. Duplicate model names across schemas and an empty selection refuse the entire load.
+Unbounded Oracle `NUMBER`, negative-scale or over-38-digit decimals, Oracle `FLOAT` /
+`BINARY_FLOAT` / `RAW` / `BLOB`, PostgreSQL `real` / `bytea` / timestamps, and unsupported Oracle
+timestamp precision have no exact supported mapping; by default, so does a table left with no
+remaining column. Both refuse the load in one pass naming every offending column (table, column,
+native type) and every emptied table together, not just the first one found - restarting once per
+name found no longer applies. The list is bounded in the message (stating the true count even when
+truncated), not in what is collected or in what a declared opt-in below still drops.
+
+`on_unsupported_column` (default `refuse`) and `on_empty_table` (default `refuse`) opt a native
+catalog out of refusing, independently of each other:
+
+```yaml
+catalogs:
+  - name: warehouse
+    kind: rdbms
+    dictionary_source: native_dictionary
+    include: [{ schema: public, table: "*" }]
+    on_unsupported_column: omit
+    on_empty_table: omit
+```
+
+`on_unsupported_column: omit` drops a column whose native type has no exact supported mapping
+instead of refusing, with a `WARN` log naming the table, column and native type. `on_empty_table:
+omit` drops a table left with no included column - after exclusions and, if also set, an omitted
+unsupported column - instead of refusing, with a `WARN` log naming the table. The two keys are
+independent: omitting a column can still leave its table empty, and that table is refused unless
+`on_empty_table` is also `omit`. An omitted column or table is excluded exactly like an explicitly
+excluded one: it is not served, not listed by `describe_catalog`, and the native physical
+allowlist (below) refuses a composed model that tries to reintroduce it, the same as any other
+excluded column. Eligible complete primary keys and foreign keys are read as described below; no
+metric is inferred.
 
 Native dictionaries may compose with Markdown metrics and knowledge over their models. Contributor
 ownership and declaration fidelity are checked separately before cross-catalog references link.
