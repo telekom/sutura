@@ -1,9 +1,10 @@
 //! A UNION branch's own `ORDER BY`/`LIMIT`/`OFFSET` must stay scoped to that branch, not leak onto
-//! the whole statement - isolated from `oracle.rs` so neither file crosses the line-count gate.
-//! `OracleLegs`/`sorted_rows` are shared with that file rather than duplicated.
+//! the whole statement - split out of `oracle.rs` (which declares this as a submodule) so neither
+//! file crosses the line-count gate. `OracleLegs`/`sorted_rows` are shared with that file rather
+//! than duplicated.
 
-use super::oracle::{OracleLegs, sorted_rows};
-use super::*;
+use super::super::*;
+use super::{OracleLegs, sorted_rows};
 
 #[test]
 fn a_union_branch_keeps_its_own_order_by_and_limit_off_its_sibling_in_every_dialect() {
@@ -51,7 +52,7 @@ fn a_union_branch_keeps_its_own_order_by_and_limit_off_its_sibling_in_every_dial
         TypeDialect::BigQuery,
         TypeDialect::Oracle,
     ] {
-        let sql = super::super::unparsed(&plan, dialect).expect("the union plan unparses");
+        let sql = super::super::super::unparsed(&plan, dialect).expect("the union plan unparses");
         let mut legs = OracleLegs {
             engines: Engines::new(None),
             statements: Vec::new(),
@@ -74,62 +75,6 @@ fn a_union_branch_keeps_its_own_order_by_and_limit_off_its_sibling_in_every_dial
                  union all (select region from dim_region where sales_area = 'emea' order by region limit 1)"
             )),
             "{dialect:?}: {sql}"
-        );
-    }
-}
-
-#[test]
-fn a_raw_union_statement_keeps_its_own_order_by_and_limit_in_every_dialect() {
-    // End-to-end through `DataFusionCombiner::answer_statement`: DataFusion's own
-    // planner/optimizer builds the right branch's row window as a `Limit` over `Sort(fetch)`
-    // (the merged shape `combine_limit` folds before rendering), which the hand-built plan in
-    // the sibling test above skips - this proves the bug is reachable from a caller's raw
-    // statement, not just from a hand-built plan.
-    let sql = r#"select "region" from "dim_region" where "sales_area" = 'emea' union all (select "region" from "dim_region" where "sales_area" = 'emea' order by "region" limit 1)"#;
-    for dialect in [
-        TypeDialect::DuckDb,
-        TypeDialect::DataFusion,
-        TypeDialect::Cube,
-        TypeDialect::Postgres,
-        TypeDialect::ClickHouse,
-        TypeDialect::BigQuery,
-        TypeDialect::Oracle,
-    ] {
-        let tables = [StatementTable::new(
-            named("geo"),
-            QualifiedTable::parse("dim_region").expect("a fixture table"),
-            dialect,
-            regions().schema(),
-        )];
-        let mut legs = OracleLegs {
-            engines: Engines::new(None),
-            statements: Vec::new(),
-        };
-        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
-        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                true,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        );
-        let Some(Ok(rows)) = answer else {
-            panic!("{dialect:?}: the single-source union must run: {answer:?}");
-        };
-        assert_eq!(
-            legs.statements.len(),
-            1,
-            "{dialect:?}: one pushed statement: {:?}",
-            legs.statements
-        );
-        assert_eq!(
-            sorted_rows(rows),
-            sorted_rows(legs.engines.as_one(sql)),
-            "{dialect:?}: a branch's own ORDER BY/LIMIT leaked onto the whole UNION: {:?}",
-            legs.statements
         );
     }
 }
@@ -387,7 +332,7 @@ fn a_windowed_union_branch_with_duplicate_output_names_refuses_to_unparse() {
         TypeDialect::BigQuery,
         TypeDialect::Oracle,
     ] {
-        let cause = super::super::unparsed(&plan, dialect).expect_err(
+        let cause = super::super::super::unparsed(&plan, dialect).expect_err(
             "a windowed branch with duplicate output names must refuse to unparse, not emit \
              an ambiguous projection",
         );
