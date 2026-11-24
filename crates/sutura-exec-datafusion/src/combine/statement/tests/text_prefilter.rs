@@ -185,7 +185,6 @@ fn raw_prefilter_falls_back_for_creation_bridges_marker_and_unsafe_scope() {
     }
     for sql in [
         "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%truncated%'",
-        "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%T_RM%'",
         "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" NOT LIKE '%TERM%'",
         "SELECT \"BODY\" FROM \"notes\" WHERE NOT (\"BODY\" LIKE '%TERM%')",
         "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%' OR \"BODY\" IS NULL",
@@ -203,6 +202,22 @@ fn raw_prefilter_falls_back_for_creation_bridges_marker_and_unsafe_scope() {
             "{sql}"
         );
     }
+}
+
+#[test]
+fn an_underscore_needle_is_admitted_only_where_every_replacement_alignment_still_mismatches() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%T_RM%'";
+    // `[masked]` shares none of the needle's literal bytes (T, R, M), so every alignment that
+    // overlaps it - full or partial - still carries a forced mismatch; the lone `_` never has to.
+    assert!(raw_predicates(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true))[0].is_some());
+    // `TaRM` is the same length as the needle and agrees at every literal position (only the `_`
+    // position differs), so the replacement's own fixed bytes satisfy "T_RM" outright: a row whose
+    // raw text never contained the needle would still redact to something that matches it. Barred.
+    assert!(
+        raw_predicates(sql, table(TypeDialect::DataFusion, &["TaRM"], true, false, true))
+            .iter()
+            .all(Option::is_none)
+    );
 }
 
 #[test]
