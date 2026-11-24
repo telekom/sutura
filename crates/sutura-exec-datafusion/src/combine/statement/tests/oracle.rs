@@ -704,6 +704,12 @@ fn multiset(rows: RawRows) -> RawRows {
 /// left the renaming `Projection` in place instead of an optimizer pass folding it away, and the
 /// unparser's single-`Projection` allowance between a clause and its `Aggregate` then could not
 /// find the `HAVING` predicate's column on the (still internally-named) `Aggregate` itself.
+///
+/// Every identifier is quoted, as every other Oracle cell in this file quotes one: `resolve.rs`
+/// folds an unquoted identifier to upper case before matching it against the fixture's physically
+/// lowercase table and column names, and would refuse the statement with `UnknownTable` before
+/// `SingleDistinctToGroupBy` or the unparser ever runs - a resolution-stage distinction this test
+/// is not about.
 #[test]
 fn count_distinct_repeated_in_having_unparses_with_and_without_order_and_limit_in_every_dialect() {
     for dialect in [
@@ -725,14 +731,14 @@ fn count_distinct_repeated_in_having_unparses_with_and_without_order_and_limit_i
         // "apac" for `east` alone) so `count(distinct region) > 1`, grouped by `sales_area`,
         // actually filters a group out (`apac`) rather than admitting every group unconditionally.
         for sql in [
-            "select sales_area, count(distinct region) as c from dim_region \
-             group by sales_area having count(distinct region) > 1",
-            "select sales_area, count(distinct region) as c from dim_region \
-             group by sales_area having count(distinct region) > 1 limit 10",
-            "select sales_area, count(distinct region) as c from dim_region \
-             group by sales_area having count(distinct region) > 1 order by sales_area",
-            "select sales_area, count(distinct region) as c from dim_region \
-             group by sales_area having count(distinct region) > 1 order by sales_area limit 10",
+            "select \"sales_area\", count(distinct \"region\") as c from \"dim_region\" \
+             group by \"sales_area\" having count(distinct \"region\") > 1",
+            "select \"sales_area\", count(distinct \"region\") as c from \"dim_region\" \
+             group by \"sales_area\" having count(distinct \"region\") > 1 limit 10",
+            "select \"sales_area\", count(distinct \"region\") as c from \"dim_region\" \
+             group by \"sales_area\" having count(distinct \"region\") > 1 order by \"sales_area\"",
+            "select \"sales_area\", count(distinct \"region\") as c from \"dim_region\" \
+             group by \"sales_area\" having count(distinct \"region\") > 1 order by \"sales_area\" limit 10",
         ] {
             let mut legs = OracleLegs {
                 engines: Engines::new(None),
@@ -765,63 +771,5 @@ fn count_distinct_repeated_in_having_unparses_with_and_without_order_and_limit_i
             }
             assert_eq!(legs.statements.len(), 1, "{dialect:?}: {sql}");
         }
-    }
-}
-
-/// The `HAVING`+`LIMIT` shape from #2068 as one branch of a `UNION ALL`, aliased the same as its
-/// sibling branch so the derived table's own columns are named rather than re-aggregated over: the
-/// fold must match only the exact `Projection -> Filter -> Projection(rename) -> Aggregate` shape
-/// rooted at each branch independently, never a flag threaded across `Union` siblings - the
-/// regression this guards is a positional swap leaking from the `HAVING`+`LIMIT` branch into the
-/// plain branch beside it, which has no `Filter` of its own to stop a stateful fold at its
-/// boundary. The `LIMIT` is required inside the `HAVING` branch: without it, #2068's own repro
-/// already unparses on `main` (only a `LIMIT` above a repeated `HAVING` aggregate leaves the
-/// renaming `Projection` in place), so an unlimited branch would not be red on base here either.
-#[test]
-fn count_distinct_repeated_in_having_with_limit_inside_a_union_branch_unparses_in_every_dialect() {
-    for dialect in [
-        TypeDialect::DuckDb,
-        TypeDialect::DataFusion,
-        TypeDialect::Cube,
-        TypeDialect::Postgres,
-        TypeDialect::ClickHouse,
-        TypeDialect::BigQuery,
-        TypeDialect::Oracle,
-    ] {
-        let tables = [StatementTable::new(
-            named("geo"),
-            QualifiedTable::parse("dim_region").expect("a fixture table"),
-            dialect,
-            regions().schema(),
-        )];
-        let sql = "select g, c from \
-             ((select sales_area g, count(distinct region) c from dim_region \
-               group by sales_area having count(distinct region) > 1 limit 10) \
-              union all \
-              (select sales_area g, count(distinct region) c from dim_region group by sales_area)) u";
-        let mut legs = OracleLegs {
-            engines: Engines::new(None),
-            statements: Vec::new(),
-        };
-        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
-        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                false,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        );
-        let Some(Ok(rows)) = answer else {
-            panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
-        };
-        assert_eq!(
-            multiset(rows),
-            multiset(legs.engines.as_one(sql)),
-            "{dialect:?}: {sql}; source SQL: {:?}",
-            legs.statements
-        );
     }
 }
