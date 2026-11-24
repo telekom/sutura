@@ -23,7 +23,7 @@ use datafusion_common::{
     tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRewriter},
 };
 use datafusion_expr::expr::{Alias, UNNEST_COLUMN_PREFIX};
-use datafusion_expr::{Expr, LogicalPlan, Projection, Sort, SortExpr};
+use datafusion_expr::{Aggregate, Expr, LogicalPlan, Projection, Sort, SortExpr};
 use sqlparser::ast::Ident;
 
 /// Normalize the schema of a union plan to remove qualifiers from the schema fields and sort expressions.
@@ -97,6 +97,148 @@ fn rewrite_sort_expr_for_union(exprs: Vec<SortExpr>) -> Result<Vec<SortExpr>> {
         .data()?;
 
     Ok(sort_exprs)
+}
+
+/// Fold a `Projection` that does nothing but rename the `Aggregate` directly below a `Filter`
+/// back onto that aggregate's own expressions, so a `HAVING` clause never has to unproject
+/// through more than the one `Projection` its helpers already tolerate.
+///
+/// `SingleDistinctToGroupBy` rewrites `count(DISTINCT x) GROUP BY g` into two stacked
+/// aggregates and wraps the result in a `Projection` that restores the original aggregate's
+/// display name (lost by the rewrite) onto the outer aggregate's raw output column. Observed
+/// with a `Limit` above a `HAVING` that repeats the aggregate, this renaming `Projection` ends
+/// up sitting directly between the `Filter` for `HAVING` and the `Aggregate` it names, and
+/// `find_agg_node_within_select`'s `HAVING` path only looks through at most one `Projection` -
+/// so it fails to find the clause's column in the (still internally-named) `Aggregate` schema.
+///
+/// The fold is narrowed to the shape `Projection -> (Limit | Sort)* -> Filter ->
+/// Projection(rename) -> Aggregate`, matched structurally wherever it occurs. The `Limit`/`Sort`
+/// run is required because `PushDownLimit` commutes a `Limit` (and, with an `ORDER BY`, a `Sort`)
+/// below the select-producing `Projection` - `Limit: Projection(p) => { limit.input =
+/// p.input; p.input = limit }` in `datafusion-optimizer`'s `push_down_limit.rs` - leaving exactly
+/// this chain between the select list and the `HAVING` `Filter` once a `Limit` sits above it.
+/// The unparser's own `Projection` arm (`plan.rs`) walks the same `Limit`/`Sort` run without
+/// opening a new `SELECT`, so the two agree on what still counts as "this statement's select
+/// list" above the `Filter`. Below that run, the `Filter`'s immediate child must still be a
+/// `Projection` (the statement's own select list, or, inside a `Union`, a branch's own), never a
+/// mere ancestor further up - so the fold only ever fires where a select list, possibly with a
+/// `Limit`/`Sort` run, sits directly above the `Filter`, and it can never apply to, or be enabled
+/// by, a `Projection` outside that `Filter`'s own subtree - in particular, never across a `Union`
+/// branch boundary. Outside this shape, the rename `Projection` is left alone: the unparser's
+/// `Aggregate` arm relies on it being there to recover `GROUP BY`/`SELECT` column order whenever
+/// no projection has set the select list yet, and folding it away for a plain, unfiltered
+/// `GROUP BY` silently reverses that order instead of fixing anything.
+pub(super) fn fold_aggregate_rename_projection(plan: &LogicalPlan) -> Result<LogicalPlan> {
+    plan.clone()
+        .transform_down(fold_select_over_having_rename)
+        .data()
+}
+
+/// The single rewrite step for [`fold_aggregate_rename_projection`]: matches `plan` against the
+/// shape `Projection -> (Limit | Sort)* -> Filter -> Projection(rename) -> Aggregate` and, only
+/// then, folds the inner rename `Projection` onto the `Aggregate` it wraps. The outer,
+/// select-producing `Projection` is never itself folded or rewritten - only its input chain is.
+fn fold_select_over_having_rename(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
+    let LogicalPlan::Projection(mut outer) = plan else {
+        return Ok(Transformed::no(plan));
+    };
+    let input = Arc::unwrap_or_clone(outer.input);
+    let rewritten = fold_through_limit_sort_to_having_rename(input)?;
+    let transformed = rewritten.transformed;
+    outer.input = Arc::new(rewritten.data);
+    Ok(Transformed::new_transformed(LogicalPlan::Projection(outer), transformed))
+}
+
+/// Walks a run of `Limit`/`Sort` nodes - the shape `PushDownLimit` leaves between a select list
+/// and the `HAVING` `Filter` it used to sit directly above - looking for the exact shape
+/// `Filter -> Projection(rename) -> Aggregate` at the bottom of that run, and folds it in place
+/// if found. Any other node ends the walk without matching.
+fn fold_through_limit_sort_to_having_rename(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
+    match plan {
+        LogicalPlan::Limit(mut limit) => {
+            let input = Arc::unwrap_or_clone(limit.input);
+            let rewritten = fold_through_limit_sort_to_having_rename(input)?;
+            let transformed = rewritten.transformed;
+            limit.input = Arc::new(rewritten.data);
+            Ok(Transformed::new_transformed(LogicalPlan::Limit(limit), transformed))
+        }
+        LogicalPlan::Sort(mut sort) => {
+            let input = Arc::unwrap_or_clone(sort.input);
+            let rewritten = fold_through_limit_sort_to_having_rename(input)?;
+            let transformed = rewritten.transformed;
+            sort.input = Arc::new(rewritten.data);
+            Ok(Transformed::new_transformed(LogicalPlan::Sort(sort), transformed))
+        }
+        LogicalPlan::Filter(mut filter) => {
+            let LogicalPlan::Projection(inner) = filter.input.as_ref() else {
+                return Ok(Transformed::no(LogicalPlan::Filter(filter)));
+            };
+            let Some(agg) = fold_aggregate_rename(inner)? else {
+                return Ok(Transformed::no(LogicalPlan::Filter(filter)));
+            };
+            filter.input = Arc::new(LogicalPlan::Aggregate(agg));
+            Ok(Transformed::yes(LogicalPlan::Filter(filter)))
+        }
+        other => Ok(Transformed::no(other)),
+    }
+}
+
+/// `Some(agg)` when `p` is nothing but a positional rename of its own `Aggregate` input: every
+/// projected expression is a bare column, or an unqualified alias of one, naming that
+/// aggregate's own output field at the same position. An alias that carries its own `relation`
+/// changes the column's qualifier, not just its display name, so it is left alone (`None`), as
+/// is a grouping-set aggregate (out of scope for this fold).
+fn fold_aggregate_rename(p: &Projection) -> Result<Option<Aggregate>> {
+    let LogicalPlan::Aggregate(agg) = p.input.as_ref() else {
+        return Ok(None);
+    };
+    if matches!(agg.group_expr.as_slice(), [Expr::GroupingSet(_)]) {
+        return Ok(None);
+    }
+    if p.expr.len() != agg.schema.fields().len() {
+        return Ok(None);
+    }
+
+    let mut renamed = Vec::with_capacity(p.expr.len());
+    for (i, proj_expr) in p.expr.iter().enumerate() {
+        let (target_col, display_name) = match proj_expr {
+            Expr::Column(c) => (c, c.name.clone()),
+            Expr::Alias(Alias {
+                expr,
+                name,
+                relation: None,
+                ..
+            }) => match expr.as_ref() {
+                Expr::Column(c) => (c, name.clone()),
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        match agg.schema.index_of_column(target_col) {
+            Ok(idx) if idx == i => {}
+            _ => return Ok(None),
+        }
+        let agg_expr = agg
+            .group_expr
+            .iter()
+            .chain(agg.aggr_expr.iter())
+            .nth(i)
+            .expect("checked against agg.schema.fields().len() above");
+        renamed.push(if display_name == *agg.schema.field(i).name() {
+            agg_expr.clone()
+        } else {
+            agg_expr.clone().alias(display_name)
+        });
+    }
+
+    let group_len = agg.group_expr.len();
+    let new_group_expr = renamed[..group_len].to_vec();
+    let new_aggr_expr = renamed[group_len..].to_vec();
+    Ok(Some(Aggregate::try_new(
+        Arc::clone(&agg.input),
+        new_group_expr,
+        new_aggr_expr,
+    )?))
 }
 
 /// Rewrite Filter plans that have a Window as their input by inserting a SubqueryAlias.
