@@ -15,7 +15,12 @@ pub(super) fn unprojected_agg(cause: &DataFusionError) -> Option<&str> {
             .map(|cause| cause.column.as_str()),
         DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unprojected_agg(cause),
         DataFusionError::Shared(cause) => unprojected_agg(cause),
-        DataFusionError::Collection(causes) => causes.iter().find_map(unprojected_agg),
+        DataFusionError::Collection(causes) => {
+            let columns: Vec<&str> = causes.iter().filter_map(unprojected_agg).collect();
+            (!columns.is_empty() && columns.len() == causes.len())
+                .then(|| columns.first().copied())
+                .flatten()
+        }
         _ => None,
     }
 }
