@@ -149,6 +149,8 @@ pub trait FoundryTransport {
 }
 
 type TransportResponse<E> = Result<Vec<u8>, E>;
+/// A request and the statement it carries.
+type Prepared = (SqlRequest, GeneratedQuery);
 type WarehouseResult<E, T> = Result<T, FoundryError<E>>;
 
 /// Why Foundry did not answer a plan.
@@ -297,7 +299,8 @@ where
         Ok(token)
     }
 
-    fn request(&self, executable: Executable<'_>, dry_run: bool) -> WarehouseResult<T::Error, SqlRequest> {
+    /// The request for `executable`, and the statement it carries for the answer's execution record.
+    fn request(&self, executable: Executable<'_>, dry_run: bool) -> WarehouseResult<T::Error, Prepared> {
         let row_limit = executable
             .row_limit()
             .map_or(FOUNDRY_MAX_ROW_LIMIT, |rows| rows.min(FOUNDRY_MAX_ROW_LIMIT));
@@ -310,7 +313,10 @@ where
         if generated.source() != &self.source {
             return Err(FoundryError::WrongSource);
         }
-        Ok(SqlRequest::from_query(&generated, &self.ontology, row_limit, dry_run))
+        Ok((
+            SqlRequest::from_query(&generated, &self.ontology, row_limit, dry_run),
+            generated,
+        ))
     }
 
     fn decode(&self, bytes: Vec<u8>, most_rows: usize, deadline: Deadline) -> WarehouseResult<T::Error, ResultBatches> {
@@ -366,7 +372,7 @@ where
 
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         let token = self.delivered(presented)?;
-        let request = self.request(executable, true)?;
+        let (request, _) = self.request(executable, true)?;
         self.transport
             .execute(&request, token, deadline)
             .map_err(|cause| FoundryError::Endpoint { cause })?;
@@ -380,19 +386,27 @@ where
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let token = self.delivered(presented)?;
-        let request = self.request(executable, false)?;
+        let (request, generated) = self.request(executable, false)?;
         let bytes = self
             .transport
             .execute(&request, token, deadline)
             .map_err(|cause| FoundryError::Endpoint { cause })?;
-        self.decode(bytes, accepted_rows(executable), deadline)
+        // The record every answer carries of what ran: without it the service refuses the answer.
+        Ok(self.decode(bytes, accepted_rows(executable), deadline)?.with_execution(
+            sutura_domain::warehouse::execution::Execution::sql(
+                generated.source().clone(),
+                TypeDialect::Foundry,
+                generated.sql().to_owned(),
+                generated.params(),
+            ),
+        ))
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let Bearer::Deployment(ref token) = self.bearer else {
             return Err(FoundryError::NoBootIdentity);
         };
-        let request = self.request(Executable::Query(plan.plan()), false)?;
+        let (request, _) = self.request(Executable::Query(plan.plan()), false)?;
         let deadline = boot_deadline();
         let bytes = self
             .transport

@@ -146,6 +146,10 @@ fn each_request_carries_the_token_the_broker_presented_for_its_caller_unchanged(
             .execute(Executable::Query(&plan), &callers_token(token), deadline())
             .expect("the fake answer is accepted");
         assert_eq!(answered.rows(), 1);
+        assert!(
+            answered.has_executions(),
+            "an answer carries the record of the statement that ran"
+        );
         assert_eq!(
             seen.try_iter().collect::<Vec<String>>(),
             [token, token],

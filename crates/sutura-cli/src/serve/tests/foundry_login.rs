@@ -21,7 +21,7 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_exec_foundry::{FoundryTransport, FoundryWarehouse, OntologyIdentifier, SqlRequest};
 use sutura_http_client::test_support::{FakeServer, Scripted};
 
-use super::support::{accepted_by, bundle_with_an_unanchored_metric, catalog_of, direct_overlay};
+use super::support::{accepted_by, bundle_with_a_metric, catalog_of, direct_overlay};
 
 const CALLERS: [&str; 2] = ["analyst-a@example.com", "analyst-b@example.com"];
 
@@ -159,7 +159,8 @@ fn served(case: &str, idp: &FakeServer, answer: Answer) -> Served {
     );
     let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
         sutura_app::surface::LocalService::start(
-            &catalog_of(bundle_with_an_unanchored_metric("warehouse")),
+            // One object type, unqualified: Ontology SQL names an object type by its API name.
+            &catalog_of(bundle_with_a_metric("warehouse", false, "Customer")),
             sutura_app::Warehouses::of(warehouse),
             sutura_runtime::TracingAuditSink::new(),
             broker,

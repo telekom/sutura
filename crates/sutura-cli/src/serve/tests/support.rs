@@ -76,7 +76,7 @@ pub(super) fn bundle_with_an_unanchored_metric(source: &str) -> PinnedDefinition
     bundle_with_a_metric(source, false, "acme-analytics.warehouse.dim_customer")
 }
 
-fn bundle_with_a_metric(source: &str, anchored: bool, table: &str) -> PinnedDefinitions {
+pub(super) fn bundle_with_a_metric(source: &str, anchored: bool, table: &str) -> PinnedDefinitions {
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
