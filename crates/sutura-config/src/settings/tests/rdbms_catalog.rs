@@ -636,3 +636,13 @@ fn an_on_missing_endpoint_key_on_another_kind_is_refused() {
         "`catalogs.dict.on_missing_endpoint` is read only when `kind` is `rdbms`",
     );
 }
+
+/// `on_unsupported_column` and `on_empty_table` are native-dictionary-only rdbms keys, same as
+/// `on_missing_endpoint` above: a non-rdbms catalog setting either must be refused the same way.
+#[test]
+fn on_unsupported_column_and_on_empty_table_keys_on_another_kind_are_refused() {
+    for key in ["on_unsupported_column", "on_empty_table"] {
+        let chain = refusal(&overlay("markdown", &[&format!("{key}: omit")], None));
+        assert_names(&chain, &format!("`catalogs.dict.{key}` is read only when `kind` is `rdbms`"));
+    }
+}

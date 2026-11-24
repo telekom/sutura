@@ -151,11 +151,38 @@ pattern. SQL schema prefilters bind escaped pattern values; post-read matching i
 Table exclusions match table names; column exclusions match column names within selected tables.
 Type exclusions match the exact native type or its base name before `(`. Each remaining table
 becomes one model named after its table, with its physical `schema.table`, exact supported types
-and comments. Duplicate model names across schemas, a table with no remaining columns, an empty
-selection and an unsupported unexcluded type refuse the entire load. Unbounded Oracle `NUMBER`,
-negative-scale or over-38-digit decimals, Oracle `FLOAT` / `BINARY_FLOAT` / `RAW` / `BLOB`,
-PostgreSQL `real` / `bytea` / timestamps, and unsupported Oracle timestamp precision are
-refused rather than converted to a less precise type. Eligible complete primary keys and foreign keys are read as described below; no metric is inferred.
+and comments. Duplicate model names across schemas and an empty selection refuse the entire load.
+Unbounded Oracle `NUMBER`, negative-scale or over-38-digit decimals, Oracle `FLOAT` /
+`BINARY_FLOAT` / `RAW` / `BLOB`, PostgreSQL `real` / `bytea` / timestamps, and unsupported Oracle
+timestamp precision have no exact supported mapping; by default, so does a table left with no
+remaining column. Both refuse the load in one pass naming every offending column (table, column,
+native type) and every emptied table together, not just the first one found - restarting once per
+name found no longer applies. The list is bounded in the message (stating the true count even when
+truncated), not in what is collected or in what a declared opt-in below still drops.
+
+`on_unsupported_column` (default `refuse`) and `on_empty_table` (default `refuse`) opt a native
+catalog out of refusing, independently of each other:
+
+```yaml
+catalogs:
+  - name: warehouse
+    kind: rdbms
+    dictionary_source: native_dictionary
+    include: [{ schema: public, table: "*" }]
+    on_unsupported_column: omit
+    on_empty_table: omit
+```
+
+`on_unsupported_column: omit` drops a column whose native type has no exact supported mapping
+instead of refusing, with a `WARN` log naming the table, column and native type. `on_empty_table:
+omit` drops a table left with no included column - after exclusions and, if also set, an omitted
+unsupported column - instead of refusing, with a `WARN` log naming the table. The two keys are
+independent: omitting a column can still leave its table empty, and that table is refused unless
+`on_empty_table` is also `omit`. An omitted column or table is excluded exactly like an explicitly
+excluded one: it is not served, not listed by `describe_catalog`, and the native physical
+allowlist (below) refuses a composed model that tries to reintroduce it, the same as any other
+excluded column. Eligible complete primary keys and foreign keys are read as described below; no
+metric is inferred.
 
 Native dictionaries may compose with Markdown metrics and knowledge over their models. Contributor
 ownership and declaration fidelity are checked separately before cross-catalog references link.
@@ -191,9 +218,14 @@ transaction, and rolls it back.
 Entries are ordered: the first nonempty description wins, then the dictionary's own comment.
 The join uses the exact physical catalog (when present), schema, table and column. Names are
 not case-folded and catalog prefixes are not removed. Unknown and excluded columns are ignored;
-the load log records `ignored_columns`. Duplicate physical keys within one source refuse loading.
-Prose never changes columns, types, exclusions, audience, text policies or the execution allowlist.
-The catalog digest includes the resulting prose.
+the load log records `ignored_columns`. A row's keys and identifiers are always parsed at
+construction, so a malformed identifier still refuses regardless of whether the row is ever used.
+Its prose, though, is only parsed and validated once the row would actually be used - its key has
+matched a selected table or column, and lookup has reached it as the first source with non-empty
+prose for that column: an unknown or excluded row's prose, or a row a higher-priority source
+already answered for, is never checked, even when it is unusable. Duplicate physical keys within
+one source refuse loading. Prose never changes columns, types, exclusions, audience, text policies
+or the execution allowlist. The catalog digest includes the resulting prose.
 
 A source can name another declared RDBMS or DataHub catalog:
 
@@ -297,6 +329,26 @@ their own read bounds and their prose projection is additionally bounded by the 
 RDBMS catalog. Reloads read the description sources again before publishing a new pinned bundle.
 `prompt.list_physical_schema: true` exposes column descriptions through `describe_catalog`;
 `prompt.catalog_prose: omitted` continues to withhold them.
+
+A matched row whose own prose is unusable (a control character, an invisible character, or over
+the byte/line limit) follows `on_invalid_description`, default `refuse` (the behaviour above,
+unchanged). The refusal names the key the row resolved to - schema, table and column - never the
+offending text, which this layer never logs or carries in an error. `on_invalid_description: omit`
+drops just that one row with a `WARN` log naming the same key, falling back to the next ordered
+source and, if none is left, the dictionary's own native comment - the same fallback an empty or
+absent row already takes.
+
+```yaml
+descriptions_from:
+  - connection: { ... }
+    table: inventory.column_docs
+    key: { schema: object_owner, table: object_name, column: field_name }
+    description: description
+    on_invalid_description: omit
+```
+
+Unlike `on_missing_endpoint`, this policy is set per mapping only - there is no catalog-wide
+default to inherit, since a `catalog:` reference has no mapping fields of its own to carry it.
 
 ## Relationships
 

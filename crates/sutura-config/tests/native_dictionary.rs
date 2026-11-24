@@ -86,4 +86,24 @@ catalogs:
         let error = refusal("    environment: test\n    include: [{schema: public, table: '*'}]");
         assert!(error.contains("require dictionary_source"), "{error}");
     }
+
+    #[test]
+    fn a_documentation_view_catalog_cannot_declare_the_native_opt_in_policies() {
+        for key in ["on_unsupported_column: omit", "on_empty_table: omit"] {
+            let error = refusal(&format!("    environment: test\n    {key}"));
+            assert!(error.contains("require dictionary_source"), "{error}");
+        }
+    }
+
+    #[test]
+    fn native_unsupported_column_and_empty_table_policies_parse_and_default_to_refuse() {
+        load(&format!(
+            "{NATIVE}\n    on_unsupported_column: omit\n    on_empty_table: omit"
+        ))
+        .expect("both opt-in keys accept omit");
+        let error = refusal(&format!("{NATIVE}\n    on_unsupported_column: sometimes"));
+        assert!(error.contains("on_unsupported_column must be one of refuse, omit"), "{error}");
+        let error = refusal(&format!("{NATIVE}\n    on_empty_table: sometimes"));
+        assert!(error.contains("on_empty_table must be one of refuse, omit"), "{error}");
+    }
 }

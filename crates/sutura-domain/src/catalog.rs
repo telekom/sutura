@@ -42,7 +42,8 @@ pub use calendar::{InvalidSharedCalendars, SharedCalendars};
 pub use collation::{COLLATION_METADATA_KEY, Collation, CollationName, InvalidCollationName, MAX_COLLATION_NAME_CHARS};
 pub use consistency::{Definitions, InconsistentDefinitions};
 pub use pattern::{
-    DictionaryInclude, DictionaryPattern, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection,
+    DictionaryInclude, DictionaryPattern, DictionarySelection, EmptyTablePolicy, InvalidDictionaryPattern,
+    InvalidDictionarySelection, UnsupportedColumnPolicy,
 };
 pub use unlinked::UnlinkedContribution;
 
