@@ -306,7 +306,7 @@ impl Unparser<'_> {
     /// branch that is itself a nested UNION already writes its body back through `take_body`
     /// inside `select_to_sql_expr`; a DISTINCT nested UNION no longer promotes the outer UNION
     /// ALL to DISTINCT, since that bit now lives on this branch's own, discarded builder.
-    fn union_branch_to_sql_expr(&self, input: &LogicalPlan) -> Result<SetExpr> {
+    fn union_branch_to_sql_expr(&self, input: &LogicalPlan, branch_index: usize) -> Result<SetExpr> {
         let mut own = Some(QueryBuilder::default());
         let set_expr = self.select_to_sql_expr(input, &mut own)?;
         let Some(mut own) = own else {
@@ -315,8 +315,33 @@ impl Unparser<'_> {
         if !own.has_own_row_window() {
             return Ok(set_expr);
         }
-        let derived = own.body(Box::new(set_expr)).build()?;
-        Ok(SetExpr::Query(Box::new(derived)))
+        let windowed = own.body(Box::new(set_expr)).build()?;
+        self.union_branch_as_derived_table(windowed, branch_index)
+    }
+
+    /// `PushDownLimit` pushes an outer `LIMIT` into every UNION input, so a branch's own row
+    /// window is common even for a statement whose UNION itself has no per-branch clause in the
+    /// caller's SQL. A bare parenthesized operand (`(SELECT ... LIMIT n) UNION ALL ...`) is
+    /// rejected by some dialects, so the branch is wrapped as a derived table instead, the form
+    /// every dialect accepts: `SELECT * FROM (<branch>) AS <alias>`.
+    fn union_branch_as_derived_table(&self, windowed: ast::Query, branch_index: usize) -> Result<SetExpr> {
+        let mut select_builder = SelectBuilder::default();
+        select_builder.projection(vec![ast::SelectItem::Wildcard(
+            ast::WildcardAdditionalOptions::default(),
+        )]);
+        let mut derived_builder = DerivedRelationBuilder::default();
+        derived_builder
+            .lateral(false)
+            .subquery(Box::new(windowed))
+            .alias(Some(
+                self.new_table_alias(format!("derived_union_branch_{branch_index}"), vec![]),
+            ));
+        let mut relation_builder = RelationBuilder::default();
+        relation_builder.derived(derived_builder);
+        let mut twj = TableWithJoinsBuilder::default();
+        twj.relation(relation_builder);
+        select_builder.push_from(twj);
+        Ok(SetExpr::Select(Box::new(select_builder.build()?)))
     }
 
     /// Reconstructs a SELECT SQL statement from a logical plan by
@@ -1735,7 +1760,8 @@ impl Unparser<'_> {
                 let input_exprs: Vec<SetExpr> = union
                     .inputs
                     .iter()
-                    .map(|input| self.union_branch_to_sql_expr(input))
+                    .enumerate()
+                    .map(|(branch_index, input)| self.union_branch_to_sql_expr(input, branch_index))
                     .collect::<Result<Vec<_>>>()?;
 
                 assert_or_internal_err!(

@@ -43,6 +43,14 @@ struct OracleLegs {
     statements: Vec<String>,
 }
 
+/// `CoalescePartitionsExec` interleaves a UNION's partitions in an unspecified order; compare a
+/// union test's rows regardless of that order.
+fn sorted_rows(rows: RawRows) -> RawRows {
+    let (columns, mut body) = rows.into_parts();
+    body.sort_by_key(|row| format!("{row:?}"));
+    RawRows::of(columns, body)
+}
+
 impl StatementLegs for OracleLegs {
     type Stop = SourceName;
 
@@ -559,11 +567,11 @@ fn a_union_branch_keeps_its_own_order_by_and_limit_off_its_sibling_in_every_dial
             "{dialect:?}: the right branch's own ORDER BY/LIMIT leaked onto the union: {sql}"
         );
         assert_eq!(
-            rows,
-            legs.engines.as_one(
+            sorted_rows(rows),
+            sorted_rows(legs.engines.as_one(
                 "select region from dim_region where sales_area = 'emea' \
                  union all (select region from dim_region where sales_area = 'emea' order by region limit 1)"
-            ),
+            )),
             "{dialect:?}: {sql}"
         );
     }
@@ -571,10 +579,11 @@ fn a_union_branch_keeps_its_own_order_by_and_limit_off_its_sibling_in_every_dial
 
 #[test]
 fn a_raw_union_statement_keeps_its_own_order_by_and_limit_in_every_dialect() {
-    // End-to-end through `run_sql`: DataFusion's own planner/optimizer builds the right
-    // branch's row window as a `Limit` over `Sort(fetch)` (the merged shape `combine_limit`
-    // folds before rendering), which the hand-built plan in the sibling test above skips - this
-    // proves the bug is reachable from a caller's raw statement, not just from a hand-built plan.
+    // End-to-end through `DataFusionCombiner::answer_statement`: DataFusion's own
+    // planner/optimizer builds the right branch's row window as a `Limit` over `Sort(fetch)`
+    // (the merged shape `combine_limit` folds before rendering), which the hand-built plan in
+    // the sibling test above skips - this proves the bug is reachable from a caller's raw
+    // statement, not just from a hand-built plan.
     let sql = r#"select "region" from "dim_region" where "sales_area" = 'emea' union all (select "region" from "dim_region" where "sales_area" = 'emea' order by "region" limit 1)"#;
     for dialect in [
         TypeDialect::DuckDb,
@@ -616,9 +625,72 @@ fn a_raw_union_statement_keeps_its_own_order_by_and_limit_in_every_dialect() {
             legs.statements
         );
         assert_eq!(
-            rows,
-            legs.engines.as_one(sql),
+            sorted_rows(rows),
+            sorted_rows(legs.engines.as_one(sql)),
             "{dialect:?}: a branch's own ORDER BY/LIMIT leaked onto the whole UNION: {:?}",
+            legs.statements
+        );
+    }
+}
+
+#[test]
+fn a_union_under_a_top_level_limit_runs_in_every_dialect() {
+    // `PushDownLimit` pushes an outer `LIMIT` into every UNION input, so this statement's two
+    // branches each carry their own row window even though neither branch asked for one in the
+    // caller's SQL. This already ran correctly on `origin/main` (before the union-branch fix in
+    // this PR): the bug there bound a branch's *own* clause to the whole statement, but every
+    // branch here wants the *same* pushed-down limit, so the collision was silent. The fix adds a
+    // derived-table wrapper (`SELECT * FROM (<branch>) AS <alias>`) around any branch carrying a
+    // row window - including one that only exists because of this push-down, not because the
+    // caller wrote one - so this is a plain regression cell, not a red-on-base reproduction: it
+    // passes on both trees, and is pinned by a killing mutation rather than causality.
+    let sql = r#"select "region" from "dim_region" where "sales_area" = 'emea' union all select "region" from "dim_region" where "sales_area" = 'north' limit 1"#;
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            dialect,
+            regions().schema(),
+        )];
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
+        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!(
+                "{dialect:?}: the top-level-limited union must run: {answer:?}: {:?}",
+                legs.statements
+            );
+        };
+        assert_eq!(
+            legs.statements.len(),
+            1,
+            "{dialect:?}: one pushed statement: {:?}",
+            legs.statements
+        );
+        assert_eq!(
+            rows.rows().len(),
+            1,
+            "{dialect:?}: the top-level LIMIT 1 must still bound the whole union: {:?}",
             legs.statements
         );
     }

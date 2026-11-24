@@ -1,0 +1,17 @@
+diff --git a/vendor/datafusion-sql/src/unparser/ast.rs b/vendor/datafusion-sql/src/unparser/ast.rs
+index 26c09753f..c33667740 100644
+--- a/vendor/datafusion-sql/src/unparser/ast.rs
++++ b/vendor/datafusion-sql/src/unparser/ast.rs
+@@ -87,11 +87,7 @@ impl QueryBuilder {
+     }
+     /// Whether a `Limit` or `Sort` wrote its own order, limit, offset or fetch onto this builder.
+     pub fn has_own_row_window(&self) -> bool {
+-        self.order_by_kind.is_some()
+-            || self.limit.is_some()
+-            || self.offset.is_some()
+-            || self.fetch.is_some()
+-            || !self.limit_by.is_empty()
++        false
+     }
+     pub fn build(&self) -> Result<ast::Query, BuilderError> {
+         let order_by = self
