@@ -337,12 +337,18 @@ impl Unparser<'_> {
     }
 
     /// `PushDownLimit` pushes a copy of an outer `LIMIT` below each UNION input's own
-    /// `Projection` as an inner `Limit`, rendering as a `derived_limit` subquery under that
-    /// branch rather than wrapping the branch itself - so a branch's own row window here is as
-    /// likely to come from the caller's own per-branch `ORDER BY`/`LIMIT`/`OFFSET` as from that
-    /// pushdown. A bare parenthesized operand (`(SELECT ... LIMIT n) UNION ALL ...`) is rejected
-    /// by some dialects, so the branch is wrapped as a derived table instead, the form every
-    /// dialect accepts: `SELECT <f1>, ..., <fn> FROM (<branch>) AS <alias>`.
+    /// `Projection`. For a branch that still has that `Projection` node by the time the pushed
+    /// `Limit` is reached, this renders as a `derived_limit` subquery nested inside the branch's
+    /// own `SELECT` instead of writing onto the branch's own builder, so the pushdown alone
+    /// never engages this wrapper for a *projected* branch. A branch whose `Projection` the
+    /// optimizer eliminated first (e.g. a bare `SELECT * FROM scan ... LIMIT n` branch, once the
+    /// scan itself already returns exactly the needed columns) is not `already_projected` when
+    /// that same pushed `Limit` is reached, so it still writes the fetch directly onto the
+    /// branch's own builder and DOES engage this wrapper, the same as a caller's own per-branch
+    /// `ORDER BY`/`LIMIT`/`OFFSET`. A bare parenthesized operand (`(SELECT ... LIMIT n) UNION ALL
+    /// ...`) is rejected by some dialects, so a branch holding its own row window either way is
+    /// wrapped as a derived table instead, the form every dialect accepts:
+    /// `SELECT <f1>, ..., <fn> FROM (<branch>) AS <alias>`.
     ///
     /// The alias itself carries no column list: Oracle, BigQuery and ClickHouse all refuse a
     /// table alias with one (`supports_column_alias_in_table_alias() == false`), and a synthetic

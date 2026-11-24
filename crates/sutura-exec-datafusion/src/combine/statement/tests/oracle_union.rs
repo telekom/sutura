@@ -196,6 +196,18 @@ fn a_union_under_a_top_level_limit_runs_in_every_dialect() {
             "{dialect:?}: the top-level LIMIT 1 must still bound the whole union: {:?}",
             legs.statements
         );
+        // Pin the corrected PushDownLimit mechanism itself, not just its row-count effect:
+        // `PushDownLimit` pushes a copy of this top-level LIMIT below each branch, and by the
+        // time it reaches each branch's own `Limit` node the optimizer has already eliminated
+        // that branch's `Projection` (the scan already returns exactly the needed column), so
+        // the branch is not yet `already_projected` and the pushed fetch writes straight onto
+        // the branch's own builder - engaging this PR's wrapper for BOTH branches.
+        assert!(
+            legs.statements[0].contains("derived_union_branch_0") && legs.statements[0].contains("derived_union_branch_1"),
+            "{dialect:?}: a top-level LIMIT pushed below each unprojected branch must engage the \
+             branch-wrapping mechanism for both branches: {:?}",
+            legs.statements
+        );
     }
 }
 
@@ -292,6 +304,12 @@ fn a_windowed_union_branch_wraps_without_a_table_alias_column_list() {
             "{dialect:?}: the leftmost-windowed union must run: {answer:?}: {:?}",
             legs.statements
         );
+        assert_eq!(
+            legs.statements.len(),
+            1,
+            "{dialect:?}: one pushed statement: {:?}",
+            legs.statements
+        );
         for captured in &legs.statements {
             assert!(
                 captured.contains("derived_union_branch_0"),
@@ -308,5 +326,74 @@ fn a_windowed_union_branch_wraps_without_a_table_alias_column_list() {
                 "{dialect:?}: the derived table alias must carry no column list: {captured}"
             );
         }
+    }
+}
+
+#[test]
+fn a_windowed_union_branch_with_duplicate_output_names_refuses_to_unparse() {
+    // `union_branch_as_derived_table`'s outer SELECT projects a wrapped branch's own output
+    // field names (`input.schema().fields()`) back out as explicit identifiers; two of them
+    // colliding would make that projection ambiguous, so the wrapper refuses up front with an
+    // internal error instead of emitting it. `field_names` is built from bare `field.name()`,
+    // dropping the table qualifier `DFSchema` itself disambiguates by - so the reachable
+    // collision is an unprojected CROSS JOIN of two sources that each have a column named
+    // "region" (`customers` and `regions`, both already fixtures in this module): `DFSchema`
+    // is content with "customers"."region" next to "dim_region"."region", `Projection`'s own
+    // uniqueness check never runs because there is no `Projection` node here at all, and
+    // `union_branch_as_derived_table`'s bare-name collision guard is the first place that cares.
+    use datafusion::datasource::{MemTable, provider_as_source};
+    use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder, col, lit};
+
+    let customers_batch = customers();
+    let customers_source = provider_as_source(Arc::new(
+        MemTable::try_new(customers_batch.schema(), vec![vec![customers_batch]]).expect("a customers source table"),
+    ));
+    let regions_batch = regions();
+    let regions_source = provider_as_source(Arc::new(
+        MemTable::try_new(regions_batch.schema(), vec![vec![regions_batch]]).expect("a regions source table"),
+    ));
+    let joined_regions = |alias: &str| -> LogicalPlan {
+        LogicalPlanBuilder::scan(format!("customers_{alias}"), Arc::clone(&customers_source), None)
+            .expect("a customers scan")
+            .filter(col(format!("customers_{alias}.region")).eq(lit("north")))
+            .expect("a customers filter")
+            .cross_join(
+                LogicalPlanBuilder::scan(format!("dim_region_{alias}"), Arc::clone(&regions_source), None)
+                    .expect("a regions scan")
+                    .build()
+                    .expect("a regions plan"),
+            )
+            .expect("a cross join keeping both same-named region columns")
+            .build()
+            .expect("a joined plan")
+    };
+    let left = joined_regions("left");
+    let right = LogicalPlanBuilder::from(joined_regions("right"))
+        .limit(0, Some(1))
+        .expect("a right limit over the unprojected, duplicate-named join")
+        .build()
+        .expect("a right plan");
+    let plan = LogicalPlanBuilder::from(left)
+        .union(right)
+        .expect("a union of same-shaped branches")
+        .build()
+        .expect("a union plan");
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let cause = super::super::unparsed(&plan, dialect).expect_err(
+            "a windowed branch with duplicate output names must refuse to unparse, not emit \
+             an ambiguous projection",
+        );
+        assert!(
+            cause.to_string().contains("duplicate output column names"),
+            "{dialect:?}: {cause}"
+        );
     }
 }
