@@ -20,8 +20,7 @@ pub(crate) struct RawDescriptionSource {
     pub(crate) live_row_predicates: Option<Vec<RawTablePredicate>>,
     pub(crate) max_dictionary_rows: Option<u64>,
     pub(crate) max_dictionary_bytes: Option<u64>,
-    /// What a matched row's unusable prose does - `refuse` (default) or `omit`
-    /// (`telekom/sutura#2069`), mirroring `on_missing_endpoint`'s shape.
+    /// What a matched row's unusable prose does - `refuse` (default) or `omit`.
     pub(crate) on_invalid_description: Option<String>,
 }
 
@@ -77,12 +76,10 @@ pub struct DescriptionMapping {
 }
 
 /// What a matched row's unusable prose does, once its key has matched a visible table or column -
-/// an unmatched row is ignored and never checked regardless of this policy
-/// (`telekom/sutura#2069`).
+/// an unmatched row is ignored and never checked regardless of this policy.
 ///
-/// `Refuse` is the default: the exact behaviour before this field existed, so a written mapping
-/// with no `on_invalid_description` key reads unchanged. `Omit` is the opt-in that drops just that
-/// row, falling back to the next ordered source or the dictionary's own native comment.
+/// `Refuse` is the default, unchanged. `Omit` is the opt-in that drops just that row, falling back
+/// to the next ordered source or the dictionary's own native comment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InvalidDescriptionPolicy {
     #[default]

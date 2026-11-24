@@ -218,11 +218,14 @@ transaction, and rolls it back.
 Entries are ordered: the first nonempty description wins, then the dictionary's own comment.
 The join uses the exact physical catalog (when present), schema, table and column. Names are
 not case-folded and catalog prefixes are not removed. Unknown and excluded columns are ignored;
-the load log records `ignored_columns`. A row's prose is only parsed and validated once its key
-has matched a selected table or column: an unknown or excluded row's prose is never checked, even
-when it is unusable (`telekom/sutura#2069`). Duplicate physical keys within one source refuse
-loading. Prose never changes columns, types, exclusions, audience, text policies or the execution
-allowlist. The catalog digest includes the resulting prose.
+the load log records `ignored_columns`. A row's keys and identifiers are always parsed at
+construction, so a malformed identifier still refuses regardless of whether the row is ever used.
+Its prose, though, is only parsed and validated once the row would actually be used - its key has
+matched a selected table or column, and lookup has reached it as the first source with non-empty
+prose for that column: an unknown or excluded row's prose, or a row a higher-priority source
+already answered for, is never checked, even when it is unusable. Duplicate physical keys within
+one source refuse loading. Prose never changes columns, types, exclusions, audience, text policies
+or the execution allowlist. The catalog digest includes the resulting prose.
 
 A source can name another declared RDBMS or DataHub catalog:
 
@@ -329,12 +332,11 @@ RDBMS catalog. Reloads read the description sources again before publishing a ne
 
 A matched row whose own prose is unusable (a control character, an invisible character, or over
 the byte/line limit) follows `on_invalid_description`, default `refuse` (the behaviour above,
-unchanged): a written mapping with no `on_invalid_description` key reads exactly as before this
-field existed. The refusal names the key the row resolved to - schema, table and column - never
-the offending text, which this layer never logs or carries in an error
-(`telekom/sutura#2069`). `on_invalid_description: omit` drops just that one row with a `WARN` log
-naming the same key, falling back to the next ordered source and, if none is left, the
-dictionary's own native comment - the same fallback an empty or absent row already takes.
+unchanged). The refusal names the key the row resolved to - schema, table and column - never the
+offending text, which this layer never logs or carries in an error. `on_invalid_description: omit`
+drops just that one row with a `WARN` log naming the same key, falling back to the next ordered
+source and, if none is left, the dictionary's own native comment - the same fallback an empty or
+absent row already takes.
 
 ```yaml
 descriptions_from:

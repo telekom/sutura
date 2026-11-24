@@ -18,14 +18,12 @@ type AmbiguousColumn = (QualifiedTable, ColumnName, ColumnName);
 /// What a matched row's unusable prose does.
 ///
 /// Governs only a row whose key has already matched a visible table or column in the served
-/// dictionary - a row whose key resolves to no selected column is never checked at all (ask 1 of
-/// `telekom/sutura#2069`).
+/// dictionary - a row whose key resolves to no selected column is never checked at all.
 ///
-/// `Refuse` is the conservative default, the exact behaviour this crate had before the per-source
-/// choice existed, so an existing deployment reads unchanged. `Omit` is the opt-in that drops just
-/// that row, falling back to the next ordered source or the dictionary's own native comment - the
-/// same fallback an unmatched row already takes. An omitted row is logged with its key (schema,
-/// table, column), never with its text.
+/// `Refuse` is the default, unchanged. `Omit` is the opt-in that drops just that row, falling back
+/// to the next ordered source or the dictionary's own native comment - the same fallback an
+/// unmatched row already takes. An omitted row is logged with its key (schema, table, column),
+/// never with its text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InvalidDescriptionPolicy {
     #[default]
@@ -247,75 +245,70 @@ impl DescriptionOverlay {
     }
 }
 
-/// The first nonempty, valid table prose across the ordered candidates, applying each candidate's
-/// own policy to an invalid row before falling through to the next one. Never returns the offending
-/// text, and an `Ok(description)` whose text trims to empty is treated as "no prose" here - the same
-/// fallback an absent row already takes - so a blank override still lets the next source show
-/// through.
-fn resolve_table_prose<'a>(
+/// The first nonempty, valid prose across the ordered candidates, applying each candidate's own
+/// policy to an invalid row before falling through to the next one. Never returns the offending
+/// text, and an `Ok(description)` whose text trims to empty is treated as "no prose" here - the
+/// same fallback an absent row already takes - so a blank override still lets the next source show
+/// through. `refuse` builds the typed refusal naming only the key; `warn` logs that same key under
+/// `omit`.
+fn resolve_prose<'a>(
     candidates: impl Iterator<Item = (&'a str, InvalidDescriptionPolicy)>,
-    table: &QualifiedTable,
+    refuse: impl Fn(sutura_domain::catalog::InvalidDescription) -> DescriptionError,
+    warn: impl Fn(&sutura_domain::catalog::InvalidDescription),
 ) -> Result<Option<String>, DescriptionError> {
     for (raw, policy) in candidates {
         match Description::parse(raw) {
             Ok(description) if description.is_empty() => {}
             Ok(description) => return Ok(Some(description.as_str().to_owned())),
             Err(cause) => match policy {
-                InvalidDescriptionPolicy::Refuse => {
-                    return Err(DescriptionError::TableProse {
-                        table: table.clone(),
-                        cause,
-                    });
-                }
-                InvalidDescriptionPolicy::Omit => {
-                    tracing::warn!(
-                        table = %table,
-                        cause = %cause,
-                        "omitting description overlay row: table prose is not usable"
-                    );
-                }
+                InvalidDescriptionPolicy::Refuse => return Err(refuse(cause)),
+                InvalidDescriptionPolicy::Omit => warn(&cause),
             },
         }
     }
     Ok(None)
 }
 
-/// Like [`resolve_table_prose`], for a column's matched candidates.
+/// [`resolve_prose`] for a table's matched candidates.
+fn resolve_table_prose<'a>(
+    candidates: impl Iterator<Item = (&'a str, InvalidDescriptionPolicy)>,
+    table: &QualifiedTable,
+) -> Result<Option<String>, DescriptionError> {
+    resolve_prose(
+        candidates,
+        |cause| DescriptionError::TableProse {
+            table: table.clone(),
+            cause,
+        },
+        |cause| {
+            tracing::warn!(table = %table, cause = %cause, "omitting description overlay row: table prose is not usable");
+        },
+    )
+}
+
+/// [`resolve_prose`] for a column's matched candidates.
 fn resolve_column_prose<'a>(
     candidates: impl Iterator<Item = (&'a str, InvalidDescriptionPolicy)>,
     table: &QualifiedTable,
     column: &ColumnName,
 ) -> Result<Option<String>, DescriptionError> {
-    for (raw, policy) in candidates {
-        match Description::parse(raw) {
-            Ok(description) if description.is_empty() => {}
-            Ok(description) => return Ok(Some(description.as_str().to_owned())),
-            Err(cause) => match policy {
-                InvalidDescriptionPolicy::Refuse => {
-                    return Err(DescriptionError::ColumnProse {
-                        table: table.clone(),
-                        column: column.clone(),
-                        cause,
-                    });
-                }
-                InvalidDescriptionPolicy::Omit => {
-                    tracing::warn!(
-                        table = %table,
-                        column = %column,
-                        cause = %cause,
-                        "omitting description overlay row: column prose is not usable"
-                    );
-                }
-            },
-        }
-    }
-    Ok(None)
+    resolve_prose(
+        candidates,
+        |cause| DescriptionError::ColumnProse {
+            table: table.clone(),
+            column: column.clone(),
+            cause,
+        },
+        |cause| {
+            tracing::warn!(table = %table, column = %column, cause = %cause, "omitting description overlay row: column prose is not usable");
+        },
+    )
 }
 
 /// Applies only prose after dictionary selection: a source row is parsed and validated only once
-/// its key has matched a table or column the selection actually kept (ask 1 of
-/// `telekom/sutura#2069`). Returns the number of ignored column rows, including empty rows and
-/// repeated unknown columns from different ordered sources.
+/// its key has matched a table or column the selection actually kept. Returns the number of
+/// ignored column rows, including empty rows and repeated unknown columns from different ordered
+/// sources.
 pub(crate) fn apply(mut dictionary: Dictionary, sources: &[DescriptionOverlay]) -> Result<OverlaidDictionary, RdbmsError> {
     // Folding runs only when some source actually asked for it: with none, this must be
     // byte-identical to the exact-only path, and a served identifier whose lower case does not
@@ -668,10 +661,8 @@ mod tests {
         ));
     }
 
-    /// Ask 1 of `telekom/sutura#2069`: construction never validates prose - a row with a control
-    /// character must still be recorded, so matching (and only matching) decides whether it is ever
-    /// checked. The real-world shape was a `key.via` source where one control-character row
-    /// documented a table `exclude_tables` had already dropped.
+    /// Construction never validates prose - a row with a control character must still be
+    /// recorded, so matching (and only matching) decides whether it is ever checked.
     #[test]
     fn construction_defers_prose_validation_past_control_characters() {
         let source = dictionary("public", &[("id", "Bad\u{96}prose")]);
@@ -681,8 +672,8 @@ mod tests {
         );
     }
 
-    /// Ask 1: a row whose key resolves to no selected column is ignored and counted, and its prose
-    /// is never checked - the docs' own claim, which the eager-validation bug broke.
+    /// A row whose key resolves to no selected column is ignored and counted, and its prose is
+    /// never checked.
     #[test]
     fn invalid_prose_for_an_unmatched_column_is_ignored_and_never_refuses() {
         let source = dictionary("public", &[("unknown", "Bad\u{96}prose")]);
