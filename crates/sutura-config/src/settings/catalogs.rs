@@ -101,6 +101,10 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
         let settings = settings
             .with_refresh_seconds(Some(raw_catalog.refresh_seconds))
             .map_err(|cause| SettingsError::Catalog { cause })?;
+        // Every kind, not `rdbms` alone - `#2071`.
+        let settings = settings
+            .with_max_definitions_bytes(raw_catalog.max_definitions_bytes)
+            .map_err(|cause| SettingsError::Catalog { cause })?;
         entries.push(settings);
     }
     Catalogs::parse(entries).map_err(|cause| SettingsError::Catalog { cause })

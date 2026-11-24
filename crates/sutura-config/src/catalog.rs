@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use sutura_domain::catalog::{DefinitionsByteBound, InvalidDefinitionsByteBound};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
@@ -183,6 +184,12 @@ pub struct CatalogSettings {
     /// yields `Some` - [`Self::DEFAULT_REFRESH_SECONDS`] when the key is absent; `None` means
     /// never and is reachable only by building the settings in code.
     refresh_seconds: Option<u64>,
+    /// `github.com/telekom/sutura#2071` - every kind, not `rdbms` alone: the aggregate byte bound
+    /// `Definitions::assemble_bounded` checks this catalog's authored content against. Always
+    /// resolved - [`DefinitionsByteBound::default`] (1 MiB) when the key is absent, never a second
+    /// `None`-means-default the way [`Self::refresh_seconds`] needs, because there is no "never"
+    /// reading for this one.
+    definitions_bound: DefinitionsByteBound,
     /// `catalog.kind: rdbms` only, all or nothing. `None` for every other kind.
     rdbms: Option<RdbmsSettings>,
 }
@@ -217,6 +224,14 @@ pub enum InvalidCatalogSettings {
     /// interval, not "never".
     #[error("catalogs.{name}.refresh_seconds is 0 - remove the key for the default, or write a positive interval")]
     ZeroRefresh { name: SourceName },
+    /// `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - is `0` or above
+    /// [`sutura_domain::catalog::DEFINITIONS_BYTES_CEILING`].
+    #[error("catalogs.{name}.max_definitions_bytes is not usable: {cause}")]
+    InvalidDefinitionsBound {
+        name: SourceName,
+        #[source]
+        cause: InvalidDefinitionsByteBound,
+    },
     /// A `catalog.kind: rdbms` entry's own keys are not usable.
     #[error("`catalogs.{name}` is `kind: rdbms` and is not usable")]
     Rdbms {
@@ -317,6 +332,7 @@ impl CatalogSettings {
             deadline_seconds: None,
             max_response_bytes: None,
             refresh_seconds: None,
+            definitions_bound: DefinitionsByteBound::default(),
             rdbms: None,
         })
     }
@@ -342,6 +358,30 @@ impl CatalogSettings {
     #[inline]
     pub const fn refresh_seconds(&self) -> Option<u64> {
         self.refresh_seconds
+    }
+
+    /// Declares the aggregate byte bound this catalog's authored content is checked against -
+    /// `github.com/telekom/sutura#2071`. `None` (what [`Self::parse`] starts at) keeps
+    /// [`DefinitionsByteBound::default`]; `Some` is parsed and refused the same way a reader builds
+    /// one from any other source.
+    pub fn with_max_definitions_bytes(mut self, max_definitions_bytes: Option<u64>) -> Result<Self, InvalidCatalogSettings> {
+        if let Some(bytes) = max_definitions_bytes {
+            // A `u64` that does not fit `usize` (32-bit only) is already above the ceiling -
+            // folding it to `usize::MAX` reports that refusal instead of a silent truncation.
+            let bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
+            self.definitions_bound =
+                DefinitionsByteBound::parse(bytes).map_err(|cause| InvalidCatalogSettings::InvalidDefinitionsBound {
+                    name: self.name.clone(),
+                    cause,
+                })?;
+        }
+        Ok(self)
+    }
+
+    /// The resolved aggregate byte bound - always a value, never a second "absent" reading.
+    #[inline]
+    pub const fn max_definitions_bytes(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 
     /// Adds the `catalog.kind: rdbms`-only settings. `parse_catalogs` calls this only when `kind`
@@ -598,3 +638,6 @@ mod tests;
 
 #[cfg(test)]
 mod description_relations_tests;
+
+#[cfg(test)]
+mod bound_tests;

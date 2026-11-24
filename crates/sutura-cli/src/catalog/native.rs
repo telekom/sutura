@@ -1,7 +1,8 @@
 //! The one permitted mixed catalog shape: native RDBMS declarations plus Markdown.
 
 use super::{OpenedCatalogs, flatten, open_one_markdown_catalog, open_one_rdbms_catalog};
-use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::catalog::DefinitionsByteBound;
+use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 
 pub(super) type Rdbms = sutura_catalog_rdbms::RdbmsCatalog<super::descriptions::Reader>;
 
@@ -29,6 +30,12 @@ pub(super) fn open(catalogs: &sutura_config::Catalogs) -> Result<OpenedCatalogs,
 
 /// All physical allowlists are applied to every contributor before the joined bundle is pinned.
 pub(super) fn load(rdbms: &[Rdbms], markdown: &[sutura_catalog_local::LocalCatalog]) -> Result<PinnedDefinitions, String> {
+    let bound = DefinitionsByteBound::composed(
+        rdbms
+            .iter()
+            .map(SemanticCatalog::definitions_bound)
+            .chain(markdown.iter().map(SemanticCatalog::definitions_bound)),
+    );
     let mut bundles = Vec::with_capacity(rdbms.len());
     let mut allowlists = Vec::new();
     for catalog in rdbms {
@@ -60,5 +67,5 @@ pub(super) fn load(rdbms: &[Rdbms], markdown: &[sutura_catalog_local::LocalCatal
             allowlist.check_model(model).map_err(|cause| flatten(&cause))?;
         }
     }
-    sutura_app::assemble::assemble_linked(&bundles, &unlinked).map_err(|cause| flatten(&cause))
+    sutura_app::assemble::assemble_linked_bounded(&bundles, &unlinked, bound).map_err(|cause| flatten(&cause))
 }

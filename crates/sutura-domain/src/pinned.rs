@@ -37,7 +37,7 @@ pub mod view;
 use std::collections::BTreeMap;
 
 use crate::capabilities::MetadataCapabilities;
-use crate::catalog::{Anchor, Definitions, Metric};
+use crate::catalog::{Anchor, Definitions, DefinitionsByteBound, Metric};
 use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
@@ -908,6 +908,20 @@ pub trait SemanticCatalog {
 
     /// Reads the whole catalog and pins it.
     fn load(&self) -> Result<PinnedDefinitions, Self::Error>;
+
+    /// The `catalogs[].max_definitions_bytes` this instance was opened with, or
+    /// [`DefinitionsByteBound::default`] for an adapter that does not model one (every fake in a
+    /// test, and an adapter with nothing left to compose) - `github.com/telekom/sutura#2071`.
+    ///
+    /// A **default method, not required like [`Self::KIND`] and [`Self::capabilities`] above**:
+    /// those two are facts about what was linked, true of every instance alike; this is a
+    /// per-instance declaration the eight catalog adapters already carry as a field, and a test
+    /// fake gains nothing from restating it. A composer sums every contributor's own value, capped
+    /// at [`crate::catalog::DEFINITIONS_BYTES_CEILING`], so the merged bundle is checked against
+    /// what was actually declared rather than silently falling back to one contributor's bound.
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        DefinitionsByteBound::default()
+    }
 }
 
 #[cfg(test)]
