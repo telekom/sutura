@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-rdbms/src/descriptions.rs b/crates/sutura-catalog-rdbms/src/descriptions.rs
+--- a/crates/sutura-catalog-rdbms/src/descriptions.rs
++++ b/crates/sutura-catalog-rdbms/src/descriptions.rs
+@@ -140,7 +140,7 @@
+             .overlay
+             .columns
+             .insert((table.clone(), column.clone()), prose.to_owned())
+-            .is_some()
++            .is_some() && false
+         {
+             return Err(DescriptionError::Duplicate {
+                 table: table.clone(),

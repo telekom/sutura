@@ -513,7 +513,13 @@ fn condition(
     let Some(needle) = pattern.strip_prefix('%').and_then(|text| text.strip_suffix('%')) else {
         return Ok(None);
     };
-    if needle.is_empty() || needle.len() > 128 || !needle.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+    // `_` is LIKE's own single-char wildcard (one character, not one byte - see the ClickHouse
+    // paragraph in docs/raw-text-search.md for the one engine measured), so the same needle sent as
+    // the raw condition matches one real character wherever it matches one redacted character - a
+    // `_` position can never itself be the reason a redacted match has no raw counterpart.
+    // `preserves` carries the rest of the soundness argument, over every needle this admits,
+    // literal or not: every position still has to defeat every possible replacement alignment.
+    if needle.is_empty() || needle.len() > 128 || !needle.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
         return Ok(None);
     }
     let (input, upper) = match expr.as_ref() {
@@ -665,10 +671,43 @@ pub(super) fn raw_condition(capability: PrefilterCapability, column: Expr, needl
     }
 }
 
-/// No occurrence may live inside a replacement or cross either of its nonempty boundaries.
+/// No needle occurrence may be *forced to exist* by the replacement alone.
+///
+/// Slide the needle (as a `_`-wildcard pattern) over the replacement at every alignment that shares
+/// at least one byte with it - call that shared span the overlap. Outside the overlap sits text this
+/// function knows nothing about (real, unredacted bytes to either side), so soundness needs every
+/// alignment where the *overlap itself* cannot already force a mismatch to be refused: otherwise an
+/// adjacent, unconstrained byte could complete a match that the replacement's own fixed characters
+/// did not. A `_` at an overlap position never forces a mismatch (it is LIKE's own wildcard, so it
+/// agrees with anything), but a literal needle byte that differs from the replacement's byte there
+/// still blocks that whole alignment.
+///
+/// **This widens eligibility beyond the pre-`_` rule even for a needle with no `_` in it.** The old
+/// rule refused whenever the needle contained the replacement's first or last byte, which is
+/// sufficient but not necessary: needle `ac` against replacement `ab` is refused by the old rule
+/// (`ac` contains `a`, the replacement's first byte) but admitted here, because the only overlaps -
+/// `ac`/`b`, `ac`/`ab`, and `c`/`ab` - each still carry a disagreeing byte (`a` vs `b`, `c` vs `b`,
+/// and `c` vs `a`). This is sound by the same argument as above; it was never implied by "this
+/// reduces to the old check," which does not hold.
+///
+/// Not maximal: an alignment whose overlap is a lone `_` still refuses here even though the `_`
+/// itself cannot force a mismatch, because leaving it admitted would require checking that every
+/// *redaction rule* replaces exactly one raw character with exactly one character. A rule whose
+/// pattern matches an empty string (`$`, `^`, `a*`, a lookaround) inserts its replacement without
+/// consuming any raw text, and a rule whose pattern consumes more than one character (`b+` against
+/// `abba`, replaced with `x`: raw `abba` becomes `axa`, and `%a_a%` matches `axa` but not `abba`) is
+/// just as unsound - either shifts what the needle lines up against on either side of the overlap,
+/// so the same needle can be unsound against such a rule even where every overlap carries only `_`.
+/// Refusing every lone-`_` overlap, rather than proving each redaction rule's pattern always matches
+/// exactly one character, is the cheaper and safe choice.
 ///
 /// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
-fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
+///
+/// `pub(super)`, not `pub`: `combine::statement::tests::prefilter_property` is the only caller
+/// outside this module, and it reaches in at that visibility rather than through `condition`'s
+/// SQL-rewrite surface, because what it checks is this function's own admission rule against an
+/// actual regex-driven redaction, not the planner's rewrite of a statement.
+pub(super) fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
     if replacement.is_empty() || !replacement.is_ascii() {
         return false;
     }
@@ -682,10 +721,20 @@ fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool
     } else {
         (String::from(needle), normalized)
     };
-    let mut bytes = normalized.bytes();
-    let Some(first) = bytes.next() else {
-        return false;
-    };
-    let last = bytes.next_back().unwrap_or(first);
-    !needle.as_bytes().contains(&first) && !needle.as_bytes().contains(&last) && !normalized.contains(&needle)
+    let needle = needle.as_bytes();
+    let replacement = normalized.as_bytes();
+    // Every alignment with a nonempty overlap, as a pair of tails zipped together (the shorter one
+    // bounds the overlap): either the replacement starts `skip` bytes before needle[0], so the
+    // overlap is `replacement[skip..]` against the whole needle, or it starts `skip` bytes into the
+    // needle, so the overlap is the whole replacement against `needle[skip..]`. `.get` turns every
+    // index into a bounds check rather than a potential panic, though `skip` never runs past either
+    // slice's length here.
+    let leading = (1..replacement.len()).filter_map(|skip| Some((needle, replacement.get(skip..)?)));
+    let trailing = (0..needle.len()).filter_map(|skip| Some((needle.get(skip..)?, replacement)));
+    leading.chain(trailing).all(|(needle_tail, replacement_tail)| {
+        needle_tail
+            .iter()
+            .zip(replacement_tail)
+            .any(|(&needle_byte, &replacement_byte)| needle_byte != b'_' && needle_byte != replacement_byte)
+    })
 }

@@ -186,6 +186,7 @@ sutura-conformance = { path = "crates/sutura-conformance" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+regex = "1" # already resolved transitively via adbc_driver_manager; naming it adds no new crate
 # The two catalog adapters open each catalog document ONCE, through a descriptor that does
 # not follow a symlink (O_NOFOLLOW) and does not block on a FIFO (O_NONBLOCK) - a swap of a
 # listed document between the walk and the read is refused at the open, not followed or

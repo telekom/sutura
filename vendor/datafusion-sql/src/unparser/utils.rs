@@ -18,12 +18,12 @@
 use std::{cmp::Ordering, sync::Arc, vec};
 
 use super::{
-    Unparser, dialect::CharacterLengthStyle, dialect::DateFieldExtractStyle,
-    rewrite::TableAliasRewriter,
+    Unparser, UnprojectableAggregateColumn, dialect::CharacterLengthStyle,
+    dialect::DateFieldExtractStyle, rewrite::TableAliasRewriter,
 };
 use datafusion_common::{
-    Column, DFSchema, Result, ScalarValue, TableReference, assert_eq_or_internal_err,
-    internal_err,
+    Column, DFSchema, DataFusionError, Result, ScalarValue, TableReference,
+    assert_eq_or_internal_err, internal_err,
     tree_node::{Transformed, TransformedResult, TreeNode},
 };
 use datafusion_expr::{
@@ -234,9 +234,11 @@ pub(crate) fn unproject_agg_exprs(
                     // Window function can contain an aggregation columns, e.g., 'avg(sum(ss_sales_price)) over ...' that needs to be unprojected
                     Ok(Transformed::yes(unproject_agg_exprs(unprojected_expr, agg, None)?))
                 } else {
-                    internal_err!(
-                        "Tried to unproject agg expr for column '{}' that was not found in the provided Aggregate!", &c.name
-                    )
+                    Err(DataFusionError::External(Box::new(
+                        UnprojectableAggregateColumn {
+                            column: c.name.clone(),
+                        },
+                    )))
                 }
             } else {
                 Ok(Transformed::no(sub_expr))
