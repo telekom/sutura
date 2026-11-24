@@ -41,7 +41,7 @@ use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{DataFusionError, ExprSchema as _, SchemaError, plan_datafusion_err, plan_err};
+use datafusion::common::{DataFusionError, ExprSchema as _, plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
@@ -59,7 +59,6 @@ use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::parser::Parser;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
-use datafusion::sql::unparser::UnquotableName;
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
     FederationPlanner, FederationProvider, get_table_source,
@@ -84,8 +83,10 @@ mod resolve;
 mod text;
 mod text_prefilter;
 mod unparse;
+mod unparse_error;
 
 use unparse::written;
+use unparse_error::{field_not_found, unprojected_agg, unquotable};
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
@@ -819,32 +820,16 @@ enum PlanningStopped {
     Refused(resolve::Refused),
 }
 
-/// Why a source statement was not written: a name it could not quote, or else `why`.
+/// Why a source statement was not written: a name it could not quote, the unparser's own gap
+/// against one of its aggregate rewrites, or else `why`.
 fn unwritten<S>(why: &str, cause: &DataFusionError) -> StatementStopped<S> {
     if unquotable(cause) {
         stopped(resolve::Refused::UnquotableName)
+    } else if let Some(column) = unprojected_agg(cause) {
+        tracing::debug!(column, "run_sql: the unparser could not name an aggregate rewrite's column");
+        StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)
     } else {
         unplanned(why, cause)
-    }
-}
-
-/// Whether `cause` is the unparser's or a text-policy view's refusal of a name it could not quote.
-fn unquotable(cause: &DataFusionError) -> bool {
-    match cause {
-        DataFusionError::External(cause) => cause.downcast_ref::<UnquotableName>().is_some(),
-        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => unquotable(cause),
-        DataFusionError::Shared(cause) => unquotable(cause),
-        _ => false,
-    }
-}
-
-fn field_not_found(cause: &DataFusionError) -> bool {
-    match cause {
-        DataFusionError::SchemaError(schema, _) => matches!(schema.as_ref(), SchemaError::FieldNotFound { .. }),
-        DataFusionError::Context(_, cause) | DataFusionError::Diagnostic(_, cause) => field_not_found(cause),
-        DataFusionError::Shared(cause) => field_not_found(cause),
-        DataFusionError::Collection(causes) => !causes.is_empty() && causes.iter().all(field_not_found),
-        _ => false,
     }
 }
 

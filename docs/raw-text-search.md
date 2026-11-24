@@ -74,13 +74,15 @@ shapes fall back. No dialect's `ESCAPE` clause is read on this path (`escape_cha
 an escaped literal `_` is not distinguished from the wildcard and does not change eligibility.
 
 An alignment whose entire overlap is a lone `_` is refused even though the `_` itself cannot force a
-mismatch: admitting it would also need every redaction rule's own pattern to be unable to match an
-empty span, because a zero-width match inserts its replacement without consuming raw text and can
-shift what the needle lines up against. Concretely, pattern `$` (end of input) with replacement
-`[m]` against raw text `ab`: the redacted text is `ab[m]`, which matches `%ab_%` (`_` standing for
-`[`), while the raw text `ab` does not. Refusing every lone-`_` overlap outright is cheaper than
-proving each rule's pattern cannot match empty, and is not a case where the refusal is known to be
-unnecessary.
+mismatch: admitting it would also need every redaction rule to replace exactly one raw character
+with exactly one character, because a rule that matches an empty span or a span of any other length
+shifts what the needle lines up against on either side. Concretely, pattern `$` (end of input, a
+zero-width match) with replacement `[m]` against raw text `ab`: the redacted text is `ab[m]`, which
+matches `%ab_%` (`_` standing for `[`), while the raw text `ab` does not. Or pattern `b+` (a
+multi-character match) with replacement `x` against raw text `abba`: the redacted text is `axa`,
+which matches `%a_a%` (`_` standing for `x`), while the raw text `abba` does not. Refusing every
+lone-`_` overlap outright is cheaper than proving each rule's pattern always matches exactly one
+character, and is not a case where the refusal is known to be unnecessary.
 
 A term containing `_` also lets a caller skip positions it does not know, trading away part of the
 timing protection the acknowledgement already accepts: a term like `KEY________` (one literal prefix,
@@ -90,8 +92,12 @@ granularity LIKE's `_` gives it, without needing the right byte at any of the wi
 **Recommendation:** choose a replacement that starts and ends with a non-alphanumeric, non-`_`
 character (for example `[masked]` rather than `MASKED`). Since an admitted term is ASCII alphanumeric
 or `_` only, such a replacement can never be fully matched by an overlap confined to its boundary
-bytes, which keeps the barrier argument easy to re-check by eye and avoids the lone-`_`-overlap
-refusal above ever being the thing standing between a term and eligibility.
+bytes, which keeps the barrier argument easy to re-check by eye. This only helps an *inner* `_` (not
+at either end of the term) against a replacement of two or more characters. It changes neither of
+the two cases the lone-`_`-overlap rule decides outright: a term with `_` at either end is refused
+against every replacement regardless (that lone `_` is the whole overlap at the boundary alignment
+and can never carry a disagreement), and a one-character replacement refuses a term with `_`
+anywhere in it (every alignment's overlap with a single-byte replacement is exactly that one byte).
 
 The eligible comparison arms are DataFusion's binary `LIKE`, ClickHouse's `LIKE` for the
 admitted ASCII-alphanumeric-or-`_` needle, Oracle native CLOB/NCLOB `LIKE` with an optional `UPPER`, and
@@ -192,8 +198,11 @@ matching as UTF-8, undefined on invalid UTF-8, so the byte-wise property holds f
 needle shape only: ASCII alphanumeric or `_`, no escape. A needle with no `_` makes the pattern a
 plain substring search; a needle that uses `_` relies on ClickHouse's `LIKE` giving `_` the
 one-character (one UTF-8 code point, not one byte) wildcard meaning the barrier proof assumes, which
-it does - the admitted needle's own bytes are all single-byte ASCII, so this distinction only matters
-for the stored text to either side of a match, which the proof never bounds. A column of its pinned schema carries the collation fact `binary` and a column pinned
+it does, because the raw test and the redacted test both run as ClickHouse's own `LIKE`: one engine
+evaluates both sides, so they necessarily agree on what `_` means. That stops holding for a table on
+the MySQL or PostgreSQL engine above, where the raw test can be forwarded to a different engine's own
+`LIKE` while the redacted test still runs locally - exactly the cross-engine agreement left unmeasured
+there. A column of its pinned schema carries the collation fact `binary` and a column pinned
 anything else (unknown or a
 named collation, which only a hand-built schema can carry) keeps redacted-only execution. The raw
 test reads the stored column qualified by its table, in the form `` `table`.`column` ``: ClickHouse

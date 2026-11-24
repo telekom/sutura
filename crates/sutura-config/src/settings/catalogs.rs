@@ -179,6 +179,8 @@ fn refuse_rdbms_keys(settings: &CatalogSettings, raw: &RawCatalog) -> Result<(),
         ("exclude_columns", raw.exclude_columns.is_some()),
         ("exclude_types", raw.exclude_types.is_some()),
         ("column_rules", raw.column_rules.is_some()),
+        ("on_unsupported_column", raw.on_unsupported_column.is_some()),
+        ("on_empty_table", raw.on_empty_table.is_some()),
         ("connection", raw.connection.is_some()),
     ];
     match written.into_iter().find(|&(_, written)| written) {

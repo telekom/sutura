@@ -163,6 +163,27 @@ impl std::fmt::Display for UnquotableName {
 
 impl std::error::Error for UnquotableName {}
 
+/// Why an [`Unparser`] refused: a clause referenced a column by its `Aggregate`-internal name,
+/// and no `Aggregate` on the unparsed plan's path still carries an expression for it. Raised in
+/// place of DataFusion's own bare internal error so a caller can name this a planner gap rather
+/// than a generic failure, without matching message text.
+#[derive(Debug)]
+pub struct UnprojectableAggregateColumn {
+    pub column: String,
+}
+
+impl std::fmt::Display for UnprojectableAggregateColumn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "column '{}' was not found in the provided Aggregate",
+            self.column
+        )
+    }
+}
+
+impl std::error::Error for UnprojectableAggregateColumn {}
+
 impl Default for Unparser<'_> {
     fn default() -> Self {
         Self {

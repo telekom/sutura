@@ -241,6 +241,14 @@ mod tests {
             pattern: "a*",
             replacement: "y",
         },
+        Rule {
+            pattern: "^",
+            replacement: "[m]",
+        },
+        Rule {
+            pattern: "b",
+            replacement: "aab",
+        },
     ];
 
     /// Every nonempty string over `{a, b}` up to `max_len`, including the empty one.
@@ -313,7 +321,9 @@ mod tests {
                 if !sequence.iter().all(|rule| preserves(needle, rule.replacement, false, false)) {
                     continue;
                 }
-                checked_zero_width |= sequence.iter().any(|rule| rule.pattern == "$" || rule.pattern == "a*");
+                checked_zero_width |= sequence
+                    .iter()
+                    .any(|rule| rule.pattern == "$" || rule.pattern == "^" || rule.pattern == "a*");
                 checked_two_rules |= sequence.len() == 2;
                 for raw in &raws {
                     let redacted = redact(raw, sequence);
