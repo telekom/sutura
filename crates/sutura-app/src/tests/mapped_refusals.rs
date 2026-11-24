@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
+use sutura_domain::catalog::{Audience, Definitions, DefinitionsByteBound, Description, Metric, Model};
 use sutura_domain::identity::PresentedDisagreesWithPosture;
 use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -115,7 +115,7 @@ fn two_catalogs_defining_the_same_metric_are_refused_at_startup() {
 
 #[test]
 fn an_empty_composition_is_refused() {
-    let error = assemble(&[]).expect_err("an empty composition is not a bundle");
+    let error = assemble(&[], DefinitionsByteBound::DEFAULT).expect_err("an empty composition is not a bundle");
     assert!(
         matches!(error, CompositionError::Empty),
         "an empty slice is the empty variant, not {error:?}"
@@ -129,7 +129,8 @@ fn a_contribution_with_two_manifest_entries_is_refused() {
         (name("beta"), Contribution::of(capabilities())),
     ])
     .expect("two distinct sources parse");
-    let error = assemble(&[pinned("test-1", manifest)]).expect_err("a 2-entry manifest is not a single contribution");
+    let error = assemble(&[pinned("test-1", manifest)], DefinitionsByteBound::DEFAULT)
+        .expect_err("a 2-entry manifest is not a single contribution");
     let CompositionError::NotASingleContribution { count } = error else {
         panic!("a 2-entry manifest is not a single contribution, not {error:?}");
     };
@@ -138,8 +139,11 @@ fn a_contribution_with_two_manifest_entries_is_refused() {
 
 #[test]
 fn two_bundles_with_different_versions_are_refused() {
-    let error = assemble(&[pinned("test-1", single("local")), pinned("test-2", single("local"))])
-        .expect_err("two versions must not compose");
+    let error = assemble(
+        &[pinned("test-1", single("local")), pinned("test-2", single("local"))],
+        DefinitionsByteBound::DEFAULT,
+    )
+    .expect_err("two versions must not compose");
     let CompositionError::VersionMismatch { first, second } = error else {
         panic!("a version mismatch is not {error:?}");
     };

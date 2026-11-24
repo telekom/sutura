@@ -230,7 +230,7 @@ impl<R> RdbmsCatalog<R> {
             reader,
             bounds: None,
             audience: None,
-            definitions_bound: DefinitionsByteBound::default(),
+            definitions_bound: DefinitionsByteBound::DEFAULT,
         }
     }
 
@@ -248,7 +248,7 @@ impl<R> RdbmsCatalog<R> {
     }
 
     /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
-    /// [`DefinitionsByteBound::default`].
+    /// [`DefinitionsByteBound::DEFAULT`].
     #[must_use]
     pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
         self.definitions_bound = definitions_bound;
@@ -484,6 +484,10 @@ where
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         self.load_with_allowlist().map(|(pinned, _)| pinned)
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }
 

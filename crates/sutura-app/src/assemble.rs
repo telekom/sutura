@@ -27,7 +27,7 @@
 use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{MetadataCapabilities, UnfaithfulDeclaration};
-use sutura_domain::catalog::{Definitions, InconsistentDefinitions, UnlinkedContribution};
+use sutura_domain::catalog::{Definitions, DefinitionsByteBound, InconsistentDefinitions, UnlinkedContribution};
 
 mod content;
 use content::Content;
@@ -103,8 +103,19 @@ pub enum CompositionError {
     },
     /// The composed definitions do not hold together - most often a metric naming a model some
     /// contributor should have provided and none did, and the domain's own refusal names it.
-    #[error("the composed definitions do not hold together")]
+    ///
+    /// `bound` is what `cause` checked the merge against when the refusal is
+    /// [`InconsistentDefinitions::DefinitionsTooLarge`](sutura_domain::catalog::InconsistentDefinitions::DefinitionsTooLarge):
+    /// never one contributor's own `max_definitions_bytes`, always
+    /// [`DefinitionsByteBound::composed`] over every one of `contributors` catalogs - named here so
+    /// the refusal does not read as a per-catalog limit reapplied to the whole bundle.
+    #[error(
+        "the composed definitions do not hold together: checked against a composed bound of {bound} bytes, \
+         the sum of {contributors} catalogs' own max_definitions_bytes capped at the ceiling"
+    )]
     Definitions {
+        contributors: usize,
+        bound: DefinitionsByteBound,
         #[source]
         cause: InconsistentDefinitions,
     },
@@ -193,15 +204,25 @@ struct Contributor<'a> {
 /// Takes a slice, not an owned `Vec`: every `Contributor` below borrows its bundle's
 /// `Definitions`/`Knowledge` rather than cloning them, so this function never needs to own a bundle
 /// to begin with - a caller that already has a `Vec` passes `&bundles`.
-pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, CompositionError> {
-    assemble_linked(bundles, &[])
+///
+/// `bound` is the composed bound the merge is checked against - [`DefinitionsByteBound::composed`]
+/// over every contributing catalog's own declared bound, never
+/// [`DefinitionsByteBound::default`](sutura_domain::catalog::DefinitionsByteBound::default)
+/// picked up implicitly. A caller names it rather than this function defaulting it, because that
+/// implicit default is exactly how a raised per-catalog `max_definitions_bytes` was silently
+/// re-refused at composition (`github.com/telekom/sutura#2073`).
+pub fn assemble(bundles: &[PinnedDefinitions], bound: DefinitionsByteBound) -> Result<PinnedDefinitions, CompositionError> {
+    assemble_linked(bundles, &[], bound)
 }
 
 /// Links an explicit set of unlinked declarations beside independently pinned contributors.
 /// Ownership and declaration fidelity are checked before cross-contributor references resolve.
+///
+/// See [`assemble`] for what `bound` must be.
 pub fn assemble_linked(
     bundles: &[PinnedDefinitions],
     unlinked: &[UnlinkedContribution],
+    bound: DefinitionsByteBound,
 ) -> Result<PinnedDefinitions, CompositionError> {
     let version = bundles
         .first()
@@ -287,8 +308,13 @@ pub fn assemble_linked(
         .flat_map(|c| c.content.relationships().cloned())
         .collect();
     let metrics = contributions.iter().flat_map(|c| c.content.metrics().cloned()).collect();
+    let contributors = contributions.len();
     let definitions =
-        Definitions::assemble(models, relationships, metrics).map_err(|cause| CompositionError::Definitions { cause })?;
+        Definitions::assemble_bounded(models, relationships, metrics, bound).map_err(|cause| CompositionError::Definitions {
+            contributors,
+            bound,
+            cause,
+        })?;
 
     let knowledge = Knowledge::assemble(
         &definitions,
@@ -428,7 +454,9 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-    use sutura_domain::catalog::{Audience, Definitions, Description, JoinKey, JoinKeys, Metric, Model, Relationship};
+    use sutura_domain::catalog::{
+        Audience, Definitions, DefinitionsByteBound, Description, JoinKey, JoinKeys, Metric, Model, Relationship,
+    };
     use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
     use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -564,7 +592,8 @@ mod tests {
         // The wave-one deployment, and the requirement this issue exists for: DataHub's structure
         // and prose beside the metrics certified here, in ONE bundle, and a question the certified
         // source certifies answered against it.
-        let composed = assemble(&[certified(), narrow()]).expect("structure and measures compose");
+        let composed =
+            assemble(&[certified(), narrow()], DefinitionsByteBound::default()).expect("structure and measures compose");
 
         // The composed bundle carries BOTH contributors, records both in its manifest, and is a
         // different bundle than the certified source alone - the digest moved with the composition.
@@ -621,7 +650,8 @@ mod tests {
         // ADR 0011: for metrics there is no precedence at all, declared or otherwise. Two
         // definitions of one number is the failure this system exists to prevent - and the refusal
         // names both sources so nobody has to guess which won.
-        let err = assemble(&[certified(), certified()]).expect_err("two definitions of revenue must not compose");
+        let err = assemble(&[certified(), certified()], DefinitionsByteBound::default())
+            .expect_err("two definitions of revenue must not compose");
         match err {
             CompositionError::MetricCollision { metric, first, second } => {
                 assert_eq!(metric.as_str(), "recurring_revenue");
@@ -659,7 +689,7 @@ mod tests {
             ),
         )
         .expect("a lying declaration still pins");
-        let err = assemble(&[lying, narrow()]).expect_err("an undeclared kind must not compose");
+        let err = assemble(&[lying, narrow()], DefinitionsByteBound::default()).expect_err("an undeclared kind must not compose");
         match err {
             CompositionError::Unfaithful { source, .. } => assert_eq!(source.as_str(), "lying"),
             other => panic!("expected an unfaithful declaration, got {other:?}"),
@@ -676,8 +706,11 @@ mod tests {
         // off the served path is `Catalogs::parse` in `sutura-config` refusing it at configuration
         // time, before assembly ever runs - this is `assemble`'s own defence, reachable through the
         // public function directly, not only defence in depth behind that gate.
-        let err = assemble(&[certified(), narrow_declaring_itself_certified()])
-            .expect_err("two contributors under one declared name must not compose silently");
+        let err = assemble(
+            &[certified(), narrow_declaring_itself_certified()],
+            DefinitionsByteBound::default(),
+        )
+        .expect_err("two contributors under one declared name must not compose silently");
         match err {
             CompositionError::Manifest {
                 cause: InvalidManifest::DuplicateSource { source_name },
@@ -717,8 +750,11 @@ mod tests {
             .expect("a single model pins")
         }
 
-        let err = assemble(&[model_only("geo", "alpha"), model_only("geo", "beta")])
-            .expect_err("two sources providing the same model must not compose");
+        let err = assemble(
+            &[model_only("geo", "alpha"), model_only("geo", "beta")],
+            DefinitionsByteBound::default(),
+        )
+        .expect_err("two sources providing the same model must not compose");
         match err {
             CompositionError::ElementCollision {
                 kind,
@@ -787,8 +823,11 @@ mod tests {
 
         // Each contributor names its own models (`orders_a`/`customers_a` vs `orders_b`/`customers_b`),
         // so no model collision fires first - only the shared relationship name does.
-        let err = assemble(&[relationship_only("a", "alpha"), relationship_only("b", "beta")])
-            .expect_err("two sources providing the same relationship must not compose");
+        let err = assemble(
+            &[relationship_only("a", "alpha"), relationship_only("b", "beta")],
+            DefinitionsByteBound::default(),
+        )
+        .expect_err("two sources providing the same relationship must not compose");
         match err {
             CompositionError::ElementCollision {
                 kind,

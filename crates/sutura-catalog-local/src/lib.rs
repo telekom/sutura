@@ -296,17 +296,17 @@ impl LocalCatalog {
     /// directory is not something the directory knows: it is a commit id, a build number or a tag,
     /// and only the caller has it. Deriving it from the digest would make the two say the same thing
     /// twice and leave no way to tell two builds of identical content apart.
-    pub fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
+    pub const fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
         Self {
             name,
             root,
             version,
-            definitions_bound: DefinitionsByteBound::default(),
+            definitions_bound: DefinitionsByteBound::DEFAULT,
         }
     }
 
     /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
-    /// [`DefinitionsByteBound::default`].
+    /// [`DefinitionsByteBound::DEFAULT`].
     #[must_use]
     pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
         self.definitions_bound = definitions_bound;
@@ -745,6 +745,10 @@ impl SemanticCatalog for LocalCatalog {
             ContributionManifest::single(self.name.clone(), Contribution::of(declared)),
         )
         .map_err(|cause| LocalCatalogError::Digest { cause })
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }
 

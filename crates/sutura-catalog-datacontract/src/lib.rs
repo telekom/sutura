@@ -110,17 +110,17 @@ impl DataContractCatalog {
     ///
     /// The version is supplied rather than derived, because what identifies a snapshot of a directory
     /// is not something the directory knows - it is a commit id or a tag that only the caller has.
-    pub fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
+    pub const fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
         Self {
             name,
             root,
             version,
-            definitions_bound: DefinitionsByteBound::default(),
+            definitions_bound: DefinitionsByteBound::DEFAULT,
         }
     }
 
     /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
-    /// [`DefinitionsByteBound::default`].
+    /// [`DefinitionsByteBound::DEFAULT`].
     #[must_use]
     pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
         self.definitions_bound = definitions_bound;
@@ -775,5 +775,9 @@ impl SemanticCatalog for DataContractCatalog {
             ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
         )
         .map_err(|cause| DataContractError::Digest { cause })
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }

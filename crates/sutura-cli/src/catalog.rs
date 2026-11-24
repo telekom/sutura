@@ -27,6 +27,7 @@ use rdbms::open_one_rdbms_catalog;
 
 use sutura_app::assemble;
 use sutura_catalog_local::LocalCatalog;
+use sutura_domain::catalog::DefinitionsByteBound;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 use sutura_http::LocalService;
 
@@ -353,11 +354,12 @@ pub(super) fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
 where
     C: SemanticCatalog,
 {
+    let bound = DefinitionsByteBound::composed(catalogs.iter().map(SemanticCatalog::definitions_bound));
     let bundles = catalogs
         .iter()
         .map(|catalog| catalog.load().map_err(|cause| flatten(&cause)))
         .collect::<Result<Vec<_>, String>>()?;
-    assemble::assemble(&bundles).map_err(|cause| flatten(&cause))
+    assemble::assemble(&bundles, bound).map_err(|cause| flatten(&cause))
 }
 
 /// Logs the resolved `max_definitions_bytes` bound a catalog opens with - `github.com/telekom/sutura#2071`
@@ -842,3 +844,6 @@ mod tests {
 
 #[cfg(test)]
 mod planned_tests;
+
+#[cfg(test)]
+mod bound_tests;

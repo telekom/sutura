@@ -108,18 +108,18 @@ pub struct CubeCatalog<R> {
 }
 
 impl<R: MetaReader> CubeCatalog<R> {
-    pub fn new(name: SourceName, version: DefinitionVersion, source: SourceName, reader: R) -> Self {
+    pub const fn new(name: SourceName, version: DefinitionVersion, source: SourceName, reader: R) -> Self {
         Self {
             name,
             version,
             source,
             reader,
-            definitions_bound: DefinitionsByteBound::default(),
+            definitions_bound: DefinitionsByteBound::DEFAULT,
         }
     }
 
     /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
-    /// [`DefinitionsByteBound::default`].
+    /// [`DefinitionsByteBound::DEFAULT`].
     #[must_use]
     pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
         self.definitions_bound = definitions_bound;
@@ -230,6 +230,10 @@ impl<R: MetaReader> SemanticCatalog for CubeCatalog<R> {
             ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
         )
         .map_err(|cause| CubeError::Digest { cause })
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }
 

@@ -165,7 +165,7 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
     /// `sources` is the deployment's mapping from a service/database alias to the `sources.<alias>` a
     /// model on that platform reads from. A model on a platform with no entry is refused at load
     /// ([`OpenMetadataError::UnknownSource`]) rather than guessed.
-    pub fn new(
+    pub const fn new(
         name: SourceName,
         version: DefinitionVersion,
         sources: std::collections::BTreeMap<String, SourceName>,
@@ -176,12 +176,12 @@ impl<R: SnapshotReader> OpenMetadataCatalog<R> {
             version,
             sources,
             reader,
-            definitions_bound: DefinitionsByteBound::default(),
+            definitions_bound: DefinitionsByteBound::DEFAULT,
         }
     }
 
     /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
-    /// [`DefinitionsByteBound::default`].
+    /// [`DefinitionsByteBound::DEFAULT`].
     #[must_use]
     pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
         self.definitions_bound = definitions_bound;
@@ -401,6 +401,10 @@ where
             ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
         )
         .map_err(|cause| OpenMetadataError::Digest { cause })
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }
 

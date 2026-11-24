@@ -20,7 +20,7 @@ use sutura_app::surface::{LocalService, Surface as _};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 use sutura_domain::measure::RequiredFilter;
-use sutura_domain::model::{RelationshipName, SourceName};
+use sutura_domain::model::RelationshipName;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::plan::LegPlan;
@@ -72,21 +72,19 @@ fn render_filters(filters: &[RequiredFilter]) -> String {
     filters.iter().map(ToString::to_string).collect::<Vec<String>>().join(", ")
 }
 
-/// The name the contribution manifest records this catalog under, and so part of its digest.
-///
 /// The first catalog the configuration declares - the embedded default (`model`) unless a
-/// configuration directory says otherwise - so `sutura catalog <dir>` and a served deployment of the
-/// same directory print one digest. A command-line tool reads one directory, so with several
-/// declared catalogs it cannot reproduce the composed digest a server reports.
+/// configuration directory says otherwise - so `sutura catalog <dir>` and a served deployment of
+/// the same directory print one digest and are checked against one bound. A command-line tool
+/// reads one directory, so with several declared catalogs it cannot reproduce the composed digest a
+/// server reports.
 ///
 /// Read from the settings the CALLER loaded, so a command that takes its configuration directory as
-/// an argument names the catalog from that directory and not from the environment.
-fn catalog_name(settings: &sutura_config::Settings) -> Result<SourceName, String> {
+/// an argument names and bounds the catalog from that directory and not from the environment.
+fn first_catalog(settings: &sutura_config::Settings) -> Result<&sutura_config::CatalogSettings, String> {
     settings
         .catalogs()
         .each()
         .next()
-        .map(|catalog| catalog.name().clone())
         .ok_or_else(|| String::from("the configuration declares no catalog to name this directory"))
 }
 
@@ -96,10 +94,18 @@ fn catalog_name(settings: &sutura_config::Settings) -> Result<SourceName, String
 /// catalog itself to hand to the service's constructor, which loads and validates it, rather than
 /// rebuilding it. Named `catalog_reader` because `catalog` is already this module's listing
 /// subcommand. Everything else keeps using `load`.
+///
+/// Carries the first declared catalog's own `max_definitions_bytes`
+/// (`github.com/telekom/sutura#2071`), not [`sutura_domain::catalog::DefinitionsByteBound::default`].
+/// This command-line path reads the same settings a served deployment does, and skipping
+/// `with_definitions_bound` here would check this directory against a bound the configuration never
+/// declared.
 pub(crate) fn catalog_reader(root: &Path, settings: &sutura_config::Settings) -> Result<LocalCatalog, String> {
     let version =
         DefinitionVersion::parse(DEFAULT_VERSION).map_err(|e| format!("the built-in default version is not a version: {e}"))?;
-    Ok(LocalCatalog::new(catalog_name(settings)?, PathBuf::from(root), version))
+    let catalog = first_catalog(settings)?;
+    Ok(LocalCatalog::new(catalog.name().clone(), PathBuf::from(root), version)
+        .with_definitions_bound(catalog.max_definitions_bytes()))
 }
 
 /// Reads a catalog directory into a pinned bundle.

@@ -254,7 +254,9 @@ pub enum InconsistentDefinitions {
     /// (`github.com/telekom/sutura#2071`).
     #[error(
         "this catalog's definitions carry {bytes} authored bytes, and the limit is {limit} \
-         ({columns} in column definitions, {descriptions} in descriptions, {metric_prose} in metric prose)"
+         ({columns} in model, table, column and relationship-key identifiers, {descriptions} in \
+         descriptions, {metric_prose} in metric and dimension prose: required filters, allowed \
+         values and descriptions)"
     )]
     DefinitionsTooLarge {
         bytes: usize,
@@ -326,7 +328,20 @@ pub enum InconsistentDefinitions {
 }
 
 impl Definitions {
-    /// Assembles definitions from what an adapter read, checking every cross-reference.
+    /// Convenience over [`Self::assemble_bounded`] at [`DefinitionsByteBound::default`], for a
+    /// single-catalog fixture that has no `max_definitions_bytes` to read - a test, or
+    /// `sutura-conformance`'s golden harness.
+    ///
+    /// **Not where `github.com/telekom/sutura#2073`'s bug lived**, and not restricted to
+    /// `#[cfg(test)]`: every one of the eight catalog adapters already calls
+    /// [`Self::assemble_bounded`] with its own declared bound directly (confirmed by
+    /// `grep -rn "Definitions::assemble(" crates/sutura-catalog-*/src` finding none), and the actual
+    /// bug was the *composer* - `sutura_app::assemble::assemble`/`assemble_linked` - reaching for
+    /// this at composition time regardless of what each contributor declared. Those two now take an
+    /// explicit `bound` parameter instead, so a raised per-catalog bound is no longer silently
+    /// overridden at composition. Gating this convenience itself to `#[cfg(test)]` would additionally
+    /// require a `test-fakes`-shaped dev-dependency feature on every one of the ~9 crates whose own
+    /// tests call it - a wider change than this fix needs, and not made here.
     ///
     /// Takes vectors rather than maps so the duplicate checks are ours: a caller that built a map
     /// first has already silently dropped one of a duplicated pair, and "the second declaration of

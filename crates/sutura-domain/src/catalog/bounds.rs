@@ -39,6 +39,11 @@ pub const DEFINITIONS_BYTES_CEILING: usize = 16 * 1024 * 1024;
 pub struct DefinitionsByteBound(usize);
 
 impl DefinitionsByteBound {
+    /// [`DEFAULT_DEFINITIONS_BYTES`], as a `const` an adapter's own `const fn new` can assign -
+    /// [`Default::default`] is not `const` on stable Rust, so every adapter constructor that wants
+    /// to stay `const fn` reaches for this instead.
+    pub const DEFAULT: Self = Self(DEFAULT_DEFINITIONS_BYTES);
+
     /// Refuses `0` - a bound of zero can never load a catalog with anything in it - and anything
     /// above [`DEFINITIONS_BYTES_CEILING`].
     pub const fn parse(bytes: usize) -> Result<Self, InvalidDefinitionsByteBound> {
@@ -58,13 +63,28 @@ impl DefinitionsByteBound {
     pub const fn get(self) -> usize {
         self.0
     }
+
+    /// The bound a composed bundle is checked against: every composed catalog's own declared
+    /// bound, summed and capped at [`DEFINITIONS_BYTES_CEILING`] -
+    /// `github.com/telekom/sutura#2073`'s fix. A composer that instead checked a merge against one
+    /// fixed default is exactly how a raised per-catalog bound got silently re-refused at
+    /// composition regardless of what each contributor declared.
+    ///
+    /// `bounds.into_iter().next().is_none()` composes to [`Self::DEFAULT`] (a saturating sum of
+    /// nothing is `0`, clamped up to the smallest valid bound) - a degenerate input no caller here
+    /// reaches, since every composer refuses an empty catalog list before checking a size.
+    pub fn composed(bounds: impl IntoIterator<Item = Self>) -> Self {
+        let summed = bounds
+            .into_iter()
+            .fold(0usize, |total, bound| total.saturating_add(bound.get()));
+        Self(summed.clamp(1, DEFINITIONS_BYTES_CEILING))
+    }
 }
 
 impl Default for DefinitionsByteBound {
-    /// [`DEFAULT_DEFINITIONS_BYTES`] - what a catalog omitting `max_definitions_bytes` is checked
-    /// against.
+    /// [`Self::DEFAULT`] - what a catalog omitting `max_definitions_bytes` is checked against.
     fn default() -> Self {
-        Self(DEFAULT_DEFINITIONS_BYTES)
+        Self::DEFAULT
     }
 }
 
