@@ -439,6 +439,10 @@ mod caller_rate;
 #[cfg(feature = "bigquery")]
 pub(in crate::serve) mod delegation_served;
 
+// A `foundry_login` source behind the same router: each caller's own brokered Foundry token.
+#[cfg(all(feature = "foundry", feature = "bigquery"))]
+mod foundry_login;
+
 #[test]
 #[cfg(feature = "bigquery")]
 fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_kinds_own_boot_check() {

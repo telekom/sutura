@@ -9,6 +9,6 @@ diff --git a/crates/sutura-config/src/settings/delegation.rs b/crates/sutura-con
 +        let delegation = super::admission::delegation_key(source)
 +            .filter(|key| *key != "workload_identity.delegation")
 +            .or_else(|| {
-             (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))
-                 && !source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty))
-             .then_some("google_login")
+             let login = match source.caller_identity() {
+                 Some(CallerIdentity::GoogleLogin(_)) => "google_login",
+                 Some(CallerIdentity::FoundryLogin(_)) => "foundry_login",

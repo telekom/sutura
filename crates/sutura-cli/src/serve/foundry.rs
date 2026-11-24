@@ -22,6 +22,32 @@ pub(crate) fn open_foundry(
         .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
 }
 
+/// What [`served`] answers `run` with: the service, and no attached tables - the objects live in the
+/// ontology.
+#[cfg(feature = "foundry")]
+type Served = (
+    super::Serving,
+    Option<std::collections::BTreeSet<sutura_domain::model::TableName>>,
+);
+
+/// The service a Foundry-only deployment answers through: the declared-subject broker, because an
+/// `impersonation-at-source` source sends each caller's own brokered Foundry token. No pre-flight:
+/// the adapter takes the port's default.
+#[cfg(feature = "foundry")]
+pub(super) fn served(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<super::FoundrySource>,
+    combiner: sutura_exec_datafusion::DataFusionCombiner,
+    settings: &sutura_config::Settings,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<Served, String> {
+    let broker = super::broker::build_broker(settings.sources(), outbound)?;
+    Ok((
+        super::compose::started(catalogs, engines, broker, combiner, None, settings)?,
+        None,
+    ))
+}
+
 /// The refusal for a build that did not link the Foundry SQL adapter.
 #[cfg(not(feature = "foundry"))]
 pub(crate) fn open_foundry(

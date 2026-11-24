@@ -1,8 +1,11 @@
-//! Which one of four blocks says how an `impersonation-at-source` source runs its caller.
+//! Which one of five blocks says how an `impersonation-at-source` source runs its caller.
 //!
-//! - `workload_identity`: the caller's own assertion is federated to the caller's own pool principal.
+//! - `workload_identity` (not `foundry`): the caller's own assertion is federated to the caller's
+//!   own pool principal.
 //! - `google_login` (`bigquery` only): the caller's own Google login, which the identity provider
 //!   brokered and returns through its Identity Brokering API v2.
+//! - `foundry_login` (`foundry` only): the caller's own Foundry login, brokered and returned the
+//!   same way. The only block a `foundry` source runs its caller with.
 //! - `caller_google_token` (`bigquery` only): the request's tokeninfo-verified Google access token.
 //! - `domain_delegation` (`bigquery` only): a delegating service account acts as the caller's
 //!   verified address. The deployment vouches for the caller here, not the caller's own credential.
@@ -17,15 +20,16 @@ use sutura_domain::model::SourceName;
 use super::address_domains::AddressDomains;
 use super::workload_identity::WorkloadIdentityConfig;
 use super::{InvalidSourceRegistry, SourceKind};
-use crate::raw::{RawCallerGoogleToken, RawDomainDelegation, RawGoogleLogin, RawWorkloadIdentity};
+use crate::raw::{RawBrokeredLogin, RawCallerGoogleToken, RawDomainDelegation, RawWorkloadIdentity};
 
-/// The `google_login` and `domain_delegation` blocks of one entry, as read.
+/// The caller-identity blocks of one entry other than `workload_identity`, as read.
 ///
 /// Beside [`super::RawSourceEntry`] rather than in it: an entry is the placement and the posture,
 /// and these two are read only by [`declared`].
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct CallerIdentityBlocks<'raw> {
-    pub(crate) google_login: Option<&'raw RawGoogleLogin>,
+    pub(crate) google_login: Option<&'raw RawBrokeredLogin>,
+    pub(crate) foundry_login: Option<&'raw RawBrokeredLogin>,
     pub(crate) caller_google_token: Option<&'raw RawCallerGoogleToken>,
     pub(crate) domain_delegation: Option<&'raw RawDomainDelegation>,
 }
@@ -36,27 +40,31 @@ pub enum CallerIdentity {
     /// The caller's own pool principal.
     WorkloadIdentity(WorkloadIdentityConfig),
     /// The caller's own Google login, brokered by the identity provider.
-    GoogleLogin(GoogleLogin),
+    GoogleLogin(BrokeredLogin),
+    /// The caller's own Foundry login, brokered by the identity provider.
+    FoundryLogin(BrokeredLogin),
     /// The caller's own Google access token, verified by Google tokeninfo.
     CallerGoogleToken(sutura_domain::source::AcknowledgementReason),
     /// A delegating service account acting as the caller's verified address.
     DomainDelegation(DomainDelegation),
 }
 
-/// A `google_login` block.
+/// A `google_login` or `foundry_login` block: one request to the identity provider's broker token
+/// endpoint, carrying the caller's own inbound token, for the token the caller's linked account
+/// stored there.
 ///
 /// **Held as written, like [`super::workload_identity::DelegationDeclared`]**: the crate that
 /// sends the request parses the endpoint and the client ID. An `@` in the endpoint is refused here,
 /// because the startup log prints this tree first. Only the path to the secret is here.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GoogleLogin {
+pub struct BrokeredLogin {
     token_endpoint: String,
     client_id: String,
     client_secret_file: PathBuf,
 }
 
-impl GoogleLogin {
-    /// The identity provider's broker token endpoint for its Google identity provider.
+impl BrokeredLogin {
+    /// The identity provider's broker token endpoint for the brokered provider.
     #[inline]
     #[must_use]
     pub fn token_endpoint(&self) -> &str {
@@ -155,13 +163,15 @@ impl DelegatingAccount {
 
 const WORKLOAD_IDENTITY: &str = "workload_identity";
 const GOOGLE_LOGIN: &str = "google_login";
+const FOUNDRY_LOGIN: &str = "foundry_login";
 const DOMAIN_DELEGATION: &str = "domain_delegation";
 
 /// One declared block, before it is read.
 #[derive(Clone, Copy)]
 enum Written<'raw> {
     WorkloadIdentity(&'raw RawWorkloadIdentity),
-    GoogleLogin(&'raw RawGoogleLogin),
+    GoogleLogin(&'raw RawBrokeredLogin),
+    FoundryLogin(&'raw RawBrokeredLogin),
     CallerGoogleToken(&'raw RawCallerGoogleToken),
     DomainDelegation(&'raw RawDomainDelegation),
 }
@@ -171,8 +181,19 @@ impl Written<'_> {
         match self {
             Self::WorkloadIdentity(_) => WORKLOAD_IDENTITY,
             Self::GoogleLogin(_) => GOOGLE_LOGIN,
+            Self::FoundryLogin(_) => FOUNDRY_LOGIN,
             Self::CallerGoogleToken(_) => "caller_google_token",
             Self::DomainDelegation(_) => DOMAIN_DELEGATION,
+        }
+    }
+
+    /// Whether a source of `kind` reads this block. `workload_identity` is read on every kind but
+    /// `foundry`, which runs its caller only through `foundry_login`.
+    fn read_on(self, kind: SourceKind) -> bool {
+        match self {
+            Self::WorkloadIdentity(_) => kind != SourceKind::Foundry,
+            Self::FoundryLogin(_) => kind == SourceKind::Foundry,
+            Self::GoogleLogin(_) | Self::CallerGoogleToken(_) | Self::DomainDelegation(_) => kind == SourceKind::BigQuery,
         }
     }
 }
@@ -191,6 +212,7 @@ pub(super) fn declared(
     let mut written = [
         workload_identity.map(Written::WorkloadIdentity),
         blocks.google_login.map(Written::GoogleLogin),
+        blocks.foundry_login.map(Written::FoundryLogin),
         blocks.caller_google_token.map(Written::CallerGoogleToken),
         blocks.domain_delegation.map(Written::DomainDelegation),
     ]
@@ -221,7 +243,7 @@ pub(super) fn declared(
             block: first.block(),
         });
     }
-    if !matches!(first, Written::WorkloadIdentity(_)) && kind != SourceKind::BigQuery {
+    if !first.read_on(kind) {
         return Err(InvalidSourceRegistry::IdentityModeNotForKind {
             alias: alias.clone(),
             block: first.block(),
@@ -237,19 +259,16 @@ pub(super) fn declared(
                 },
             )?,
         ),
-        Written::GoogleLogin(raw) => {
-            if raw.token_endpoint.contains('@') {
-                return Err(InvalidSourceRegistry::CredentialsInUrl {
-                    alias: alias.clone(),
-                    key: "google_login.token_endpoint",
-                });
-            }
-            CallerIdentity::GoogleLogin(GoogleLogin {
-                token_endpoint: raw.token_endpoint.clone(),
-                client_id: raw.client_id.clone(),
-                client_secret_file: super::parse_absolute(alias, "google_login.client_secret_file", &raw.client_secret_file)?,
-            })
-        }
+        Written::GoogleLogin(raw) => CallerIdentity::GoogleLogin(brokered(
+            alias,
+            raw,
+            ["google_login.token_endpoint", "google_login.client_secret_file"],
+        )?),
+        Written::FoundryLogin(raw) => CallerIdentity::FoundryLogin(brokered(
+            alias,
+            raw,
+            ["foundry_login.token_endpoint", "foundry_login.client_secret_file"],
+        )?),
         Written::DomainDelegation(raw) => CallerIdentity::DomainDelegation(DomainDelegation {
             delegating_account: DelegatingAccount::parse(&raw.delegating_account).map_err(|cause| {
                 InvalidSourceRegistry::DomainDelegation {
@@ -270,12 +289,42 @@ pub(super) fn declared(
     }))
 }
 
+/// The kind a caller-identity block is read on, as the tail of its refusal.
+pub(super) fn read_only_on(block: &str) -> &'static str {
+    match block {
+        FOUNDRY_LOGIN => "is read only on a `foundry` source - remove the block",
+        WORKLOAD_IDENTITY => {
+            "is not read on a `foundry` source, which runs its caller through `foundry_login` - remove the block"
+        }
+        _ => "is read only on a `bigquery` source - remove the block",
+    }
+}
+
+/// One brokered-login block, `keys` naming its endpoint and its secret file in a refusal.
+fn brokered(
+    alias: &SourceName,
+    raw: &RawBrokeredLogin,
+    [endpoint, secret]: [&'static str; 2],
+) -> Result<BrokeredLogin, InvalidSourceRegistry> {
+    if raw.token_endpoint.contains('@') {
+        return Err(InvalidSourceRegistry::CredentialsInUrl {
+            alias: alias.clone(),
+            key: endpoint,
+        });
+    }
+    Ok(BrokeredLogin {
+        token_endpoint: raw.token_endpoint.clone(),
+        client_id: raw.client_id.clone(),
+        client_secret_file: super::parse_absolute(alias, secret, &raw.client_secret_file)?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use sutura_domain::model::SourceName;
 
     use super::{CallerIdentityBlocks, InvalidDelegatingAccount};
-    use crate::raw::{RawDomainDelegation, RawGoogleLogin};
+    use crate::raw::{RawBrokeredLogin, RawDomainDelegation};
     use crate::security::DeploymentIdentity;
     use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceRegistry};
 
@@ -318,8 +367,8 @@ mod tests {
         }
     }
 
-    fn broker_login_block(token_endpoint: &str, client_secret_file: &str) -> RawGoogleLogin {
-        RawGoogleLogin {
+    fn broker_login_block(token_endpoint: &str, client_secret_file: &str) -> RawBrokeredLogin {
+        RawBrokeredLogin {
             token_endpoint: String::from(token_endpoint),
             client_id: String::from("sutura"),
             client_secret_file: String::from(client_secret_file),
@@ -369,6 +418,7 @@ mod tests {
             };
             let blocks = CallerIdentityBlocks {
                 google_login,
+                foundry_login: None,
                 domain_delegation,
                 caller_google_token: None,
             };
@@ -403,13 +453,14 @@ mod tests {
 
     /// Each block only `bigquery` reads, alone, with the name a refusal of it carries.
     fn each_bigquery_only_block<'block>(
-        login: &'block RawGoogleLogin,
+        login: &'block RawBrokeredLogin,
         delegation: &'block RawDomainDelegation,
     ) -> [(CallerIdentityBlocks<'block>, &'static str); 2] {
         [
             (
                 CallerIdentityBlocks {
                     google_login: Some(login),
+                    foundry_login: None,
                     domain_delegation: None,
                     caller_google_token: None,
                 },
@@ -418,6 +469,7 @@ mod tests {
             (
                 CallerIdentityBlocks {
                     google_login: None,
+                    foundry_login: None,
                     domain_delegation: Some(delegation),
                     caller_google_token: None,
                 },
@@ -497,6 +549,7 @@ mod tests {
             let delegation = delegating_block(written);
             let blocks = CallerIdentityBlocks {
                 google_login: None,
+                foundry_login: None,
                 domain_delegation: Some(&delegation),
                 caller_google_token: None,
             };
@@ -513,6 +566,7 @@ mod tests {
         let delegation = delegating_block(ACCOUNT);
         let blocks = CallerIdentityBlocks {
             google_login: None,
+            foundry_login: None,
             domain_delegation: Some(&delegation),
             caller_google_token: None,
         };
@@ -531,6 +585,7 @@ mod tests {
         let login = broker_login_block("https://user:pw@idp.example.com/realms/example/broker/google/token", SECRET);
         let blocks = CallerIdentityBlocks {
             google_login: Some(&login),
+            foundry_login: None,
             domain_delegation: None,
             caller_google_token: None,
         };
@@ -549,6 +604,7 @@ mod tests {
         let login = broker_login_block(ENDPOINT, "secrets/idp-client-secret");
         let blocks = CallerIdentityBlocks {
             google_login: Some(&login),
+            foundry_login: None,
             domain_delegation: None,
             caller_google_token: None,
         };

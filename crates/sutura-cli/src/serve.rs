@@ -67,13 +67,14 @@ use not_linked::worker_refused as run_worker;
 #[cfg(feature = "distributed")]
 use worker::run as run_worker;
 
-/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the four
+/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the
 /// adapters that can impersonate: a build that links none has no `DeclaredPrincipalBroker`.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
     feature = "oracle",
     feature = "cube",
+    feature = "foundry",
     feature = "node"
 ))]
 mod broker;
@@ -380,7 +381,7 @@ pub(crate) fn run() -> Result<(), String> {
             (shared_identity_service(&catalogs, engines, combiner, None, &settings)?, None)
         }
         #[cfg(feature = "foundry")]
-        OpenedSources::Foundry(engines) => (shared_identity_service(&catalogs, engines, combiner, None, &settings)?, None),
+        OpenedSources::Foundry(engines) => foundry::served(&catalogs, engines, combiner, &settings, outbound.as_ref())?,
         OpenedSources::Mixed(mixed) => {
             // One registry, so one pre-flight - generic in the adapter, so it runs the same way
             // over whichever kinds this mix opened. A `files` entry answers `NotReported` here for
@@ -388,40 +389,8 @@ pub(crate) fn run() -> Result<(), String> {
             // says is informational rather than a defect.
             boot::refuse_absent_tables(&pinned, &mixed.engines)?;
             let engines = nodes::splitting(mixed.engines, settings.server().tls(), settings.runtime());
-            // **One broker per ANSWER, so the choice is per BUILD and not per kind.** A mix may
-            // read a shared source of one kind and an impersonating one of another, and
-            // `build_broker` scans the whole registry rather than the `bigquery` entries - so "does
-            // this mix need the principal broker" is exactly "does this build link the adapter that
-            // can deliver one". With no impersonating source declared it holds the same shared map
-            // the static broker would, and refuses the same sources.
             let gate = adoption_gate(mixed.attached.clone(), true);
-            #[cfg(any(
-                feature = "bigquery",
-                feature = "clickhouse",
-                feature = "oracle",
-                feature = "cube",
-                feature = "node"
-            ))]
-            let served = compose::started(
-                &catalogs,
-                engines,
-                broker::build_broker(settings.sources(), outbound.as_ref())?,
-                combiner,
-                gate,
-                &settings,
-            )?;
-            // Neither impersonating adapter linked, so no adapter in this build declares
-            // `PerSubjectCredential` and every impersonating entry is already refused at its own
-            // posture cross-check. The static broker is then the whole truth: every declared shared
-            // source served as itself, and nothing else mintable.
-            #[cfg(not(any(
-                feature = "bigquery",
-                feature = "clickhouse",
-                feature = "oracle",
-                feature = "cube",
-                feature = "node"
-            )))]
-            let served = shared_identity_service(&catalogs, engines, combiner, gate, &settings)?;
+            let served = compose::mixed(&catalogs, engines, combiner, gate, &settings, outbound.as_ref())?;
             (served, mixed.attached)
         }
     };

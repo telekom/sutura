@@ -212,6 +212,12 @@ pub(super) fn impersonation_of(
                     .map_err(|cause| format!("`sources.{source}.domain_delegation.delegating_account` is not usable: {cause}"))?,
             )
         }
+        // Refused at load on every kind but `foundry`; answered rather than unreachable.
+        Some(sutura_config::sources::caller_identity::CallerIdentity::FoundryLogin(_)) => {
+            return Err(format!(
+                "`sources.{source}.foundry_login` reached the BigQuery connect step, and only a `foundry` source reads it"
+            ));
+        }
     })
 }
 

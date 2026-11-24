@@ -51,6 +51,59 @@ where
     })
 }
 
+/// The service a mix of kinds answers through.
+///
+/// **One broker per ANSWER, so the choice is per BUILD and not per kind.** A mix may read a shared
+/// source of one kind and an impersonating one of another, and `build_broker` scans the whole
+/// registry rather than one kind's entries - so "does this mix need the principal broker" is exactly
+/// "does this build link an adapter that can deliver one". With no impersonating source declared it
+/// holds the same shared map the static broker would, and refuses the same sources. With no such
+/// adapter linked, no adapter in this build declares `PerSubjectCredential` and every impersonating
+/// entry is already refused at its own posture cross-check, so the static broker is the whole truth.
+pub(super) fn mixed<W>(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<W>,
+    combiner: DataFusionCombiner,
+    gate: Option<sutura_app::surface::AdoptionGate<W>>,
+    settings: &Settings,
+    #[cfg_attr(
+        not(any(
+            feature = "bigquery",
+            feature = "clickhouse",
+            feature = "oracle",
+            feature = "cube",
+            feature = "foundry",
+            feature = "node"
+        )),
+        expect(unused_variables, reason = "only a principal broker dials an identity provider")
+    )]
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<Serving, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    #[cfg(any(
+        feature = "bigquery",
+        feature = "clickhouse",
+        feature = "oracle",
+        feature = "cube",
+        feature = "foundry",
+        feature = "node"
+    ))]
+    let broker = super::broker::build_broker(settings.sources(), outbound)?;
+    #[cfg(not(any(
+        feature = "bigquery",
+        feature = "clickhouse",
+        feature = "oracle",
+        feature = "cube",
+        feature = "foundry",
+        feature = "node"
+    )))]
+    let broker = StaticCredentialBroker::from_registry(settings.sources());
+    started(catalogs, engines, broker, combiner, gate, settings)
+}
+
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.
 ///
 /// **One function rather than the same four lines in five arms**, and the argument is one sentence

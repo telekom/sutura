@@ -581,16 +581,19 @@ pub enum SourcePlacement {
     },
     /// A Foundry ontology SQL endpoint, reached over its synchronous Arrow API.
     ///
-    /// The source carries a deployment token and an ontology identifier. The endpoint is parsed
-    /// by the HTTP adapter at the composition root, where the shared outbound TLS declaration is
-    /// available; keeping the raw endpoint here preserves the config crate's adapter boundary.
+    /// The source carries an ontology identifier and, when shared, a deployment token. The endpoint
+    /// is parsed by the HTTP adapter at the composition root, where the shared outbound TLS
+    /// declaration is available; keeping the raw endpoint here preserves the config crate's adapter
+    /// boundary.
     Foundry {
         /// The Foundry origin, without an API path.
         endpoint: String,
         /// The ontology API name or resource identifier sent in the request body.
         ontology: String,
-        /// The deployment token read once at boot.
-        token_file: PathBuf,
+        /// The deployment token read once at boot: required on a `shared-service-user` source and
+        /// refused on an `impersonation-at-source` one, whose questions each send the caller's own
+        /// token from `foundry_login`. So `None` is that posture, never a missing credential.
+        token_file: Option<PathBuf>,
     },
 }
 

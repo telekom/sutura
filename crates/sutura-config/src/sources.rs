@@ -310,7 +310,12 @@ impl ConfiguredSource {
     pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig> {
         match self.caller_identity {
             Some(CallerIdentity::WorkloadIdentity(ref config)) => Some(config),
-            Some(CallerIdentity::GoogleLogin(_) | CallerIdentity::DomainDelegation(_) | CallerIdentity::CallerGoogleToken(_))
+            Some(
+                CallerIdentity::GoogleLogin(_)
+                | CallerIdentity::FoundryLogin(_)
+                | CallerIdentity::DomainDelegation(_)
+                | CallerIdentity::CallerGoogleToken(_),
+            )
             | None => None,
         }
     }
@@ -543,7 +548,8 @@ pub enum InvalidSourceRegistry {
     /// client's own scope, so one would reach nothing.
     #[error(
         "`sources.{alias}` is `impersonation-at-source` and declares no caller-identity block - write \
-         `workload_identity`, or on a `bigquery` source `google_login` or `domain_delegation`"
+         `workload_identity`, or on a `bigquery` source `google_login` or `domain_delegation`, or on a \
+         `foundry` source `foundry_login`"
     )]
     NoCallerIdentityMode { alias: SourceName },
     /// More than one caller-identity block on one source: a source runs its callers one way.
@@ -553,10 +559,18 @@ pub enum InvalidSourceRegistry {
         first: &'static str,
         second: &'static str,
     },
-    /// A `google_login` or `domain_delegation` block on a source that is not `bigquery`, which
-    /// nothing would read.
-    #[error("`sources.{alias}.{block}` is read only on a `bigquery` source - remove the block")]
+    /// A caller-identity block on a kind that does not read it: `google_login`, `caller_google_token`
+    /// or `domain_delegation` off `bigquery`, `foundry_login` off `foundry`, or `workload_identity`
+    /// on `foundry`.
+    #[error("`sources.{alias}.{block}` {}", caller_identity::read_only_on(.block))]
     IdentityModeNotForKind { alias: SourceName, block: &'static str },
+    /// `token_file` or `verification_identity` on an impersonating `foundry` source, which holds no
+    /// identity of its own: either would read as a fallback or an anchor identity that is not there.
+    #[error(
+        "`sources.{alias}.{key}` is declared on an `impersonation-at-source` Foundry source, which runs \
+         each question with its caller's own token from `foundry_login` and holds no identity of its own - remove `{key}`"
+    )]
+    FoundryIdentityBesideCallerLogin { alias: SourceName, key: &'static str },
     /// The declared `domain_delegation` block is not usable.
     #[error("`sources.{alias}.domain_delegation.delegating_account` is not usable")]
     DomainDelegation {

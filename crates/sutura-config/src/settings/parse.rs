@@ -178,6 +178,7 @@ pub(super) fn parse_sources(
             };
             let blocks = CallerIdentityBlocks {
                 google_login: source.google_login.as_ref(),
+                foundry_login: source.foundry_login.as_ref(),
                 caller_google_token: source.caller_google_token.as_ref(),
                 domain_delegation: source.domain_delegation.as_ref(),
             };

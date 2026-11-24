@@ -13,6 +13,18 @@ pub(super) fn open(
     outbound: Option<&sutura_tls::Declared>,
     working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {
+    // `sutura serve` attaches the broker that retrieves each caller's Foundry token; this command
+    // attaches only the static one, which mints nothing for an impersonating source.
+    if matches!(
+        configured.posture(),
+        Some(sutura_domain::source::SourcePosture::ImpersonationAtSource)
+    ) {
+        return Err(format!(
+            "`sources.{source}` is `impersonation-at-source`, and the `sutura` command attaches no \
+             broker that retrieves a caller's Foundry token - refusing rather than reading as this \
+             process; no fallback. `sutura serve` is the root that attaches one"
+        ));
+    }
     let engine = crate::foundry::build(source, configured, outbound, working_set)?;
     Ok(Opened::Foundry(super::OpenedWith {
         engines: sutura_app::Warehouses::of(engine),

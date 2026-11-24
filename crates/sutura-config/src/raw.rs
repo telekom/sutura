@@ -157,7 +157,11 @@ pub(crate) struct RawSource {
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]
-    pub(crate) google_login: Option<RawGoogleLogin>,
+    pub(crate) google_login: Option<RawBrokeredLogin>,
+    /// The caller's own Foundry login, brokered by the identity provider - see
+    /// `crate::sources::caller_identity`.
+    #[serde(default)]
+    pub(crate) foundry_login: Option<RawBrokeredLogin>,
     #[serde(default)]
     pub(crate) caller_google_token: Option<RawCallerGoogleToken>,
     /// Domain-wide delegation through one service account - see `crate::sources::caller_identity`.
@@ -262,11 +266,11 @@ pub(crate) struct RawCallerGoogleToken {
     pub(crate) acknowledged_because: Option<String>,
 }
 
-/// One source's `google_login` block, as read. `client_secret_file` is a PATH. No `audience` key:
-/// a Google access token is opaque, so nothing could compare one.
+/// One source's `google_login` or `foundry_login` block, as read. `client_secret_file` is a PATH.
+/// No `audience` key: the brokered token is opaque, so nothing could compare one.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RawGoogleLogin {
+pub(crate) struct RawBrokeredLogin {
     pub(crate) token_endpoint: String,
     pub(crate) client_id: String,
     pub(crate) client_secret_file: String,

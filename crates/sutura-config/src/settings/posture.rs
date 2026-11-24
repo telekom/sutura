@@ -216,8 +216,8 @@ pub enum NotFitToServe {
     )]
     DelegationWithoutDirectInbound {
         alias: SourceName,
-        /// `workload_identity.delegation` or `google_login` on `bigquery`, `delegation` on `oracle`,
-        /// `cube`, `clickhouse` or `node`.
+        /// `workload_identity.delegation` or `google_login` on `bigquery`, `foundry_login` on
+        /// `foundry`, `delegation` on `oracle`, `cube`, `clickhouse` or `node`.
         key: &'static str,
     },
     /// A `direct` deployment's `workload_identity` source declares no delegation hop, and does not

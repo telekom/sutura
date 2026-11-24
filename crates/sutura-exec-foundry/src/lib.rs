@@ -10,6 +10,19 @@
 //! requires an `OSv2` ontology plus `api:sql-queries-execute` and `api:ontologies-read`. This branch
 //! has no tenant venue, so the transport and result path are covered by fakes only; no live-system
 //! compatibility claim is made.
+//!
+//! # Who a question runs as
+//!
+//! A `shared-service-user` source sends the deployment token it was built with
+//! ([`FoundryWarehouse::new`]). An `impersonation-at-source` source holds no token at all
+//! ([`FoundryWarehouse::each_caller`]): each question sends the bearer the broker presented as
+//! [`Presented::SubjectToken`] - the caller's own Foundry token, which the identity provider stored
+//! when the caller linked their Foundry account - unchanged, so Foundry's own permissions on that
+//! user decide what the question reads, and a `401`/`403` is [`Warehouse::source_refused`].
+//! **Limits:** built and held by fakes only - no tenant has accepted a brokered token here, and
+//! whether such a token carries the scopes this endpoint needs is the tenant's application
+//! registration, unverified. Such a source has no identity at boot, so it verifies no anchor
+//! ([`FoundryError::NoBootIdentity`]).
 
 use std::time::Instant;
 
@@ -178,8 +191,12 @@ where
     },
     #[error("the Foundry source identifier is not the source selected by this plan")]
     WrongSource,
-    #[error("the credential broker presented {presented}, which this shared Foundry source cannot send")]
+    #[error("the credential broker presented {presented}, which this Foundry source cannot send")]
     Undeliverable { presented: &'static str },
+    /// An `impersonation-at-source` source has no identity of its own, so nothing at boot can run
+    /// as anybody here: an anchor on it cannot be verified.
+    #[error("this Foundry source runs each question as its caller and holds no identity to verify an anchor with")]
+    NoBootIdentity,
     #[error("the Foundry endpoint does not support this plan shape")]
     UnsupportedPlan,
 }
@@ -190,9 +207,19 @@ pub struct FoundryWarehouse<T> {
     source: SourceName,
     posture: SourcePosture,
     ontology: OntologyIdentifier,
-    token: Secret,
+    bearer: Bearer,
     transport: T,
     result_budget: ResultBudget,
+}
+
+/// Whose token a request carries. No variant holds both, so a per-caller source has no deployment
+/// token to fall back to.
+#[derive(Debug)]
+enum Bearer {
+    /// The deployment's own token, for a shared source.
+    Deployment(Secret),
+    /// Each caller's own token, as the broker presented it.
+    EachCaller,
 }
 
 impl<T> FoundryWarehouse<T> {
@@ -210,7 +237,26 @@ impl<T> FoundryWarehouse<T> {
             source,
             posture,
             ontology,
-            token,
+            bearer: Bearer::Deployment(token),
+            transport,
+            result_budget,
+        }
+    }
+
+    /// Builds an `impersonation-at-source` connection: every request carries the caller's own token
+    /// the broker presented, and none carries a token of the deployment's.
+    #[must_use]
+    pub const fn each_caller(
+        source: SourceName,
+        ontology: OntologyIdentifier,
+        transport: T,
+        result_budget: ResultBudget,
+    ) -> Self {
+        Self {
+            source,
+            posture: SourcePosture::ImpersonationAtSource,
+            ontology,
+            bearer: Bearer::EachCaller,
             transport,
             result_budget,
         }
@@ -225,16 +271,30 @@ impl<T> FoundryWarehouse<T>
 where
     T: FoundryTransport,
 {
-    fn delivered(&self, presented: &Presented) -> WarehouseResult<T::Error, &Secret> {
-        if !matches!(presented, Presented::SharedServiceUser { .. }) {
-            return Err(FoundryError::Undeliverable {
-                presented: presented.as_str(),
-            });
-        }
+    /// The token `presented` sends: the deployment's for a shared leg on a shared source, the
+    /// caller's own for a subject's token on a per-caller one - and only where the leg agrees with
+    /// this source's declared posture. Every other pairing is refused before any request.
+    fn delivered<'leg>(&'leg self, presented: &'leg Presented) -> WarehouseResult<T::Error, &'leg Secret> {
+        let token = match (&self.bearer, presented) {
+            (Bearer::Deployment(token), Presented::SharedServiceUser { .. }) => token,
+            (Bearer::EachCaller, Presented::SubjectToken { material }) => material,
+            (
+                Bearer::Deployment(_),
+                Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. },
+            )
+            | (
+                Bearer::EachCaller,
+                Presented::SharedServiceUser { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. },
+            ) => {
+                return Err(FoundryError::Undeliverable {
+                    presented: presented.as_str(),
+                });
+            }
+        };
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| FoundryError::PresentedDisagreesWithPosture { cause })?;
-        Ok(&self.token)
+        Ok(token)
     }
 
     fn request(&self, executable: Executable<'_>, dry_run: bool) -> WarehouseResult<T::Error, SqlRequest> {
@@ -293,7 +353,7 @@ where
 {
     type Error = FoundryError<T::Error>;
 
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
     const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &SourceName {
@@ -329,11 +389,14 @@ where
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        let Bearer::Deployment(ref token) = self.bearer else {
+            return Err(FoundryError::NoBootIdentity);
+        };
         let request = self.request(Executable::Query(plan.plan()), false)?;
         let deadline = boot_deadline();
         let bytes = self
             .transport
-            .execute(&request, &self.token, deadline)
+            .execute(&request, token, deadline)
             .map_err(|cause| FoundryError::Endpoint { cause })?;
         self.decode(bytes, accepted_rows(Executable::Query(plan.plan())), deadline)?
             .to_rows()
@@ -366,6 +429,7 @@ where
             | FoundryError::Unreadable { .. }
             | FoundryError::WrongSource
             | FoundryError::Undeliverable { .. }
+            | FoundryError::NoBootIdentity
             | FoundryError::UnsupportedPlan => false,
         }
     }
@@ -688,3 +752,6 @@ mod tests;
 
 #[cfg(test)]
 mod execution_tests;
+
+#[cfg(test)]
+mod each_caller_tests;
