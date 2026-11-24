@@ -639,3 +639,61 @@ fn a_federation_cannot_search_an_oracle_lob_after_a_bounded_leaf() {
     assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
     assert!(legs.ran.is_empty(), "no source should run: {:?}", legs.ran);
 }
+
+/// #2058: a bare `ORDER BY` naming a column both sides of a self-join carry is refused while binding,
+/// before any derived table or dialect is involved, so the unparser never sees it. The control is the
+/// same question ordered by the qualified column, which answers: the collision is what is refused.
+/// Binding is dialect-independent, so one dialect is asked. It passes on base, so it is a claim cell
+/// with a committed killing mutation.
+#[test]
+fn a_bare_order_by_over_a_colliding_column_is_refused_by_the_binder() {
+    let schema = || {
+        Arc::new(Schema::new(vec![
+            Field::new("region", DataType::Utf8, true),
+            Field::new("sales_area", DataType::Utf8, true),
+        ]))
+    };
+    let ask = |order_by: &str| {
+        let table = RecordBatch::try_new(
+            schema(),
+            vec![
+                Arc::new(StringArray::from(vec![Some("a"), Some("a")])),
+                Arc::new(StringArray::from(vec![Some("x"), Some("y")])),
+            ],
+        )
+        .expect("two rectangular source rows");
+        let tables = [StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region_self").expect("a fixture table"),
+            TypeDialect::DataFusion,
+            schema(),
+        )];
+        let mut legs = Engines::new(None);
+        drop(legs.at.insert(named("geo"), holding(&[("dim_region_self", table)])));
+        let sql = format!(
+            r#"select m."region" from "dim_region_self" m join "dim_region_self" p on m."region" = p."region" order by {order_by} limit 50"#
+        );
+        let statement = RawStatement::parse(sql).expect("a fixture question");
+        DataFusionCombiner::new().expect("a combiner").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        )
+    };
+
+    let qualified = ask(r#"m."sales_area""#);
+    assert!(
+        matches!(qualified, Some(Ok(_))),
+        "the same self-join ordered by a qualified column answers: {qualified:?}"
+    );
+    let bare = ask(r#""sales_area""#);
+    assert!(
+        matches!(bare, Some(Err(StatementStopped::NotPlanned))),
+        "a bare ORDER BY over a column both sides carry is refused while binding: {bare:?}"
+    );
+}
