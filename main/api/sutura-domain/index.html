@@ -4113,8 +4113,18 @@ type from both seams.</p>
 <p>An identifier pattern, with no path, regex or SQL syntax.</p>
 <h3 id="use-dictionaryselection"><code>use DictionarySelection</code><a class="headerlink" href="#use-dictionaryselection" title="Permanent link">&para;</a></h3>
 <p>Native dictionary selection. Counts bound matching work independently of metadata read bounds.</p>
+<h3 id="use-emptytablepolicy"><code>use EmptyTablePolicy</code><a class="headerlink" href="#use-emptytablepolicy" title="Permanent link">&para;</a></h3>
+<p>What native selection does with a table left with no included column.</p>
+<p>Every one of its columns is excluded, type-omitted or otherwise unselected - for example an
+invalid view whose every column reads an unsupported native type. <code>Refuse</code> is the default.
+<code>Omit</code> drops the table (logged) instead of refusing the whole catalog.</p>
 <h3 id="use-invaliddictionarypattern"><code>use InvalidDictionaryPattern</code><a class="headerlink" href="#use-invaliddictionarypattern" title="Permanent link">&para;</a></h3>
 <h3 id="use-invaliddictionaryselection"><code>use InvalidDictionarySelection</code><a class="headerlink" href="#use-invaliddictionaryselection" title="Permanent link">&para;</a></h3>
+<h3 id="use-unsupportedcolumnpolicy"><code>use UnsupportedColumnPolicy</code><a class="headerlink" href="#use-unsupportedcolumnpolicy" title="Permanent link">&para;</a></h3>
+<p>What native selection does with a column whose native type has no exact supported mapping.</p>
+<p><code>Refuse</code> is the default: a catalog with no <code>on_unsupported_column</code> key refuses the load over
+such a column. <code>Omit</code> drops the column instead - not served, not listed by <code>describe_catalog</code>,
+exactly like a column an exclusion pattern already removes - and logs the drop.</p>
 <h3 id="use-unlinkedcontribution"><code>use UnlinkedContribution</code><a class="headerlink" href="#use-unlinkedcontribution" title="Permanent link">&para;</a></h3>
 <p>A contributor's own declarations. Only assembly may turn these into a pinned bundle.</p>
 <h3 id="constant-time_bucket_label"><code>constant TIME_BUCKET_LABEL</code><a class="headerlink" href="#constant-time_bucket_label" title="Permanent link">&para;</a></h3>
