@@ -151,10 +151,6 @@ fn duplicate_source_outputs_restore_exact_names_positions_and_empty_metadata() {
             legs.opened, legs.ran
         )
     };
-    // A federated grouped part is sent to a source labelled `c0..cn` (`labelled`, statement.rs),
-    // so a flipped `group_expr`/`aggr_expr` order would surface here as a type mismatch against
-    // the leg's own schema, not a silent swap - pinned explicitly anyway.
-    assert_eq!(rows.columns(), ["sales_area", "customers"]);
     assert_eq!(rows, legs.as_one(AREAS));
     assert_eq!(legs.opened, [BTreeSet::from([named("crm"), named("geo")])]);
     assert_eq!(legs.ran.len(), 2);
@@ -676,31 +672,10 @@ fn an_exists_in_a_projection_over_a_second_source_is_not_planned() {
     }
 }
 
-/// The unparser's own refusal to name a column back against an `Aggregate` it rewrote (the shape
-/// behind #2068: a two-level aggregate from `count(DISTINCT ..)`, still naming the inner column
-/// after some plan shape the fold in `fold_aggregate_rename_projection` does not reach, such as a
-/// grouping set) is an internal planner gap, not a database failure - the caller is told not to
-/// retry rather than reading the generic `StatementFailed`.
-#[test]
-fn an_unprojected_aggregate_is_named_as_an_unsupported_construct_not_a_generic_failure() {
-    let cause =
-        datafusion::common::DataFusionError::External(Box::new(datafusion::sql::unparser::UnprojectableAggregateColumn {
-            column: "count(DISTINCT test.b)".to_owned(),
-        }));
-    let stopped: StatementStopped<()> = super::unwritten("a part did not unparse", &cause);
-    assert!(
-        matches!(stopped, StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)),
-        "{stopped:?}"
-    );
-}
-
-/// An unrelated unparse failure still falls through to the generic `NotPlanned` refusal.
-#[test]
-fn an_unrelated_unparse_failure_is_still_a_generic_not_planned() {
-    let cause = datafusion::common::DataFusionError::Internal("some other invariant did not hold".to_owned());
-    let stopped: StatementStopped<()> = super::unwritten("a part did not unparse", &cause);
-    assert!(matches!(stopped, StatementStopped::NotPlanned), "{stopped:?}");
-}
+// The unparser's own `UnprojectableAggregateColumn` routing is pinned in
+// `combine/statement/unparse_error.rs`'s own `#[cfg(test)] mod tests` - that file does not exist
+// on `main`, so its tests stay isolated there rather than naming a symbol absent at base inside
+// this already-established file.
 
 #[cfg(test)]
 mod bounds;

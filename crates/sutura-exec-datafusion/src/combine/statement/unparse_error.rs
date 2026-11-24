@@ -36,3 +36,27 @@ pub(super) fn field_not_found(cause: &DataFusionError) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use sutura_domain::plan::StatementStopped;
+    use sutura_domain::raw::SqlConstruct;
+
+    /// The unparser's own refusal to name a column back against an `Aggregate` it rewrote (the
+    /// shape behind #2068: a two-level aggregate from `count(DISTINCT ..)`, still naming the
+    /// inner column after some plan shape the fold in `fold_aggregate_rename_projection` does not
+    /// reach, such as a grouping set) is an internal planner gap, not a database failure - the
+    /// caller is told not to retry rather than reading the generic `StatementFailed`.
+    #[test]
+    fn an_unprojected_aggregate_is_named_as_an_unsupported_construct_not_a_generic_failure() {
+        let cause =
+            datafusion::common::DataFusionError::External(Box::new(datafusion::sql::unparser::UnprojectableAggregateColumn {
+                column: "count(DISTINCT test.b)".to_owned(),
+            }));
+        let stopped: StatementStopped<()> = super::super::unwritten("a part did not unparse", &cause);
+        assert!(
+            matches!(stopped, StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)),
+            "{stopped:?}"
+        );
+    }
+}

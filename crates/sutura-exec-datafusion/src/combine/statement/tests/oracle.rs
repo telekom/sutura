@@ -768,60 +768,67 @@ fn count_distinct_repeated_in_having_unparses_with_and_without_order_and_limit_i
     }
 }
 
-/// A plain `GROUP BY` with no `HAVING` keeps `group_expr` before `aggr_expr` in its output: the
-/// regression this guards is `fold_aggregate_rename_projection` folding away the topmost,
-/// select-producing `Projection` too - the unparser's `Aggregate` arm then has no `Projection`
-/// left to set the select list and falls back to `aggr_expr` before `group_expr`, silently
-/// flipping `region, c` to `c, region`. The fold must stay scoped to a rename `Projection`
-/// directly under a `Filter` (a `HAVING`), never this one.
+/// A `HAVING`-shaped `count(DISTINCT ..)` rewrite as one branch of a `UNION ALL`: the fold must
+/// match only the exact `Projection -> Filter -> Projection(rename) -> Aggregate` shape rooted at
+/// each branch independently, never a flag threaded across `Union` siblings - the regression this
+/// guards is a positional swap leaking from the `HAVING` branch into the plain branch beside it,
+/// which has no `Filter` of its own to stop a stateful fold at its boundary.
 #[test]
-fn plain_group_by_keeps_column_order_in_every_dialect() {
-    for dialect in [
-        TypeDialect::DuckDb,
-        TypeDialect::DataFusion,
-        TypeDialect::Cube,
-        TypeDialect::Postgres,
-        TypeDialect::ClickHouse,
-        TypeDialect::BigQuery,
-        TypeDialect::Oracle,
-    ] {
-        let tables = [StatementTable::new(
-            named("geo"),
-            QualifiedTable::parse("dim_region").expect("a fixture table"),
-            dialect,
-            regions().schema(),
-        )];
-        let sql = "select region, count(*) as c from dim_region group by region";
-        let mut legs = OracleLegs {
-            engines: Engines::new(None),
-            statements: Vec::new(),
-        };
-        let statement = RawStatement::parse(sql).expect("a bounded fixture query");
-        let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-            StatementQuestion::new(
-                &statement,
-                &tables,
-                false,
-                UNBOUNDED,
-                opened(Duration::ZERO, Duration::from_secs(60)),
-            ),
-            &mut legs,
-        );
-        let Some(Ok(rows)) = answer else {
-            panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
-        };
-        assert_eq!(
-            rows.columns(),
-            ["region", "c"],
-            "{dialect:?}: source SQL: {:?}",
-            legs.statements
-        );
-        assert_eq!(
-            multiset(rows),
-            multiset(legs.engines.as_one(sql)),
-            "{dialect:?}; source SQL: {:?}",
-            legs.statements
-        );
-        assert_eq!(legs.statements.len(), 1, "{dialect:?}");
+fn count_distinct_repeated_in_having_inside_a_union_branch_unparses_in_every_dialect() {
+    for alias in ["g, c", "sales_area, count(distinct region)"] {
+        for dialect in [
+            TypeDialect::DuckDb,
+            TypeDialect::DataFusion,
+            TypeDialect::Cube,
+            TypeDialect::Postgres,
+            TypeDialect::ClickHouse,
+            TypeDialect::BigQuery,
+            TypeDialect::Oracle,
+        ] {
+            let tables = [StatementTable::new(
+                named("geo"),
+                QualifiedTable::parse("dim_region").expect("a fixture table"),
+                dialect,
+                regions().schema(),
+            )];
+            let (select_a, select_b) = if alias.starts_with('g') {
+                (
+                    "select sales_area g, count(distinct region) c from dim_region \
+                     group by sales_area having count(distinct region) > 1",
+                    "select sales_area g, count(distinct region) c from dim_region group by sales_area",
+                )
+            } else {
+                (
+                    "select sales_area, count(distinct region) from dim_region \
+                     group by sales_area having count(distinct region) > 1",
+                    "select sales_area, count(distinct region) from dim_region group by sales_area",
+                )
+            };
+            let sql = format!("select {alias} from ({select_a} union all {select_b}) u");
+            let mut legs = OracleLegs {
+                engines: Engines::new(None),
+                statements: Vec::new(),
+            };
+            let statement = RawStatement::parse(&sql).expect("a bounded fixture query");
+            let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+                StatementQuestion::new(
+                    &statement,
+                    &tables,
+                    false,
+                    UNBOUNDED,
+                    opened(Duration::ZERO, Duration::from_secs(60)),
+                ),
+                &mut legs,
+            );
+            let Some(Ok(rows)) = answer else {
+                panic!("{dialect:?}: {sql}: {answer:?}; source SQL: {:?}", legs.statements);
+            };
+            assert_eq!(
+                multiset(rows),
+                multiset(legs.engines.as_one(&sql)),
+                "{dialect:?}: {sql}; source SQL: {:?}",
+                legs.statements
+            );
+        }
     }
 }

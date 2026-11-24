@@ -111,43 +111,52 @@ fn rewrite_sort_expr_for_union(exprs: Vec<SortExpr>) -> Result<Vec<SortExpr>> {
 /// `find_agg_node_within_select`'s `HAVING` path only looks through at most one `Projection` -
 /// so it fails to find the clause's column in the (still internally-named) `Aggregate` schema.
 ///
-/// The fold is narrowed to exactly that shape, `Filter -> Projection(rename) -> Aggregate`, and
-/// only once a select-producing `Projection` has already been seen higher up on the same path -
-/// never the topmost projection, which is what sets the statement's own column order. Outside a
-/// `Filter`'s immediate input, the same rename `Projection` is left alone: the unparser's
-/// `Aggregate` arm relies on it being there to recover `GROUP BY`/`SELECT` column order whenever
-/// no projection has set the select list yet, and folding it away for a plain, unfiltered
-/// `GROUP BY` silently reverses that order instead of fixing anything.
+/// The fold is narrowed to the exact four-level shape `Projection -> Filter ->
+/// Projection(rename) -> Aggregate`, matched structurally wherever it occurs - the `Filter`'s
+/// immediate parent must itself be a `Projection` (the statement's own select list, or, inside a
+/// `Union`, a branch's own), never a mere ancestor further up. An earlier version instead
+/// threaded a "some `Projection` was seen higher up" flag down the whole plan, which let a
+/// `Union` branch's own `HAVING` rename get folded on the strength of a `Projection` elsewhere
+/// in the tree - at best a no-op, at worst a positional column swap between branches once their
+/// shapes diverged. Requiring the direct-parent `Projection` removes that: the fold only ever
+/// fires where a select list already sits right above the `Filter`, so it can never apply to,
+/// or be enabled by, a `Projection` outside that `Filter`'s own subtree. Outside this exact
+/// shape, the rename `Projection` is left alone: the unparser's `Aggregate` arm relies on it
+/// being there to recover `GROUP BY`/`SELECT` column order whenever no projection has set the
+/// select list yet, and folding it away for a plain, unfiltered `GROUP BY` silently reverses
+/// that order instead of fixing anything.
 pub(super) fn fold_aggregate_rename_projection(plan: &LogicalPlan) -> Result<LogicalPlan> {
-    fold_rename_below_filter(plan.clone(), false)
+    plan.clone()
+        .transform_down(fold_select_over_having_rename)
+        .data()
 }
 
-/// Walks `plan` top-down threading `projected` - whether a select-producing `Projection` has
-/// already been seen on the path from the root - and, once it is `true`, folds a rename-only
-/// `Projection` sitting directly under a `Filter` back onto its `Aggregate`. See
-/// [`fold_aggregate_rename_projection`] for why the fold is scoped to exactly that position.
-fn fold_rename_below_filter(plan: LogicalPlan, projected: bool) -> Result<LogicalPlan> {
-    if let LogicalPlan::Filter(mut filter) = plan {
-        let mut input = Arc::unwrap_or_clone(filter.input);
-        if projected {
-            if let LogicalPlan::Projection(inner) = &input {
-                if let Some(agg) = fold_aggregate_rename(inner)? {
-                    input = LogicalPlan::Aggregate(agg);
-                }
-            }
-        }
-        filter.input = Arc::new(fold_rename_below_filter(input, projected)?);
-        return Ok(LogicalPlan::Filter(filter));
-    }
+/// The single rewrite step for [`fold_aggregate_rename_projection`]: matches `plan` against the
+/// exact shape `Projection -> Filter -> Projection(rename) -> Aggregate` and, only then, folds
+/// the inner rename `Projection` onto the `Aggregate` it wraps.
+fn fold_select_over_having_rename(plan: LogicalPlan) -> Result<Transformed<LogicalPlan>> {
+    let LogicalPlan::Projection(outer) = &plan else {
+        return Ok(Transformed::no(plan));
+    };
+    let LogicalPlan::Filter(filter) = outer.input.as_ref() else {
+        return Ok(Transformed::no(plan));
+    };
+    let LogicalPlan::Projection(inner) = filter.input.as_ref() else {
+        return Ok(Transformed::no(plan));
+    };
+    let Some(agg) = fold_aggregate_rename(inner)? else {
+        return Ok(Transformed::no(plan));
+    };
 
-    let next_projected = projected || matches!(plan, LogicalPlan::Projection(_));
-    let exprs = plan.expressions();
-    let new_inputs = plan
-        .inputs()
-        .into_iter()
-        .map(|input| fold_rename_below_filter(input.clone(), next_projected))
-        .collect::<Result<Vec<_>>>()?;
-    plan.with_new_exprs(exprs, new_inputs)
+    let LogicalPlan::Projection(mut outer) = plan else {
+        unreachable!("matched above")
+    };
+    let LogicalPlan::Filter(mut filter) = Arc::unwrap_or_clone(outer.input) else {
+        unreachable!("matched above")
+    };
+    filter.input = Arc::new(LogicalPlan::Aggregate(agg));
+    outer.input = Arc::new(LogicalPlan::Filter(filter));
+    Ok(Transformed::yes(LogicalPlan::Projection(outer)))
 }
 
 /// `Some(agg)` when `p` is nothing but a positional rename of its own `Aggregate` input: every

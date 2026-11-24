@@ -298,8 +298,10 @@ pub enum SqlConstruct {
     TableFunction,
     /// A numeric source value cannot be ordered or evaluated locally as its text representation.
     NumberText,
-    /// The planner's own rewrite of an aggregate could not be named back as text for this shape:
-    /// a planner limit, not a result the source produced, so retrying the same query will not help.
+    /// The planner's own rewrite of an aggregate could not be named back as text for this shape -
+    /// the whole class of an `Aggregate` the optimizer rewrote (e.g. `SingleDistinctToGroupBy`'s
+    /// two-level `count(DISTINCT ..)` split) under a plan the unparser's fold does not reach: a
+    /// planner limit, not a result the source produced, so retrying the same query will not help.
     AggregateRewrite,
 }
 
