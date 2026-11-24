@@ -497,6 +497,79 @@ fn a_join_preserves_a_fetch_on_its_direct_right_scan_in_every_dialect() {
 }
 
 #[test]
+fn a_union_branch_keeps_its_own_order_by_and_limit_off_its_sibling_in_every_dialect() {
+    // Same bug family as `apache/datafusion`'s unparser via `spiceai/spiceai#14737`: a shared
+    // `QueryBuilder` let the right branch's own `ORDER BY ... LIMIT 1` write onto the statement
+    // instead of staying on that branch, so the generated SQL returned the wrong rows.
+    use datafusion::datasource::{MemTable, provider_as_source};
+    use datafusion::logical_expr::{LogicalPlanBuilder, col, lit};
+
+    let batch = regions();
+    let source = provider_as_source(Arc::new(
+        MemTable::try_new(batch.schema(), vec![vec![batch]]).expect("a source table"),
+    ));
+    let left = LogicalPlanBuilder::scan("dim_region", Arc::clone(&source), None)
+        .expect("a left scan")
+        .filter(col("sales_area").eq(lit("emea")))
+        .expect("a left filter")
+        .project([col("region")])
+        .expect("a left projection")
+        .build()
+        .expect("a left plan");
+    let right = LogicalPlanBuilder::scan("dim_region", source, None)
+        .expect("a right scan")
+        .filter(col("sales_area").eq(lit("emea")))
+        .expect("a right filter")
+        .project([col("region")])
+        .expect("a right projection")
+        .sort([col("region").sort(true, false)])
+        .expect("a right sort")
+        .limit(0, Some(1))
+        .expect("a right limit over the sort")
+        .build()
+        .expect("a right plan");
+    let plan = LogicalPlanBuilder::from(left)
+        .union(right)
+        .expect("a union of same-shaped branches")
+        .build()
+        .expect("a union plan");
+    for dialect in [
+        TypeDialect::DuckDb,
+        TypeDialect::DataFusion,
+        TypeDialect::Cube,
+        TypeDialect::Postgres,
+        TypeDialect::ClickHouse,
+        TypeDialect::BigQuery,
+        TypeDialect::Oracle,
+    ] {
+        let sql = super::super::unparsed(&plan, dialect).expect("the union plan unparses");
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
+        let rows = legs
+            .run(&named("geo"), &RawStatement::parse(&sql).expect("a source statement"))
+            .unwrap_or_else(|cause| panic!("{dialect:?}: {cause}: {sql}"));
+        // Both branches filter to the same 2-row "emea" slice; only the right one orders and
+        // limits itself to 1. A shared builder leaks that LIMIT 1 onto the whole UNION ALL,
+        // collapsing the 3 rows the branches actually produce down to 1.
+        assert_eq!(
+            rows.rows().len(),
+            3,
+            "{dialect:?}: the right branch's own ORDER BY/LIMIT leaked onto the union: {sql}"
+        );
+        assert_eq!(
+            rows,
+            legs.engines.as_one(
+                "select region from dim_region where sales_area = 'emea' \
+                 union all (select region from dim_region where sales_area = 'emea' order by region limit 1)"
+            ),
+            "{dialect:?}: {sql}"
+        );
+    }
+}
+
+#[test]
 fn aliased_limits_and_correlated_subqueries_keep_names_in_scope_in_every_dialect() {
     let _logging = tracing::subscriber::set_default(
         tracing_subscriber::fmt()
