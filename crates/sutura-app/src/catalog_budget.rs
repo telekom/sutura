@@ -25,9 +25,10 @@ pub type Budgeted<T, N = String> = (Vec<T>, Vec<N>, usize);
 /// `name` is generic in its return type rather than fixed to `String`: a metric's own omission entry
 /// needs its model riding along to stay reachable by `describe_catalog(metric: ...)` without a
 /// second lookup, so a caller filling a metrics pool returns a small `{metric, model}` struct here
-/// instead of a pre-formatted string. Whatever `name` returns, [`omission_reserve`] must be told how
-/// many identifiers worth of bytes that shape costs, so the budget handed in already set enough
-/// aside for a full omission list of that shape - this function itself does not know or check that.
+/// instead of a pre-formatted string. Whatever `name` returns, [`omission_reserve`] must be handed
+/// the SAME per-item `entry_cost` this function would charge an omitted item, so the budget handed
+/// in already set enough aside for a full omission list of that shape - this function itself does
+/// not know or check that.
 pub fn fill_to_budget<T, N>(
     items: impl IntoIterator<Item = T>,
     budget: usize,
@@ -92,10 +93,14 @@ pub const MAX_OMITTED_NAMES: usize = 200;
 
 /// Fixed bytes an omission list's own scaffolding costs, independent of how many entries end up in
 /// it - the lead-in sentence, the byte bound quoted back into it, the trailing remedy sentence, or
-/// (structured) the `omitted_*_more` field's own key and digits. One generous constant rather than a
-/// measurement of each call site's own wording: that wording is free to change without this reserve
-/// drifting out from under it, and every call site's actual header is comfortably under it, which
-/// the over-budget total-size tests in each call site's module hold to directly.
+/// (structured) the `omitted_*_more` field's own key and digits - plus whatever OTHER fixed bytes a
+/// call site's own rendering adds around a pool that this module never sees and so cannot measure:
+/// a structured half's own unchanging JSON keys (`"metrics":`, `"omitted_metrics":`, the braces and
+/// commas around them) and a text half's trailing sentence are both paid out of this one reserve
+/// too, not a reserve of their own. One generous constant rather than a measurement of each call
+/// site's own wording: that wording is free to change without this reserve drifting out from under
+/// it, and every call site's actual total - header, keys and trailer together - is comfortably
+/// under it, which the over-budget total-size tests in each call site's module hold to directly.
 const OMISSION_HEADER_RESERVE: usize = 512;
 
 /// Sizes an omission-list reserve from the REAL candidates that might end up in it, never from a

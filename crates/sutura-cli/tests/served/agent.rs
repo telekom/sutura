@@ -341,9 +341,20 @@ fn a_caller_reads_the_same_knowledge_over_http_as_over_mcp() {
 /// never needed to shed. `CatalogBody` carries no physical schema at all (`docs/agent-prompt.md`),
 /// so there is no model pool to check here the way [`super::settings`]'s MCP twin
 /// `an_example_sized_catalog_omits_nothing_and_stays_under_the_shared_bound` does.
+///
+/// A local `BOUND` rather than `sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES` itself: this
+/// file is kept at HEAD by the causality base run, and that constant did not exist before
+/// `telekom/sutura#2081`'s second ask - naming it here would fail the base build of every other
+/// test in this file, not just this one. `BOUND` also makes this a `Claim-Cell`: main's own
+/// omission reserve already leaves this catalog untouched, so this test is green against base too,
+/// and is declared as such (see `devco/claim-mutations/`).
 #[cfg(feature = "agent")]
 #[test]
 fn an_example_sized_catalog_omits_nothing_over_http_and_stays_under_the_shared_bound() {
+    /// Mirrors `sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`, which this file cannot name
+    /// without breaking the base build (see the doc comment above).
+    const BOUND: usize = 128 * 1024;
+
     let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, "serve-agent-catalog-budget").expect("the key set publishes");
     let served = start_configured(
@@ -360,7 +371,7 @@ fn an_example_sized_catalog_omits_nothing_over_http_and_stays_under_the_shared_b
     assert!(body["omitted_metrics"].as_array().is_none_or(Vec::is_empty), "{body}");
     assert!(!body["metrics"].as_array().expect("metrics is a list").is_empty(), "{body}");
     assert!(
-        over_http.body.len() <= sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES,
+        over_http.body.len() <= BOUND,
         "the example catalog body overshot the shared bound ({} bytes)",
         over_http.body.len()
     );
