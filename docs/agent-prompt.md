@@ -78,18 +78,37 @@ table or column name reaches the output. An operator can enable
 `prompt.list_physical_schema` to list descriptive model, table and column metadata. That listing
 does not make a physical name queryable, and it does not certify a metric.
 
-**`describe_catalog` takes an optional `model` argument**, on the agent tool and on
-`GET /v1/catalog` alike: the same identifier the physical schema prints as `model <name>`. Given
-one, the answer narrows to that model's own metrics (and, where physical schema is on, that
-model's own columns and relationships) and nothing else; a name that parses but names no model
-the caller may see is refused rather than answered with an empty listing. **The agent tool's own
-unfiltered physical-schema listing is additionally capped at 64 KiB of serialized model content** -
-`GET /v1/catalog` carries no physical schema at all, so it has no analogous cap. Under the cap
-nothing changes. Over it, whole models are included up to the cap - never one truncated mid-model -
-and the rest are named in an explicit `omitted_models` list with a sentence pointing back at
-`describe_catalog(model: <name>)`. The cap bounds only the physical-schema listing, which is the
-part a widely authored catalog can make large; metric descriptions and the catalog's own knowledge
-are not counted against it.
+**`describe_catalog` takes two optional, mutually exclusive arguments, `model` and `metric`**, on
+the agent tool and on `GET /v1/catalog` alike. `model` is the same identifier the physical schema
+prints as `model <name>`; given one, the answer narrows to that model's own metrics (and, where
+physical schema is on, that model's own columns and relationships) and nothing else. `metric` is
+one metric's own name; given one, the answer narrows to exactly that metric's own entry instead,
+emitted whole - the way to read back a single metric a byte-bounded listing below named but left
+out. A name that parses but names nothing the caller may see, for either argument - unknown or real
+but invisible - is refused rather than answered with an empty listing; giving both at once is
+refused the same way.
+
+**One shared byte budget per whole agent-facing result, not one per section.** The agent tool's
+result, `GET /v1/catalog`'s body, and this rendered system prompt all hold their WHOLE output - not
+only a physical-schema listing - to `MAX_CATALOG_LISTING_BYTES` (64 KiB), spent once, in sequence:
+the fixed parts first (the notice, the catalog's own knowledge - counted once per half of the agent
+tool's result, since its structured and its text half both carry that knowledge independently -
+the operator's instructions, and the provenance trailer), then whatever remains goes to the metrics
+pool, then whatever the metrics pool did not spend goes to the physical-schema pool (relationships
+counted there too). `GET /v1/catalog` carries no physical schema at all, so it has nothing to spend
+on that last pool, but it IS held to the same budget on its metrics. **Metric descriptions and their
+`allowed_values` ARE counted** against this budget: they are the part of the metrics pool a widely
+authored catalog can make large, so leaving them uncounted would defeat the bound's own point.
+
+Under the budget nothing changes. Over it, whole items are included up to the bound - never one
+truncated mid-metric or mid-model - and the rest are named in an explicit `omitted_metrics` or
+`omitted_models` list; each omitted metric is named together with its model
+(`"<metric> (model <model>)"`), so every omission is reachable by `model` or by `metric` with no
+need to discover which model it belongs to first. A sentence points back at
+`describe_catalog(metric: <name>)` or `describe_catalog(model: <name>)`. **A single metric whose
+own `allowed_values` is itself large still reaches the caller in full through
+`describe_catalog(metric: <name>)`**, because that argument's answer bypasses the budget entirely
+rather than being cut down to fit it - the one case this document's byte bound does not apply to.
 
 The document carries four sections for which the catalog
 body has no field at all, listed in the table above: the glossary, the terms recorded as not

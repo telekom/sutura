@@ -313,7 +313,7 @@ Planning and that local part stop at the request's deadline. What this does not 
 | ------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `GET /health`                                                 | none                                                      | Liveness. The body is `{"status":"ok"}`                                                      |
 | `GET /.well-known/oauth-protected-resource[/<resource path>]` | none, `direct` mode only                                  | RFC 9728 metadata of the resource                                                            |
-| `GET /v1/catalog[?model=<name>]`                              | `security.access_token` if set, and `sutura:catalog.read` | The metrics, grains, dimensions, allowed filter values and knowledge                         |
+| `GET /v1/catalog[?model=<name>\|metric=<name>]`               | `security.access_token` if set, and `sutura:catalog.read` | The metrics, grains, dimensions, allowed filter values and knowledge                         |
 | `POST /v1/query`                                              | `security.access_token` if set, and `sutura:metrics.ask`  | One certified question                                                                       |
 | `POST /v1/sql/run`                                            | `security.access_token` if set, and `sutura:sql.run`      | The raw SQL tool, when it is on                                                              |
 | `POST /mcp`                                                   | as `/v1`, when `server.agent_surface.enabled`             | The agent surface                                                                            |
@@ -331,11 +331,19 @@ caller or a source.
 There is no readiness route. The listener opens only after every anchor reproduces its certified number, so an open
 port already means a verified catalog, and `/health` is the one probe.
 
-`GET /v1/catalog`'s own listing is capped at a byte bound; a catalog that crosses it comes back with whole models up
-to the bound plus the omitted models' names, never a model cut off mid-way. `?model=<name>` narrows the answer to one
-named model's own metrics - a name that does not parse as a model name is `400 not_a_question`, and a name that parses
-but names no model this caller may see (unknown, or real but invisible) is `404 model_unknown`. Any other query key is
-`400 not_a_question` too: the route takes no second parameter yet.
+`GET /v1/catalog`'s own listing is held to the same shared byte bound ([the agent prompt](agent-prompt.md) names it)
+as the agent surface's `describe_catalog`: the body's fixed parts (`provenance`, `catalog_prose`, `knowledge`) are
+measured first, and only what remains is spent on its `metrics` list - not its `models`, since this body carries no
+model listing at all. A catalog that crosses it comes back with whole metrics up to the bound plus an
+`omitted_metrics` list, never a metric cut off mid-way; each name is paired with its model
+(`"<metric> (model <model>)"`), and `omitted_metrics_more` carries the count past that list's own cap.
+`?model=<name>` narrows the answer to one named model's own metrics. `?metric=<name>` narrows it to exactly that one
+metric's own entry instead, read back whole and outside the byte bound - the way to read back a metric a previous,
+byte-bounded listing named in `omitted_metrics` but left out. Give at most one of the two. A name that does not parse
+as a model or a metric name is `400 not_a_question`; a name that parses but names nothing this caller may see
+(unknown, or real but invisible) is `404 model_unknown` or `404 metric_unknown`; `model` and `metric` given together
+is `400 not_a_question` too. Any other query key is `400 not_a_question` as well: the route takes no further
+parameter.
 
 ### A refusal carries a status
 
