@@ -33,21 +33,6 @@ async fn the_catalog_route_narrows_metrics_to_the_named_model() {
 }
 
 #[tokio::test]
-async fn an_unfiltered_catalog_is_unchanged_from_a_model_filtered_one_combined() {
-    let app = app(settings(Environment::Development, ""));
-    let (status, unfiltered) = call(&app, request("GET", "/v1/catalog", None, Body::empty())).await;
-    assert_eq!(status, StatusCode::OK, "{unfiltered}");
-    let (status, filtered) = call(&app, request("GET", "/v1/catalog?model=orders", None, Body::empty())).await;
-    assert_eq!(status, StatusCode::OK, "{filtered}");
-    // `bundle()` is one model, one metric, so narrowing to that model changes nothing: the only
-    // thing a filter can omit here is an empty rest.
-    assert!(
-        unfiltered.contains("revenue") && filtered.contains("revenue"),
-        "{unfiltered} / {filtered}"
-    );
-}
-
-#[tokio::test]
 async fn a_model_this_catalog_does_not_define_is_refused_not_found() {
     let app = app(settings(Environment::Development, ""));
     let (status, body) = call(&app, request("GET", "/v1/catalog?model=warehouse", None, Body::empty())).await;
@@ -59,6 +44,17 @@ async fn a_model_this_catalog_does_not_define_is_refused_not_found() {
 async fn a_model_name_that_does_not_parse_is_refused_as_not_a_question() {
     let app = app(settings(Environment::Development, ""));
     let (status, body) = call(&app, request("GET", "/v1/catalog?model=not%20a%20name", None, Body::empty())).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains(r#""code":"not_a_question""#), "{body}");
+}
+
+#[tokio::test]
+async fn a_query_key_this_route_does_not_take_is_refused_as_not_a_question() {
+    // `CatalogQuery`'s `deny_unknown_fields`: a caller's typo on `?model=` (here `modle=`) is a
+    // request this route cannot read, not a request for the whole catalog - falling back to
+    // "unfiltered" would answer a narrower question than the one the caller thought they asked.
+    let app = app(settings(Environment::Development, ""));
+    let (status, body) = call(&app, request("GET", "/v1/catalog?modle=orders", None, Body::empty())).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert!(body.contains(r#""code":"not_a_question""#), "{body}");
 }

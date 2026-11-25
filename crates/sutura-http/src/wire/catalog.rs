@@ -9,6 +9,7 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget};
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::{Grain, ModelName};
 use sutura_domain::pinned::view::ScopedView;
@@ -38,7 +39,16 @@ pub struct CatalogBody {
     /// appearing in the settings parser too. It reads `quoted` on a surface that quotes nothing
     /// because the word names the SETTING and not this renderer.
     catalog_prose: &'static str,
+    /// Held to [`MAX_CATALOG_LISTING_BYTES`] the same way `sutura-mcp`'s physical-schema listing is: a
+    /// metric is carried whole or left out and named in [`Self::omitted_metrics`], never truncated
+    /// mid-metric.
     metrics: Vec<MetricBody>,
+    /// Metrics that exist and are visible, but were left out of [`Self::metrics`] to hold this
+    /// listing under [`MAX_CATALOG_LISTING_BYTES`]. Capped at [`MAX_OMITTED_NAMES`] names; a true
+    /// count past that cap is appended as a trailing `"...and N more"` entry rather than a second
+    /// field. Read an omitted metric back with `?model=` set to its own model.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    omitted_metrics: Vec<String>,
     /// The catalog's own knowledge - glossary, caveats, terms recorded as undefined and worked
     /// examples - as text, the same text the agent surface's `describe_catalog` returns for this
     /// caller.
@@ -107,12 +117,13 @@ impl CatalogBody {
     /// OPEN: it ships the prose of a deployment that asked for none, which is the defect this
     /// function exists to close. A second argument cannot be left out.
     ///
-    /// **`model` narrows `metrics` to the ones tied to that model, nothing else.** Absent, the
-    /// whole view's metrics are rendered - unbounded, unlike `sutura-mcp`'s physical-schema listing:
-    /// this body carries no model's own columns or relationships, only the metric descriptions a
-    /// caller already needs to ask a question, so the byte bound that caps that listing has no
-    /// analogue here. `model` naming nothing this caller may see is this function's caller's own
-    /// job to refuse before reaching it - see `crate::routes::v1::catalog::catalog`.
+    /// **`model` narrows `metrics` to the ones tied to that model, nothing else.** Absent, the whole
+    /// view's metrics are rendered, held to [`MAX_CATALOG_LISTING_BYTES`] the same way `sutura-mcp`'s
+    /// physical-schema listing is bounded - this body carries no model's own columns or
+    /// relationships, only the metric descriptions a caller already needs to ask a question, but a
+    /// deployment with an unusually large metric vocabulary can still make that list itself large.
+    /// `model` naming nothing this caller may see is this function's caller's own job to refuse
+    /// before reaching it - see `crate::routes::v1::catalog::catalog`.
     #[must_use]
     pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse, model: Option<&ModelName>) -> Self {
         // Exhaustive rather than `is_quoted()` in an `if`: a question asked of one variant reads every
@@ -124,7 +135,7 @@ impl CatalogBody {
             sutura_config::CatalogProse::Omitted => CatalogProse::Omitted,
         };
         let quoted = shared.is_quoted();
-        let metrics = view
+        let all_metrics: Vec<MetricBody> = view
             .metrics()
             .filter(|metric| model.is_none_or(|name| metric.model() == name))
             .map(|metric| MetricBody {
@@ -150,10 +161,22 @@ impl CatalogBody {
                     .collect(),
             })
             .collect();
+        let (metrics, omitted_names, omitted_count) = fill_to_budget(
+            all_metrics,
+            MAX_CATALOG_LISTING_BYTES,
+            MAX_OMITTED_NAMES,
+            |metric| serde_json::to_vec(metric).map_or(0, |bytes| bytes.len()),
+            |metric| metric.name.clone(),
+        );
+        let mut omitted_metrics = omitted_names;
+        if omitted_count > omitted_metrics.len() {
+            omitted_metrics.push(format!("...and {} more", omitted_count - omitted_metrics.len()));
+        }
         Self {
             provenance: bundle_body(view.pinned()),
             catalog_prose: prose.as_str(),
             metrics,
+            omitted_metrics,
             knowledge: sutura_app::prompt::catalog_knowledge(view, shared),
         }
     }

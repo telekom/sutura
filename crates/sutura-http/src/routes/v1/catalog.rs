@@ -26,7 +26,13 @@ use crate::wire::{CatalogBody, UnknownModelBody};
 const TAG: &str = "catalog";
 
 /// The query string `GET /catalog` takes: at most one field, `model`.
+///
+/// `deny_unknown_fields`: an unrecognized key is a caller's own typo (`?modle=`) or a client built
+/// against a key this route never had, and silently ignoring either reads back as "the whole
+/// catalog", which is the wrong answer to a narrower question the caller thought they asked. Refused
+/// as `400` by `crate::problem::rejected_query`, the same door a malformed `model` already used.
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CatalogQuery {
     /// The model's own name - the same identifier its physical schema prints as `model <name>`, on
     /// the one transport that prints physical schema. Omit it for the whole catalog.
@@ -53,7 +59,8 @@ pub(crate) struct CatalogQuery {
         (status = 200, description = "The pinned bundle, as a reader's view.", body = CatalogBody),
         (
             status = 400,
-            description = "`model` does not parse as a model name.",
+            description = "`model` does not parse as a model name, or the query string carries a \
+                           key this route does not take.",
             body = crate::problem::ProblemBody
         ),
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
@@ -95,8 +102,12 @@ pub(crate) async fn catalog(
     // bundle to every token holder regardless of what `Asked::context` named. It reads that context
     // now, the same value `crate::routes::v1::query::ask` reads through `sutura_app::Asked`.
     axum::Extension(asked): axum::Extension<sutura_app::Asked>,
-    Query(query): Query<CatalogQuery>,
+    query: Result<Query<CatalogQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
+    let query = match query {
+        Ok(Query(query)) => query,
+        Err(rejection) => return crate::problem::rejected_query(&rejection).into_response(),
+    };
     // No blocking pool and no data system: this reads the bundle being served, taken once for this
     // request. A refresh that lands while it renders does not change what it renders.
     //

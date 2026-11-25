@@ -77,7 +77,15 @@ impl Detail {
     /// JSON - with the key passed through [`redact_unrecognized_field`], because that key is
     /// caller-chosen text and may only be rendered when it is a well-formed identifier.
     fn from_rejection(rejection: &JsonRejection) -> Self {
-        Self(redact_unrecognized_field(rejection.body_text()))
+        Self::from_rejection_text(rejection.body_text())
+    }
+
+    /// The shared body of [`Self::from_rejection`] and [`rejected_query`]'s own reading of a
+    /// [`axum::extract::rejection::QueryRejection`] - both rejection types expose the identical
+    /// `body_text`/`status` shape via `axum_core`'s `composite_rejection!`, so one function reads
+    /// either's text the same redacted way.
+    fn from_rejection_text(body_text: String) -> Self {
+        Self(redact_unrecognized_field(body_text))
     }
 
     fn as_str(&self) -> &str {
@@ -105,6 +113,16 @@ pub(crate) fn rejected(rejection: &JsonRejection) -> Failure {
     }
     Failure::NotAQuestion {
         detail: Detail::from_rejection(rejection),
+    }
+}
+
+/// `?model=...` (or any other key on `/catalog`'s query string) failed to deserialize - an unknown
+/// key, since `CatalogQuery` denies them, or a `model` so malformed `serde` itself refuses it before
+/// `ModelName::parse` ever runs. Always [`Failure::NotAQuestion`]: a query string carries no body
+/// for a length bound to apply to, so [`rejected`]'s `413` arm has no analogue here.
+pub(crate) fn rejected_query(rejection: &axum::extract::rejection::QueryRejection) -> Failure {
+    Failure::NotAQuestion {
+        detail: Detail::from_rejection_text(rejection.body_text()),
     }
 }
 
