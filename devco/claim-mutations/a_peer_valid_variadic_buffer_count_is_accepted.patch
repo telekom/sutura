@@ -1,0 +1,13 @@
+diff --git a/vendor/arrow-ipc/src/reader.rs b/vendor/arrow-ipc/src/reader.rs
+index ee49156e0..85a827680 100644
+--- a/vendor/arrow-ipc/src/reader.rs
++++ b/vendor/arrow-ipc/src/reader.rs
+@@ -710,7 +710,7 @@ impl<'a> RecordBatchDecoder<'a> {
+         usize::try_from(count)
+             .ok()
+             .and_then(|count| count.checked_add(2))
+-            .filter(|total| *total <= remaining)
++            .filter(|total| *total < remaining)
+             .ok_or_else(|| {
+                 ArrowError::IpcError(format!(
+                     "Invalid variadic count {count} for {data_type} column, \

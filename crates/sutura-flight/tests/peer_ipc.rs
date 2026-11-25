@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, Int64Array, RecordBatch};
+use arrow_array::{Array as _, ArrayRef, Int64Array, RecordBatch, StringViewArray};
 use arrow_flight::{FlightData, decode::FlightRecordBatchStream, error::FlightError};
 use arrow_ipc::{
     BodyCompression, BodyCompressionArgs, BodyCompressionMethod, Buffer, CompressionType, Decimal, DecimalArgs, Endianness,
@@ -634,7 +634,20 @@ mod tests {
                 &metadata,
             );
             match result {
-                Ok(_) => {}
+                Ok(decoded) => {
+                    // The decoded row count comes from the batch header's declared length, not
+                    // from whichever columns got read, so it holds under an empty projection too.
+                    assert_eq!(decoded.num_rows(), 1, "projection {projection:?}");
+                    if projection.is_none() {
+                        let column = decoded
+                            .column(0)
+                            .as_any()
+                            .downcast_ref::<StringViewArray>()
+                            .expect("the sole column decodes as a Utf8View array");
+                        assert_eq!(column.len(), 1);
+                        assert_eq!(column.value(0), "", "an all-zero view decodes as an empty string");
+                    }
+                }
                 Err(error) => assert!(
                     !error.to_string().contains("Invalid variadic count"),
                     "projection {projection:?}: {error}"
