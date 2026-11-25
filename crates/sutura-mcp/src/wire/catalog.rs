@@ -175,6 +175,11 @@ pub struct JoinKeyContent {
 #[derive(Debug, serde::Serialize)]
 pub struct MetricContent {
     name: String,
+    /// The model this metric is defined over - the value `describe_catalog(model: ...)` takes to
+    /// read that model's own physical detail, where the operator exposes physical schema at all. An
+    /// agent reading this listing with `list_physical_schema` off still needs a valid `model` to
+    /// narrow by, and this is the only place that name is ever carried next to a metric.
+    model: String,
     /// The author's own prose, or absent where the operator omitted it. See [`Carried`].
     #[serde(skip_serializing_if = "Carried::is_absent")]
     description: Carried,
@@ -249,6 +254,7 @@ impl CatalogContent {
             .filter(|metric| model.is_none_or(|name| metric.model() == name))
             .map(|metric| MetricContent {
                 name: String::from(metric.name().as_str()),
+                model: String::from(metric.model().as_str()),
                 description: Carried::under(prose, metric.description()),
                 grains: {
                     let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
@@ -394,6 +400,8 @@ impl CatalogContent {
         for metric in &self.metrics {
             out.push('\n');
             out.push_str(&metric.name);
+            out.push_str("\n  model: ");
+            out.push_str(&metric.model);
             if let Some(description) = metric.description.words() {
                 push_prose(&mut out, description, "  description:");
             }
@@ -585,6 +593,8 @@ mod tests {
         assert_eq!(json["models"].as_array().expect("models is a list").len(), 1);
         assert_eq!(json["models"][0]["name"], "orders");
         assert_eq!(json["metrics"][0]["name"], "revenue");
+        assert_eq!(json["metrics"][0]["model"], "orders");
+        assert!(for_orders.as_text().contains("model: orders"), "{}", for_orders.as_text());
 
         let for_customers = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, Some(&customers));
         let json = serde_json::to_value(&for_customers).expect("the catalog serializes");

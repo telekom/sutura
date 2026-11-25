@@ -20,6 +20,9 @@ async fn the_catalog_route_narrows_metrics_to_the_named_model() {
     let (status, body) = call(&app, request("GET", "/v1/catalog?model=orders", None, Body::empty())).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body.contains("revenue"), "{body}");
+    // The metric names its own model, so a caller reading one metric has a valid `?model=` value
+    // for the physical-detail call without first listing every model.
+    assert!(body.contains(r#""model":"orders""#), "{body}");
 
     // `customers` is a real, visible model with no metric of its own - the filter narrows the
     // metrics list to empty rather than falling back to the whole catalog.

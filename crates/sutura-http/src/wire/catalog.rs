@@ -57,6 +57,10 @@ pub struct CatalogBody {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct MetricBody {
     name: String,
+    /// The model this metric is defined over - the value `?model=` takes to narrow this same
+    /// listing, or to read that model's own physical detail where a transport exposes one. The only
+    /// place this name is carried next to a metric.
+    model: String,
     /// The author's own prose, or absent where the operator omitted it.
     ///
     /// `Option` rather than an empty string, because *this deployment ships no catalog prose* and
@@ -125,6 +129,7 @@ impl CatalogBody {
             .filter(|metric| model.is_none_or(|name| metric.model() == name))
             .map(|metric| MetricBody {
                 name: String::from(metric.name().as_str()),
+                model: String::from(metric.model().as_str()),
                 description: quoted.then(|| String::from(metric.description())),
                 grains: {
                     let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
