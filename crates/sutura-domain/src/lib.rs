@@ -78,6 +78,9 @@
 //!   store: sutura writes a record before the outcome returns and retains nothing, so what the
 //!   sink does with it is the deployment's.
 //!
+//! - [`visibility`] is the port a source answers which of its tables one caller can see through,
+//!   and the set of models a caller's catalog view then hides. It narrows a view; it decides no row.
+//!
 //! One module is private, and it is the only one: `text` holds the set of invisible and
 //! direction-changing code points that a phrase, a note body, a version label and an authored SQL
 //! fragment all refuse. It exists because that set was written down twice, in two files, and the two
@@ -104,4 +107,5 @@ pub mod raw;
 mod serialized_form_tests;
 pub mod source;
 mod text;
+pub mod visibility;
 pub mod warehouse;

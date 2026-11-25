@@ -86,6 +86,7 @@ signature it has now is the one two implementors settled, not the one a sketch g
 | `SemanticCatalog` | driven | The local catalog, the declaring one, the fakes, and the hand-written oracle the goldens compare against |
 | `CredentialBroker` | driven | Two real implementors - see `sutura/identity` for which one every shipped binary builds |
 | `AuditSink` | driven | The tracing sink in `sutura-runtime`, and the recording fakes |
+| `CallerListing` | driven | One implementor - `sutura-catalog-foundry`'s `CallerObjectTypes`: which object types a caller's own token lists, for narrowing that caller's catalog view (not a data control) |
 | `QuestionMeter` | driven | `sutura_http::Metrics` counts each question's wait, shed and end through it for `/v1` and `/mcp` alike |
 | `Surface` | driving | `LocalService`, this crate's own service, plus a failing double |
 
@@ -95,7 +96,7 @@ for a job API, a reader for a metadata aspect - and several do; those are intern
 their crate, not to the interior. One of them, `sutura_http::inbound::keys::KeySetSource`, is
 allowlisted BY NAME in `xtask/src/boundaries/ports.rs` with the reason. The whole set is what
 `grep -rn 'pub trait ' crates --include='*.rs' | grep '/src/'` answers:
-28 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
+29 `pub trait` declarations under `crates/*/src` against the rows above, and that gap is what this
 paragraph is about.
 
 **The count is gated; the rows are not, and the difference is worth reading exactly.**
