@@ -262,10 +262,11 @@ What this does not do:
   ignores its handed deadline can still lose this race and surface as the transport's `408` rather
   than this named refusal, same as before the margin existed.
 
-The reason carries an `ineligible` field grouped into one of three coarse categories a caller can
-read: no `raw_prefilter` is declared on this column at all, the search term's own shape is
-ineligible (a byte outside letters, digits or `_`, or a leading/trailing `_`), or the search term
-overlaps the column's redaction marker. The last category covers both a configured replacement and
+The reason carries an internal `ineligible` field; what reaches the caller is a category sentence
+inside `detail`, grouped into one of three coarse categories: no `raw_prefilter` is declared on
+this column at all, the search term's own shape is ineligible (empty, longer than 128 bytes, or a
+character outside letters, digits or `_`), or the search term overlaps the column's redaction
+marker. The last category covers both a configured replacement and
 the truncation marker alike - neither a rule index nor which marker is ever named. **Stated
 plainly: a single probe discloses only its category, but a sweep of needles against the same
 column, each read off its category, lets a caller map which characters a redaction marker's own

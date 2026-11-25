@@ -36,8 +36,7 @@ pub enum PrefilterIneligible {
 }
 
 impl fmt::Display for PrefilterIneligible {
-    /// Safe to show a caller or log: every word comes from the enum's own name and the already-public
-    /// policy shape, never a row or a clock.
+    /// For a server-side log only; callers get [`Self::caller_category`].
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotDeclared => write!(f, "the column declares no raw prefilter"),
@@ -66,8 +65,8 @@ impl PrefilterIneligible {
         match self {
             Self::NotDeclared => "no raw prefilter is declared for this column",
             Self::NeedleShape => {
-                "the search term's shape is not eligible (e.g. a leading/trailing `_` or a character \
-                 outside letters, digits or `_`)"
+                "the search term's shape is not eligible (empty, longer than 128 bytes, or a \
+                 character outside letters, digits or `_`)"
             }
             Self::AgreesWithReplacement { .. } | Self::AgreesWithTruncationMarker => {
                 "the search term overlaps the column's redaction marker"

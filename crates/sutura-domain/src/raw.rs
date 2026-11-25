@@ -450,6 +450,7 @@ mod compile_fail_has_no_provenance {}
 #[cfg(test)]
 mod tests {
     use super::{InvalidRawStatement, RawOutcome, RawRefusalReason, RawStatement, SqlConstruct};
+    use crate::catalog::PrefilterIneligible;
 
     #[test]
     fn a_statement_is_trimmed_and_bounded() {
@@ -555,5 +556,25 @@ mod tests {
             RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None }.code(),
             "policy_search_needs_narrowing"
         );
+    }
+
+    /// A redaction rule's index never reaches a caller: the two [`PrefilterIneligible`] variants
+    /// that collapse into the same `caller_category` render identically, not merely "without a
+    /// digit" - this would also catch a mutation that kept the index out of the sentence but added
+    /// it elsewhere, e.g. in a debug-formatted field.
+    #[test]
+    fn a_redaction_rule_index_never_reaches_the_caller_sentence() {
+        let via_replacement = RawRefusalReason::PolicySearchNeedsNarrowing {
+            ineligible: Some(PrefilterIneligible::AgreesWithReplacement { replacement_index: 7 }),
+        }
+        .to_string();
+        assert!(!via_replacement.contains('7'), "{via_replacement}");
+        assert!(!via_replacement.contains('#'), "{via_replacement}");
+
+        let via_marker = RawRefusalReason::PolicySearchNeedsNarrowing {
+            ineligible: Some(PrefilterIneligible::AgreesWithTruncationMarker),
+        }
+        .to_string();
+        assert_eq!(via_replacement, via_marker);
     }
 }

@@ -372,9 +372,14 @@ fn a_policy_leg_keeps_the_full_budget_when_narrowing_would_leave_too_little() {
 /// is `POLICY_LEG_MIN_BUDGET`, a smaller number than the margin itself, never the margin again. A
 /// `request_timeout_seconds` of 3-4s is exactly the band the HTTP cell
 /// `a_policy_search_leg_past_its_deadline_reaches_the_caller_by_name_ahead_of_the_408` exercises.
+///
+/// Kept off the floor itself (`3.5s`/`4s`, not `3s`): at `3s` the narrowed value is exactly
+/// `POLICY_LEG_MIN_BUDGET`, and the sub-millisecond elapsed time `handed_remaining` actually spends
+/// reading the clock can push the narrowed value a hair under the floor, flipping this fixture into
+/// the "kept full" branch tested separately below - a real flake, not a hypothetical one.
 #[test]
 fn a_policy_leg_in_the_low_timeout_band_narrows_once_the_floor_still_allows_it() {
-    for budget in [Duration::from_secs(3), Duration::from_secs(4)] {
+    for budget in [Duration::from_millis(3500), Duration::from_secs(4)] {
         let narrowed_to = budget
             .checked_sub(POLICY_LEG_TEARDOWN_MARGIN)
             .expect("each fixture budget here exceeds the margin");

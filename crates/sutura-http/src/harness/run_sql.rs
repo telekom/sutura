@@ -307,6 +307,11 @@ async fn a_policy_search_leg_past_its_deadline_reaches_the_caller_by_name_ahead_
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert!(body.contains(r#""code":"policy_search_needs_narrowing""#), "{body}");
+    // The detail this caller gets is the plain, uncategorized sentence - no rule index, no
+    // redaction-marker category, nothing an un-narrowed statement with no recognized text search
+    // ever had to disclose.
+    assert!(body.contains("add a filter on a column without a policy"), "{body}");
+    assert!(!body.contains("redaction"), "{body}");
 }
 
 #[tokio::test]
