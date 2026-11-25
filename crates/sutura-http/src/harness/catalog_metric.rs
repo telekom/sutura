@@ -18,11 +18,6 @@ use crate::testing::{call, column, description, fake_warehouse, request, source,
 
 /// Two models, each owning its own metric - never one metric alone, or asserting the OTHER one's
 /// absence would restate that it never existed rather than prove the `metric` filter ran.
-///
-/// Built from closures rather than two straight-line `Model::new`/`Metric::new` calls, so this
-/// does not read as a copy of `sutura_mcp::testing::catalog_fixtures::bundle_with_two_metric_owning_models` -
-/// `cargo xtask check-jscpd` flags first-party structural clones and `devco/dup-ignore` cannot
-/// excuse one, so the fixture earns its own shape rather than an allowlist entry.
 fn two_metric_bundle() -> PinnedDefinitions {
     #[expect(
         clippy::needless_collect,

@@ -16,9 +16,9 @@ use crate::wire::{CatalogContent, DescribeCatalogArgs};
 /// The catalog tool's arguments: at most one of `model` or `metric`, never both.
 ///
 /// **Parsed rather than ignored**, and the parse IS the check: `DescribeCatalogArgs` carries
-/// `deny_unknown_fields`, so an arguments object naming `metric`, `sql` or anything else is a named
-/// parse error. A handler that skipped this would accept any object and quietly answer, which is the
-/// shape that lets a caller believe it narrowed a listing it did not.
+/// `deny_unknown_fields`, so an arguments object naming `sql` or anything else this type does not
+/// declare is a named parse error. A handler that skipped this would accept any object and quietly
+/// answer, which is the shape that lets a caller believe it narrowed a listing it did not.
 pub(super) fn catalog(request: CallToolRequestParams) -> Result<DescribeCatalogArgs, ErrorData> {
     let arguments = serde_json::Value::Object(request.arguments.unwrap_or_default());
     serde_json::from_value(arguments).map_err(|cause| invalid(&MalformedQuestion::NotAnObject { cause }))

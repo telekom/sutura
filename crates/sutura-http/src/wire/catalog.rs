@@ -170,15 +170,8 @@ impl CatalogBody {
         let provenance = bundle_body(view.pinned());
         let knowledge = sutura_app::prompt::catalog_knowledge(view, shared);
         let fixed_cost = serde_json::to_vec(&provenance).map_or(0, |bytes| bytes.len())
-            + prose.as_str().len()
+            + serde_json::to_string(prose.as_str()).map_or(0, |text| text.len())
             + serde_json::to_string(&knowledge).map_or(0, |text| text.len());
-        // Held back BEFORE `fill_to_budget` runs: the omission note's own worst-case size (a metric
-        // name plus its model, per entry), so that note can never be what pushes this body's spend
-        // past `MAX_CATALOG_LISTING_BYTES`. See `omission_reserve`'s own doc. Single reserve, not
-        // doubled like `sutura-mcp`'s - this body has one JSON rendering, not a text half too.
-        let remaining = MAX_CATALOG_LISTING_BYTES
-            .saturating_sub(fixed_cost)
-            .saturating_sub(omission_reserve(2));
         let all_metrics: Vec<MetricBody> = view
             .metrics()
             .filter(|m| model.is_none_or(|name| m.model() == name))
@@ -209,11 +202,24 @@ impl CatalogBody {
         let (metrics, omitted_metrics, omitted_metrics_more) = if metric.is_some() {
             (all_metrics, Vec::new(), 0)
         } else {
+            // Sized from the REAL candidates about to be weighed, not a worst-case identifier
+            // length - see `omission_reserve`'s own doc. `+1` per entry for the JSON array's own
+            // comma separator; `metric_cost` below gets the same "+1" so the array as a whole can
+            // never cost more than the sum of what `fill_to_budget` charged for it.
+            let reserve = omission_reserve(&all_metrics, |m| {
+                serde_json::to_vec(&OmittedMetric {
+                    metric: m.name.clone(),
+                    model: m.model.clone(),
+                })
+                .map_or(0, |bytes| bytes.len())
+                    + 1
+            });
+            let remaining = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost).saturating_sub(reserve);
             let (included, omitted_names, omitted_count) = fill_to_budget(
                 all_metrics,
                 remaining,
                 MAX_OMITTED_NAMES,
-                |m| serde_json::to_vec(m).map_or(0, |bytes| bytes.len()),
+                |m| serde_json::to_vec(m).map_or(0, |bytes| bytes.len()) + 1,
                 |m| OmittedMetric {
                     metric: m.name.clone(),
                     model: m.model.clone(),

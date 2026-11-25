@@ -20,10 +20,6 @@ use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_t
 /// named - with its model - so an agent always knows `describe_catalog(metric: <its name>)` (or
 /// `model: <its model>`) can still read it.
 pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogProse, budget: usize) -> String {
-    // Held back BEFORE `fill_to_budget` runs: the omission note's own worst-case size (a metric name
-    // plus its model, per entry), so that note can never be what pushes this section's spend past
-    // what `budget` allows. See `omission_reserve`'s own doc.
-    let budget = budget.saturating_sub(omission_reserve(2));
     let pinned = view.pinned();
     // The version and the digest read straight off the bundle rather than through a `Provenance`.
     // Provenance is what travels with an ANSWER and now carries the posture each leg executed as;
@@ -55,6 +51,10 @@ pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogPr
         lines.push(String::new());
         lines.push(String::from(PROSE_OMITTED_NOTICE));
     }
+    // Reserved BEFORE `fill_to_budget` runs: this header's own bytes - it is rendered
+    // unconditionally, regardless of budget - plus one join separator, so the header alone can
+    // never be what pushes this section's spend past what `budget` allows.
+    let header_reserve = lines.join("\n").len() + 1;
     let fragments: Vec<(String, String)> = view
         .metrics()
         .map(|metric| {
@@ -64,13 +64,17 @@ pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogPr
             (format!("{} (model {})", metric.name(), metric.model()), section)
         })
         .collect();
-    let (included, omitted_names, omitted_count) = fill_to_budget(
-        fragments,
-        budget,
-        MAX_OMITTED_NAMES,
-        |(_, section)| section.len(),
-        |(name, _)| name.clone(),
-    );
+    // Each fragment costs its own section plus the two `\n` separators `lines.join("\n")` inserts
+    // around the blank line that precedes it - an entry's omission-note cost gets the same "+2"
+    // for the `", "` it joins with. Both overcount by the one join separator the very first
+    // fragment or name does not need, which keeps this a safe reserve rather than an exact one.
+    let fragment_cost = |(_, section): &(String, String)| section.len() + 2;
+    let omission_entry_cost = |(name, _): &(String, String)| name.len() + 2;
+    let budget = budget
+        .saturating_sub(header_reserve)
+        .saturating_sub(omission_reserve(&fragments, omission_entry_cost));
+    let (included, omitted_names, omitted_count) =
+        fill_to_budget(fragments, budget, MAX_OMITTED_NAMES, fragment_cost, |(name, _)| name.clone());
     for (_, section) in included {
         lines.push(String::new());
         lines.push(section);

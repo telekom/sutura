@@ -23,9 +23,10 @@ use super::{ProvenanceContent, bundle_content};
 
 // `deny_unknown_fields` is why this type exists rather than accepting any object: `schemars` reads
 // the same attribute serde does, so the advertised schema says `additionalProperties: false` and an
-// arguments object carrying `metric`, `sql` or anything else is a named parse error rather than a key
-// dropped on the floor. A tool that accepted any object would be a tool whose surface a caller could
-// guess at, and a caller that sent `metric` would believe it had narrowed a listing it did not.
+// arguments object carrying `sql` or anything else this type does not declare is a named parse
+// error rather than a key dropped on the floor. A tool that accepted any object would be a tool
+// whose surface a caller could guess at, and a caller that sent an unknown field would believe it
+// had narrowed a listing it did not.
 //
 // It is also what keeps this half of the surface under the same drift guard as the other: the
 // generated schema is snapshotted in `crate::tool`, so a field added here lands in a reviewer's diff.
@@ -329,28 +330,23 @@ impl CatalogContent {
             (!text.is_empty()).then(|| sutura_app::prompt::tool_operator_instructions(text))
         });
         let provenance = bundle_content(view.pinned());
-        // Fixed parts, spent before either pool gets a byte. The notice exists only in the text half
-        // and `knowledge`/`instructions`/`provenance` only cost what their JSON encoding adds in the
-        // structured half - but every fixed part is charged against BOTH halves here, matching a
-        // client that renders only one of the two still paying its share of the other.
-        let fixed_cost = 2
-            * (notice.len()
-                + knowledge.len()
-                + instructions.as_deref().map_or(0, str::len)
-                + provenance.definition_version.len()
-                + provenance.definition_digest.len());
-        // Held back BEFORE either pool is filled, doubled like `fixed_cost` above: the text half and
-        // the structured half each carry their own omission note, so each pays its own worst-case
-        // share of it. Metrics entries carry a model alongside the metric (`omission_reserve(2)`),
-        // model entries carry only their own name (`omission_reserve(1)`). See `omission_reserve`'s
-        // own doc for why this is subtracted here rather than after `fill_to_budget` runs.
-        let omission_cost = 2 * (omission_reserve(2) + omission_reserve(1));
-        let remaining = MAX_CATALOG_LISTING_BYTES
-            .saturating_sub(fixed_cost)
-            .saturating_sub(omission_cost);
+        // Fixed parts, spent before either pool gets a byte. The text half pays each fixed part's
+        // raw length; the structured half never carries `notice` (`#[serde(skip)]`) and pays every
+        // other part its JSON-ESCAPED length, not its raw one - a quote or backslash costs real
+        // bytes there a raw `.len()` would miss.
+        let text_fixed_cost = notice.len()
+            + knowledge.len()
+            + instructions.as_deref().map_or(0, str::len)
+            + provenance.definition_version.len()
+            + provenance.definition_digest.len();
+        let structured_fixed_cost = json_string_cost(&knowledge)
+            + instructions.as_deref().map_or(0, json_string_cost)
+            + json_string_cost(&provenance.definition_version)
+            + json_string_cost(&provenance.definition_digest);
+        let fixed_cost = text_fixed_cost + structured_fixed_cost;
 
         let metric_cost =
-            |content: &MetricContent| serde_json::to_vec(content).map_or(0, |bytes| bytes.len()) + metric_text(content).len();
+            |content: &MetricContent| serde_json::to_vec(content).map_or(0, |bytes| bytes.len()) + metric_text(content).len() + 2;
         let selected_metrics: Vec<MetricContent> = view
             .metrics()
             .filter(|m| model.is_none_or(|name| m.model() == name))
@@ -380,6 +376,44 @@ impl CatalogContent {
                     .collect(),
             })
             .collect();
+        // Sized from the REAL metric candidates about to be weighed, not a worst-case identifier
+        // length - see `omission_reserve`'s own doc. Skipped when `metric` narrows to one entry:
+        // that path never runs `fill_to_budget` and so never produces an omission note.
+        let metrics_omission_reserve = if metric.is_some() {
+            0
+        } else {
+            omission_reserve(&selected_metrics, |content| {
+                let text = format!("{} (model {})", content.name, content.model).len() + 2;
+                let structured = serde_json::to_vec(&OmittedMetric {
+                    metric: content.name.clone(),
+                    model: content.model.clone(),
+                })
+                .map_or(0, |bytes| bytes.len())
+                    + 1;
+                text + structured
+            })
+        };
+
+        // The model pool's own candidates, built eagerly - before `remaining` is even known - only
+        // when a models section will actually be attached: `metric` skips physical schema entirely
+        // regardless of `list_physical_schema`, a metric has none of its own.
+        let model_contents: Option<Vec<ModelContent>> =
+            (metric.is_none() && list_physical_schema).then(|| physical_schema_candidates(view, prose, model));
+        // Reserved only when models will actually be listed - see `model_contents` above - and
+        // sized from those real candidates, the same way the metrics reserve is.
+        let models_omission_reserve = model_contents.as_ref().map_or(0, |contents| {
+            omission_reserve(contents, |content| {
+                let text = content.name.len() + 2;
+                let structured = json_string_cost(&content.name) + 1;
+                text + structured
+            })
+        });
+
+        let remaining = MAX_CATALOG_LISTING_BYTES
+            .saturating_sub(fixed_cost)
+            .saturating_sub(metrics_omission_reserve)
+            .saturating_sub(models_omission_reserve);
+
         // `metric` names exactly one entry to read back, not a listing - it is emitted whole rather
         // than run through the shared budget, matching how an unfiltered listing's omission note
         // tells a caller to come back with precisely this argument.
@@ -399,81 +433,21 @@ impl CatalogContent {
             (included, omitted_names, more, spent)
         };
 
-        let (models, omitted_models, omitted_models_more) = if metric.is_some() {
-            // A metric has no physical schema of its own - `metric` is a narrow metric answer, never
-            // a models listing, so this section is skipped entirely regardless of
-            // `list_physical_schema`.
-            (None, Vec::new(), 0)
-        } else if list_physical_schema {
-            fn content_of(
-                model: &sutura_domain::catalog::Model,
-                relationships: &mut BTreeMap<&ModelName, Vec<RelationshipContent>>,
-                prose: CatalogProse,
-            ) -> ModelContent {
-                ModelContent {
-                    name: String::from(model.name().as_str()),
-                    table: model.table().to_string(),
-                    relationships: relationships.remove(model.name()).unwrap_or_default(),
-                    description: Carried::under(prose, model.description()),
-                    columns: model
-                        .columns()
-                        .map(|column| ColumnContent {
-                            name: String::from(column.name().as_str()),
-                            description: Carried::under(prose, column.description()),
-                        })
-                        .collect(),
-                }
-            }
-            let mut relationships = BTreeMap::<&ModelName, Vec<RelationshipContent>>::new();
-            for relationship in view.relationships() {
-                relationships
-                    .entry(relationship.origin_model())
-                    .or_default()
-                    .push(RelationshipContent {
-                        name: relationship.name().as_str().to_owned(),
-                        from: relationship.origin_model().as_str().to_owned(),
-                        to: relationship.target_model().as_str().to_owned(),
-                        cardinality: relationship.join_type().as_str(),
-                        keys: relationship
-                            .keys()
-                            .iter()
-                            .map(|key| JoinKeyContent {
-                                from: key.origin().as_str().to_owned(),
-                                to: key.target().as_str().to_owned(),
-                                grain: key.grain().map(|grain| grain.as_str().to_owned()),
-                            })
-                            .collect(),
-                        comparison: relationship.comparison().map(sutura_domain::plan::LinkKind::word),
-                    });
-            }
-            // Unified for a `model`-filtered and an unfiltered request alike: at most one model ever
-            // flows through this iterator when `model` is `Some`, so the bound below only ever
-            // matters for the unfiltered case in practice - but both cases spend the same budget
-            // rather than one path silently exempting a targeted request from a limit the other obeys.
-            let contents: Vec<ModelContent> = match model {
-                Some(name) => view
-                    .model(name)
-                    .into_iter()
-                    .map(|model| content_of(model, &mut relationships, prose))
-                    .collect(),
-                None => view
-                    .models()
-                    .map(|model| content_of(model, &mut relationships, prose))
-                    .collect(),
-            };
-            let model_budget = remaining.saturating_sub(metrics_spent);
-            let (included, omitted_names, omitted_count) = fill_to_budget(
-                contents,
-                model_budget,
-                MAX_OMITTED_NAMES,
-                |content| serde_json::to_vec(content).map_or(0, |bytes| bytes.len()) + model_text(content).len(),
-                |content| content.name.clone(),
-            );
-            let more = omitted_count.saturating_sub(omitted_names.len());
-            (Some(included), omitted_names, more)
-        } else {
-            (None, Vec::new(), 0)
-        };
+        let (models, omitted_models, omitted_models_more) = model_contents.map_or_else(
+            || (None, Vec::new(), 0),
+            |contents| {
+                let model_budget = remaining.saturating_sub(metrics_spent);
+                let (included, omitted_names, omitted_count) = fill_to_budget(
+                    contents,
+                    model_budget,
+                    MAX_OMITTED_NAMES,
+                    |content| serde_json::to_vec(content).map_or(0, |bytes| bytes.len()) + model_text(content).len() + 2,
+                    |content| content.name.clone(),
+                );
+                let more = omitted_count.saturating_sub(omitted_names.len());
+                (Some(included), omitted_names, more)
+            },
+        );
         Self {
             provenance,
             catalog_prose: prose.as_str(),
@@ -566,6 +540,75 @@ impl CatalogContent {
         out.push(')');
         out
     }
+}
+
+/// Every model this listing may include, filtered to the caller's `view` and narrowed to one
+/// `model` when given - factored out of [`CatalogContent::of_with_physical_schema`] so that
+/// function stays under `cargo xtask`'s line cap.
+fn physical_schema_candidates(view: &ScopedView<'_>, prose: CatalogProse, model: Option<&ModelName>) -> Vec<ModelContent> {
+    fn content_of(
+        model: &sutura_domain::catalog::Model,
+        relationships: &mut BTreeMap<&ModelName, Vec<RelationshipContent>>,
+        prose: CatalogProse,
+    ) -> ModelContent {
+        ModelContent {
+            name: String::from(model.name().as_str()),
+            table: model.table().to_string(),
+            relationships: relationships.remove(model.name()).unwrap_or_default(),
+            description: Carried::under(prose, model.description()),
+            columns: model
+                .columns()
+                .map(|column| ColumnContent {
+                    name: String::from(column.name().as_str()),
+                    description: Carried::under(prose, column.description()),
+                })
+                .collect(),
+        }
+    }
+    let mut relationships = BTreeMap::<&ModelName, Vec<RelationshipContent>>::new();
+    for relationship in view.relationships() {
+        relationships
+            .entry(relationship.origin_model())
+            .or_default()
+            .push(RelationshipContent {
+                name: relationship.name().as_str().to_owned(),
+                from: relationship.origin_model().as_str().to_owned(),
+                to: relationship.target_model().as_str().to_owned(),
+                cardinality: relationship.join_type().as_str(),
+                keys: relationship
+                    .keys()
+                    .iter()
+                    .map(|key| JoinKeyContent {
+                        from: key.origin().as_str().to_owned(),
+                        to: key.target().as_str().to_owned(),
+                        grain: key.grain().map(|grain| grain.as_str().to_owned()),
+                    })
+                    .collect(),
+                comparison: relationship.comparison().map(sutura_domain::plan::LinkKind::word),
+            });
+    }
+    // Unified for a `model`-filtered and an unfiltered request alike: at most one model ever flows
+    // through this iterator when `model` is `Some`, so the bound a caller's fold applies downstream
+    // only ever matters for the unfiltered case in practice - but both cases spend the same budget
+    // rather than one path silently exempting a targeted request from a limit the other obeys.
+    match model {
+        Some(name) => view
+            .model(name)
+            .into_iter()
+            .map(|model| content_of(model, &mut relationships, prose))
+            .collect(),
+        None => view
+            .models()
+            .map(|model| content_of(model, &mut relationships, prose))
+            .collect(),
+    }
+}
+
+/// `s`'s cost as a JSON string VALUE - the quotes and any escaping included - rather than its raw
+/// byte length, which undercounts whenever a value needs escaping (a quote, a backslash, a control
+/// character).
+fn json_string_cost(s: &str) -> usize {
+    serde_json::to_string(s).map_or_else(|_| s.len() + 2, |encoded| encoded.len())
 }
 
 /// One metric's text block, exactly as [`CatalogContent::as_text`] renders it - factored out so the

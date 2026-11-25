@@ -226,3 +226,47 @@ fn a_deployments_reply_deadline_reaches_the_spawned_surface() {
     drop(agent.initialize());
     assert!(agent.close().success(), "the process did not exit cleanly");
 }
+
+/// `telekom/sutura#2081`'s own regression: the up-front omission reserve in
+/// `sutura_app::catalog_budget` must be sized from the catalog's ACTUAL candidates, not a
+/// worst-case guess - a worst-case reserve big enough to always be safe is also big enough to
+/// evict models and metrics a real, example-sized catalog never needed to omit at all.
+///
+/// `examples/single-player` is the catalog this repository tells a reader to run, and it is
+/// nowhere near [`sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`] - so a correctly-sized
+/// reserve must leave it with every model and every metric present, and the whole reply (both
+/// halves `described_catalog` reads) still inside the shared bound.
+#[test]
+fn an_example_sized_catalog_omits_nothing_and_stays_under_the_shared_bound() {
+    let (structured, text) = described_catalog(&example_settings(
+        "mcp-catalog-budget",
+        "prompt:\n  list_physical_schema: true\n",
+    ));
+    assert!(
+        structured["omitted_metrics"].as_array().is_none_or(Vec::is_empty),
+        "{structured}"
+    );
+    assert!(
+        structured["omitted_models"].as_array().is_none_or(Vec::is_empty),
+        "{structured}"
+    );
+    assert!(
+        !structured["models"].as_array().expect("models is a list").is_empty(),
+        "{structured}"
+    );
+    assert!(
+        !structured["metrics"].as_array().expect("metrics is a list").is_empty(),
+        "{structured}"
+    );
+
+    let structured_bytes = structured.to_string().len();
+    assert!(
+        structured_bytes <= sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES,
+        "the structured half of the example catalog overshot the shared bound ({structured_bytes} bytes)"
+    );
+    assert!(
+        text.len() <= sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES,
+        "the text half of the example catalog overshot the shared bound ({} bytes)",
+        text.len()
+    );
+}

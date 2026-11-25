@@ -113,20 +113,20 @@ that argument's answer bypasses the budget entirely rather than being cut down t
 case this document's byte bound does not apply to.
 
 **The bound a result can actually reach is not exactly `MAX_CATALOG_LISTING_BYTES`, in two
-directions.** It can land under it: before either pool is filled, the budget has `MAX_OMITTED_NAMES`
-entries' worth of worst-case omission-list bytes held back from it (per pool, so twice over on the
-agent tool's result, once for its metrics and once for its physical schema), so a result that never
-actually omits anything still never spent that reserve - it is unused headroom, not unused budget,
-and it is what keeps a result's own omission note from being the thing that pushes it over the
-bound. It can also land over it, in the one place the budget is deliberately not enforced: the
-**first** item handed to each pool is always included even if it alone is larger than the pool's
-whole remaining budget - an empty listing would read as "this deployment defines nothing" rather
-than "ask for one by name", which is worse. That one item's own size has no cap this document's
-budget imposes (a metric's `allowed_values` or a model's column count can make it arbitrarily
-large), so the true worst case for one pool is `remaining budget for that pool + that one item's own
-size`, and the true worst case for a whole result is every pool's own worst case added together.
-Narrowing with `model` or `metric` does not change this, since a narrowed request still fills the
-same pools, only ever with fewer candidates - at most one, for `model` and `metric` together.
+directions.** It can land under it: before either pool is filled, the budget has a reserve held
+back from it, sized from that pool's own real candidates - never a worst case guessed from
+`MAX_OMITTED_NAMES` - so a result that never actually omits anything still never spent that
+reserve, and that reserve is what keeps a result's own omission note from being the thing that
+pushes it over the bound. It can also land over it, in the one place the budget is deliberately
+not enforced: the **first** item handed to each pool is always included even if it alone is larger
+than the pool's whole remaining budget - an empty listing would read as "this deployment defines
+nothing" rather than "ask for one by name", which is worse. That one item's own size has no cap
+this document's budget imposes (a metric's `allowed_values` or a model's column count can make it
+arbitrarily large), so the true worst case for one pool is `remaining budget for that pool + that
+one item's own size`, and the true worst case for a whole result is every pool's own worst case
+added together. Narrowing with `model` or `metric` does not change this, since a narrowed request
+still fills the same pools, only ever with fewer candidates - and `model` and `metric` are mutually
+exclusive, so a request never narrows by both at once.
 
 The document carries four sections for which the catalog
 body has no field at all, listed in the table above: the glossary, the terms recorded as not

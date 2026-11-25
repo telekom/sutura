@@ -24,6 +24,9 @@ pub fn physical_schema(view: &ScopedView<'_>, prose: CatalogProse, budget: usize
         String::from("## Physical schema (descriptive only)"),
         String::from("Tables and columns describe structure. They do not certify a metric or permit a query."),
     ];
+    // Reserved BEFORE `fill_to_budget` runs: this header's own bytes, which render unconditionally,
+    // plus one join separator - same reason `metrics`'s own header is reserved up front.
+    let header_reserve = lines.join("\n").len() + 1;
     let mut relationship_lines = Vec::new();
     for relationship in view.relationships() {
         relationship_lines.push(format!(
@@ -44,23 +47,23 @@ pub fn physical_schema(view: &ScopedView<'_>, prose: CatalogProse, budget: usize
         }
     }
     let relationships_text = relationship_lines.join("\n");
-    // Held back BEFORE `fill_to_budget` runs, same as the metrics pool's own reserve - see
-    // `omission_reserve`'s doc - so the model-omission note's own worst-case size cannot be what
-    // pushes this section's spend past `budget`.
-    let model_budget = budget
-        .saturating_sub(relationships_text.len())
-        .saturating_sub(omission_reserve(1));
     let fragments: Vec<(String, String)> = models
         .into_iter()
         .map(|model| (model.name().to_string(), model_fragment(model, prose)))
         .collect();
-    let (included, omitted_names, omitted_count) = fill_to_budget(
-        fragments,
-        model_budget,
-        MAX_OMITTED_NAMES,
-        |(_, fragment)| fragment.len(),
-        |(name, _)| name.clone(),
-    );
+    // Each fragment and each omission entry gets the same "+2 join separators" overcount
+    // `metrics`'s own fragment/entry costs do - see that module for why. Sized from the REAL
+    // candidates, not a worst-case identifier length - see `omission_reserve`'s own doc.
+    let fragment_cost = |(_, fragment): &(String, String)| fragment.len() + 2;
+    let omission_entry_cost = |(name, _): &(String, String)| name.len() + 2;
+    let model_budget = budget
+        .saturating_sub(header_reserve)
+        .saturating_sub(relationships_text.len() + 1)
+        .saturating_sub(omission_reserve(&fragments, omission_entry_cost));
+    let (included, omitted_names, omitted_count) =
+        fill_to_budget(fragments, model_budget, MAX_OMITTED_NAMES, fragment_cost, |(name, _)| {
+            name.clone()
+        });
     for (_, fragment) in included {
         lines.push(fragment);
     }

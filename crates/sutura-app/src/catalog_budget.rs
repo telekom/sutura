@@ -98,15 +98,24 @@ pub const MAX_OMITTED_NAMES: usize = 200;
 /// the over-budget total-size tests in each call site's module hold to directly.
 const OMISSION_HEADER_RESERVE: usize = 512;
 
-/// Fixed bytes one omitted entry costs beyond its name(s): a separator in a text list (`", "`), or -
-/// structured - the braces, quotes and field-name keys around an object's identifiers.
-const OMISSION_ENTRY_OVERHEAD: usize = 32;
-
-/// Worst-case total bytes a full omission list can cost.
+/// Sizes an omission-list reserve from the REAL candidates that might end up in it, never from a
+/// worst-case identifier length.
 ///
-/// [`MAX_OMITTED_NAMES`] entries, each up to `names_per_entry` identifiers of
-/// [`sutura_domain::model::MAX_IDENTIFIER_LEN`] bytes - 2 for a metric entry that also carries its
-/// model, 1 for a model named alone - plus the list's own fixed scaffolding.
+/// The previous version reserved as though every one of up to [`MAX_OMITTED_NAMES`] entries were
+/// [`sutura_domain::model::MAX_IDENTIFIER_LEN`] bytes long, win or lose - 32112 bytes for a
+/// two-identifier metric entry, held back on EVERY call regardless of how many metrics a catalog
+/// actually defines or how long their names are, doubled again on `sutura-mcp`'s two halves. A
+/// deployment the size of `examples/single-player` (11 metrics) could lose most of its listing to
+/// that reserve alone before a single metric ever crossed the real bound
+/// (`github.com/telekom/sutura#2081`'s review).
+///
+/// `entry_cost(item)` must be the SAME cost a later omission note charges for naming `item` -
+/// the text line, the structured object, or (on a transport that renders both) their sum - never
+/// `item`'s own full content cost. Only the `min(MAX_OMITTED_NAMES, candidates.len() - 1)` LARGEST
+/// such costs are summed: at most `candidates.len() - 1` of `candidates` can ever be omitted (the
+/// first item is always included, even alone over budget - see `fill_to_budget`), and the list
+/// itself never names more than [`MAX_OMITTED_NAMES`], so reserving for more than that covers an
+/// omission that can never happen.
 ///
 /// **Reserved from a pool's budget BEFORE `fill_to_budget` is called, never after.**
 /// `fill_to_budget` only learns an omission list's real size once it has decided what did not fit,
@@ -114,10 +123,14 @@ const OMISSION_ENTRY_OVERHEAD: usize = 32;
 /// describing what got left out cross [`MAX_CATALOG_LISTING_BYTES`] together, even with the
 /// included content alone safely under it - which is exactly how a result could overshoot this
 /// bound by tens of kilobytes before this reserve existed (`github.com/telekom/sutura#2071`).
-#[must_use]
-pub const fn omission_reserve(names_per_entry: usize) -> usize {
-    OMISSION_HEADER_RESERVE
-        + MAX_OMITTED_NAMES * (names_per_entry * sutura_domain::model::MAX_IDENTIFIER_LEN + OMISSION_ENTRY_OVERHEAD)
+pub fn omission_reserve<T>(candidates: &[T], mut entry_cost: impl FnMut(&T) -> usize) -> usize {
+    let max_omittable = candidates.len().saturating_sub(1).min(MAX_OMITTED_NAMES);
+    if max_omittable == 0 {
+        return OMISSION_HEADER_RESERVE;
+    }
+    let mut costs: Vec<usize> = candidates.iter().map(&mut entry_cost).collect();
+    costs.sort_unstable_by(|left, right| right.cmp(left));
+    OMISSION_HEADER_RESERVE + costs.into_iter().take(max_omittable).sum::<usize>()
 }
 
 #[cfg(test)]
