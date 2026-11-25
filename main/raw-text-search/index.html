@@ -2920,11 +2920,36 @@ before local masking. The same source bounds and deadline still apply.</p>
 <li>The engine decides "reads a column" from the columns the planned scans project. A statement over
   a policy column that is not a search, such as one that only projects it, is named the same way
   when it times out.</li>
-<li>No separate time budget is added. The refusal rides the request's existing deadline, so it
-  arrives when that deadline does, not earlier.</li>
+<li>No separate time budget is added. The refusal rides the request's existing deadline - narrowed
+  earlier for a policy-column search leg specifically, never widened. <code>POLICY_LEG_TEARDOWN_MARGIN</code>
+  (2s, <code>crates/sutura-app/src/raw.rs</code>) is carved out of such a leg's own deadline on top of the
+  one-second margin already reserved for transport reply overhead, so the adapter's own teardown and this leg's local
+  masking have room to finish and carry the named refusal back before the transport's generic <code>408</code>
+  backstop fires. The narrowing only applies where it leaves at least <code>POLICY_LEG_MIN_BUDGET</code> (1s)
+  of budget; below that floor (a low <code>request_timeout_seconds</code> deployment, or a leg reached late in
+  a longer statement) the leg keeps the full unnarrowed remaining budget instead and the race is
+  open again. <strong>Limit:</strong> there is no tokio-level abort of the adapter's own call - an adapter that
+  ignores its handed deadline can still lose this race and surface as the transport's <code>408</code> rather
+  than this named refusal, same as before the margin existed.</li>
 </ul>
-<p>The reason shows that a column the caller can already read carries a text policy. It names no
-column, pattern or replacement, and nothing about the policy beyond its existence.</p>
+<p>The reason carries an internal <code>ineligible</code> field; what reaches the caller is a category sentence
+inside <code>detail</code>, grouped into one of three coarse categories: no <code>raw_prefilter</code> is declared on
+this column at all, the search term's own shape is ineligible (empty, longer than 128 bytes, or a
+character outside letters, digits or <code>_</code>), or the search term overlaps the column's redaction
+marker. The last category covers both a configured replacement and
+the truncation marker alike - neither a rule index nor which marker is ever named. <strong>Stated
+plainly: a single probe discloses only its category, but a sweep of needles against the same
+column, each read off its category, lets a caller map which characters a redaction marker's own
+shape contains, needle by needle</strong> - the structural cost any such coarse signal carries under
+repetition.</p>
+<p><code>ineligible</code> is absent (<code>None</code>) wherever that check was never reached at all - not an exhaustively
+enumerable list, but including: no dialect capability admits the column, an unsupported collation,
+a declared but non-LOB Oracle column, a column with no text policy at all, or Cube running its
+text policy locally - plus every statement shape the search-recognition pass does not parse as one
+isolated, row-preserving <code>LIKE '%needle%'</code> comparison over the column at all: a projection-only
+read with no comparison to recognize, a sibling conjunct that could raise on an unredacted row, a
+join, subquery or CTE, a renaming or shadowing alias, and any other shape that pass's own
+structural checks decline. No variant, and no absence of one, names a column or a pattern.</p>
 <h2 id="narrowing-a-cube-search">Narrowing a Cube search<a class="headerlink" href="#narrowing-a-cube-search" title="Permanent link">&para;</a></h2>
 <p>Cube cannot apply a text policy, so the engine applies it over the raw rows Cube answers, and a
 Cube answer holds at most 10,000 rows. A search over a protected Cube table that reads more than
