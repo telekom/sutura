@@ -85,6 +85,21 @@ impl QueryBuilder {
     pub fn is_distinct_union(&self) -> bool {
         self.distinct_union
     }
+    /// Whether a `Limit` or `Sort` wrote its own order, limit, offset or fetch onto this builder.
+    pub fn has_own_row_window(&self) -> bool {
+        self.order_by_kind.is_some()
+            || self.limit.is_some()
+            || self.offset.is_some()
+            || self.fetch.is_some()
+            || !self.limit_by.is_empty()
+    }
+    /// Whether a `WITH`, locking or `FOR` clause was written onto this builder. Nothing in this
+    /// crate's unparser sets any of the three today, so this is always `false` in practice; it
+    /// exists so a caller discarding a branch's own builder can refuse rather than silently drop
+    /// one if that ever changes.
+    pub fn has_unhandled_branch_clauses(&self) -> bool {
+        self.with.is_some() || !self.locks.is_empty() || self.for_clause.is_some()
+    }
     pub fn build(&self) -> Result<ast::Query, BuilderError> {
         let order_by = self
             .order_by_kind

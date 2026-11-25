@@ -1,6 +1,6 @@
 --- a/crates/sutura-cli/src/catalog.rs
 +++ b/crates/sutura-cli/src/catalog.rs
-@@ -814,6 +814,7 @@
+@@ -707,6 +707,7 @@
      use sutura_catalog_datahub::http::{
          DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpAspectReader, ReadBounds,
      };
@@ -8,12 +8,20 @@
  
      let endpoint_raw = settings.endpoint().ok_or_else(|| {
          format!(
-@@ -852,7 +853,7 @@
+@@ -748,10 +749,13 @@
+             .collect()
      };
-     Ok(sutura_catalog_datahub::DataHubCatalog::new(
-         settings.name().clone(),
--        settings.version().clone(),
+     log_definitions_bound(settings);
+-    Ok(
+-        sutura_catalog_datahub::DataHubCatalog::new(settings.name().clone(), settings.version().clone(), sources, reader)
+-            .with_definitions_bound(settings.max_definitions_bytes()),
++    Ok(sutura_catalog_datahub::DataHubCatalog::new(
++        settings.name().clone(),
 +        DefinitionVersion::parse("mutated").expect("a mutated version is a version"),
-         sources,
-         reader,
-     ))
++        sources,
++        reader,
+     )
++    .with_definitions_bound(settings.max_definitions_bytes()))
+ }
+ 
+ /// The catalog adapter's own error and every cause beneath it, on one line each.

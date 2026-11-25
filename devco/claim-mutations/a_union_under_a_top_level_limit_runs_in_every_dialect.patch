@@ -1,0 +1,15 @@
+diff --git a/vendor/datafusion-sql/src/unparser/plan.rs b/vendor/datafusion-sql/src/unparser/plan.rs
+index 4e2e5b672..38dfd743b 100644
+--- a/vendor/datafusion-sql/src/unparser/plan.rs
++++ b/vendor/datafusion-sql/src/unparser/plan.rs
+@@ -1233,7 +1233,9 @@ impl Unparser<'_> {
+                         relation,
+                     );
+                 }
+-                if let Some(fetch) = &limit.fetch {
++                if let Some(fetch) = &limit.fetch
++                    && !matches!(limit.input.as_ref(), LogicalPlan::Union(_))
++                {
+                     let Some(query) = query.as_mut() else {
+                         return internal_err!(
+                             "Limit operator only valid in a statement context."

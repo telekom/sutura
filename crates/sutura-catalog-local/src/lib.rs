@@ -28,7 +28,8 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship, UnlinkedContribution,
+    Definitions, DefinitionsByteBound, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+    UnlinkedContribution,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{
@@ -285,6 +286,7 @@ pub struct LocalCatalog {
     name: SourceName,
     root: PathBuf,
     version: DefinitionVersion,
+    definitions_bound: DefinitionsByteBound,
 }
 
 impl LocalCatalog {
@@ -295,7 +297,20 @@ impl LocalCatalog {
     /// and only the caller has it. Deriving it from the digest would make the two say the same thing
     /// twice and leave no way to tell two builds of identical content apart.
     pub const fn new(name: SourceName, root: PathBuf, version: DefinitionVersion) -> Self {
-        Self { name, root, version }
+        Self {
+            name,
+            root,
+            version,
+            definitions_bound: DefinitionsByteBound::DEFAULT,
+        }
+    }
+
+    /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
+    /// [`DefinitionsByteBound::DEFAULT`].
+    #[must_use]
+    pub const fn with_definitions_bound(mut self, definitions_bound: DefinitionsByteBound) -> Self {
+        self.definitions_bound = definitions_bound;
+        self
     }
 
     /// The declared name this contributor is recorded under in a bundle's contribution manifest.
@@ -402,7 +417,7 @@ impl LocalCatalog {
     }
 
     fn read_declared(&self) -> Result<Declared, LocalCatalogError> {
-        self.collect(true)?.assemble()
+        self.collect(true)?.assemble(self.definitions_bound)
     }
 
     /// Reads this contributor without resolving references supplied by a native dictionary.
@@ -642,9 +657,9 @@ impl Collected {
     /// [`KnowledgeCapabilities::all`] as the default rather than a list of the four, deliberately: it
     /// says "this provider supports whatever kinds exist", which keeps a fifth kind from needing an
     /// edit here.
-    fn assemble(self) -> Result<Declared, LocalCatalogError> {
+    fn assemble(self, definitions_bound: DefinitionsByteBound) -> Result<Declared, LocalCatalogError> {
         let declared = self.declared.unwrap_or_else(<LocalCatalog as SemanticCatalog>::capabilities);
-        let definitions = Definitions::assemble(self.models, self.relationships, self.metrics)
+        let definitions = Definitions::assemble_bounded(self.models, self.relationships, self.metrics, definitions_bound)
             .map_err(|cause| LocalCatalogError::Inconsistent { cause })?;
         let knowledge = Knowledge::assemble(
             &definitions,
@@ -730,6 +745,10 @@ impl SemanticCatalog for LocalCatalog {
             ContributionManifest::single(self.name.clone(), Contribution::of(declared)),
         )
         .map_err(|cause| LocalCatalogError::Digest { cause })
+    }
+
+    fn definitions_bound(&self) -> DefinitionsByteBound {
+        self.definitions_bound
     }
 }
 

@@ -303,6 +303,103 @@ impl Unparser<'_> {
         Ok(SetExpr::Select(Box::new(select_builder.build()?)))
     }
 
+    /// A UNION branch gets its own `QueryBuilder` instead of the statement's shared one, so a
+    /// `Limit`/`Sort` inside the branch stays on it instead of leaking onto the whole UNION. A
+    /// branch that is itself a nested UNION already writes its body back through `take_body`
+    /// inside `select_to_sql_expr`.
+    ///
+    /// `spiceai/datafusion#261` (commit `51790d40`) separately closes a DISTINCT leak from a
+    /// non-leftmost nested `SetOperation` branch (`sqlparser` only parenthesizes a `SetOperation`
+    /// operand on its parent's left), but that shape is unreachable on this crate's optimized
+    /// path: `ReplaceDistinctWithAggregate` rewrites `Distinct(Union(..))` into an `Aggregate`
+    /// before the unparser ever sees it, so there is no DISTINCT-flavored nested UNION left to
+    /// wrap by the time this function runs. Not ported; left for an unoptimized-plan caller to
+    /// pick up if one is ever added in this crate.
+    fn union_branch_to_sql_expr(&self, input: &LogicalPlan, branch_index: usize) -> Result<SetExpr> {
+        let field_names: Vec<&String> =
+            input.schema().fields().iter().map(|field| field.name()).collect();
+        let mut own = Some(QueryBuilder::default());
+        let set_expr = self.select_to_sql_expr(input, &mut own)?;
+        // `own` stays `Some` once `select_to_sql_expr` returns: `take_body` above only clears the
+        // builder's `body` field for a nested-UNION branch, it never discards the builder itself.
+        // The `None` case has no mechanism to reach it today, so there is nothing to guard - a
+        // trivial pass, not a silent skip.
+        let Some(mut own) = own else {
+            return Ok(set_expr);
+        };
+        assert_or_internal_err!(
+            !own.has_unhandled_branch_clauses(),
+            "a UNION branch's own WITH, locking or FOR clause has no path to the statement"
+        );
+        if !own.has_own_row_window() {
+            return Ok(set_expr);
+        }
+        let windowed = own.body(Box::new(set_expr)).build()?;
+        self.union_branch_as_derived_table(windowed, branch_index, &field_names)
+    }
+
+    /// `PushDownLimit` pushes a copy of an outer `LIMIT` below each UNION input's own
+    /// `Projection`. For a branch that still has that `Projection` node by the time the pushed
+    /// `Limit` is reached, this renders as a `derived_limit` subquery nested inside the branch's
+    /// own `SELECT` instead of writing onto the branch's own builder, so the pushdown alone
+    /// never engages this wrapper for a *projected* branch. A branch whose `Projection` the
+    /// optimizer eliminated first (e.g. a bare `SELECT * FROM scan ... LIMIT n` branch, once the
+    /// scan itself already returns exactly the needed columns) is not `already_projected` when
+    /// that same pushed `Limit` is reached, so it still writes the fetch directly onto the
+    /// branch's own builder and DOES engage this wrapper, the same as a caller's own per-branch
+    /// `ORDER BY`/`LIMIT`/`OFFSET`. A bare parenthesized operand (`(SELECT ... LIMIT n) UNION ALL
+    /// ...`) is rejected by some dialects, so a branch holding its own row window either way is
+    /// wrapped as a derived table instead, the form every dialect accepts:
+    /// `SELECT <f1>, ..., <fn> FROM (<branch>) AS <alias>`.
+    ///
+    /// The alias itself carries no column list: Oracle, BigQuery and ClickHouse all refuse a
+    /// table alias with one (`supports_column_alias_in_table_alias() == false`), and a synthetic
+    /// list would also rename the branch's output away from the names an enclosing clause already
+    /// resolves by (e.g. the union's own output name surfacing in an outer `ORDER BY`). The outer
+    /// `SELECT` instead projects the branch's own output field names back out explicitly, since a
+    /// downstream admission guard refuses any `SELECT *` reaching a source. Two of those names
+    /// colliding would make that projection ambiguous, so a collision is refused up front instead
+    /// of emitted as ambiguous SQL.
+    fn union_branch_as_derived_table(
+        &self,
+        windowed: ast::Query,
+        branch_index: usize,
+        field_names: &[&String],
+    ) -> Result<SetExpr> {
+        let mut distinct = std::collections::HashSet::with_capacity(field_names.len());
+        assert_or_internal_err!(
+            field_names.iter().all(|name| distinct.insert(name.as_str())),
+            "a UNION branch with duplicate output column names cannot be wrapped as a derived \
+             table without renaming them ambiguously: {field_names:?}"
+        );
+        let columns: Vec<Ident> = field_names
+            .iter()
+            .map(|name| self.new_ident_quoted_if_needs((*name).clone()))
+            .collect();
+        let mut select_builder = SelectBuilder::default();
+        select_builder.projection(
+            columns
+                .iter()
+                .cloned()
+                .map(|column| ast::SelectItem::UnnamedExpr(ast::Expr::Identifier(column)))
+                .collect(),
+        );
+        let mut derived_builder = DerivedRelationBuilder::default();
+        derived_builder
+            .lateral(false)
+            .subquery(Box::new(windowed))
+            .alias(Some(self.new_table_alias(
+                format!("derived_union_branch_{branch_index}"),
+                vec![],
+            )));
+        let mut relation_builder = RelationBuilder::default();
+        relation_builder.derived(derived_builder);
+        let mut twj = TableWithJoinsBuilder::default();
+        twj.relation(relation_builder);
+        select_builder.push_from(twj);
+        Ok(SetExpr::Select(Box::new(select_builder.build()?)))
+    }
+
     /// Reconstructs a SELECT SQL statement from a logical plan by
     /// unprojecting column expressions found in a [Projection] node. This
     /// requires scanning the plan tree for relevant Aggregate and Window
@@ -1719,7 +1816,8 @@ impl Unparser<'_> {
                 let input_exprs: Vec<SetExpr> = union
                     .inputs
                     .iter()
-                    .map(|input| self.select_to_sql_expr(input, query))
+                    .enumerate()
+                    .map(|(branch_index, input)| self.union_branch_to_sql_expr(input, branch_index))
                     .collect::<Result<Vec<_>>>()?;
 
                 assert_or_internal_err!(

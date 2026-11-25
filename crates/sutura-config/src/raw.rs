@@ -728,6 +728,12 @@ pub(crate) struct RawCatalog {
     /// "every tick".
     #[serde(default = "catalog_refresh_seconds")]
     pub(crate) refresh_seconds: u64,
+    /// Every kind, not `rdbms` alone - `github.com/telekom/sutura#2071`. Absent means
+    /// `sutura_domain::catalog::DefinitionsByteBound::default()` (1 MiB); a declared `0` or a value
+    /// above `sutura_domain::catalog::DEFINITIONS_BYTES_CEILING` (16 MiB) is refused by
+    /// `CatalogSettings::with_max_definitions_bytes`.
+    #[serde(default)]
+    pub(crate) max_definitions_bytes: Option<u64>,
     /// `catalog.kind: rdbms` only, and every rdbms key below it: `parse_catalogs` refuses each on
     /// any other kind. The environment key that selects this deployment's rows in the dictionary.
     #[serde(default)]

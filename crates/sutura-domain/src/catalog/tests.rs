@@ -871,10 +871,24 @@ fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
 /// The aggregate cap that [`super::MAX_VALUES_PER_DIMENSION`]'s own note names as missing: nothing
 /// bounds how many metrics a catalog holds, so N of them each individually inside every per-item
 /// cap - here, [`super::MAX_DESCRIPTION_BYTES`] - are not individually a catalog nobody would read.
+///
+/// Sized from `MAX_DEFINITIONS_BYTES`/`MAX_DESCRIPTION_BYTES` rather than a hand-counted literal, so
+/// it still proves this past the former 128 KiB fixed bound and under whatever bound
+/// `MAX_DEFINITIONS_BYTES` now names.
 #[test]
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "a fixture count derived from two byte constants, not a measurement - truncation is \
+              the point: it is how many whole items of the divisor's size fit the dividend"
+)]
 fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
+    // One more metric than the cap divides evenly into description-sized fillers always exceeds it,
+    // whatever the cap's own value is on either tree.
+    let too_many_count = MAX_DEFINITIONS_BYTES / MAX_DESCRIPTION_BYTES + 1;
     let filler = Description::parse("y".repeat(MAX_DESCRIPTION_BYTES)).expect("exactly the description cap is a description");
-    let too_many: Vec<Metric> = (0..33_u32)
+    let too_many_count = u32::try_from(too_many_count).expect("well under u32::MAX");
+    let too_many: Vec<Metric> = (0..too_many_count)
         .map(|index| {
             Metric::new(
                 metric_name(&format!("metric_{index}")),
@@ -892,17 +906,22 @@ fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
         })
         .collect();
     let (models, relationships) = two_models();
-    let error = Definitions::assemble(models, relationships, too_many).expect_err("33 max descriptions exceed the cap");
+    let error =
+        Definitions::assemble(models, relationships, too_many).expect_err("one metric over the cap's own count exceeds it");
     match error {
-        InconsistentDefinitions::DefinitionsTooLarge { bytes, limit } => {
+        // `..` reads identically whether `DefinitionsTooLarge` carries the base 2 fields or HEAD's
+        // 5 - this test is not about the breakdown, so it does not name the extra ones.
+        InconsistentDefinitions::DefinitionsTooLarge { bytes, limit, .. } => {
             assert_eq!(limit, MAX_DEFINITIONS_BYTES);
             assert!(bytes > MAX_DEFINITIONS_BYTES, "{bytes} must exceed {MAX_DEFINITIONS_BYTES}");
         }
         other => panic!("the aggregate cap must be what refuses this: {other:?}"),
     }
-    // And the cap is not so tight that a realistic catalog trips it: 31 of the same descriptions are
-    // under 128 KiB and load.
-    let inside: Vec<Metric> = (0..31_u32)
+    // And the cap is not so tight that a realistic catalog trips it: one fewer than the cap's own
+    // count stays inside it, with the same margin on either tree.
+    let inside_count = MAX_DEFINITIONS_BYTES / MAX_DESCRIPTION_BYTES - 1;
+    let inside_count = u32::try_from(inside_count).expect("well under u32::MAX");
+    let inside: Vec<Metric> = (0..inside_count)
         .map(|index| {
             Metric::new(
                 metric_name(&format!("metric_{index}")),
@@ -922,10 +941,10 @@ fn enough_conforming_metrics_to_exceed_the_aggregate_cap_do_not_load() {
     let (models, relationships) = two_models();
     assert_eq!(
         Definitions::assemble(models, relationships, inside)
-            .expect("31 max descriptions is inside the cap")
+            .expect("one fewer than the cap's own count is inside the cap")
             .metrics()
             .len(),
-        31
+        inside_count as usize
     );
 }
 

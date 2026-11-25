@@ -27,6 +27,7 @@ use rdbms::open_one_rdbms_catalog;
 
 use sutura_app::assemble;
 use sutura_catalog_local::LocalCatalog;
+use sutura_domain::catalog::DefinitionsByteBound;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 use sutura_http::LocalService;
 
@@ -353,11 +354,22 @@ pub(super) fn load_each<C>(catalogs: &[C]) -> Result<PinnedDefinitions, String>
 where
     C: SemanticCatalog,
 {
+    let bound = DefinitionsByteBound::composed(catalogs.iter().map(SemanticCatalog::definitions_bound));
     let bundles = catalogs
         .iter()
         .map(|catalog| catalog.load().map_err(|cause| flatten(&cause)))
         .collect::<Result<Vec<_>, String>>()?;
-    assemble::assemble(&bundles).map_err(|cause| flatten(&cause))
+    assemble::assemble_bounded(&bundles, bound).map_err(|cause| flatten(&cause))
+}
+
+/// Logs the resolved `max_definitions_bytes` bound a catalog opens with - `github.com/telekom/sutura#2071`
+/// asks for this in the load log, since the value is otherwise only visible on a refusal.
+pub(crate) fn log_definitions_bound(settings: &sutura_config::CatalogSettings) {
+    tracing::info!(
+        catalog = %settings.name(),
+        max_definitions_bytes = %settings.max_definitions_bytes(),
+        "catalog definitions bound"
+    );
 }
 
 /// Opens one declared markdown catalog.
@@ -368,11 +380,11 @@ fn open_one_markdown_catalog(settings: &sutura_config::CatalogSettings) -> Resul
             settings.name()
         )
     })?;
-    Ok(LocalCatalog::new(
-        settings.name().clone(),
-        PathBuf::from(dir),
-        settings.version().clone(),
-    ))
+    log_definitions_bound(settings);
+    Ok(
+        LocalCatalog::new(settings.name().clone(), PathBuf::from(dir), settings.version().clone())
+            .with_definitions_bound(settings.max_definitions_bytes()),
+    )
 }
 
 /// Opens one declared `okf` catalog: a directory of Table Schema descriptors, wrapped in
@@ -386,11 +398,11 @@ fn open_one_okf_catalog(settings: &sutura_config::CatalogSettings) -> Result<sut
             settings.name()
         )
     })?;
-    Ok(sutura_catalog_okf::OkfCatalog::new(
-        settings.name().clone(),
-        PathBuf::from(dir),
-        settings.version().clone(),
-    ))
+    log_definitions_bound(settings);
+    Ok(
+        sutura_catalog_okf::OkfCatalog::new(settings.name().clone(), PathBuf::from(dir), settings.version().clone())
+            .with_definitions_bound(settings.max_definitions_bytes()),
+    )
 }
 /// Opens every declared `openmetadata` catalog, behind this crate's `openmetadata` feature.
 #[cfg(feature = "openmetadata")]
@@ -476,12 +488,14 @@ fn open_one_cube_catalog(
     let (reader, rotator) = HttpMetaReader::rotating_agent(bounds, outbound.cloned())
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     crate::rotation::drive_rotation("security.outbound.transport_anchors (cube reader)", rotator);
+    log_definitions_bound(settings);
     Ok(sutura_catalog_cube::CubeCatalog::new(
         settings.name().clone(),
         settings.version().clone(),
         settings.name().clone(),
         HttpMetaReader::rotating(endpoint, token, bounds, reader),
-    ))
+    )
+    .with_definitions_bound(settings.max_definitions_bytes()))
 }
 
 /// Opens every declared `rdbms` catalog at once, behind this crate's `rdbms` feature.
@@ -575,12 +589,14 @@ fn open_one_openmetadata_catalog(
     let reader = HttpSnapshotReader::rotating(endpoint, token, bounds, reader);
     let mut sources = std::collections::BTreeMap::new();
     drop(sources.insert(String::from("warehouse"), settings.name().clone()));
+    log_definitions_bound(settings);
     Ok(sutura_catalog_openmetadata::OpenMetadataCatalog::new(
         settings.name().clone(),
         settings.version().clone(),
         sources,
         reader,
-    ))
+    )
+    .with_definitions_bound(settings.max_definitions_bytes()))
 }
 
 /// Opens one declared `datacontract` catalog: a directory of ODCS v3 contract documents, wrapped in
@@ -596,11 +612,13 @@ fn open_one_data_contract_catalog(
             settings.name()
         )
     })?;
+    log_definitions_bound(settings);
     Ok(sutura_catalog_datacontract::DataContractCatalog::new(
         settings.name().clone(),
         PathBuf::from(dir),
         settings.version().clone(),
-    ))
+    )
+    .with_definitions_bound(settings.max_definitions_bytes()))
 }
 
 /// Opens every declared `datahub` catalog, behind this crate's `datahub` feature.
@@ -731,12 +749,11 @@ fn open_one_datahub_catalog(
             .map(|(platform, source)| (String::from(platform.as_str()), source.clone()))
             .collect()
     };
-    Ok(sutura_catalog_datahub::DataHubCatalog::new(
-        settings.name().clone(),
-        settings.version().clone(),
-        sources,
-        reader,
-    ))
+    log_definitions_bound(settings);
+    Ok(
+        sutura_catalog_datahub::DataHubCatalog::new(settings.name().clone(), settings.version().clone(), sources, reader)
+            .with_definitions_bound(settings.max_definitions_bytes()),
+    )
 }
 
 /// The catalog adapter's own error and every cause beneath it, on one line each.
@@ -827,3 +844,6 @@ mod tests {
 
 #[cfg(test)]
 mod planned_tests;
+
+#[cfg(test)]
+mod bound_tests;
