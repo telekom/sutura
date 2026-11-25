@@ -203,11 +203,11 @@ pub struct DimensionContent {
 /// [`CatalogContent::knowledge`], which a native-dictionary catalog with no declared models already
 /// keeps small - `docs/integrations/catalogs/rdbms.md`).
 ///
-/// The issue this answers (`github.com/telekom/sutura#2071`'s second ask) measured a 240538-byte
-/// `describe_catalog` result as small for the planner and not small for an agent reading it as one
-/// tool result. 64 KiB is an order of magnitude under that measured case - a model list that size is
-/// itself the signal to read it one model at a time through `describe_catalog(model: <name>)` rather
-/// than in full - while comfortably holding the models of any catalog authored at ordinary width; a
+/// The issue this answers (`github.com/telekom/sutura#2071`'s second ask) measured 240538 bytes of
+/// authored model definitions as small for the planner and not small for an agent reading it as one
+/// tool result. 64 KiB is comfortably under that measured case (about 3.7x) without being so tight
+/// that an ordinarily authored catalog ever brushes it - a model list that size is itself the signal
+/// to read it one model at a time through `describe_catalog(model: <name>)` rather than in full; a
 /// deployment whose physical schema never approaches this never notices the bound exists.
 pub(crate) const MAX_UNFILTERED_MODELS_BYTES: usize = 64 * 1024;
 
