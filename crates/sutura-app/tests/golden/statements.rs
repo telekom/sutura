@@ -82,7 +82,8 @@ fn tables(usage: QualifiedTable, subscriptions: QualifiedTable, dialect: TypeDia
         | TypeDialect::Postgres
         | TypeDialect::DataFusion
         | TypeDialect::ClickHouse
-        | TypeDialect::BigQuery => DataType::Date32,
+        | TypeDialect::BigQuery
+        | TypeDialect::Foundry => DataType::Date32,
     };
     let key = if dialect == TypeDialect::Cube {
         DataType::Float64
@@ -523,6 +524,7 @@ where
                 TypeDialect::ClickHouse => polyglot_sql::DialectType::ClickHouse,
                 TypeDialect::DuckDb => polyglot_sql::DialectType::DuckDB,
                 TypeDialect::Postgres => polyglot_sql::DialectType::PostgreSQL,
+                TypeDialect::Foundry => polyglot_sql::DialectType::Spark,
                 TypeDialect::DataFusion | TypeDialect::Cube => polyglot_sql::DialectType::Generic,
             };
             let mut parsed = polyglot_sql::parse_one(statement.as_str(), polyglot_sql::DialectType::Generic)

@@ -642,7 +642,7 @@ fn expression(column: &str, policy: &TextPolicy, dialect: TypeDialect, bound_out
             }
             TypeDialect::ClickHouse => format!("replaceRegexpAll({value}, {}, {replacement})", literal(pattern, parsed)),
             TypeDialect::BigQuery => format!("REGEXP_REPLACE({value}, {}, {replacement})", literal(pattern, parsed)),
-            TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::DataFusion => {
+            TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::DataFusion | TypeDialect::Foundry => {
                 format!("REGEXP_REPLACE({value}, {}, {replacement}, 'g')", literal(pattern, parsed))
             }
         };

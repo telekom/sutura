@@ -15,7 +15,7 @@ pub(in crate::combine::statement) fn read_back(sql: &str, dialect: TypeDialect) 
         TypeDialect::Postgres | TypeDialect::Cube => &PostgreSqlDialect {},
         TypeDialect::DuckDb => &DuckDbDialect {},
         TypeDialect::Oracle => &OracleDialect {},
-        TypeDialect::DataFusion => &GenericDialect {},
+        TypeDialect::DataFusion | TypeDialect::Foundry => &GenericDialect {},
     };
     let mut values: Vec<String> = Tokenizer::new(reader, sql)
         .tokenize()

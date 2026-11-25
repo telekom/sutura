@@ -150,6 +150,11 @@ pub(crate) fn mcp() -> ExitCode {
                 // The `clickhouse` arm's reason: `CubeWarehouse` takes the port's default `preflight`.
                 serve(&catalogs, opened, &settings)
             }
+            #[cfg(feature = "foundry")]
+            Opened::Foundry(opened) => {
+                // Foundry owns its table inventory; an unknown table is refused by the endpoint.
+                serve(&catalogs, opened, &settings)
+            }
         }
     })())
 }
@@ -449,6 +454,8 @@ mod tests {
             crate::sources::Opened::Duckdb(_) => None,
             #[cfg(feature = "cube")]
             crate::sources::Opened::Cube(_) => None,
+            #[cfg(feature = "foundry")]
+            crate::sources::Opened::Foundry(_) => None,
         }
         .expect("the example declares a files source");
         (catalogs, opened, settings)
@@ -764,6 +771,8 @@ mod tests {
             crate::sources::Opened::Duckdb(_) => None,
             #[cfg(feature = "cube")]
             crate::sources::Opened::Cube(_) => None,
+            #[cfg(feature = "foundry")]
+            crate::sources::Opened::Foundry(_) => None,
         }
         .expect("the okf deployment declares a files source");
         (catalogs, opened, settings)

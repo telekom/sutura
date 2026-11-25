@@ -37,6 +37,11 @@ pub enum SettingsError {
         #[source]
         cause: crate::sources::admission::InvalidSourceAdmission,
     },
+    #[error("a source's catalog visibility is not usable")]
+    CatalogVisibility {
+        #[source]
+        cause: crate::sources::catalog_visibility::CatalogVisibilityNotUsable,
+    },
     #[error("`security.inbound` must contain at least one verifier; remove it for no inbound identity")]
     InboundListEmpty,
     #[error("`security.inbound` entry {index:?} requires `{key}`")]

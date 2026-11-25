@@ -1,0 +1,278 @@
+---
+title: Foundry
+description: Experimental. Execute semantic plans over a Foundry OSv2 ontology with a deployment token or each caller's own Foundry token.
+---
+
+# Foundry
+
+!!! warning "Experimental"
+
+    No real Foundry tenant has exercised this adapter. SQL goldens and transport fakes do not
+    establish tenant compatibility. The feature is default-off and absent from release builds.
+    Build `sutura-cli` with `--features foundry` for evaluation.
+
+The `foundry` data system renders semantic plans as Spark SQL and submits them to Foundry's preview
+[Ontology SQL API](https://www.palantir.com/docs/foundry/api/sql-queries-v2-resources/sql-queries/execute-ontology-sql-query).
+The crate is `sutura-exec-foundry`. It queries ontology objects on Object Storage v2, not dataset SQL.
+The tenant must enable this beta API. The token a query presents needs `api:sql-queries-execute`
+and `api:ontologies-read`, plus permission to read the selected objects.
+
+The [Foundry catalog](../catalogs/foundry.md) reads metadata independently. A source can also execute
+plans from a markdown catalog whose models name this source and its object/property API names.
+Ontology metadata supplies no certified metrics, required filters or anchors; those must come from
+the catalog that defines the questions.
+
+## Settings
+
+The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
+and these keys:
+
+| Key                                | Type          | Default  | Meaning                                                                                                                                                                                                                       |
+| ---------------------------------- | ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `endpoint`                         | string        | required | `scheme://host[:port]`. HTTPS for remote hosts; HTTP only for a loopback IP address. No path, query or credentials.                                                                                                           |
+| `ontology`                         | string        | required | The ontology API name or RID.                                                                                                                                                                                                 |
+| `token_file`                       | absolute path | -        | `shared-service-user` only: a deployment bearer token, read once at startup. Restart to replace it. Write this or `client_credentials`, not both.                                                                             |
+| `client_credentials`               | block         | -        | `shared-service-user` only: the deployment's OAuth 2.0 client-credentials grant, minted on `endpoint` and minted again before it expires. Keys below.                                                                         |
+| `verification_client_credentials`  | block         | -        | `impersonation-at-source` only, with `verification_identity`: the startup-only identity anchors run as. Never presented for a question. Keys below.                                                                           |
+| `foundry_login.token_endpoint`     | URL           | -        | `impersonation-at-source` only, and required there: the broker token endpoint `https://<host>/realms/<realm>/broker/<alias>/token`.                                                                                           |
+| `foundry_login.client_id`          | string        | -        | The client ID that sutura uses at the identity provider.                                                                                                                                                                      |
+| `foundry_login.client_secret_file` | absolute path | -        | A file that holds that client's secret. sutura reads it at startup.                                                                                                                                                           |
+| `catalog_visibility`               | string        | absent   | `"per-caller"`: narrow each caller's catalog view to the object types their own `foundry_login` token lists. Refused without `foundry_login`. See [the catalog page](../catalogs/foundry.md#narrowing-what-each-caller-sees). |
+| `exclude_object_types`             | list          | see text | Object types this source leaves out: exact API names, or prefixes ending in `.*`; `[]` for none. See below.                                                                                                                   |
+
+Both blocks take the keys of the catalog's `foundry.client_credentials`, read by the same parser:
+
+| Key                  | Type          | Default                       | Meaning                                                               |
+| -------------------- | ------------- | ----------------------------- | --------------------------------------------------------------------- |
+| `client_id`          | string        | required                      | The OAuth 2.0 client of this deployment                               |
+| `client_secret_file` | absolute path | required                      | A file that holds the client secret. sutura reads it once at startup. |
+| `scopes`             | list          | none                          | The scopes to ask for, for example `api:sql-queries-execute`          |
+| `token_path`         | string        | `/multipass/api/oauth2/token` | The path of the token endpoint on `endpoint`. A host is refused.      |
+
+A minted token is held until 60 seconds before its `expires_in`, counted from when the token request
+was sent, then minted again. A mint happens inside the question's own deadline, and a question that
+finds another mint in progress waits for it no longer than its own deadline. A token answer without
+`expires_in` is used for one request only. A failed mint refuses the question and sends nothing to
+Foundry.
+
+The source queries each object type by its resource identifier (RID). A catalog names an object type
+by its API name; the source reads the object-type list and names the RID that list gives for it.
+It keeps two maps of API name to RID:
+
+- **Questions.** Filled only by reads under the token a question sends. Each entry lasts five
+  minutes from the read that last returned it. A read adds and refreshes entries and never replaces
+  the map, so one caller's narrower list does not evict another's entries. A name the map lacks, or
+  holds stale, is read again at once under the asking caller's token.
+- **Anchors.** Filled only by reads under the startup identity, and never read by a question.
+
+An entry another caller's read added is used for a caller who cannot see that object type: the
+statement names its RID, and Foundry decides under the caller's own token. Every way an object
+type does not resolve is the same `source_refused` answer, naming no object type: not in any read,
+listed with no usable RID (only a question needing that type is refused; the read logs how many at
+`DEBUG`), left out by the exclusions, or not found by Foundry behind its RID. In the last case the
+entries the statement used are dropped, so the next question reads them again - a recreated type
+is picked up without waiting five minutes. A name that did not resolve is not read again for 30
+seconds for the same caller token (at most 4096 such entries, never shared between tokens), so a
+caller asking about an object type that is not there does not re-read the list on every question.
+**Unverified:** which answer Foundry gives for a RID the token may not see. A `401`/`403` is
+`source_refused`. Only an `errorName` of `ObjectTypeNotFound`, bare or after a `Namespace:` prefix
+(the name Foundry's public API documents for an object type that is not found or not visible to the
+token), is read as not found and drops entries; a bare `404` or any other `NotFound` does not. Any
+other answer is the data system failing.
+
+The source leaves out the object types in its own `exclude_object_types` - the same grammar as the
+catalog's - else those the `foundry` catalog of the same name writes in `foundry.exclude_object_types`,
+else `["com.palantir.system.*"]`. The source and that catalog end with one list: when only the
+source writes one, the catalog takes it too. `[]` on the source opts both out. Both written with
+different sets of patterns - order and repeats do not count - is refused at load, naming the
+source. A model naming one by API name
+stops startup, and a refreshed bundle naming one is not adopted. A
+model naming one by RID cannot be checked then; a question on it is refused once a read has listed
+that RID as excluded.
+
+The source's token settings are separate from the catalog's. Catalog OAuth client credentials do not
+provide a query credential, even though both blocks are read the same way. The source uses `security.outbound` for its
+TLS trust and optional client certificate, for Foundry and for the identity provider.
+
+## Example
+
+This source accompanies a catalog whose models name `source: ontology`:
+
+```yaml
+security:
+  identity: "single-user"
+  single_user_because: "one operator evaluating this ontology"
+sources:
+  ontology:
+    kind: "foundry"
+    endpoint: "https://foundry.example.com"
+    ontology: "sales_ontology"
+    token_file: "/run/sutura/foundry-query-token"
+    posture: "shared-service-user"
+```
+
+## Check a tenant
+
+`sutura foundry-check` reads the same settings as `sutura serve` (`SUTURA_CONFIG_DIR`). It checks
+each `foundry` catalog and each `foundry` source one step at a time and prints one line per step:
+
+1. The catalog credential: the token file, or one client-credentials mint.
+2. The object-type list: how many are listed and how many `exclude_object_types` leaves out, and
+   the model name each dotted API name maps to.
+3. Each object type's outgoing link types, and the joins the catalog keeps from them.
+4. For a shared source, its own token: the token file, or one client-credentials mint. For a
+   `foundry_login` source, one mint of its `verification_client_credentials` startup identity when
+   it declares one, then the broker answer for one caller: whether it has `accessTokenExpiration`,
+   and its `scope` if it has one.
+5. Two parse-only requests per probed object type - the first plain and the first dotted one -
+   under the token that `serve` would send: by resource identifier, the form a question takes, then
+   by API name, so the output says which reference form the tenant resolves.
+
+For a `foundry_login` source, give the caller's own access token in a file or in
+`SUTURA_CALLER_TOKEN`, never on the command line:
+
+```sh
+SUTURA_CONFIG_DIR=/etc/sutura sutura foundry-check /run/sutura/caller-token
+```
+
+```text
+catalog ontology credential: ok - the token file was read
+catalog ontology object types: ok - 6 listed, 0 excluded by `foundry.exclude_object_types`, 2 dotted API name(s) mapped
+catalog ontology mapped object type #1: ok - maps to model of object type #1
+catalog ontology links object type #6: ok - 4 link side(s) read, 3 join(s) carried, 1 omitted
+catalog ontology load: ok - 6 model(s), 3 join(s)
+source ontology broker: ok - a linked Foundry token was returned; accessTokenExpiration present, 3540 s left; scope api:sql-queries-execute api:ontologies-read
+source ontology parse-only object type #3 by resource identifier: ok - Foundry resolved the reference and parsed the statement
+source ontology parse-only object type #1 (dotted) by API name: refused - Foundry refused the SQL request with 400, errorName <name>
+```
+
+Each line ends in `ok`, `refused` (Foundry, the identity provider or the catalog's own rules said
+no) or `failed` (no answer). The exit code is non-zero unless every line is `ok`. A line has no
+token, host, ontology identifier, request or answer text, or row value. By default it has no object
+type API name or model name either: those are your tenant's own data, and each is printed as
+`object type #n` in the order the list served them. A refusal that would name an object type, a
+property or a link type - a load the catalog refuses, an object type that did not resolve - says
+only what kind of refusal it is, and that `--names` prints which. It can have counts, HTTP statuses, Foundry's
+`errorName`, OAuth 2.0 error codes, scopes and the configured aliases, so the default output can be
+pasted into a public issue. `--names` prints the names, for you alone - never paste that output into
+a public issue:
+
+```sh
+SUTURA_CONFIG_DIR=/etc/sutura sutura foundry-check --names /run/sutura/caller-token
+```
+
+Any other argument, or a second value, is refused rather than ignored: a token goes in a file or in
+`SUTURA_CALLER_TOKEN`, never on the command line. When a setting cannot be read, the line says only
+that; `sutura serve` prints the full message. The redaction is tested with the fakes for the cases
+those tests trigger. A new error field is not checked until a test triggers it, and a name is
+replaced as text, so a tenant name that is also a common word is replaced wherever it appears.
+
+## Execution and limits
+
+The adapter sends `POST /api/v2/sqlQueries/executeOntology?preview=true`. Values remain native JSON
+parameters beside the SQL statement. A preflight uses the API's parse-only mode; anchor verification
+executes the plan and checks its returned rows.
+
+Ontology SQL [caps output at 10,000 rows](https://www.palantir.com/docs/foundry/sql-warehousing/ontology-sql).
+A response at the service or requested response boundary must be refused rather than treated as a
+complete federated leg. Larger legs need a different completeness mechanism before they can run.
+The adapter supports semantic plans and whole federated legs; raw SQL, split reads and compound-key
+probes are unsupported.
+
+Only uncompressed Arrow streams with supported scalar columns are accepted. Dictionary and nested
+fields are refused. Response bodies have an 8 MiB cap; the configured runtime result budget also
+applies before batch decoding and to accumulated results.
+
+One request deadline covers the HTTP request, response and decode checks. Decoding is checked between
+batches rather than interrupted inside one. Local deadline checks cannot establish
+that Foundry stopped its server-side work after the client stopped waiting. SQL parsing goldens do
+not prove Foundry's result types, date-bucket behavior, permissions or aggregate equivalence. A real
+tenant must exercise those paths, anchors and refusal cases before this integration can leave draft.
+
+## Identity
+
+!!! warning "Built, not observed"
+
+    Per-caller identity on Foundry is built and held by fakes only: a loopback identity provider
+    and a recording fake of the Foundry transport. No Foundry tenant and no identity provider
+    storing a Foundry login has run it, so it is not evidence that a tenant accepts a brokered
+    token or that two callers read two different object sets.
+    `docs/where-identity-is-proven.md` has no venue that answers yes for it.
+
+A source runs its questions one of two ways.
+
+**`shared-service-user`.** Every query presents the deployment token from `token_file`, so every
+caller receives the data that token may read.
+
+**`impersonation-at-source` with `foundry_login`.** Each question runs as the Foundry user the caller
+linked at the identity provider. Register a Foundry third-party application with the
+authorization-code grant, and add it to the identity provider as a brokered provider that stores
+tokens. Each user links their Foundry account there once. Per question, sutura sends the caller's
+verified inbound token to the identity provider's broker token endpoint (Keycloak's Identity
+Brokering API v2, the same request as BigQuery's
+[`google_login`](bigquery.md#settings)) and presents the Foundry access token that comes back as
+the bearer of the Ontology SQL request and of its parse-only preflight. Foundry's own object
+permissions and markings on that user decide what the question reads.
+
+```yaml
+security:
+  inbound:
+    mode: "direct"
+    # resource, authorization_server, key set ... as for any served deployment
+sources:
+  ontology:
+    kind: "foundry"
+    endpoint: "https://foundry.example.com"
+    ontology: "sales_ontology"
+    posture: "impersonation-at-source"
+    foundry_login:
+      token_endpoint: "https://idp.example.com/realms/example/broker/foundry/token"
+      client_id: "sutura"
+      client_secret_file: "/run/sutura/idp-client-secret"
+```
+
+What is refused, and where:
+
+- **At load.** `foundry_login` without `security.inbound.mode: direct`; `foundry_login` on a
+  `shared-service-user` source or on any kind but `foundry`; `token_file` or `client_credentials`
+  beside it; `workload_identity` on a `foundry` source; an impersonating `foundry` source without
+  `foundry_login`; and one of `verification_identity` and `verification_client_credentials` without
+  the other.
+- **At startup.** No caller exists, so the source's anchors run as its declared startup identity:
+  `verification_identity` names it and `verification_client_credentials` holds its grant. That grant
+  is held apart from the question path - the adapter's request path reads only the caller's token,
+  and only anchor verification reads the startup grant - so no question presents it. Without one, an
+  anchor on the source stops startup and names the metric. The adapter has no table-existence
+  check; startup checks only that no model names an object type `exclude_object_types` leaves
+  out.
+- **Per question.** A request with no verified caller is refused before any broker request. A caller
+  who has not linked a Foundry account gets `403 identity_not_linked`. Any other broker failure, and
+  a brokered token whose `accessTokenExpiration` has already passed, is `503 identity_unavailable`
+  and sends nothing to Foundry. A Foundry `401` or `403` under the caller's token is
+  `403 source_refused`, never an empty answer. No request falls back to a deployment token: an
+  impersonating source has none.
+- **Recorded.** `executed_as` names the leg `impersonation-at-source`. A federated answer that mixes it
+  with a shared leg is answered, and names which leg ran as whom, as for every other source.
+
+Limits:
+
+- The startup identity reads what that service user may read, so an anchor certifies the number
+  that identity sees, not any caller's - the limit every impersonating source's anchors carry.
+- sutura sends the brokered token as it is, never logs it and never puts it in a refusal. It does
+  not refresh it: refreshing is the identity provider's job. A token that expires during a question
+  fails at Foundry.
+- The brokered token is opaque to sutura. Whether it carries the scopes `executeOntology` needs is
+  the Foundry application's registration, and is unverified. The broker answer must carry
+  `accessTokenExpiration`; whether the identity provider's generic OIDC or OAuth 2 provider writes
+  it for a Foundry login is also unverified, and an answer without it is refused.
+- The `sutura` command (`query`, `mcp`) attaches no broker and refuses an impersonating Foundry
+  source. Only `sutura serve` runs one.
+- The [Foundry catalog](../catalogs/foundry.md) stays deployment-scoped: it reads metadata as its
+  service user. By default every caller sees the same models, so a caller can see a model whose
+  objects Foundry will then refuse them; no rows reach them, but the model's name and columns do.
+  `catalog_visibility: "per-caller"` on this source narrows each caller's view to the object types
+  their own brokered token lists
+  ([Narrowing what each caller sees](../catalogs/foundry.md#narrowing-what-each-caller-sees)). It
+  hides names and is not a data control.
+- An ADBC or Arrow Flight transport would take the same bearer. Whether Foundry's Flight endpoint
+  accepts a third-party application's user token is unverified.

@@ -162,6 +162,8 @@ pub(crate) fn drive(catalogs: OpenedCatalogs, surface: Arc<dyn Surface>, coverag
         OpenedCatalogs::Cube(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "openapi")]
         OpenedCatalogs::OpenApi(catalogs) => spawn(catalogs, surface, coverage, interval),
+        #[cfg(feature = "foundry")]
+        OpenedCatalogs::Foundry(catalogs) => spawn(catalogs, surface, coverage, interval),
         OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "rdbms")]
         catalogs @ (OpenedCatalogs::Rdbms(_) | OpenedCatalogs::RdbmsWithMarkdown { .. }) => {
@@ -499,6 +501,19 @@ pub(crate) mod tests {
 
         fn spent_bytes_total(&self) -> Option<u64> {
             None
+        }
+
+        fn catalog_dials(&self, _context: &sutura_domain::identity::RequestContext) -> bool {
+            false
+        }
+
+        fn hidden_models(
+            &self,
+            _context: &sutura_domain::identity::RequestContext,
+            _pinned: &sutura_domain::pinned::PinnedDefinitions,
+            _deadline: sutura_domain::warehouse::deadline::Deadline,
+        ) -> Result<sutura_domain::visibility::HiddenModels, sutura_app::surface::SurfaceFailure> {
+            Ok(sutura_domain::visibility::HiddenModels::none())
         }
     }
 

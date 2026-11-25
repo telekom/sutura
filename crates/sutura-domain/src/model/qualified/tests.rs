@@ -234,3 +234,167 @@ fn surrounding_whitespace_is_not_part_of_a_path() {
     let parsed = QualifiedTable::parse("  sales.orders\n").expect("a trimmed path is a path");
     assert_eq!(parsed.to_string(), "sales.orders");
 }
+
+#[test]
+fn a_dotted_object_is_one_name_with_a_local_name_and_round_trips() {
+    use crate::model::ObjectPath;
+
+    let path = ObjectPath::parse("com.palantir.system.Evolution")
+        .expect("every segment is a name")
+        .expect("a dotted name is an object path");
+    assert_eq!(path.dotted(), "com.palantir.system.Evolution");
+    let object = QualifiedTable::object(path.clone()).expect("the local name is a name");
+    assert_eq!(object.name(), &table("com_palantir_system_Evolution"));
+    assert_eq!(object.qualifier(), None, "nothing sits above an object");
+    assert_eq!(object.object_path(), Some(&path));
+    assert_eq!(object.qualification(), Qualification::Object);
+    assert!(
+        Qualification::ProjectAndDataset < Qualification::Object,
+        "no path declaration reaches it"
+    );
+    // Its text form is distinct from every path's, so the digest over it is too.
+    assert_eq!(object.to_string(), "`com.palantir.system.Evolution`");
+    assert_ne!(object, QualifiedTable::from(table("com_palantir_system_Evolution")));
+    let json = serde_json::to_string(&object).expect("an object serializes");
+    let back: QualifiedTable = serde_json::from_str(&json).expect("what this type wrote, it reads");
+    assert_eq!(back, object);
+    // A three-segment object is not mistaken for a project, a dataset and a table.
+    let three = QualifiedTable::parse("`a.b.c`").expect("a quoted dotted name is an object");
+    assert_eq!(three.qualification(), Qualification::Object);
+    assert_eq!(
+        QualifiedTable::parse("a.b.c").expect("a path").qualification(),
+        Qualification::ProjectAndDataset
+    );
+}
+
+#[test]
+fn a_dotted_name_with_an_empty_or_unnamed_segment_is_refused() {
+    use crate::model::ObjectPath;
+
+    assert_eq!(ObjectPath::parse("orders"), Ok(None), "no dot is a table's to parse");
+    for refused in [
+        "com..Evolution",
+        ".Evolution",
+        "com.",
+        "com.9lives",
+        "com.a/b",
+        "com. Evolution",
+    ] {
+        assert!(
+            matches!(ObjectPath::parse(refused), Err(InvalidQualifiedTable::ObjectSegment { .. })),
+            "{refused:?} was accepted"
+        );
+    }
+}
+
+#[test]
+fn a_dotted_name_too_long_to_join_is_shortened_stably_and_one_that_fits_is_not() {
+    use crate::model::ObjectPath;
+
+    // A name a tenant served: 67 characters once joined.
+    let tenant = "com.palantir.system.EvolutionModelStudioUnslothFineTuningExperiment";
+    let local = |dotted: &str| {
+        QualifiedTable::object(ObjectPath::parse(dotted).expect("names").expect("dotted"))
+            .expect("every dotted name of names has a local name")
+            .name()
+            .clone()
+    };
+    let shortened = local(tenant);
+    assert!(shortened.as_str().len() <= 63, "{shortened}");
+    assert!(
+        shortened.as_str().starts_with("com_palantir_system_EvolutionModelStudioUnsl"),
+        "{shortened}"
+    );
+    assert_eq!(local(tenant), shortened, "the same name always maps to the same local name");
+    assert_ne!(
+        local("com.palantir.system.EvolutionModelStudioUnslothFineTuningExperimentB"),
+        shortened,
+        "two long names sharing a prefix differ by the digest of the whole name"
+    );
+    assert_eq!(
+        local("com.palantir.system.Evolution").as_str(),
+        "com_palantir_system_Evolution"
+    );
+}
+
+#[test]
+fn a_plain_name_or_one_segment_too_long_for_a_name_is_an_object_with_a_fitted_local_name() {
+    use crate::model::ObjectPath;
+
+    let plain = "Aircraft".repeat(9);
+    assert!(TableName::parse(&plain).is_err(), "72 characters are not a table name");
+    let path = ObjectPath::parse(&plain)
+        .expect("in the grammar")
+        .expect("too long to be a table");
+    assert_eq!(path.dotted(), plain, "the whole name stays the object's identity");
+    let object = QualifiedTable::object(path).expect("the local name is fitted");
+    assert_eq!(object.name().as_str().len(), 63);
+    assert_eq!(
+        QualifiedTable::parse(object.to_string()).expect("its text form parses"),
+        object,
+        "a one-segment object round-trips"
+    );
+
+    let segment = format!("com.example.{}", "Segment".repeat(10));
+    let object = QualifiedTable::object(ObjectPath::parse(&segment).expect("names").expect("dotted"))
+        .expect("a long segment no longer refuses the name");
+    assert_eq!(object.name().as_str().len(), 63);
+    assert_eq!(
+        ObjectPath::parse("Aircraft"),
+        Ok(None),
+        "a plain name that fits stays a table"
+    );
+}
+
+#[test]
+fn fitting_cuts_on_a_character_boundary_and_leaves_a_name_that_fits_alone() {
+    use crate::model::fitted;
+
+    assert_eq!(fitted(String::from("short"), "short"), "short");
+    // 45 ASCII bytes then a two-byte character straddling the 46-byte cut.
+    let readable = format!("{}\u{e9}{}", "a".repeat(45), "b".repeat(40));
+    let fit = fitted(readable.clone(), &readable);
+    assert!(fit.len() <= 63, "{}", fit.len());
+    assert!(fit.starts_with(&"a".repeat(45)), "{fit}");
+    assert!(
+        !fit.contains('\u{e9}'),
+        "the straddling character was kept whole or not at all: {fit}"
+    );
+    assert_eq!(fit.len(), 45 + 1 + 16);
+    assert_eq!(fitted(readable.clone(), &readable), fit, "stable");
+    let ascii = "x".repeat(80);
+    assert_eq!(fitted(ascii.clone(), &ascii).len(), 63);
+}
+
+#[test]
+fn a_resource_identifier_is_one_object_with_a_derived_local_name() {
+    use crate::model::ResourceId;
+
+    let rid = "ri.ontology.main.object-type.3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    for written in [rid.to_owned(), format!("`{rid}`")] {
+        let table = QualifiedTable::parse(&written).expect("a resource identifier is a table");
+        assert_eq!(table.resource_id().map(ResourceId::as_str), Some(rid));
+        assert_eq!(table.qualification(), Qualification::Object);
+        assert_eq!(table.object_reference().as_deref(), Some(rid));
+        assert!(table.name().as_str().starts_with("object_"), "{}", table.name());
+        assert_eq!(table.to_string(), format!("`{rid}`"));
+        let json = serde_json::to_string(&table).expect("serializes");
+        assert_eq!(serde_json::from_str::<QualifiedTable>(&json).expect("reads back"), table);
+    }
+    for refused in [
+        "`ri.ontology.main.object-type`",
+        "ri.a.b.c.d e",
+        "ri..b.c.d",
+        "`ri.a.b/c.d.e`",
+    ] {
+        assert!(
+            matches!(QualifiedTable::parse(refused), Err(InvalidQualifiedTable::ResourceId { .. })),
+            "{refused:?}"
+        );
+    }
+    assert_eq!(
+        QualifiedTable::parse("ri.sales.orders").expect("a path").qualification(),
+        Qualification::ProjectAndDataset,
+        "three parts stay a path"
+    );
+}

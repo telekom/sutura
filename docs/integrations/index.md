@@ -47,6 +47,15 @@ The catalog reads from a metadata platform over its API.
 
     [:octicons-arrow-right-24: OpenMetadata](catalogs/openmetadata.md)
 
+-   :material-graph-outline:{ .lg .middle } __Foundry__
+
+    ---
+
+    <span class="sutura-badge">Catalog · experimental</span>
+
+    Read object types, properties and foreign-key links from a Foundry ontology.
+
+    [:octicons-arrow-right-24: Foundry](catalogs/foundry.md)
 -   :material-api:{ .lg .middle } __OpenAPI__
 
     ---
@@ -213,6 +222,17 @@ The data system is a database.
 
     [:octicons-arrow-right-24: DuckDB](data-systems/duckdb.md)
 
+-   :material-graph-outline:{ .lg .middle } __Foundry__
+
+    ---
+
+    <span class="sutura-badge">Data system · experimental</span>
+    <span class="sutura-badge">shared-service-user</span>
+
+    Execute semantic plans through preview Ontology SQL. No real-tenant venue yet.
+
+    [:octicons-arrow-right-24: Foundry](data-systems/foundry.md)
+
 -   :material-database-cog:{ .lg .middle } __Oracle__
 
     ---
@@ -268,6 +288,7 @@ The data system reads files.
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
 | [DataFusion (files)](data-systems/datafusion.md) | `shared-service-user` only                                                                   |
 | [DuckDB](data-systems/duckdb.md)                 | `shared-service-user` only                                                                   |
+| [Foundry](data-systems/foundry.md)               | Experimental: `shared-service-user` only; no real-tenant venue                               |
 | [BigQuery](data-systems/bigquery.md)             | `shared-service-user` and secure-impersonation                                               |
 | [PostgreSQL](data-systems/postgres.md)           | `shared-service-user` only                                                                   |
 | [ClickHouse](data-systems/clickhouse.md)         | `shared-service-user` and secure-impersonation (EXECUTE AS)                                  |

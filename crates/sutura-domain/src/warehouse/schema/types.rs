@@ -19,6 +19,7 @@ pub enum TypeDialect {
     ClickHouse,
     BigQuery,
     Oracle,
+    Foundry,
 }
 
 /// An explicitly selected exact representation for an unbounded Oracle NUMBER.
@@ -38,7 +39,7 @@ impl TypeDialect {
     pub const fn engine_collation(self) -> Option<&'static Collation> {
         match self {
             Self::DataFusion | Self::ClickHouse => Some(&BINARY),
-            Self::DuckDb | Self::Cube | Self::Postgres | Self::BigQuery | Self::Oracle => None,
+            Self::DuckDb | Self::Cube | Self::Postgres | Self::BigQuery | Self::Oracle | Self::Foundry => None,
         }
     }
 
@@ -80,6 +81,7 @@ impl TypeDialect {
                 Self::ClickHouse => clickhouse(name, parameters),
                 Self::BigQuery => bigquery(name, parameters),
                 Self::Oracle => oracle(name, parameters),
+                Self::Foundry => foundry(name, parameters),
                 Self::DuckDb | Self::Postgres | Self::DataFusion => postgres(name, parameters),
                 Self::Cube => match name {
                     "number" => Some(DataType::Float64),
@@ -124,6 +126,22 @@ fn bigquery(name: &str, parameters: Option<&str>) -> Option<DataType> {
         "date" => Some(DataType::Date32),
         "timestamp" => Some(micros(Some("UTC"))),
         "datetime" => Some(micros(None)),
+        _ => None,
+    }
+}
+
+fn foundry(name: &str, parameters: Option<&str>) -> Option<DataType> {
+    match name {
+        "byte" | "tinyint" => Some(DataType::Int8),
+        "short" | "smallint" => Some(DataType::Int16),
+        "integer" | "int" => Some(DataType::Int32),
+        "long" | "bigint" => Some(DataType::Int64),
+        "float" => Some(DataType::Float32),
+        "double" => Some(DataType::Float64),
+        "decimal" => parameters.and_then(decimal),
+        "date" => Some(DataType::Date32),
+        "timestamp" => Some(micros(Some("UTC"))),
+        "binary" => Some(DataType::Binary),
         _ => None,
     }
 }

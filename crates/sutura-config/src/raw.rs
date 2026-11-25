@@ -106,6 +106,9 @@ pub(crate) struct RawSource {
     /// The removed default dataset, refused at load: a table path names its project and dataset.
     #[serde(default)]
     pub(crate) dataset: Option<String>,
+    /// The Foundry ontology API name or resource identifier for `kind: foundry`.
+    #[serde(default)]
+    pub(crate) ontology: Option<String>,
     /// Who a `bigquery` source's jobs are billed to.
     #[serde(default)]
     pub(crate) billing: Option<RawBilling>,
@@ -151,10 +154,27 @@ pub(crate) struct RawSource {
     /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
     #[serde(default)]
     pub(crate) split: Option<String>,
+    /// Whether each caller's catalog view is narrowed by this source - see
+    /// `crate::sources::catalog_visibility::CatalogVisibility`.
+    #[serde(default)]
+    pub(crate) catalog_visibility: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]
-    pub(crate) google_login: Option<RawGoogleLogin>,
+    pub(crate) google_login: Option<RawBrokeredLogin>,
+    /// The caller's own Foundry login, brokered by the identity provider - see
+    /// `crate::sources::caller_identity`.
+    #[serde(default)]
+    pub(crate) foundry_login: Option<RawBrokeredLogin>,
+    /// A `foundry` source's deployment grant, and an impersonating one's startup-only grant - see
+    /// `crate::sources::foundry`.
+    #[serde(default)]
+    pub(crate) client_credentials: Option<crate::client_credentials::RawClientCredentials>,
+    #[serde(default)]
+    pub(crate) verification_client_credentials: Option<crate::client_credentials::RawClientCredentials>,
+    /// A `foundry` source's own object-type exclusions - see `crate::sources::foundry`.
+    #[serde(default)]
+    pub(crate) exclude_object_types: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) caller_google_token: Option<RawCallerGoogleToken>,
     /// Domain-wide delegation through one service account - see `crate::sources::caller_identity`.
@@ -259,11 +279,11 @@ pub(crate) struct RawCallerGoogleToken {
     pub(crate) acknowledged_because: Option<String>,
 }
 
-/// One source's `google_login` block, as read. `client_secret_file` is a PATH. No `audience` key:
-/// a Google access token is opaque, so nothing could compare one.
+/// One source's `google_login` or `foundry_login` block, as read. `client_secret_file` is a PATH.
+/// No `audience` key: the brokered token is opaque, so nothing could compare one.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RawGoogleLogin {
+pub(crate) struct RawBrokeredLogin {
     pub(crate) token_endpoint: String,
     pub(crate) client_id: String,
     pub(crate) client_secret_file: String,
@@ -797,6 +817,9 @@ pub(crate) struct RawCatalog {
     /// stays `refuse`, the behaviour before this key existed.
     #[serde(default)]
     pub(crate) on_missing_endpoint: Option<String>,
+    /// `catalog.kind: foundry` only: the ontology and the client-credentials grant.
+    #[serde(default)]
+    pub(crate) foundry: Option<crate::catalog::foundry::RawFoundry>,
 }
 
 /// Native dictionary include pair. Patterns are data, never SQL fragments.

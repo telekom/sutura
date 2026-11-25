@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-cli/src/serve/visibility.rs b/crates/sutura-cli/src/serve/visibility.rs
+--- a/crates/sutura-cli/src/serve/visibility.rs
++++ b/crates/sutura-cli/src/serve/visibility.rs
+@@ -24,7 +24,7 @@
+     let declaring: Vec<_> = settings
+         .sources()
+         .each()
+-        .filter(|&(_, source)| sutura_config::sources::catalog_visibility::CatalogVisibility::of(source).is_some())
++        .filter(|&(_, source)| matches!(source.placement(), sutura_config::SourcePlacement::Foundry { .. }))
+         .collect();
+     if declaring.is_empty() {
+         return Ok(None);

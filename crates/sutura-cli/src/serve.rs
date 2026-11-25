@@ -47,7 +47,7 @@ use sutura_config::{Settings, Sources, TlsMaterial};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_http::ServiceState;
-use sutura_runtime::{Admission, Shutdown, banner, shutdown, telemetry};
+use sutura_runtime::{Admission, Shutdown, banner, shutdown};
 
 /// The refusals this root makes by reading the bundle. `main.rs` keeps the ORDER they run in.
 mod boot;
@@ -67,16 +67,17 @@ use not_linked::worker_refused as run_worker;
 #[cfg(feature = "distributed")]
 use worker::run as run_worker;
 
-/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the four
+/// The broker a deployment with an impersonating source is served under. `cfg`-gated on the
 /// adapters that can impersonate: a build that links none has no `DeclaredPrincipalBroker`.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
     feature = "oracle",
     feature = "cube",
+    feature = "foundry",
     feature = "node"
 ))]
-mod broker;
+pub(crate) mod broker;
 
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
 mod bigquery;
@@ -92,8 +93,12 @@ mod oracle;
 
 /// The same, for the Cube deployment this root opens.
 mod cube;
+/// The same, for the Foundry Ontology SQL source this root opens.
+mod foundry;
 /// The `node` half: another sutura node running a source's legs, inside the mix only.
 mod node;
+/// The sources that narrow each caller's catalog view, `sources.<alias>.catalog_visibility`.
+mod visibility;
 
 /// The same, for the `DuckDB` file this root opens read-only.
 mod duckdb;
@@ -200,7 +205,6 @@ pub(crate) fn run() -> Result<(), String> {
         sutura_config::ServerRole::Serving => {}
         sutura_config::ServerRole::Worker | sutura_config::ServerRole::ReadingWorker => return run_worker(&settings),
     }
-
     // A deployment that asked for the agent surface on a build without the transport must refuse
     // rather than silently serve no `/mcp` - the same "configured for a build it does not have"
     // refusal `serve_as_configured` gives for TLS. `agent_refused_if_enabled` is the feature-off
@@ -229,12 +233,7 @@ pub(crate) fn run() -> Result<(), String> {
     #[cfg(feature = "distributed")]
     let combiner = combiner.row_ceiling(settings.federated_row_ceiling());
 
-    // 4. The log, then the panic hook.
-    telemetry::install(settings.telemetry()).map_err(flatten)?;
-    sutura_runtime::install_panic_hook();
-
-    // 5. What was resolved, and what this service does not do.
-    banner::announce(&settings);
+    compose::install_telemetry(&settings)?;
 
     // `security.outbound.transport_anchors`, before any adapter is opened - the same order leg 1's
     // key set is read in, for the same reason: an unreadable declaration stops the process rather
@@ -264,13 +263,6 @@ pub(crate) fn run() -> Result<(), String> {
         settings.server().request_timeout(),
         outbound.as_ref(),
     )?;
-    // `LocalService::start_composed` loads the declared catalogs a SECOND time - and composes them -
-    // rather than being handed the bundle above, and that is deliberate: the bundle it validates has
-    // to be the bundle it serves, and the only way to guarantee that is for the same call to do
-    // both. The load above exists so the engine can be opened for the sources the catalog actually
-    // names, which has to happen first. For N catalogs the assembler is what makes the two bundles
-    // the same value rather than each source's own.
-    //
     // The audit sink is named here too, and it is the third port this root attaches. A deployment
     // that wants records somewhere else replaces this one argument; a deployment that attaches
     // nothing gets the structured writer over the subscriber installed at step 4, which is the sink
@@ -390,6 +382,20 @@ pub(crate) fn run() -> Result<(), String> {
             // default `preflight`. The file's tables are checked by the first anchor or question.
             (shared_identity_service(&catalogs, engines, combiner, None, &settings)?, None)
         }
+        #[cfg(feature = "foundry")]
+        OpenedSources::Foundry(engines) => {
+            // A Foundry source answers the pre-flight with the tables its `exclude_object_types`
+            // leaves out, so a model naming one by API name is refused here and on every refresh.
+            boot::refuse_absent_tables(&pinned, &engines)?;
+            foundry::served(
+                &catalogs,
+                engines,
+                combiner,
+                adoption_gate(None, true),
+                &settings,
+                outbound.as_ref(),
+            )?
+        }
         OpenedSources::Mixed(mixed) => {
             // One registry, so one pre-flight - generic in the adapter, so it runs the same way
             // over whichever kinds this mix opened. A `files` entry answers `NotReported` here for
@@ -397,40 +403,8 @@ pub(crate) fn run() -> Result<(), String> {
             // says is informational rather than a defect.
             boot::refuse_absent_tables(&pinned, &mixed.engines)?;
             let engines = nodes::splitting(mixed.engines, settings.server().tls(), settings.runtime());
-            // **One broker per ANSWER, so the choice is per BUILD and not per kind.** A mix may
-            // read a shared source of one kind and an impersonating one of another, and
-            // `build_broker` scans the whole registry rather than the `bigquery` entries - so "does
-            // this mix need the principal broker" is exactly "does this build link the adapter that
-            // can deliver one". With no impersonating source declared it holds the same shared map
-            // the static broker would, and refuses the same sources.
             let gate = adoption_gate(mixed.attached.clone(), true);
-            #[cfg(any(
-                feature = "bigquery",
-                feature = "clickhouse",
-                feature = "oracle",
-                feature = "cube",
-                feature = "node"
-            ))]
-            let served = compose::started(
-                &catalogs,
-                engines,
-                broker::build_broker(settings.sources(), outbound.as_ref())?,
-                combiner,
-                gate,
-                &settings,
-            )?;
-            // Neither impersonating adapter linked, so no adapter in this build declares
-            // `PerSubjectCredential` and every impersonating entry is already refused at its own
-            // posture cross-check. The static broker is then the whole truth: every declared shared
-            // source served as itself, and nothing else mintable.
-            #[cfg(not(any(
-                feature = "bigquery",
-                feature = "clickhouse",
-                feature = "oracle",
-                feature = "cube",
-                feature = "node"
-            )))]
-            let served = shared_identity_service(&catalogs, engines, combiner, gate, &settings)?;
+            let served = compose::mixed(&catalogs, engines, combiner, gate, &settings, outbound.as_ref())?;
             (served, mixed.attached)
         }
     };
@@ -733,6 +707,9 @@ pub(crate) enum OpenedSources {
     /// attached.
     #[cfg(feature = "cube")]
     Cube(sutura_app::Warehouses<CubeSource>),
+    /// A Foundry ontology SQL connection per source, reached over its synchronous Arrow API.
+    #[cfg(feature = "foundry")]
+    Foundry(sutura_app::Warehouses<FoundrySource>),
     /// More than one kind, erased behind [`kind::AnyWarehouse`] - unconditional, so a build with
     /// neither optional feature still refuses a genuinely mixed catalog by naming the missing
     /// feature rather than never reaching that arm.
@@ -757,6 +734,9 @@ pub(crate) type OracleSource = sutura_exec_oracle::OracleWarehouse;
 /// A Cube source as this binary composes it, re-exported from the ONE place it is named - `crate::cube`.
 #[cfg(feature = "cube")]
 pub(crate) use crate::cube::CubeSource;
+
+#[cfg(feature = "foundry")]
+pub(crate) use crate::foundry::FoundrySource;
 
 /// A `DuckDB` source as this binary composes it, named for `OracleSource`'s reason.
 #[cfg(feature = "duckdb")]
@@ -879,23 +859,31 @@ fn open_named(
         grouped.duckdb.is_empty(),
         grouped.cube.is_empty(),
         grouped.node.is_empty(),
+        grouped.foundry.is_empty(),
     ) {
-        (false, true, true, true, true, true, true, true) => {
+        (false, true, true, true, true, true, true, true, true) => {
             files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files)
         }
-        (true, false, true, true, true, true, true, true) => {
+        (true, false, true, true, true, true, true, true, true) => {
             bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound)
         }
-        (true, true, false, true, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false, true, true, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false, true, true, true) => oracle::open_oracle(&grouped.oracle, pinned, registry, runtime),
-        (true, true, true, true, true, false, true, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
-        (true, true, true, true, true, true, false, true) => cube::open_cube(&grouped.cube, registry, outbound),
+        (true, true, false, true, true, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false, true, true, true, true, true) => {
+            clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime)
+        }
+        (true, true, true, true, false, true, true, true, true) => {
+            oracle::open_oracle(&grouped.oracle, pinned, registry, runtime)
+        }
+        (true, true, true, true, true, false, true, true, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
+        (true, true, true, true, true, true, false, true, true) => cube::open_cube(&grouped.cube, registry, outbound),
+        (true, true, true, true, true, true, true, true, false) => {
+            foundry::open_foundry(&grouped.foundry, registry, outbound, runtime)
+        }
         // A `node` group always opens in the mix: it runs legs of a federated answer only.
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true, true, true, true, true, true) => {
+        (true, true, true, true, true, true, true, true, true) => {
             Err(String::from("this catalog declares no models, so there is nothing to open"))
         }
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),

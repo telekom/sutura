@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.params()
+---
+- Date: 2026-06-01
+- Date: 2026-07-01
+- Text: active
+- Text: annual
+- Text: north

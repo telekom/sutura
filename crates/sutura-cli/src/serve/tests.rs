@@ -86,6 +86,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::Duckdb(_)) => panic!("expected the file engine, got the DuckDB arm"),
         #[cfg(feature = "cube")]
         Ok(OpenedSources::Cube(_)) => panic!("expected the file engine, got the Cube arm"),
+        #[cfg(feature = "foundry")]
+        Ok(OpenedSources::Foundry(_)) => panic!("expected the file engine, got the Foundry arm"),
         Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }
@@ -436,6 +438,14 @@ mod caller_rate;
 // The delegation exchange behind the served HTTP surface and the real leg-1 gate (#1230).
 #[cfg(feature = "bigquery")]
 pub(in crate::serve) mod delegation_served;
+
+// A `foundry_login` source behind the same router: each caller's own brokered Foundry token.
+#[cfg(all(feature = "foundry", feature = "bigquery"))]
+mod foundry_login;
+
+// `catalog_visibility: per-caller` on that source: each caller's catalog narrowed by their own token.
+#[cfg(all(feature = "foundry", feature = "bigquery"))]
+mod foundry_visibility;
 
 #[test]
 #[cfg(feature = "bigquery")]

@@ -84,7 +84,12 @@ pub(super) fn produced(outcome: &sutura_domain::query::ToolOutcome) -> CallToolR
 /// the same judgement `sutura_http::problem`'s internal failure already makes.
 pub(super) fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
     tracing::error!(error = %failure, causes = ?cause_chain(failure), "the agent surface could not answer");
-    failed(match *failure {
+    failed(sentence(failure))
+}
+
+/// The fixed sentence a [`SurfaceFailure`] is told to an agent as - nothing derived from its cause.
+pub(super) const fn sentence(failure: &SurfaceFailure) -> &'static str {
+    match *failure {
         SurfaceFailure::Compile { .. } => "this deployment could not compile the question",
         SurfaceFailure::Warehouse { .. } => "the data system did not answer",
         // Written for an agent: what it needs is whether waiting helps. It does here, and it does
@@ -99,7 +104,7 @@ pub(super) fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
         SurfaceFailure::Miswired { .. } => {
             "this deployment is misconfigured: what it holds for the data system does not match the question's. Nothing you can change - report it"
         }
-    })
+    }
 }
 
 /// A tool result that says the call failed, with a fixed sentence and nothing derived from a cause.

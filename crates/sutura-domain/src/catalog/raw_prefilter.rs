@@ -55,7 +55,7 @@ impl PrefilterCapability {
             TypeDialect::ClickHouse => Some(Self::ClickHouse),
             TypeDialect::DuckDb => Some(Self::DuckDb),
             TypeDialect::BigQuery => Some(Self::BigQuery),
-            TypeDialect::Cube => None,
+            TypeDialect::Cube | TypeDialect::Foundry => None,
         }
     }
 }

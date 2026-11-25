@@ -83,14 +83,16 @@ use std::sync::{Arc, PoisonError};
 
 use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::catalog::DefinitionsByteBound;
-use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::{Ceilings, DrillAcrossCombiner, WorkerSlotsWanted};
 use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::visibility::HiddenModels;
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::labels::JobLabels;
+
+pub use adoption::{Adopted, NotAdopted};
 
 use crate::noting::NotingBroker;
 use crate::proof::{pin_schemas, validate_with};
@@ -258,6 +260,39 @@ pub trait Surface: Send + Sync + 'static {
     fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
         None
     }
+
+    /// The models in `pinned` this caller is not shown, for a catalog or listing door to pass to
+    /// [`sutura_domain::pinned::view::ScopedView::hiding`] -
+    /// `docs/adr/20261125083027-catalog-visibility-per-caller.md`.
+    ///
+    /// **Required, with no default, on purpose**: a wrapper that forwards every other method and
+    /// forgot this one would show every caller the whole catalog. A service that declared no
+    /// per-caller visibility answers [`HiddenModels::none`] without dialling anything.
+    ///
+    /// **It narrows what is SEEN.** [`Self::answer`] does not read it; a question on a hidden model is
+    /// refused, if at all, by the source under the caller's own credential.
+    ///
+    /// May dial a broker and a source, so a transport calls it on its blocking pool.
+    ///
+    /// # Errors
+    ///
+    /// A [`SurfaceFailure`] for every way the caller's listing could not be read - never the
+    /// unfiltered set.
+    fn hidden_models(
+        &self,
+        context: &RequestContext,
+        pinned: &PinnedDefinitions,
+        deadline: Deadline,
+    ) -> Result<HiddenModels, SurfaceFailure>;
+
+    /// Whether [`Self::hidden_models`] would dial a broker or a source for `context`'s caller now -
+    /// a narrowing declared and no fresh listing held for that caller - so a transport takes an
+    /// admission slot before calling it, as it does before a question, and takes none on a hit.
+    ///
+    /// Required, with no default, for [`Self::hidden_models`]'s reason: a forwarding wrapper that
+    /// forgot it would let every miss dial with no bound. **The limit:** it is asked before the
+    /// call, so a listing that expires between the two dials without a slot.
+    fn catalog_dials(&self, context: &RequestContext) -> bool;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -269,7 +304,7 @@ pub type ErasedCause = Box<dyn core::error::Error + Send + Sync + 'static>;
 /// A broker failure, as [`SurfaceFailure::NotLinked`] when a cause in its chain is
 /// [`sutura_domain::identity::DelegationFailed::NotLinked`] at any hop, and
 /// [`SurfaceFailure::Broker`] otherwise.
-fn broker_failure(cause: ErasedCause) -> SurfaceFailure {
+pub(crate) fn broker_failure(cause: ErasedCause) -> SurfaceFailure {
     let not_linked =
         core::iter::successors(Some(&*cause as &(dyn core::error::Error + 'static)), |error| error.source()).any(|error| {
             error
@@ -377,39 +412,6 @@ impl SurfaceFailure {
             Self::Miswired { .. } => "miswired",
         }
     }
-}
-
-/// What a refresh did to the served bundle.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Adopted {
-    /// The bundle read and its schema set have the digests already served; nothing changed.
-    Unchanged,
-    /// A different bundle, or the same one over a different schema set, passed every check and is
-    /// what the next question reads. The two digests are equal where only the schema set changed.
-    Rotated {
-        /// The digest that was served until now.
-        previous: DefinitionDigest,
-        /// The digest served from now on.
-        digest: DefinitionDigest,
-    },
-}
-
-/// Why a refreshed bundle was not stored. The bundle already served is still the one served.
-#[derive(Debug, thiserror::Error)]
-pub enum NotAdopted {
-    /// The deployment's own pre-flight refused it: a model names a table this process does not hold.
-    #[error("the refreshed bundle names tables this deployment cannot serve")]
-    Preflight {
-        /// The deployment's own refusal, whatever type it is.
-        #[source]
-        cause: ErasedCause,
-    },
-    /// A declared key or an anchor did not hold, or could not be run.
-    #[error("the refreshed bundle is not fit to serve")]
-    NotValidated {
-        #[source]
-        cause: NotValidated,
-    },
 }
 
 /// The deployment's pre-flight over a refreshed bundle: what boot ran over the first one, run again
@@ -522,6 +524,8 @@ pub struct LocalService<W, S, B, C> {
     spend_ledger: SpendLedger,
     ceilings: Ceilings,
     run_sql: RunSqlScope,
+    /// The sources a caller's catalog view is narrowed by; `None`, the default, narrows nothing.
+    visibility: Option<crate::visibility::CatalogVisibility>,
 }
 
 impl<W, S, B, C> LocalService<W, S, B, C>
@@ -629,6 +633,7 @@ where
             spend_ledger: SpendLedger::no_budget(),
             ceilings: Ceilings::DEFAULT,
             run_sql: RunSqlScope::EVERY_OPEN_SOURCE,
+            visibility: None,
         })
     }
 
@@ -661,6 +666,15 @@ where
     #[must_use]
     pub fn with_run_sql(mut self, run_sql: RunSqlScope) -> Self {
         self.run_sql = run_sql;
+        self
+    }
+
+    /// Narrows each caller's catalog view by what the declared sources list under that caller's own
+    /// credential - `docs/adr/20261125083027-catalog-visibility-per-caller.md`. Without it,
+    /// [`Surface::hidden_models`] hides nothing.
+    #[must_use]
+    pub fn with_catalog_visibility(mut self, visibility: crate::visibility::CatalogVisibility) -> Self {
+        self.visibility = Some(visibility);
         self
     }
 
@@ -918,6 +932,24 @@ where
         self.spend_ledger.spent_bytes_total()
     }
 
+    fn hidden_models(
+        &self,
+        context: &RequestContext,
+        pinned: &PinnedDefinitions,
+        deadline: Deadline,
+    ) -> Result<HiddenModels, SurfaceFailure> {
+        self.visibility.as_ref().map_or_else(
+            || Ok(HiddenModels::none()),
+            |visibility| visibility.hidden_from(&self.broker, &self.warehouses, context, pinned, deadline),
+        )
+    }
+
+    fn catalog_dials(&self, context: &RequestContext) -> bool {
+        self.visibility
+            .as_ref()
+            .is_some_and(|visibility| visibility.dials_for(context.chain()))
+    }
+
     fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
         self.combiner.worker_slots_wanted()
     }
@@ -946,6 +978,8 @@ impl<W, S, B, C> core::fmt::Debug for LocalService<W, S, B, C> {
             .finish_non_exhaustive()
     }
 }
+
+mod adoption;
 
 #[cfg(test)]
 mod tests;

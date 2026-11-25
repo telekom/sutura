@@ -31,6 +31,8 @@ use sutura_domain::catalog::DefinitionsByteBound;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 use sutura_http::LocalService;
 
+pub(crate) mod foundry;
+
 /// The service either composition root builds over one opened catalog kind.
 ///
 /// Named because the concrete type is over `clippy::type_complexity`: the warehouse and the broker
@@ -62,6 +64,9 @@ pub(crate) enum OpenedCatalogs {
     /// EXPERIMENTAL: an `OpenAPI`-described metadata API, behind the default-off `openapi` feature.
     #[cfg(feature = "openapi")]
     OpenApi(Vec<crate::openapi::OpenApiSource>),
+    /// EXPERIMENTAL: a Foundry ontology, behind this crate's default-off `foundry` feature.
+    #[cfg(feature = "foundry")]
+    Foundry(Vec<sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::http::HttpOntologyReader>>),
     /// A directory of ODCS v3 data-contract documents - `#973`. `sutura-catalog-datacontract` is an
     /// unconditional dependency of this build (pure directory read, no TLS - the same shape
     /// `sutura-catalog-okf` holds), so `catalog.kind: datacontract` is openable by every build of
@@ -170,6 +175,7 @@ fn open_catalog_without_descriptions(
             "catalog.kind: openapi names an EXPERIMENTAL metadata adapter this binary was not built to link - \
              build sutura-cli with --features openapi, or declare markdown catalogs",
         )),
+        sutura_config::CatalogKind::Foundry => foundry::open_foundry_catalogs(catalogs, outbound),
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
         sutura_config::CatalogKind::Rdbms => {
@@ -196,6 +202,8 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         OpenedCatalogs::Cube(catalogs) => load_each(catalogs),
         #[cfg(feature = "openapi")]
         OpenedCatalogs::OpenApi(catalogs) => load_each(catalogs),
+        #[cfg(feature = "foundry")]
+        OpenedCatalogs::Foundry(catalogs) => load_each(catalogs),
         OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
         #[cfg(feature = "rdbms")]
         OpenedCatalogs::Rdbms(catalogs) => native::load(catalogs, &[]),
@@ -288,6 +296,8 @@ where
         OpenedCatalogs::Cube(catalogs) => start!(catalogs),
         #[cfg(feature = "openapi")]
         OpenedCatalogs::OpenApi(catalogs) => start!(catalogs),
+        #[cfg(feature = "foundry")]
+        OpenedCatalogs::Foundry(catalogs) => start!(catalogs),
         OpenedCatalogs::DataContract(catalogs) => start!(catalogs),
         #[cfg(feature = "rdbms")]
         OpenedCatalogs::Rdbms(_) | OpenedCatalogs::RdbmsWithMarkdown { .. } => LocalService::start_pinned(

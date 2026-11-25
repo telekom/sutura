@@ -12,9 +12,14 @@
 //! field is an escape hatch, and an escape hatch on the query path is the thing being defended
 //! against.
 
+mod exclusion;
 mod qualified;
 
-pub use qualified::{DatasetName, InvalidQualifiedTable, ProjectName, Qualification, QualifiedTable, TableQualifier};
+pub use exclusion::{ApiNamePattern, DEFAULT_EXCLUSION, InvalidApiNamePattern, ObjectTypeExclusions};
+pub use qualified::{
+    DatasetName, InvalidQualifiedTable, ObjectPath, ProjectName, Qualification, QualifiedTable, ResourceId, TableQualifier,
+    fitted,
+};
 
 /// Whether a data system tells two identifiers in one statement apart by case.
 ///

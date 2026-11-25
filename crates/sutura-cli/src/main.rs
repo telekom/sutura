@@ -104,6 +104,12 @@ mod cube;
 /// The ONE DuckDB composition, reached by both composition roots below - `oracle`'s shape.
 #[cfg(feature = "duckdb")]
 mod duckdb;
+/// The EXPERIMENTAL Foundry source composition, shared by `serve` and `query`/`mcp`.
+#[cfg(feature = "foundry")]
+mod foundry;
+/// `sutura foundry-check`: the configured Foundry catalogs and sources, one redacted line a step.
+#[cfg(feature = "foundry")]
+mod foundry_check;
 mod import;
 mod mcp;
 /// The EXPERIMENTAL `openapi` catalog composition, reached through `crate::catalog`.
@@ -112,11 +118,12 @@ mod openapi;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The secret-file read the `bigquery`, `clickhouse`, `cube`, `openapi`, `oracle`, `postgres` and `rdbms` builds share.
+/// The secret-file read shared by the outbound readers.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "openapi",
     feature = "oracle",
@@ -140,6 +147,7 @@ mod postgres;
     feature = "clickhouse",
     feature = "cube",
     feature = "datahub",
+    feature = "foundry",
     feature = "node",
     feature = "openapi",
     feature = "openmetadata",
@@ -279,7 +287,27 @@ const COMMANDS: &[Cmd] = &[
         // preserved: one binary now has one error prefix, the same way it has one `--help`.
         run: |_args| commands::report(serve::run()),
     },
+    Cmd {
+        name: "foundry-check",
+        args: "[--names] [caller-token-file]",
+        description: "check the configured Foundry catalogs and sources a step at a time, one line each, with no token, host, identifier or - unless --names - tenant name in it",
+        run: foundry_check,
+    },
 ];
+
+/// `foundry-check` on a build that linked the Foundry adapters.
+#[cfg(feature = "foundry")]
+fn foundry_check(args: &[String]) -> ExitCode {
+    foundry_check::foundry_check(args)
+}
+
+/// `foundry-check` on a build that did not: listed in every build, refused here by name.
+#[cfg(not(feature = "foundry"))]
+fn foundry_check(_args: &[String]) -> ExitCode {
+    commands::report(Err(String::from(
+        "this binary was built without the `foundry` feature, so it links no Foundry adapter to check - build `sutura-cli` with `--features foundry`",
+    )))
+}
 
 /// What an argument vector asked for.
 ///
@@ -719,6 +747,18 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn foundry_check_is_listed_in_every_build_and_takes_only_an_optional_token_file() {
+        let check = COMMANDS
+            .iter()
+            .find(|c| c.name == "foundry-check")
+            .expect("foundry-check is listed in every build");
+        assert_eq!(
+            check.args, "[--names] [caller-token-file]",
+            "the caller's token arrives in a file or a variable, never as a literal argument"
+        );
     }
 
     #[test]

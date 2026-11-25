@@ -4,7 +4,8 @@
 //!
 //! The whole file is behind the three impersonating adapters' features in `serve.rs`'s
 //! `mod broker;`, and the `workload_identity` half behind `bigquery` alone. `delegation` composes
-//! the one exchange client, `sutura_http_client::delegation`, for a `bigquery`, `clickhouse` or `oracle` source.
+//! the one exchange client, `sutura_http_client::delegation`, for a `bigquery`, `clickhouse` or `oracle` source,
+//! and `brokered_login` its linked-account request for a `google_login` or `foundry_login` source.
 //!
 //! **This replaces the exchanging broker's builder rather than restoring it.** That one wired
 //! `StsOverHttp` and `IamCredentialsOverHttp`, both deleted with the `wire` transport, so it has no
@@ -46,12 +47,13 @@ pub(crate) fn build_broker(
             feature = "bigquery",
             feature = "clickhouse",
             feature = "cube",
+            feature = "foundry",
             feature = "node",
             feature = "oracle"
         )),
         expect(
             unused_variables,
-            reason = "only a `bigquery`, `clickhouse`, `cube` or `oracle` source composes a delegation over it"
+            reason = "only a `bigquery`, `clickhouse`, `cube`, `foundry` or `oracle` source composes a delegation over it"
         )
     )]
     outbound: Option<&sutura_tls::Declared>,
@@ -95,6 +97,15 @@ pub(crate) fn build_broker(
                 delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
             );
         }
+        // Each question's bearer is the Foundry token the caller's own linked account stored at
+        // the identity provider; the source resolves it to that Foundry user itself.
+        #[cfg(feature = "foundry")]
+        if let Some(sutura_config::sources::caller_identity::CallerIdentity::FoundryLogin(login)) = source.caller_identity() {
+            broker = broker.authenticating(
+                alias.clone(),
+                brokered_login(&format!("sources.{alias}.foundry_login"), login, outbound)?,
+            );
+        }
         #[cfg(feature = "bigquery")]
         {
             if let sutura_config::SourcePlacement::BigQuery { ref billing, .. } = *source.placement() {
@@ -123,9 +134,11 @@ fn federating(
         Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(login)) => {
             return Ok(broker.federating(
                 alias.clone(),
-                Some(google_login(&format!("sources.{alias}.google_login"), login, outbound)?),
+                Some(brokered_login(&format!("sources.{alias}.google_login"), login, outbound)?),
             ));
         }
+        // Not a `bigquery` source's block: `build_broker` adds it as an authenticating source.
+        Some(sutura_config::sources::caller_identity::CallerIdentity::FoundryLogin(_)) => return Ok(broker),
         Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(delegation)) => {
             return Ok(broker.addressing(alias.clone(), delegation.address_domains().cloned()));
         }
@@ -226,15 +239,28 @@ fn delegation(
         })
 }
 
-/// A `google_login` block composed into its one request: the identity provider's broker token
-/// endpoint, asked with the caller's own inbound token for the stored token of the caller's
-/// linked Google account. No hop runs before it.
-#[cfg(feature = "bigquery")]
-fn google_login(
+/// A `google_login` or `foundry_login` block composed into its one request: the identity
+/// provider's broker token endpoint, asked with the caller's own inbound token for the stored token
+/// of the caller's linked Google or Foundry account. No hop runs before it.
+#[cfg(any(feature = "bigquery", feature = "foundry"))]
+fn brokered_login(
     key: &str,
-    login: &sutura_config::sources::caller_identity::GoogleLogin,
+    login: &sutura_config::sources::caller_identity::BrokeredLogin,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<sutura_domain::identity::Delegation, String> {
+    Ok(sutura_domain::identity::Delegation::linked(std::sync::Arc::new(
+        linked_login(key, login, outbound)?,
+    )))
+}
+
+/// The broker token endpoint client one `google_login` or `foundry_login` block declares, its
+/// client secret read here - the one composition `serve` and `foundry-check` both open.
+#[cfg(any(feature = "bigquery", feature = "foundry"))]
+pub(crate) fn linked_login(
+    key: &str,
+    login: &sutura_config::sources::caller_identity::BrokeredLogin,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_http_client::delegation::BrokeredLogin, String> {
     use sutura_http_client::delegation::{BrokeredLogin, ExchangeClient, TokenEndpoint};
 
     let (agent, bounds) = exchange_agent(outbound)?;
@@ -243,9 +269,7 @@ fn google_login(
     let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), login.client_secret_file())?;
     let client =
         ExchangeClient::new(login.client_id(), secret).map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
-    Ok(sutura_domain::identity::Delegation::linked(std::sync::Arc::new(
-        BrokeredLogin::new(endpoint, client, agent, bounds),
-    )))
+    Ok(BrokeredLogin::new(endpoint, client, agent, bounds))
 }
 
 /// The exchange a `workload_identity` `BigQuery` source's subjects go through: Google's token
@@ -280,6 +304,7 @@ fn configured_pool_exchange<T>(
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "oracle"
 ))]
@@ -290,6 +315,7 @@ type ExchangeAgent = (sutura_http_client::RotatingAgent, sutura_http_client::Rea
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "oracle"
 ))]
@@ -306,6 +332,7 @@ fn exchange_agent(outbound: Option<&sutura_tls::Declared>) -> Result<ExchangeAge
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "oracle"
 ))]
@@ -317,6 +344,7 @@ const EXCHANGE_TIMEOUT_SECONDS: u64 = 10;
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "oracle"
 ))]

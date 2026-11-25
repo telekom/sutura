@@ -166,6 +166,22 @@ mod tests {
         }
     }
 
+    /// `foundry-check` reads the directory every other command reads: one declaring no Foundry
+    /// catalog or source is told so on standard output, and the run fails.
+    #[test]
+    #[cfg(feature = "foundry")]
+    fn foundry_check_reads_the_same_directory_and_fails_a_deployment_with_nothing_to_check() {
+        let dir = scratch("foundry-check-nothing");
+        let ran = run(Some(&config_declaring("warehouse", &dir)), &["foundry-check"]);
+        assert_eq!(ran.code, Some(1), "{}", ran.output());
+        assert_eq!(
+            ran.stdout,
+            "foundry: failed - the configuration declares no `foundry` catalog and no `foundry` source\n",
+            "{}",
+            ran.output()
+        );
+    }
+
     /// The example's own certified question, written where this suite can pass it as a path.
     fn question(into: &Path) -> PathBuf {
         let path = into.join("question.yaml");

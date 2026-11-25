@@ -34,6 +34,10 @@ macro_rules! statement {
             AnyWarehouse::Node(warehouse) => warehouse
                 .$method($($arg),*)
                 .map(|result| result.map_err(AnyWarehouseError::Node)),
+            #[cfg(feature = "foundry")]
+            AnyWarehouse::Foundry(warehouse) => warehouse
+                .$method($($arg),*)
+                .map(|result| result.map_err(AnyWarehouseError::Foundry)),
             #[cfg(all(test, feature = "bigquery"))]
             AnyWarehouse::Recorded(warehouse) => warehouse
                 .$method($($arg),*)

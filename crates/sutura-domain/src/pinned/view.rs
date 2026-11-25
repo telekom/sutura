@@ -7,6 +7,7 @@
 use crate::catalog::{GrantedAudiences, Metric, Model};
 use crate::model::{MetricName, ModelName};
 use crate::pinned::PinnedDefinitions;
+use crate::visibility::HiddenModels;
 
 /// Everything, or a caller's granted set. See [`ScopedView::everything`] and
 /// [`ScopedView::granted_by`] for who may construct each.
@@ -42,6 +43,9 @@ enum Scope {
 pub struct ScopedView<'a> {
     pinned: &'a PinnedDefinitions,
     scope: Scope,
+    /// Models a source declined to show this caller - [`Self::hiding`]. Empty unless a transport
+    /// asked the service which ones.
+    hidden: HiddenModels,
 }
 
 impl<'a> ScopedView<'a> {
@@ -54,6 +58,7 @@ impl<'a> ScopedView<'a> {
         Self {
             pinned,
             scope: Scope::Everything,
+            hidden: HiddenModels::none(),
         }
     }
 
@@ -64,7 +69,19 @@ impl<'a> ScopedView<'a> {
         Self {
             pinned,
             scope: Scope::Granted(granted),
+            hidden: HiddenModels::none(),
         }
+    }
+
+    /// This view without `hidden`'s models, nor any metric that reads one, nor any relationship
+    /// that ends at one - `docs/adr/20261125083027-catalog-visibility-per-caller.md`.
+    ///
+    /// Only removes, whatever `hidden` holds: it is added to what is already hidden. A whole-bundle
+    /// view narrowed this way is no longer [`Self::is_everything`].
+    #[must_use]
+    pub fn hiding(mut self, hidden: HiddenModels) -> Self {
+        self.hidden = self.hidden.and(hidden);
+        self
     }
 
     /// The bundle this view borrows from - for provenance, which is the whole bundle's digest.
@@ -81,8 +98,8 @@ impl<'a> ScopedView<'a> {
     /// audience is granted, which only this view represents.
     #[inline]
     #[must_use]
-    pub const fn is_everything(&self) -> bool {
-        matches!(&self.scope, Scope::Everything)
+    pub fn is_everything(&self) -> bool {
+        matches!(&self.scope, Scope::Everything) && self.hidden.is_empty()
     }
 
     /// One metric, if declared AND this caller may see it - absent, not undescribed.
@@ -132,17 +149,44 @@ impl<'a> ScopedView<'a> {
     }
 
     fn visible(&self, metric: &Metric) -> bool {
-        match &self.scope {
+        let granted = match &self.scope {
             Scope::Everything => true,
             Scope::Granted(granted) => metric.audience().visible_to(granted.as_set()),
-        }
+        };
+        granted && !self.reads_hidden(metric)
     }
 
     fn visible_model(&self, model: &Model) -> bool {
-        match &self.scope {
+        let granted = match &self.scope {
             Scope::Everything => true,
             Scope::Granted(granted) => model.audience().is_some_and(|audience| audience.visible_to(granted.as_set())),
+        };
+        granted && !self.hidden.hides(model.name())
+    }
+
+    /// Whether `metric` reads a hidden model: its own, a measure term's, or one a dimension's
+    /// relationship chain passes through. A metric over catalog-authored SQL is judged by its own
+    /// model alone - the text is not read for the tables it names.
+    fn reads_hidden(&self, metric: &Metric) -> bool {
+        if self.hidden.is_empty() {
+            return false;
         }
+        let definitions = self.pinned.definitions();
+        let hidden = |model: &ModelName| self.hidden.hides(model);
+        hidden(metric.model())
+            || metric
+                .measure()
+                .is_some_and(|measure| measure.models().into_iter().flatten().any(hidden))
+            || metric
+                .dimensions()
+                .values()
+                .filter_map(|dimension| dimension.via())
+                .flatten()
+                .any(|hop| {
+                    definitions
+                        .relationship(hop)
+                        .is_some_and(|relationship| hidden(relationship.origin_model()) || hidden(relationship.target_model()))
+                })
     }
 }
 

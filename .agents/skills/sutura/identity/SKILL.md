@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token under its declared verifier policy |
-| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery this process exchanges every verified caller's own assertion at Google's token service for the declared pool and hands the driver the token that comes back, which IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. `each_subject_executes_as_its_own_principal_at_the_declared_pool`, `the_deployments_own_identity_is_neither_subjects_principal` and `an_inbound_token_presented_without_the_hop_is_refused_at_the_pool` passed on 2026-11-02 in `github.com/telekom/sutura/actions/runs/41431036477`, over the in-process exchange with a fake standing in for the delegation hop; service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row that answers yes. **Oracle is supported as `shared-service-user` only, for now**: the token path is built and the settings accept it, but no run has shown a database executing as the asker (the end-user security context path is `github.com/telekom/sutura#1583`). Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery this process exchanges every verified caller's own assertion at Google's token service for the declared pool and hands the driver the token that comes back, which IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. `each_subject_executes_as_its_own_principal_at_the_declared_pool`, `the_deployments_own_identity_is_neither_subjects_principal` and `an_inbound_token_presented_without_the_hop_is_refused_at_the_pool` passed on 2026-11-02 in `github.com/telekom/sutura/actions/runs/41431036477`, over the in-process exchange with a fake standing in for the delegation hop; service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row that answers yes. **Oracle is supported as `shared-service-user` only, for now**: the token path is built and the settings accept it, but no run has shown a database executing as the asker (the end-user security context path is `github.com/telekom/sutura#1583`). An experimental `foundry` source with `foundry_login` is presented the caller's own brokered Foundry token and sends it as the bearer - built, held by fakes, observed on no tenant. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -23,6 +23,10 @@ allowed to read the catalog and not to ask a question - real least authority ove
 It buys nothing over the rows: both operations read the same bundle and every question runs with
 whatever access the process already had. Describing scope filtering as per-caller **data** access
 would be exactly the overstatement to avoid.
+The same holds for a `foundry_login` source's `catalog_visibility: per-caller`
+(`docs/adr/20261125083027-catalog-visibility-per-caller.md`): it hides models whose object type the
+caller's own token does not list, from the catalog and listing doors only - questions still compile
+against the whole bundle, and Foundry's refusal under that token is the data control.
 
 `docs/where-identity-is-proven.md` is one row per identity claim and the venue that can honestly
 answer it, with what each venue **cannot** answer beside it. Read it before citing a green run as
@@ -191,7 +195,9 @@ their own assertion (or the delegation exchange's result), and an anonymous requ
 `clickhouse` source is added with `switching`: its leg carries the declared user alone, as
 `Presented::SubjectPrincipal`, and no subject material leaves the process. An `oracle` source is
 added with `authenticating`: its ordered delegation exchanges the asker's assertion, and the
-database resolves the returned token to a user itself.
+database resolves the returned token to a user itself. A `foundry_login` source is added with
+`authenticating` over one `Delegation::linked` hop - `google_login`'s request, its token sent as the
+Foundry bearer; it holds no deployment token, so it boots no anchor.
 Maps by source, so one plan reading a shared source and an impersonating one is served by one
 broker. On `clickhouse` a declared per-source map keyed on the full verified
 [`SubjectKey`] says which callers this source may be asked as, and a caller absent from it is refused

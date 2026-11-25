@@ -104,6 +104,7 @@
 pub mod api;
 pub mod audience;
 pub mod catalog;
+pub mod client_credentials;
 pub mod credentials;
 pub mod environment;
 pub mod google_endpoints;
@@ -126,10 +127,10 @@ mod settings;
 pub use crate::api::ApiSettings;
 pub use crate::audience::{AudienceMapping, InvalidAudienceMapping};
 pub use crate::catalog::{
-    CatalogConnection, CatalogEnvironment, CatalogKind, CatalogSettings, Catalogs, Dialect, DictionarySource,
-    DocumentationSchema, InvalidCatalogSettings, InvalidConnection, InvalidDocumentationSchema, InvalidRdbmsCatalog,
-    LiveRowPredicate, MissingEndpointPolicy, OracleCatalogConnection, PostgresCatalogConnection, PredicateOperator,
-    RdbmsSettings, UnknownCatalogKind,
+    CatalogConnection, CatalogEnvironment, CatalogKind, CatalogSettings, Catalogs, ClientCredentialsSettings, Dialect,
+    DictionarySource, DocumentationSchema, FoundryAuth, FoundrySettings, InvalidCatalogSettings, InvalidConnection,
+    InvalidDocumentationSchema, InvalidFoundryCatalog, InvalidRdbmsCatalog, LiveRowPredicate, MissingEndpointPolicy,
+    OracleCatalogConnection, PostgresCatalogConnection, PredicateOperator, RdbmsSettings, UnknownCatalogKind,
 };
 pub use crate::credentials::declared::{DeclaredPrincipalBroker, DeclaredPrincipalsUnusable};
 pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};

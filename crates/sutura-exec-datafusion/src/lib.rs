@@ -599,7 +599,7 @@ impl DataFusionWarehouse {
         // Before the lookup, and it has to be before: `TableReference::bare` of the last part would
         // find the registered file and answer about it, which is a different table from the one the
         // catalog named.
-        if table.qualifier().is_some() {
+        if table.qualification() != sutura_domain::model::Qualification::TableOnly {
             return Err(DataFusionError::QualifiedTableUnreachable {
                 table: table.to_string(),
             });

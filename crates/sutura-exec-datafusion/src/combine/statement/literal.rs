@@ -85,7 +85,7 @@ pub(super) fn reader(dialect: TypeDialect) -> &'static dyn Dialect {
         TypeDialect::Postgres | TypeDialect::Cube => &PostgreSqlDialect {},
         TypeDialect::DuckDb => &DuckDbDialect {},
         TypeDialect::Oracle => &OracleDialect {},
-        TypeDialect::DataFusion => &GenericDialect {},
+        TypeDialect::DataFusion | TypeDialect::Foundry => &GenericDialect {},
     }
 }
 

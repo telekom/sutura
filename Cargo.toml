@@ -25,6 +25,7 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
+  "crates/sutura-catalog-foundry", # EXPERIMENTAL: a Foundry ontology; docs/what-foundry-can-carry.md - `#1727`.
   "crates/sutura-catalog-openapi", # EXPERIMENTAL: declaring source configured by an OpenAPI document - `#1727`.
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
@@ -47,6 +48,7 @@ members = [
   # implementor that speaks to the endpoint, because no test in this repository can verify one.
   # `.agents/skills/sutura/query-surface`'s built-and-not-wired inventory and `docs/adr/0017` carry the argument.
   "crates/sutura-exec-bigquery",
+  "crates/sutura-exec-foundry",
   "crates/sutura-exec-datafusion",
   # A network data system over an existing `Dialect::Postgres` rendering. THE DATA SOURCE, not an
   # engine, and shipped (`nix/shipped.nix` lists its feature): it proves the Postgres statement we
@@ -113,14 +115,12 @@ members = [
 # Windows and macOS built the Linux-only vendored allocator on its own account. Excluding the whole
 # directory by path prefix also keeps `--workspace` clippy and tests off third-party code.
 exclude = ["vendor"]
-
 [workspace.package]
 version = "0.19.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
 repository = "https://github.com/telekom/sutura"
-
 [workspace.dependencies]
 sutura-domain = { path = "crates/sutura-domain" }
 sutura-catalog-local = { path = "crates/sutura-catalog-local" }
@@ -130,6 +130,7 @@ sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
+sutura-catalog-foundry = { path = "crates/sutura-catalog-foundry" }
 sutura-catalog-openapi = { path = "crates/sutura-catalog-openapi" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
@@ -142,8 +143,8 @@ sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 # build, unconditionally where the edge is dev-only and does not propagate - and the four cross builds
 # - which pass `--package sutura-cli` and share an unscoped dependency derivation with the checks - are
 # unchanged. `cargo xtask unused-deps` is what keeps a line here honest in either direction: the entry
-# left this table when nothing linked the crate, and it is back because something does.
 sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
+sutura-exec-foundry = { path = "crates/sutura-exec-foundry" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
 # `sutura-exec-oracle` IS in this table because `sutura-app` inherits it
@@ -202,7 +203,6 @@ parking_lot = "0.13"
 # Parsed only to validate configured resource and issuer URLs. The original spelling remains the
 # stored value because OAuth resource indicators are compared byte for byte.
 url = { version = "2.5", default-features = false }
-
 # The `StreamExt` `sutura-exec-datafusion` drains an engine stream with; already in the graph
 # through `datafusion`, so naming it adds no supply-chain surface.
 futures-util = "0.3"
@@ -314,8 +314,8 @@ polyglot-sql = { version = "0.14.0", default-features = false, features = [
   "dialect-clickhouse",
   "dialect-bigquery",
   "dialect-oracle",
+  "dialect-spark",
 ] }
-
 # The in-process engine, for the adapter that executes a plan without rendering it. It has no
 # dialect: a plan becomes a logical plan over Arrow, which is the whole reason the `Warehouse` port
 # takes a plan rather than a statement.

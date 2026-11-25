@@ -102,6 +102,7 @@ pub(super) fn list(executions: &[Execution]) -> Vec<ExecutionContent> {
                     TypeDialect::ClickHouse => "clickhouse",
                     TypeDialect::BigQuery => "bigquery",
                     TypeDialect::Oracle => "oracle",
+                    TypeDialect::Foundry => "foundry",
                 },
                 sql: sql.clone(),
                 parameters: parameters(values),

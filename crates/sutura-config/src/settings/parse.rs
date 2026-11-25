@@ -147,6 +147,7 @@ pub(super) fn parse_sources(
                 data_dir: source.data_dir.as_deref(),
                 billing_project: source.billing_project.as_deref(),
                 dataset: source.dataset.as_deref(),
+                ontology: source.ontology.as_deref(),
                 max_bytes_billed: source.max_bytes_billed,
                 posture: &source.posture,
                 acknowledged_because: source.acknowledged_because.as_deref(),
@@ -177,6 +178,7 @@ pub(super) fn parse_sources(
             };
             let blocks = CallerIdentityBlocks {
                 google_login: source.google_login.as_ref(),
+                foundry_login: source.foundry_login.as_ref(),
                 caller_google_token: source.caller_google_token.as_ref(),
                 domain_delegation: source.domain_delegation.as_ref(),
             };
@@ -191,6 +193,14 @@ pub(super) fn parse_sources(
     let mut registry = SourceRegistry::parse_billed(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), &billing, mode)
         .map_err(|cause| SettingsError::Sources { cause })?;
     for (written, source) in &raw.sources {
+        crate::sources::foundry::declare(
+            &mut registry,
+            written,
+            source.client_credentials.as_ref(),
+            source.verification_client_credentials.as_ref(),
+            source.exclude_object_types.as_deref(),
+        )
+        .map_err(|cause| SettingsError::Sources { cause })?;
         registry
             .declare_admitted_by(written, source.admitted_by.as_deref(), inbound)
             .map_err(|cause| SettingsError::SourceAdmission { cause })?;
@@ -210,6 +220,12 @@ pub(super) fn parse_sources(
         }
         if let Some(value) = source.split.as_deref() {
             crate::sources::split::declare(&mut registry, written, value).map_err(|cause| SettingsError::Sources { cause })?;
+        }
+        if let Some(value) = source.catalog_visibility.as_deref()
+            && let Ok(alias) = sutura_domain::model::SourceName::parse(written)
+        {
+            crate::sources::catalog_visibility::declare(&mut registry, &alias, value)
+                .map_err(|cause| SettingsError::CatalogVisibility { cause })?;
         }
     }
     let endpoints = crate::google_endpoints::GoogleEndpoints::parse(&raw.google_endpoints)

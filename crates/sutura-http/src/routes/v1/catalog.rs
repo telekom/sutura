@@ -16,7 +16,10 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::header;
 use axum::response::IntoResponse;
+use sutura_app::question::QuestionMeter as _;
+use sutura_domain::warehouse::deadline::Deadline;
 
+use crate::problem::Failure;
 use crate::state::ServiceState;
 use crate::wire::CatalogBody;
 
@@ -39,7 +42,7 @@ const TAG: &str = "catalog";
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
         (
             status = 403,
-            description = "TWO THINGS, both `code` with no `outcome`.\n\n\
+            description = "THREE THINGS, each `code` with no `outcome`.\n\n\
                            FAILED (`code: insufficient_scope`): your credential is valid and does not \
                            carry the scope this operation requires; the detail names it. Not a \
                            statement about the catalog: a caller who may read it at all sees the \
@@ -47,15 +50,26 @@ const TAG: &str = "catalog";
                            REFUSED BEFORE ANY CREDENTIAL IS READ (`code: host_not_allowed`, no \
                            `outcome`): this deployment does not answer the `Host` the request names. \
                            Nothing in your credential or your question changes it; the operator \
-                           lists the name in `server.allowed_hosts`.",
+                           lists the name in `server.allowed_hosts`.\n\n\
+                           REFUSED (`code: identity_not_linked`): a source narrows the catalog to \
+                           what your own account there may see, and you have linked no account at \
+                           the identity provider it runs you through. Retrying does not help.",
             body = crate::problem::ProblemBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
         (
+            status = 500,
+            description = "Not worth retrying: what a source narrowing the catalog per caller was \
+                           handed does not fit it. This deployment is misconfigured.",
+            body = crate::problem::ProblemBody
+        ),
+        (
             status = 503,
             description = "Worth retrying: `identity_unavailable`, the key set this deployment \
-                           verifies tokens against could not be read; or `no_randomness`, the host \
-                           gave no randomness for the request's job-label id.",
+                           verifies tokens against could not be read, or - where a source narrows \
+                           the catalog per caller - its identity provider did not answer; \
+                           `unavailable`, that source did not list what you may see; or \
+                           `no_randomness`, the host gave no randomness for the request's job-label id.",
             body = crate::problem::ProblemBody
         ),
     )
@@ -67,9 +81,10 @@ pub(crate) async fn catalog(
     // bundle to every token holder regardless of what `Asked::context` named. It reads that context
     // now, the same value `crate::routes::v1::query::ask` reads through `sutura_app::Asked`.
     axum::Extension(asked): axum::Extension<sutura_app::Asked>,
-) -> impl IntoResponse {
-    // No blocking pool and no data system: this reads the bundle being served, taken once for this
-    // request. A refresh that lands while it renders does not change what it renders.
+    axum::Extension(deadline): axum::Extension<Deadline>,
+) -> Result<impl IntoResponse, Failure> {
+    // This reads the bundle being served, taken once for this request. A refresh that lands while it
+    // renders does not change what it renders.
     //
     // The prose setting is read here, from the settings the state already holds, and `crate::state`
     // is right that a value a handler can read is a value a handler can branch on - so the reason
@@ -80,9 +95,37 @@ pub(crate) async fn catalog(
     // prose of a deployment that asked for none. The settings are the one place that cannot be out
     // of date about what the operator wrote.
     let definitions = state.definitions();
-    let view = sutura_app::scoped_for(&definitions, asked.context());
-    (
+    // The one call here that may leave this process: a source that narrows the catalog per caller
+    // is asked under the caller's own credential, so it runs on the blocking pool. Fails closed - a
+    // failure is the response, never the unnarrowed view.
+    // A slot first, the one a question takes, when narrowing may dial out: a burst of first requests
+    // would otherwise dial the identity provider and every source with no bound.
+    let slot = if state.surface().catalog_dials(asked.context()) {
+        let admission_wait = sutura_app::question::AdmissionWait::start(state.metrics());
+        let slot = state.admission().admit().await.map_err(|shed| {
+            state.metrics().shed();
+            super::query::refused(&shed)
+        })?;
+        drop(admission_wait);
+        Some(slot)
+    } else {
+        None
+    };
+    let (surface, context, pinned) = (state.surface(), asked.context().clone(), std::sync::Arc::clone(&definitions));
+    let hidden = sutura_runtime::spawn_carrying_span(move || {
+        let hidden = surface.hidden_models(&context, &pinned, deadline);
+        drop(slot);
+        hidden
+    })
+    .await
+    .map_err(|cause| {
+        tracing::error!(error = %cause, "narrowing the catalog panicked");
+        Failure::Internal
+    })?
+    .map_err(|ref failure| super::query::failed(failure))?;
+    let view = sutura_app::scoped_for(&definitions, asked.context()).hiding(hidden);
+    Ok((
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(CatalogBody::of(&view, state.settings().prompt().catalog_prose())),
-    )
+    ))
 }

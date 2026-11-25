@@ -1,6 +1,6 @@
 //! The combination checks on what a source hands its data system's token service in place of the
 //! caller: a source that sends the caller's own inbound token to an identity provider - a
-//! `workload_identity.delegation`, a `google_login`, or an Oracle, Cube, `ClickHouse` or `node`
+//! `workload_identity.delegation`, a `google_login` or `foundry_login`, or an Oracle, Cube, `ClickHouse` or `node`
 //! `delegation` - on a deployment that verifies no `direct` caller, and the acknowledgement that a
 //! `direct` deployment declares no hop. These are every [`crate::SourcePlacement`] variant that
 //! carries a `delegation` list; a kind added with one more needs a row here too, because this module
@@ -15,7 +15,7 @@ use crate::settings::NotFitToServe;
 use crate::sources::SourceRegistry;
 use crate::sources::caller_identity::CallerIdentity;
 
-/// Reads `workload_identity.delegation`, `google_login`, and the `delegation` list of an Oracle,
+/// Reads `workload_identity.delegation`, `google_login`, `foundry_login`, and the `delegation` list of an Oracle,
 /// Cube, `ClickHouse` or `node` placement. See [`NotFitToServe::DelegationWithoutDirectInbound`],
 /// [`NotFitToServe::InboundTokenAtPoolUnacknowledged`],
 /// [`NotFitToServe::InboundTokenAtPoolWithoutEffect`],
@@ -34,9 +34,12 @@ pub(super) fn hop_refusals(inbound: &[InboundVerifier], sources: &SourceRegistry
             .any(|verifier| verifier.is_direct() && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id())));
         let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());
         let delegation = super::admission::delegation_key(source).or_else(|| {
-            (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))
-                && !source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty))
-            .then_some("google_login")
+            let login = match source.caller_identity() {
+                Some(CallerIdentity::GoogleLogin(_)) => "google_login",
+                Some(CallerIdentity::FoundryLogin(_)) => "foundry_login",
+                _ => return None,
+            };
+            (!source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty)).then_some(login)
         });
         if let Some(key) = delegation
             && !direct

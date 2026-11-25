@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "apiName": "assignedFlights",
+      "displayName": "Assigned flights",
+      "status": "ACTIVE",
+      "objectTypeApiName": "Flight",
+      "cardinality": "MANY",
+      "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000026"
+    }
+  ]
+}

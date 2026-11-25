@@ -427,8 +427,11 @@ impl Family {
     /// all of them, which is what makes it a registry rather than a floor.
     const EXECUTION: [Self; 5] = [Self::Rows, Self::Refused, Self::Error, Self::AnchorReport, Self::PlannedRows];
 
-    /// The families pinning emitted statements or parameters, without engine execution.
-    const RENDER: [Self; 4] = [Self::Sql, Self::Params, Self::PlannedShapes, Self::TextPolicyShapes];
+    /// The families pinning the semantic renderer's SQL and parameters.
+    const SEMANTIC_RENDER: [Self; 2] = [Self::Sql, Self::Params];
+
+    /// The families pinned by the source-statement render matrix.
+    const STATEMENT_RENDER: [Self; 2] = [Self::PlannedShapes, Self::TextPolicyShapes];
 
     /// The family a snapshot stem - the file name with its `@{dialect}.snap` suffix already
     /// stripped - belongs to, or `None` if this census cannot name it.
@@ -501,9 +504,7 @@ fn census(dialect: Dialect) -> BTreeMap<Family, usize> {
 /// the tree by [`every_dialect_declares_what_backs_its_goldens`], so one that goes stale is a red
 /// rather than a sentence nobody re-read.
 ///
-/// **One arm, because every dialect now executes somewhere.** A dialect whose goldens only render
-/// needs a second arm that says so, and it is absent rather than reserved: the workspace denies
-/// `dead_code`, so a variant nothing constructs does not compile.
+/// Foundry is render-only until a real tenant runs the corpus.
 #[derive(Debug, Clone, Copy)]
 enum Evidence {
     /// A venue in this workspace ran the corpus for this dialect: every one of
@@ -512,6 +513,8 @@ enum Evidence {
     /// **Does not reach** whether those rows are the right ANSWER - that comparison against the
     /// engine is `golden/data_systems.rs`, a different axis. This one only knows a venue answered.
     Executed,
+    /// Statements are pinned and parsed; no live data system has run this corpus.
+    Rendered,
 }
 
 /// What backs each dialect's goldens.
@@ -536,6 +539,7 @@ fn evidence(dialect: Dialect) -> Evidence {
         // reaches it. Oracle's runs the example corpus only, over a database a developer can also
         // start by hand.
         Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse | Dialect::BigQuery | Dialect::Oracle => Evidence::Executed,
+        Dialect::Foundry => Evidence::Rendered,
     }
 }
 
@@ -543,8 +547,8 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// backs its goldens and that declaration is compared against the tree - two checks, neither of
 /// which the prose it replaced could make:
 ///
-/// 1. **Render goldens exist at all.** Without it a dialect with nothing whatsoever could declare a
-///    limit and read as covered-but-honest.
+/// 1. **Semantic render goldens exist for every dialect.** Source-statement render goldens are
+///    required for the dialects in the statement matrix.
 /// 2. **[`Evidence::Executed`] means every one of [`Family::EXECUTION`] is non-empty**, and a
 ///    missing one is NAMED. The count it replaces was a floor: 34 of the 35 execution goldens
 ///    deleted still passed it.
@@ -561,20 +565,37 @@ fn evidence(dialect: Dialect) -> Evidence {
 /// Their render and native matrices use the separate `statement_dialects` and `data_systems` registry axes.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
+    let mut statement_dialects = BTreeSet::new();
+    macro_rules! collect_statement_dialect {
+        ($name:ident, $dialect:expr) => {
+            statement_dialects.insert(stringify!($name));
+        };
+    }
+    crate::adapters::registered!(statement_dialects: collect_statement_dialect);
+
     for &dialect in dialect::ALL {
         let counted = census(dialect);
         let held = |family: Family| counted.get(&family).copied().unwrap_or_default();
         let name = dialect.as_str();
 
-        for family in Family::RENDER {
+        for family in Family::SEMANTIC_RENDER {
             assert!(
                 held(family) > 0,
                 "{name} has no {family:?} goldens, so it renders nothing this suite pins - \
                  whatever `evidence` declares about it describes an empty cell"
             );
         }
+        for family in Family::STATEMENT_RENDER {
+            assert_eq!(
+                held(family) > 0,
+                statement_dialects.contains(name),
+                "{name} {family:?} golden coverage must match the source-statement registry"
+            );
+        }
 
-        let Evidence::Executed = evidence(dialect);
+        if matches!(evidence(dialect), Evidence::Rendered) {
+            continue;
+        }
         let empty: Vec<Family> = Family::EXECUTION.into_iter().filter(|family| held(*family) == 0).collect();
         assert!(
             empty.is_empty(),

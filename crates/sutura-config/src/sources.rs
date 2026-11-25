@@ -36,16 +36,11 @@ pub mod address_domains;
 pub mod billing;
 /// Which one of the three caller-identity blocks an `impersonation-at-source` source declares.
 pub mod caller_identity;
-/// The `clickhouse` entry's own keys, read and refused.
-///
-/// **Its own file because `cargo xtask max-lines` fails at 1000 lines rather than warning**, and
-/// this one crosses it if a fourth kind's key reading lives here. The split follows the seam the
-/// composition roots already use - one file per kind - so the arm in [`parse_placement`] stays one
-/// call and the reading stays beside the kind it is about.
+/// The `clickhouse` entry's own keys, read and refused; kept separate to stay below the line cap.
 mod clickhouse;
-/// The `cube` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod cube;
-/// The `node` entry's own keys.
+/// The `foundry` entry's own keys, read and refused.
+pub mod foundry;
 mod node;
 /// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod oracle;
@@ -61,6 +56,8 @@ pub mod split;
 use split::{SourceSplit, SplitRefused};
 
 pub mod admission;
+/// Whether a source narrows each caller's catalog view.
+pub mod catalog_visibility;
 /// The per-entry reader - see its header for why it is its own file.
 mod entry;
 use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
@@ -144,6 +141,8 @@ pub enum SourceKind {
     /// node's endpoint and the `delegation` each caller's token is exchanged through for that
     /// node's audience; the entry is always `impersonation-at-source`.
     Node,
+    /// A Foundry ontology SQL endpoint, queried over its synchronous Ontology SQL API.
+    Foundry,
 }
 
 /// The configured word did not name a kind of data system.
@@ -164,6 +163,7 @@ impl SourceKind {
         "duckdb",
         "cube",
         "node",
+        "foundry",
     ];
 
     /// Reads the configured word.
@@ -177,6 +177,7 @@ impl SourceKind {
             "duckdb" => Ok(Self::Duckdb),
             "cube" => Ok(Self::Cube),
             "node" => Ok(Self::Node),
+            "foundry" => Ok(Self::Foundry),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -196,6 +197,7 @@ impl SourceKind {
             Self::Duckdb => "duckdb",
             Self::Cube => "cube",
             Self::Node => "node",
+            Self::Foundry => "foundry",
         }
     }
 }
@@ -218,6 +220,7 @@ pub struct ConfiguredSource {
     inbound_token_at_pool: Option<InboundTokenAtPool>,
     hash_buckets: Option<HashBucketsDeclared>,
     split: Option<SourceSplit>,
+    catalog_visibility: Option<catalog_visibility::CatalogVisibility>,
 }
 
 impl ConfiguredSource {
@@ -310,7 +313,12 @@ impl ConfiguredSource {
     pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig> {
         match self.caller_identity {
             Some(CallerIdentity::WorkloadIdentity(ref config)) => Some(config),
-            Some(CallerIdentity::GoogleLogin(_) | CallerIdentity::DomainDelegation(_) | CallerIdentity::CallerGoogleToken(_))
+            Some(
+                CallerIdentity::GoogleLogin(_)
+                | CallerIdentity::FoundryLogin(_)
+                | CallerIdentity::DomainDelegation(_)
+                | CallerIdentity::CallerGoogleToken(_),
+            )
             | None => None,
         }
     }
@@ -543,7 +551,8 @@ pub enum InvalidSourceRegistry {
     /// client's own scope, so one would reach nothing.
     #[error(
         "`sources.{alias}` is `impersonation-at-source` and declares no caller-identity block - write \
-         `workload_identity`, or on a `bigquery` source `google_login` or `domain_delegation`"
+         `workload_identity`, or on a `bigquery` source `google_login` or `domain_delegation`, or on a \
+         `foundry` source `foundry_login`"
     )]
     NoCallerIdentityMode { alias: SourceName },
     /// More than one caller-identity block on one source: a source runs its callers one way.
@@ -553,10 +562,19 @@ pub enum InvalidSourceRegistry {
         first: &'static str,
         second: &'static str,
     },
-    /// A `google_login` or `domain_delegation` block on a source that is not `bigquery`, which
-    /// nothing would read.
-    #[error("`sources.{alias}.{block}` is read only on a `bigquery` source - remove the block")]
+    /// A caller-identity block on a kind that does not read it: `google_login`, `caller_google_token`
+    /// or `domain_delegation` off `bigquery`, `foundry_login` off `foundry`, or `workload_identity`
+    /// on `foundry`.
+    #[error("`sources.{alias}.{block}` {}", caller_identity::read_only_on(.block))]
     IdentityModeNotForKind { alias: SourceName, block: &'static str },
+    /// A `foundry` source's own identity keys do not agree with its posture - see
+    /// [`foundry::InvalidFoundrySource`].
+    #[error("`sources.{alias}` declares a Foundry identity this source cannot use")]
+    Foundry {
+        alias: SourceName,
+        #[source]
+        cause: foundry::InvalidFoundrySource,
+    },
     /// The declared `domain_delegation` block is not usable.
     #[error("`sources.{alias}.domain_delegation.delegating_account` is not usable")]
     DomainDelegation {
@@ -941,42 +959,8 @@ fn parse_entry(
         inbound_token_at_pool: None,
         hash_buckets: None,
         split: None,
+        catalog_visibility: None,
     })
-}
-
-/// Reads a `workload_identity` block and its delegation hops.
-fn parse_workload_identity(
-    alias: &SourceName,
-    raw: &crate::raw::RawWorkloadIdentity,
-) -> Result<WorkloadIdentityConfig, InvalidSourceRegistry> {
-    let config = WorkloadIdentityConfig::parse_with_expectations(
-        &raw.audience,
-        raw.expected_issuer.as_deref(),
-        raw.expected_audience.as_deref(),
-    )
-    .map_err(|cause| InvalidSourceRegistry::WorkloadIdentity {
-        alias: alias.clone(),
-        cause,
-    })?;
-    let hops = match raw.delegation.as_deref() {
-        None => Vec::new(),
-        Some([]) => {
-            return Err(InvalidSourceRegistry::WorkloadIdentity {
-                alias: alias.clone(),
-                cause: InvalidWorkloadIdentity::Empty {
-                    what: "`delegation` list",
-                },
-            });
-        }
-        Some(declared) => declared
-            .iter()
-            .enumerate()
-            .map(|(position, hop)| {
-                workload_identity::DelegationDeclared::of(alias, hop, "workload_identity.delegation", position)
-            })
-            .collect::<Result<_, _>>()?,
-    };
-    Ok(config.with_delegation(hops))
 }
 
 #[cfg(test)]

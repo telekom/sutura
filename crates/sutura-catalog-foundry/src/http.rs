@@ -1,0 +1,432 @@
+//! The real [`crate::OntologyReader`]: Foundry's ontology v2 metadata API, over HTTP.
+//!
+//! Behind the crate's default-off `http` feature, so a build that does not ask for it links no
+//! outbound TLS stack.
+//!
+//! # What is dialled
+//!
+//! Only the declared [`Endpoint`], at two fixed paths under [`API_ROOT`]: the object types, then
+//! each object type's outgoing link types. The ontology segment is an [`OntologyIdentifier`] and
+//! the object-type segment an API name parsed by [`crate::object_table`] before it reaches a path -
+//! a name, or names joined by `.` with no segment empty; neither grammar can hold `/`, `?`, `#` or
+//! `%`, and no segment can be `.` or `..`, so an answer cannot steer a request off those paths. The
+//! one other piece of an answer a request carries is the `nextPageToken`, sent back as the
+//! `pageToken` query parameter of the same path, query-encoded and at most
+//! [`MAX_PAGE_TOKEN_BYTES`]. No URL in an answer is followed, and redirects are not followed.
+//!
+//! # Bounds
+//!
+//! One [`Budget`] covers the whole read - every page, every link list and any token mint -
+//! because the link read is one request per object type. [`ReadBounds`] caps each answer, and
+//! [`PageLimits`] caps the entities of each list. A repeated page token, or an empty page that
+//! reports more, is refused rather than followed.
+//!
+//! # Auth
+//!
+//! A [`TokenSource`]: a fixed token, or a client-credentials grant on the same origin. Either is
+//! the deployment's own identity.
+
+use std::collections::BTreeMap;
+
+use serde::de::DeserializeOwned;
+use sutura_domain::model::InvalidQualifiedTable;
+use sutura_domain::model::ObjectTypeExclusions;
+pub use sutura_http_client::token::{BorrowedBearer, TokenSource, TokenUnavailable};
+use sutura_http_client::{Budget, PageReport, Pager};
+pub use sutura_http_client::{
+    DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, EndpointMessage, ErrorName,
+    InvalidEndpoint, InvalidReadBounds, OutboundAgent, PageLimits, PagingRefusal, ReadBounds, RotatingAgent, TransportFault,
+};
+
+use crate::OntologyReader;
+use crate::document::{LinkTypeSide, ObjectType, Ontology, Page};
+
+/// The ontology API's path under a Foundry host's root.
+pub const API_ROOT: &str = "/api/v2/ontologies";
+
+/// The page size each list asks for: Foundry's documented default.
+pub const PAGE_SIZE: usize = 500;
+
+/// The longest `nextPageToken` sent back.
+pub const MAX_PAGE_TOKEN_BYTES: usize = 4096;
+
+/// The page limits a reader starts with: [`PAGE_SIZE`] and the shared entity bound.
+pub const PAGE_LIMITS: PageLimits = match PageLimits::parse(PAGE_SIZE, DEFAULT_MAX_ENTITIES) {
+    Ok(limits) => limits,
+    Err(_) => PageLimits::DEFAULT,
+};
+
+/// Why a declared ontology identifier is unusable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidOntologyIdentifier {
+    /// Empty, over 255 bytes, not starting with a letter or digit, or carrying a byte other than an
+    /// ASCII letter, digit, `.`, `-` or `_`.
+    #[error(
+        "the ontology is not an API name or resource identifier: letters, digits, `.`, `-` and `_`, starting with a letter or digit"
+    )]
+    Unusable,
+}
+
+/// The ontology a reader reads: its API name or its resource identifier, one path segment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OntologyIdentifier(String);
+
+impl OntologyIdentifier {
+    /// # Errors
+    ///
+    /// [`InvalidOntologyIdentifier`] for text that is not one path segment of that alphabet.
+    pub fn parse(raw: &str) -> Result<Self, InvalidOntologyIdentifier> {
+        let usable = raw.len() <= 255
+            && raw.bytes().next().is_some_and(|first| first.is_ascii_alphanumeric())
+            && raw
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'));
+        if !usable {
+            return Err(InvalidOntologyIdentifier::Unusable);
+        }
+        Ok(Self(String::from(raw)))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Why the ontology was not read.
+///
+/// Reaches [`crate::FoundryCatalog`] boxed inside [`crate::FoundryError::Read`]. No variant carries
+/// the token, a page token or Foundry's own text outside [`EndpointMessage`].
+#[derive(Debug, thiserror::Error)]
+pub enum HttpReaderError {
+    #[error("the {budget_seconds}-second read deadline was spent before the {what} were read")]
+    DeadlineSpent { what: &'static str, budget_seconds: u64 },
+    #[error("no bearer for the {what} request")]
+    Token {
+        what: &'static str,
+        #[source]
+        cause: TokenUnavailable,
+    },
+    #[error("the Foundry {what} endpoint was not reached")]
+    Unreachable {
+        what: &'static str,
+        #[source]
+        cause: Box<ureq::Error>,
+    },
+    #[error("the Foundry {what} answer could not be read")]
+    Unreadable {
+        what: &'static str,
+        #[source]
+        cause: Box<ureq::Error>,
+    },
+    /// `error_name` is the answer's `errorName` in its own shape, read off the whole answer.
+    #[error("Foundry refused the {what} request with {status}")]
+    Refused {
+        what: &'static str,
+        status: u16,
+        detail: EndpointMessage,
+        error_name: Option<ErrorName>,
+    },
+    #[error("the Foundry {what} answer was larger than the {cap}-byte cap this reader will read")]
+    TooLarge { what: &'static str, cap: u64 },
+    #[error("the Foundry {what} answer was not the shape this reader expects")]
+    Shape {
+        what: &'static str,
+        #[source]
+        cause: serde_json::Error,
+    },
+    #[error("the Foundry {what} list could not be read whole")]
+    Paging {
+        what: &'static str,
+        #[source]
+        cause: PagingRefusal,
+    },
+    #[error("the Foundry {what} answer handed back a page token over {max} bytes")]
+    PageTokenTooLong { what: &'static str, max: usize },
+    /// An object type whose API name is neither a name nor dotted names, refused before it reaches a
+    /// path. `api_name` is quoted as a refusal quotes answer text.
+    #[error("the object type API name {api_name:?} is not a name, so its link types were not asked for")]
+    ObjectTypeName {
+        api_name: String,
+        #[source]
+        cause: InvalidQualifiedTable,
+    },
+}
+
+const OBJECT_TYPES: &str = "object types";
+const LINK_TYPES: &str = "outgoing link types";
+
+/// Whose bearer one ontology request carries: the deployment's own [`TokenSource`], or a token
+/// borrowed for this request alone - a caller's, or the one a question is about to send.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Credential<'a> {
+    Deployment(&'a TokenSource),
+    Borrowed(BorrowedBearer<'a>),
+}
+
+/// Where and how the ontology API is dialled, without a bearer: [`HttpOntologyReader`] adds the
+/// deployment's, [`crate::caller::CallerObjectTypes`] each caller's.
+#[derive(Debug)]
+pub(crate) struct OntologyApi {
+    endpoint: Endpoint,
+    ontology: OntologyIdentifier,
+    bounds: ReadBounds,
+    limits: PageLimits,
+    agent: RotatingAgent,
+}
+
+/// A Foundry ontology's metadata API, reached over HTTP.
+#[derive(Debug)]
+pub struct HttpOntologyReader {
+    api: OntologyApi,
+    token: TokenSource,
+    exclusions: ObjectTypeExclusions,
+}
+
+impl HttpOntologyReader {
+    /// A reader over the rotating agent a composition root built with [`Self::rotating_agent`], or
+    /// a fixed one from [`sutura_http_client::fixed`].
+    #[must_use]
+    pub const fn new(
+        endpoint: Endpoint,
+        ontology: OntologyIdentifier,
+        token: TokenSource,
+        bounds: ReadBounds,
+        agent: RotatingAgent,
+    ) -> Self {
+        Self {
+            api: OntologyApi::new(endpoint, ontology, bounds, agent),
+            token,
+            exclusions: ObjectTypeExclusions::none(),
+        }
+    }
+
+    /// Leaves out the object types `exclusions` matches, before their links are read.
+    #[must_use]
+    pub fn excluding(mut self, exclusions: ObjectTypeExclusions) -> Self {
+        self.exclusions = exclusions;
+        self
+    }
+
+    /// What this reader leaves out.
+    #[must_use]
+    pub const fn exclusions(&self) -> &ObjectTypeExclusions {
+        &self.exclusions
+    }
+
+    #[must_use]
+    pub const fn with_page_limits(mut self, limits: PageLimits) -> Self {
+        self.api.limits = limits;
+        self
+    }
+
+    /// The rotating agent for a declared `security.outbound` set, and its poll handle.
+    ///
+    /// # Errors
+    ///
+    /// The declared bundle or client identity cannot be loaded.
+    pub fn rotating_agent(
+        bounds: ReadBounds,
+        declared: Option<sutura_tls::Declared>,
+    ) -> Result<OutboundAgent, sutura_tls::LoadError> {
+        sutura_http_client::rotating_agent(bounds, declared)
+    }
+
+    /// Where this reader's bearer comes from. The steps of [`OntologyReader::read`] one at a time,
+    /// each in a deadline of its own, are a [`TokenSource::bearer`] on this, [`Self::object_types`]
+    /// and [`Self::outgoing_link_types`].
+    #[must_use]
+    pub const fn token(&self) -> &TokenSource {
+        &self.token
+    }
+
+    /// This reader's whole-read deadline, which each step opens for itself.
+    #[must_use]
+    pub const fn timeout(&self) -> core::time::Duration {
+        self.api.bounds.timeout()
+    }
+
+    /// Every object type, page after page.
+    ///
+    /// # Errors
+    ///
+    /// [`HttpReaderError`].
+    pub fn object_types(&self) -> Result<Vec<ObjectType>, HttpReaderError> {
+        self.api
+            .object_types(Credential::Deployment(&self.token), Budget::opened(self.timeout()))
+    }
+
+    /// One object type's outgoing link types; its API name is parsed before it reaches a path.
+    ///
+    /// # Errors
+    ///
+    /// [`HttpReaderError::ObjectTypeName`] for a name that is not one, else [`HttpReaderError`].
+    pub fn outgoing_link_types(&self, api_name: &str) -> Result<Vec<LinkTypeSide>, HttpReaderError> {
+        self.api
+            .outgoing(Credential::Deployment(&self.token), Budget::opened(self.timeout()), api_name)
+    }
+}
+
+impl OntologyApi {
+    pub(crate) const fn new(endpoint: Endpoint, ontology: OntologyIdentifier, bounds: ReadBounds, agent: RotatingAgent) -> Self {
+        Self {
+            endpoint,
+            ontology,
+            bounds,
+            limits: PAGE_LIMITS,
+            agent,
+        }
+    }
+
+    pub(crate) const fn bounds(&self) -> ReadBounds {
+        self.bounds
+    }
+
+    /// The object-type list's path.
+    pub(crate) fn object_types_path(&self) -> String {
+        format!("{API_ROOT}/{}/objectTypes", self.ontology.as_str())
+    }
+
+    /// Every object type, page after page, each request carrying `token`'s bearer.
+    pub(crate) fn object_types(&self, token: Credential<'_>, budget: Budget) -> Result<Vec<ObjectType>, HttpReaderError> {
+        self.list(token, budget, OBJECT_TYPES, &self.object_types_path())
+    }
+
+    /// Every entry of one list, page after page.
+    fn list<T>(&self, token: Credential<'_>, budget: Budget, what: &'static str, path: &str) -> Result<Vec<T>, HttpReaderError>
+    where
+        T: DeserializeOwned,
+    {
+        let mut pager = Pager::new(self.limits);
+        let mut entries = Vec::new();
+        loop {
+            let page: Page<T> = self.fetch(token, budget, what, path, &pager)?;
+            let next = page.next_page_token();
+            if next.is_some_and(|token| token.len() > MAX_PAGE_TOKEN_BYTES) {
+                return Err(HttpReaderError::PageTokenTooLong {
+                    what,
+                    max: MAX_PAGE_TOKEN_BYTES,
+                });
+            }
+            let more = pager
+                .advance(PageReport::new(page.len(), next, None))
+                .map_err(|cause| HttpReaderError::Paging { what, cause })?;
+            entries.extend(page.into_data());
+            if !more {
+                return Ok(entries);
+            }
+        }
+    }
+
+    fn fetch<T>(
+        &self,
+        token: Credential<'_>,
+        budget: Budget,
+        what: &'static str,
+        path: &str,
+        pager: &Pager,
+    ) -> Result<Page<T>, HttpReaderError>
+    where
+        T: DeserializeOwned,
+    {
+        let left = budget.remaining().ok_or(HttpReaderError::DeadlineSpent {
+            what,
+            budget_seconds: self.bounds.timeout().as_secs(),
+        })?;
+        let header = match token {
+            Credential::Deployment(source) => source
+                .bearer(budget)
+                .map_err(|cause| HttpReaderError::Token { what, cause })?
+                .header(),
+            Credential::Borrowed(bearer) => bearer.header(),
+        };
+        let url = format!("{}{path}", self.endpoint.as_str());
+        let mut request = self
+            .agent
+            .current()
+            .get(&url)
+            .query("pageSize", pager.page_size().to_string());
+        if let Some(token) = pager.cursor() {
+            request = request.query("pageToken", token);
+        }
+        let mut response = request
+            .config()
+            .timeout_global(Some(Budget::socket(left)))
+            .build()
+            .header("authorization", header)
+            .call()
+            .map_err(|cause| HttpReaderError::Unreachable {
+                what,
+                cause: Box::new(cause),
+            })?;
+        let status = response.status();
+        // `ureq`'s `limit` is a backstop above the cap, refused as the cap is; the length check
+        // below is the cap itself.
+        let cap = self.bounds.max_response_bytes();
+        let text = response
+            .body_mut()
+            .with_config()
+            .limit(cap.saturating_add(cap.max(1024)))
+            .read_to_string()
+            .map_err(|cause| match cause {
+                ureq::Error::BodyExceedsLimit(_) => HttpReaderError::TooLarge { what, cap },
+                cause => HttpReaderError::Unreadable {
+                    what,
+                    cause: Box::new(cause),
+                },
+            })?;
+        if text.len() as u64 > cap {
+            return Err(HttpReaderError::TooLarge { what, cap });
+        }
+        if !status.is_success() {
+            return Err(HttpReaderError::Refused {
+                what,
+                status: status.as_u16(),
+                detail: EndpointMessage::bounded(&text),
+                error_name: ErrorName::from_answer(&text),
+            });
+        }
+        serde_json::from_str(&text).map_err(|cause| HttpReaderError::Shape { what, cause })
+    }
+
+    /// One object type's outgoing link types, each request carrying `token`'s bearer; its API name
+    /// is parsed before it reaches a path.
+    pub(crate) fn outgoing(
+        &self,
+        token: Credential<'_>,
+        budget: Budget,
+        api_name: &str,
+    ) -> Result<Vec<LinkTypeSide>, HttpReaderError> {
+        crate::object_table(api_name).map_err(|cause| HttpReaderError::ObjectTypeName {
+            api_name: api_name.chars().filter(|c| !c.is_control()).take(80).collect(),
+            cause,
+        })?;
+        self.list(
+            token,
+            budget,
+            LINK_TYPES,
+            &format!("{}/{api_name}/outgoingLinkTypes", self.object_types_path()),
+        )
+    }
+}
+
+impl OntologyReader for HttpOntologyReader {
+    type Error = HttpReaderError;
+
+    fn read(&self) -> Result<Ontology, Self::Error> {
+        let budget = Budget::opened(self.timeout());
+        let (object_types, excluded) = crate::kept(
+            self.api.object_types(Credential::Deployment(&self.token), budget)?,
+            &self.exclusions,
+        );
+        let mut outgoing = BTreeMap::new();
+        for object_type in &object_types {
+            let sides = self
+                .api
+                .outgoing(Credential::Deployment(&self.token), budget, object_type.api_name())?;
+            outgoing.insert(String::from(object_type.api_name()), sides);
+        }
+        Ok(Ontology::new(object_types, outgoing).with_excluded(excluded))
+    }
+}

@@ -579,6 +579,35 @@ pub enum SourcePlacement {
         /// hop's token, for the node's audience, is the bearer of every leg.
         delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
     },
+    /// A Foundry ontology SQL endpoint, reached over its synchronous Arrow API.
+    ///
+    /// The source carries an ontology identifier and, when shared, a deployment token. The endpoint
+    /// is parsed by the HTTP adapter at the composition root, where the shared outbound TLS
+    /// declaration is available; keeping the raw endpoint here preserves the config crate's adapter
+    /// boundary.
+    Foundry {
+        /// The Foundry origin, without an API path.
+        endpoint: String,
+        /// The ontology API name or resource identifier sent in the request body.
+        ontology: String,
+        /// The deployment token read once at boot. A `shared-service-user` source declares exactly
+        /// one of this and `client_credentials`; an `impersonation-at-source` one declares neither,
+        /// because each question sends the caller's own token from `foundry_login`.
+        token_file: Option<PathBuf>,
+        /// The deployment's client-credentials grant, minted and refreshed - the shared
+        /// alternative to `token_file`.
+        client_credentials: Option<crate::client_credentials::ClientCredentialsSettings>,
+        /// An impersonating source's startup-only identity: what its anchors run as, declared
+        /// beside `verification_identity`. Never presented for a caller's question.
+        verification_client_credentials: Option<crate::client_credentials::ClientCredentialsSettings>,
+        /// The object types the source's API-name directory and each caller's listing leave out:
+        /// the one list the source and the `foundry` catalog of the same alias share - whichever of
+        /// the two wrote one (the catalog adopts the source's when only the source wrote it), else
+        /// the default. Both written with different sets of patterns is refused at load.
+        exclude_object_types: sutura_domain::model::ObjectTypeExclusions,
+        /// Whether the source wrote `exclude_object_types` itself.
+        exclusions_written: bool,
+    },
 }
 
 impl SourcePlacement {
@@ -599,6 +628,7 @@ impl SourcePlacement {
             Self::Cube { .. } => SourceKind::Cube,
             Self::Duckdb { .. } => SourceKind::Duckdb,
             Self::Node { .. } => SourceKind::Node,
+            Self::Foundry { .. } => SourceKind::Foundry,
         }
     }
 }

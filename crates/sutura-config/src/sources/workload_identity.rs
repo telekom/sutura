@@ -415,6 +415,39 @@ pub enum InvalidWorkloadIdentity {
     PartialExpectation,
 }
 
+/// Reads a `workload_identity` block and its delegation hops.
+pub(super) fn parse_block(
+    alias: &sutura_domain::model::SourceName,
+    raw: &crate::raw::RawWorkloadIdentity,
+) -> Result<WorkloadIdentityConfig, super::InvalidSourceRegistry> {
+    let config = WorkloadIdentityConfig::parse_with_expectations(
+        &raw.audience,
+        raw.expected_issuer.as_deref(),
+        raw.expected_audience.as_deref(),
+    )
+    .map_err(|cause| super::InvalidSourceRegistry::WorkloadIdentity {
+        alias: alias.clone(),
+        cause,
+    })?;
+    let hops = match raw.delegation.as_deref() {
+        None => Vec::new(),
+        Some([]) => {
+            return Err(super::InvalidSourceRegistry::WorkloadIdentity {
+                alias: alias.clone(),
+                cause: InvalidWorkloadIdentity::Empty {
+                    what: "`delegation` list",
+                },
+            });
+        }
+        Some(declared) => declared
+            .iter()
+            .enumerate()
+            .map(|(position, hop)| DelegationDeclared::of(alias, hop, "workload_identity.delegation", position))
+            .collect::<Result<_, _>>()?,
+    };
+    Ok(config.with_delegation(hops))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{InvalidWorkloadIdentity, WifAudience, WorkloadIdentityConfig};

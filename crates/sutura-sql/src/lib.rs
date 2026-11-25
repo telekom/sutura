@@ -74,9 +74,10 @@ pub use crate::dialect::{Dialect, PlaceholderStyle};
 pub use crate::expression::refusal::{Construct, ExpressionError};
 pub use crate::expression::{CompiledExpression, Rendering, compile};
 pub use crate::generate::{
-    AsOfRefused, Bucket, BucketsRefused, GenerateError, InvalidBucket, InvalidKeyBucket, KeyBucket, Scn, generate,
-    generate_key_probe, generate_leg, generate_leg_as_of, generate_leg_buckets, generate_leg_pages, generate_stacked,
-    generate_table_as_of,
+    AsOfRefused, Bucket, BucketsRefused, GenerateError, InvalidBucket, InvalidKeyBucket, KeyBucket, OBJECT_PROBE_LABEL,
+    ObjectReferences, Scn, generate, generate_key_probe, generate_leg, generate_leg_as_of, generate_leg_buckets,
+    generate_leg_pages, generate_leg_with, generate_object_probe, generate_stacked, generate_stacked_with, generate_table_as_of,
+    generate_with,
 };
 
 /// A statement, its parameters, and the one data system it runs against.

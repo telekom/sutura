@@ -4,8 +4,16 @@ use std::sync::Arc;
 
 use sutura_config::{Settings, StaticCredentialBroker};
 use sutura_exec_datafusion::DataFusionCombiner;
+use sutura_runtime::{banner, telemetry};
 
 use super::Serving;
+
+pub(super) fn install_telemetry(settings: &Settings) -> Result<(), String> {
+    telemetry::install(settings.telemetry()).map_err(super::flatten)?;
+    sutura_runtime::install_panic_hook();
+    banner::announce(settings);
+    Ok(())
+}
 
 /// Loads the catalogs a second time through their ports, composes them, verifies every anchor, and
 /// erases the adapter.
@@ -37,10 +45,72 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
-    crate::catalog::start_composed(catalogs, engines, broker, combiner, settings).map(|service| match gate {
-        Some(gate) => Arc::new(service.with_adoption_gate(gate)) as Serving,
-        None => Arc::new(service) as Serving,
+    let visibility = super::visibility::declared(settings)?;
+    crate::catalog::start_composed(catalogs, engines, broker, combiner, settings).map(|service| {
+        // Before the erasure: the narrowing is held by the service, so every transport over it -
+        // `/v1/catalog` and the agent surface alike - reads one decision.
+        let service = match visibility {
+            Some(visibility) => service.with_catalog_visibility(visibility),
+            None => service,
+        };
+        match gate {
+            Some(gate) => Arc::new(service.with_adoption_gate(gate)) as Serving,
+            None => Arc::new(service) as Serving,
+        }
     })
+}
+
+/// The service a mix of kinds answers through.
+///
+/// **One broker per ANSWER, so the choice is per BUILD and not per kind.** A mix may read a shared
+/// source of one kind and an impersonating one of another, and `build_broker` scans the whole
+/// registry rather than one kind's entries - so "does this mix need the principal broker" is exactly
+/// "does this build link an adapter that can deliver one". With no impersonating source declared it
+/// holds the same shared map the static broker would, and refuses the same sources. With no such
+/// adapter linked, no adapter in this build declares `PerSubjectCredential` and every impersonating
+/// entry is already refused at its own posture cross-check, so the static broker is the whole truth.
+pub(super) fn mixed<W>(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<W>,
+    combiner: DataFusionCombiner,
+    gate: Option<sutura_app::surface::AdoptionGate<W>>,
+    settings: &Settings,
+    #[cfg_attr(
+        not(any(
+            feature = "bigquery",
+            feature = "clickhouse",
+            feature = "oracle",
+            feature = "cube",
+            feature = "foundry",
+            feature = "node"
+        )),
+        expect(unused_variables, reason = "only a principal broker dials an identity provider")
+    )]
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<Serving, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
+    #[cfg(any(
+        feature = "bigquery",
+        feature = "clickhouse",
+        feature = "oracle",
+        feature = "cube",
+        feature = "foundry",
+        feature = "node"
+    ))]
+    let broker = super::broker::build_broker(settings.sources(), outbound)?;
+    #[cfg(not(any(
+        feature = "bigquery",
+        feature = "clickhouse",
+        feature = "oracle",
+        feature = "cube",
+        feature = "foundry",
+        feature = "node"
+    )))]
+    let broker = StaticCredentialBroker::from_registry(settings.sources());
+    started(catalogs, engines, broker, combiner, gate, settings)
 }
 
 /// The service for every shape whose adapter cannot carry a per-subject credential at all.

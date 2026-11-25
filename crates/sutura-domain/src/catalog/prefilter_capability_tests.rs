@@ -38,6 +38,7 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
         TypeDialect::ClickHouse,
         TypeDialect::BigQuery,
         TypeDialect::Oracle,
+        TypeDialect::Foundry,
     ] {
         let carries = match dialect {
             TypeDialect::DuckDb => true,
@@ -47,6 +48,7 @@ fn only_engines_with_comparison_evidence_carry_the_raw_condition() {
             TypeDialect::ClickHouse => true,
             TypeDialect::BigQuery => true,
             TypeDialect::Oracle => true,
+            TypeDialect::Foundry => false,
         };
         assert_eq!(PrefilterCapability::of(dialect).is_some(), carries, "{dialect:?}");
     }
