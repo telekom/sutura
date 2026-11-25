@@ -615,3 +615,6 @@ only_a_shaped_top_level_error_name_is_kept # beside ErrorName in message.rs, whi
 a_stored_answer_reports_its_expiry_and_scope_before_either_is_held_to_anything # beside StoredAnswer in delegation/linked.rs, which this branch adds; the base file has no such test
 foundry_check_is_listed_in_every_build_and_takes_only_an_optional_token_file # in main.rs beside the command table it reads, which the base run reverts
 a_shared_source_minting_its_own_token_is_checked_before_and_under_it # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+foundry_names_a_dotted_object_as_one_quoted_identifier_aliased_to_its_local_name # in generate/tests/dotted.rs, declared in generate/tests.rs, which adds no test and is reverted for the base run, so the module is not compiled there
+every_other_dialect_refuses_a_dotted_object # in generate/tests/dotted.rs, declared in generate/tests.rs, which adds no test and is reverted for the base run, so the module is not compiled there
+a_foundry_key_probe_names_a_dotted_object_as_one_quoted_identifier # in generate/tests/dotted.rs, declared in generate/tests.rs, which adds no test and is reverted for the base run, so the module is not compiled there

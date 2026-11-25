@@ -400,6 +400,8 @@ async fn a_caller_with_no_linked_foundry_account_is_refused_the_catalog() {
 
 #[tokio::test]
 async fn without_catalog_visibility_every_caller_sees_every_model_and_nothing_is_dialled() {
+    // Pins the default the setting leaves alone: a claim cell, killed by narrowing every
+    // `foundry` source whether or not it declares `catalog_visibility`.
     let idp = FakeServer::start(Vec::new());
     let foundry = FakeServer::start(Vec::new());
     let Served { app, issuer, .. } = served("foundry-visibility-off", &idp, &foundry, false);
