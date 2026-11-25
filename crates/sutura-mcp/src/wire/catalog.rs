@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 
+use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget};
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::{Grain, ModelName};
 use sutura_domain::pinned::view::ScopedView;
@@ -107,13 +108,24 @@ pub struct CatalogContent {
     // question differently. `skip`: this crate's own text, not a field a client reads.
     #[serde(skip)]
     notice: &'static str,
+    /// Held to [`MAX_CATALOG_LISTING_BYTES`] the same way [`Self::models`] is - a metric's whole
+    /// entry (its dimensions and allowed values included) is either carried whole or left out and
+    /// named in [`Self::omitted_metrics`], never truncated mid-metric. Bounded even when `model`
+    /// narrowed the request: a model with an unusually large metric vocabulary of its own still
+    /// should not unbound this listing.
     metrics: Vec<MetricContent>,
+    /// Metrics that exist and are visible, but were left out of [`Self::metrics`] to hold this
+    /// listing under [`MAX_CATALOG_LISTING_BYTES`]. Capped at [`MAX_OMITTED_NAMES`] names; a count
+    /// past that cap is appended as a trailing `"...and N more"` entry rather than a second field.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    omitted_metrics: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     models: Option<Vec<ModelContent>>,
     /// Physical models that exist and are visible, but were left out of [`Self::models`] to hold the
-    /// unfiltered listing under [`MAX_UNFILTERED_MODELS_BYTES`] - always empty when a `model` filter
-    /// was given, since a targeted request is never bounded this way. Read each one back with
-    /// `describe_catalog(model: <name>)`.
+    /// listing under [`MAX_CATALOG_LISTING_BYTES`] - bounded the same way for a `model`-filtered
+    /// request as for an unfiltered one, though a filtered request names at most one model and so
+    /// essentially never triggers it. Capped at [`MAX_OMITTED_NAMES`] names the same way
+    /// [`Self::omitted_metrics`] is. Read each one back with `describe_catalog(model: <name>)`.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     omitted_models: Vec<String>,
     /// The knowledge sections - glossary, caveats, terms recorded as undefined, worked examples -
@@ -203,18 +215,15 @@ pub struct DimensionContent {
     allowed_values: Option<Vec<String>>,
 }
 
-/// What an unfiltered `describe_catalog` call's physical models are allowed to cost, in serialized
-/// JSON bytes of [`ModelContent`] (never counted against [`CatalogContent::metrics`] or
-/// [`CatalogContent::knowledge`], which a native-dictionary catalog with no declared models already
-/// keeps small - `docs/integrations/catalogs/rdbms.md`).
-///
-/// The issue this answers (`github.com/telekom/sutura#2071`'s second ask) measured 240538 bytes of
-/// authored model definitions as small for the planner and not small for an agent reading it as one
-/// tool result. 64 KiB is comfortably under that measured case (about 3.7x) without being so tight
-/// that an ordinarily authored catalog ever brushes it - a model list that size is itself the signal
-/// to read it one model at a time through `describe_catalog(model: <name>)` rather than in full; a
-/// deployment whose physical schema never approaches this never notices the bound exists.
-pub(crate) const MAX_UNFILTERED_MODELS_BYTES: usize = 64 * 1024;
+/// Appends a trailing `"...and N more"` entry to `names` when `fill_to_budget` reports a true
+/// omitted count past the capped name list it returned - the cap stays one `Vec<String>` field
+/// rather than growing a second count field next to it.
+fn with_truncation_note(mut names: Vec<String>, total: usize) -> Vec<String> {
+    if total > names.len() {
+        names.push(format!("...and {} more", total - names.len()));
+    }
+    names
+}
 
 impl CatalogContent {
     /// The reader's view of one pinned bundle, under the prose setting this deployment was started
@@ -249,7 +258,7 @@ impl CatalogContent {
         list_physical_schema: bool,
         model: Option<&ModelName>,
     ) -> Self {
-        let metrics = view
+        let all_metrics: Vec<MetricContent> = view
             .metrics()
             .filter(|metric| model.is_none_or(|name| metric.model() == name))
             .map(|metric| MetricContent {
@@ -277,6 +286,14 @@ impl CatalogContent {
                     .collect(),
             })
             .collect();
+        let (metrics, omitted_metric_names, omitted_metric_count) = fill_to_budget(
+            all_metrics,
+            MAX_CATALOG_LISTING_BYTES,
+            MAX_OMITTED_NAMES,
+            |metric| serde_json::to_vec(metric).map_or(0, |bytes| bytes.len()) + metric_text(metric).len(),
+            |metric| metric.name.clone(),
+        );
+        let omitted_metrics = with_truncation_note(omitted_metric_names, omitted_metric_count);
         // The knowledge sections ride the same caller's view as the metrics: a caller that may not
         // see a metric does not see that metric's glossary entry, caveat or worked example either.
         // `catalog_knowledge` quotes note bodies under the same `prose` the descriptions follow, so
@@ -327,36 +344,29 @@ impl CatalogContent {
                         comparison: relationship.comparison().map(sutura_domain::plan::LinkKind::word),
                     });
             }
-            if let Some(name) = model {
-                // A targeted request is assumed intentionally small and never bounded: the caller
-                // already named exactly what it wants, which is the one case the bound exists to
-                // steer a caller TOWARD.
-                (
-                    view.model(name)
-                        .map_or_default(|model| vec![content_of(model, &mut relationships, prose)]),
-                    Vec::new(),
-                )
-            } else {
-                let mut included = Vec::new();
-                let mut omitted = Vec::new();
-                let mut used = 0usize;
-                for model in view.models() {
-                    let content = content_of(model, &mut relationships, prose);
-                    // Never truncated mid-model: a model is either whole in `included` or named whole
-                    // in `omitted`, so a client can read either list and get a complete model's worth
-                    // of columns and relationships or none of them. The first model is admitted
-                    // unconditionally, so a caller never reads an empty list over a bound no single
-                    // model could ever fit under.
-                    let size = serde_json::to_vec(&content).map_or(0, |bytes| bytes.len());
-                    if !included.is_empty() && used.saturating_add(size) > MAX_UNFILTERED_MODELS_BYTES {
-                        omitted.push(content.name);
-                        continue;
-                    }
-                    used = used.saturating_add(size);
-                    included.push(content);
-                }
-                (included, omitted)
-            }
+            // Unified for a `model`-filtered and an unfiltered request alike: at most one model ever
+            // flows through this iterator when `model` is `Some`, so the bound below only ever
+            // matters for the unfiltered case in practice - but both cases spend the same budget
+            // rather than one path silently exempting a targeted request from a limit the other obeys.
+            let contents: Vec<ModelContent> = match model {
+                Some(name) => view
+                    .model(name)
+                    .into_iter()
+                    .map(|model| content_of(model, &mut relationships, prose))
+                    .collect(),
+                None => view
+                    .models()
+                    .map(|model| content_of(model, &mut relationships, prose))
+                    .collect(),
+            };
+            let (included, omitted_names, omitted_count) = fill_to_budget(
+                contents,
+                MAX_CATALOG_LISTING_BYTES,
+                MAX_OMITTED_NAMES,
+                |content| serde_json::to_vec(content).map_or(0, |bytes| bytes.len()) + model_text(content).len(),
+                |content| content.name.clone(),
+            );
+            (included, with_truncation_note(omitted_names, omitted_count))
         } else {
             (Vec::new(), Vec::new())
         };
@@ -374,6 +384,7 @@ impl CatalogContent {
             catalog_prose: prose.as_str(),
             notice: prose::notice(prose),
             metrics,
+            omitted_metrics,
             models,
             omitted_models,
             knowledge,
@@ -398,36 +409,13 @@ impl CatalogContent {
         let mut out = String::from(self.notice);
         out.push('\n');
         for metric in &self.metrics {
-            out.push('\n');
-            out.push_str(&metric.name);
-            out.push_str("\n  model: ");
-            out.push_str(&metric.model);
-            if let Some(description) = metric.description.words() {
-                push_prose(&mut out, description, "  description:");
-            }
-            out.push_str("\n  grains: ");
-            out.push_str(&metric.grains.join(", "));
-            for dimension in &metric.dimensions {
-                out.push_str("\n  dimension ");
-                out.push_str(&dimension.name);
-                out.push_str(" (");
-                out.push_str(if dimension.filterable {
-                    "groupable, filterable"
-                } else {
-                    "groupable"
-                });
-                match dimension.allowed_values {
-                    Some(ref values) => {
-                        out.push_str(", values: ");
-                        out.push_str(&values.join(", "));
-                    }
-                    None => out.push_str(", any value"),
-                }
-                out.push(')');
-                if let Some(description) = dimension.description.words() {
-                    push_prose(&mut out, description, "    description:");
-                }
-            }
+            out.push_str(&metric_text(metric));
+        }
+        if !self.omitted_metrics.is_empty() {
+            out.push_str("\n\nomitted metrics (over the ");
+            out.push_str(&MAX_CATALOG_LISTING_BYTES.to_string());
+            out.push_str("-byte limit on this listing): ");
+            out.push_str(&self.omitted_metrics.join(", "));
         }
         if let Some(models) = &self.models {
             out.push_str("\n\nPhysical schema (descriptive only; no metric certified):");
@@ -435,52 +423,12 @@ impl CatalogContent {
                 out.push_str("\n  no visible models");
             }
             for model in models {
-                out.push_str("\n\nmodel ");
-                out.push_str(&model.name);
-                out.push_str(" (table ");
-                out.push_str(&model.table);
-                out.push(')');
-                if let Some(description) = model.description.words() {
-                    push_prose(&mut out, description, "  description:");
-                }
-                for column in &model.columns {
-                    out.push_str("\n  column ");
-                    out.push_str(&column.name);
-                    if let Some(description) = column.description.words() {
-                        push_prose(&mut out, description, "    description:");
-                    }
-                }
-                for relationship in &model.relationships {
-                    out.push_str("\n  relationship ");
-                    out.push_str(&relationship.name);
-                    out.push_str(": ");
-                    out.push_str(&relationship.from);
-                    out.push_str(" -> ");
-                    out.push_str(&relationship.to);
-                    out.push_str(" (");
-                    out.push_str(relationship.cardinality);
-                    out.push(')');
-                    for key in &relationship.keys {
-                        out.push_str("\n    key ");
-                        out.push_str(&key.from);
-                        out.push_str(" = ");
-                        out.push_str(&key.to);
-                        if let Some(grain) = &key.grain {
-                            out.push_str(" (origin truncated to ");
-                            out.push_str(grain);
-                            out.push(')');
-                        }
-                    }
-                    if let Some(comparison) = relationship.comparison {
-                        out.push_str("\n    comparison as ");
-                        out.push_str(comparison);
-                    }
-                }
+                out.push_str(&model_text(model));
             }
             if !self.omitted_models.is_empty() {
                 out.push_str("\n\nomitted models (over the ");
-                out.push_str(&MAX_UNFILTERED_MODELS_BYTES.to_string());
-                out.push_str("-byte limit on this unfiltered listing): ");
+                out.push_str(&MAX_CATALOG_LISTING_BYTES.to_string());
+                out.push_str("-byte limit on this listing): ");
                 out.push_str(&self.omitted_models.join(", "));
                 out.push_str("\ncall describe_catalog(model: <name>) with one of the names above to read that model.");
             }
@@ -503,6 +451,90 @@ impl CatalogContent {
         out.push(')');
         out
     }
+}
+
+/// One metric's text block, exactly as [`CatalogContent::as_text`] renders it - factored out so the
+/// byte cost `fill_to_budget` weighs a metric by is the same text this produces, not an estimate of
+/// it.
+fn metric_text(metric: &MetricContent) -> String {
+    let mut out = String::from("\n");
+    out.push_str(&metric.name);
+    out.push_str("\n  model: ");
+    out.push_str(&metric.model);
+    if let Some(description) = metric.description.words() {
+        push_prose(&mut out, description, "  description:");
+    }
+    out.push_str("\n  grains: ");
+    out.push_str(&metric.grains.join(", "));
+    for dimension in &metric.dimensions {
+        out.push_str("\n  dimension ");
+        out.push_str(&dimension.name);
+        out.push_str(" (");
+        out.push_str(if dimension.filterable {
+            "groupable, filterable"
+        } else {
+            "groupable"
+        });
+        match dimension.allowed_values {
+            Some(ref values) => {
+                out.push_str(", values: ");
+                out.push_str(&values.join(", "));
+            }
+            None => out.push_str(", any value"),
+        }
+        out.push(')');
+        if let Some(description) = dimension.description.words() {
+            push_prose(&mut out, description, "    description:");
+        }
+    }
+    out
+}
+
+/// One model's text block, exactly as [`CatalogContent::as_text`] renders it - the same reason
+/// [`metric_text`] is factored out.
+fn model_text(model: &ModelContent) -> String {
+    let mut out = String::from("\n\nmodel ");
+    out.push_str(&model.name);
+    out.push_str(" (table ");
+    out.push_str(&model.table);
+    out.push(')');
+    if let Some(description) = model.description.words() {
+        push_prose(&mut out, description, "  description:");
+    }
+    for column in &model.columns {
+        out.push_str("\n  column ");
+        out.push_str(&column.name);
+        if let Some(description) = column.description.words() {
+            push_prose(&mut out, description, "    description:");
+        }
+    }
+    for relationship in &model.relationships {
+        out.push_str("\n  relationship ");
+        out.push_str(&relationship.name);
+        out.push_str(": ");
+        out.push_str(&relationship.from);
+        out.push_str(" -> ");
+        out.push_str(&relationship.to);
+        out.push_str(" (");
+        out.push_str(relationship.cardinality);
+        out.push(')');
+        for key in &relationship.keys {
+            out.push_str("\n    key ");
+            out.push_str(&key.from);
+            out.push_str(" = ");
+            out.push_str(&key.to);
+            if let Some(grain) = &key.grain {
+                out.push_str(" (origin truncated to ");
+                out.push_str(grain);
+                out.push(')');
+            }
+        }
+        if let Some(comparison) = relationship.comparison {
+            out.push_str("\n    comparison as ");
+            out.push_str(comparison);
+        }
+    }
+    out
 }
 
 /// Appends a heading followed by `heading`'s prose, each line quoted with `> `.
@@ -607,7 +639,7 @@ mod tests {
         );
     }
 
-    /// An unfiltered, physical-schema listing under [`super::MAX_UNFILTERED_MODELS_BYTES`] carries
+    /// An unfiltered, physical-schema listing under [`sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`] carries
     /// every model and omits none - the bound's absence is the ordinary case, not a special one.
     #[test]
     fn an_under_bound_catalog_lists_every_model_with_nothing_omitted() {
@@ -620,7 +652,7 @@ mod tests {
         assert!(!content.as_text().contains("omitted models"), "{}", content.as_text());
     }
 
-    /// An unfiltered, physical-schema listing whose models exceed [`super::MAX_UNFILTERED_MODELS_BYTES`]
+    /// An unfiltered, physical-schema listing whose models exceed [`sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`]
     /// carries whole models up to the bound plus an explicit, machine-readable list of the rest -
     /// never a model truncated mid-way.
     #[test]
