@@ -29,10 +29,17 @@ enum Answer {
 }
 
 /// Every statement it is handed; answers each with the next scripted outcome, then success.
-#[derive(Debug, Default)]
+/// `Debug` names nothing it holds, so a source's `Debug` is the directory's alone.
+#[derive(Default)]
 struct Statements {
     sent: parking_lot::Mutex<Vec<String>>,
     next: parking_lot::Mutex<Vec<Answer>>,
+}
+
+impl core::fmt::Debug for Statements {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Statements")
+    }
 }
 
 impl FoundryTransport for Arc<Statements> {

@@ -66,6 +66,22 @@ mod tests {
     }
 
     #[test]
+    fn an_object_written_as_its_resource_identifier_is_probed_by_it() {
+        let rid = "ri.ontology.main.object-type.00000000-0000-0000-0000-000000000005";
+        let table = QualifiedTable::parse(rid).expect("a resource identifier is a table");
+        let query =
+            generate_object_probe(&source(), &table, Dialect::Foundry).expect("a resource identifier renders for Foundry");
+        assert_eq!(
+            query.sql(),
+            format!("SELECT COUNT(*) AS `rows` FROM `{rid}` AS `{}`", table.name())
+        );
+        assert!(
+            generate_object_probe(&source(), &table, Dialect::Postgres).is_err(),
+            "only Foundry names a resource identifier"
+        );
+    }
+
+    #[test]
     fn a_plain_object_is_probed_by_its_name() {
         let table = QualifiedTable::from(TableName::parse("suturaCustomer").expect("a name"));
         let query = generate_object_probe(&source(), &table, Dialect::Foundry).expect("a plain object renders");

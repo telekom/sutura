@@ -526,6 +526,10 @@ async fn without_catalog_visibility_every_caller_sees_every_model_and_nothing_is
         let (status, body) = catalog(app.clone(), &token).await;
         assert_eq!(status, axum::http::StatusCode::OK, "{subject}: {body}");
         assert_eq!(metrics_in(&body), ["recurring_revenue", "order_count"], "{subject}: {body}");
+        assert!(
+            !body.contains("identity_"),
+            "an undeclared narrowing asked no identity provider: {body}"
+        );
     }
     assert_eq!(foundry.finish().len(), 0, "an undeclared narrowing lists nothing");
     assert_eq!(idp.finish().len(), 0, "an undeclared narrowing brokers nothing");

@@ -45,7 +45,10 @@ fn a_foundry_catalog_with_a_token_file_loads_without_directories() {
 fn a_client_credentials_grant_loads_on_the_default_token_path() {
     let settings = load(&overlay(&format!("{ONTOLOGY}{GRANT}"))).expect("a grant loads");
     let shown = format!("{:?}", settings.catalogs());
-    assert!(shown.contains("token_path: \"/multipass/api/oauth2/token\""), "{shown}");
+    assert!(
+        shown.contains("token_path: TokenPath(\"/multipass/api/oauth2/token\")"),
+        "{shown}"
+    );
     assert!(shown.contains("client_id: \"catalog-reader\""), "{shown}");
 }
 

@@ -503,7 +503,9 @@ fn joined(statement: SelectBuilder, joins: &[PlanJoin], dialect: Dialect) -> Res
 /// dialect refuses it at the comparison below, because no declaration reaches
 /// [`Qualification::Object`].
 fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, GenerateError> {
-    if dialect == Dialect::Foundry && table.object_path().is_some() {
+    // A dotted object or a resource identifier: its local name here, swapped for the object's own
+    // reference by `named_objects_with`.
+    if dialect == Dialect::Foundry && table.object_reference().is_some() {
         return Ok(table.name().to_string());
     }
     let carries = table.qualification();
