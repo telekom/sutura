@@ -354,12 +354,21 @@ pub struct QualifiedTable {
     /// name and a bare one of the same table therefore do not compare equal and do not sort
     /// adjacently by table, which is the ordering an operator reading a list of served tables wants:
     /// grouped by where they live.
-    qualifier: Option<TableQualifier>,
+    above: Above,
     table: TableName,
-    /// The dotted name a dialect renders in place of `table`, which is then this object's local
-    /// name. Absent for every table but an [`ObjectPath`]'s. Boxed so the rare case costs every
-    /// other table one pointer, not a vector.
-    object: Option<Box<ObjectPath>>,
+}
+
+/// What sits above a table: nothing, a path, or - for an [`ObjectPath`] - the dotted name a dialect
+/// renders in place of the table's local name.
+///
+/// One field rather than a qualifier and an object beside it, so the two cannot both be present and
+/// the type stays the size it was: the boxed object fits the space the path's niche leaves, and
+/// error enums carrying a `QualifiedTable` stay under clippy's bound.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Above {
+    Nothing,
+    Path(TableQualifier),
+    Object(Box<ObjectPath>),
 }
 
 impl QualifiedTable {
@@ -369,11 +378,10 @@ impl QualifiedTable {
     /// derive all route here, and none of them repeats a check.
     #[inline]
     #[must_use]
-    pub const fn new(qualifier: Option<TableQualifier>, table: TableName) -> Self {
+    pub fn new(qualifier: Option<TableQualifier>, table: TableName) -> Self {
         Self {
-            qualifier,
+            above: qualifier.map_or(Above::Nothing, Above::Path),
             table,
-            object: None,
         }
     }
 
@@ -385,17 +393,19 @@ impl QualifiedTable {
     /// [`InvalidQualifiedTable::ObjectLocalName`], see there.
     pub fn object(path: ObjectPath) -> Result<Self, InvalidQualifiedTable> {
         Ok(Self {
-            qualifier: None,
             table: path.local_name()?,
-            object: Some(Box::new(path)),
+            above: Above::Object(Box::new(path)),
         })
     }
 
     /// The dotted name a dialect that resolves it renders in place of [`Self::name`].
     #[inline]
     #[must_use]
-    pub fn object_path(&self) -> Option<&ObjectPath> {
-        self.object.as_deref()
+    pub const fn object_path(&self) -> Option<&ObjectPath> {
+        match self.above {
+            Above::Object(ref path) => Some(path),
+            Above::Nothing | Above::Path(_) => None,
+        }
     }
 
     /// Parses a dotted path: `table`, `dataset.table`, or `project.dataset.table`.
@@ -470,7 +480,10 @@ impl QualifiedTable {
     #[inline]
     #[must_use]
     pub const fn qualifier(&self) -> Option<&TableQualifier> {
-        self.qualifier.as_ref()
+        match self.above {
+            Above::Path(ref qualifier) => Some(qualifier),
+            Above::Nothing | Above::Object(_) => None,
+        }
     }
 
     /// How deep this path is.
@@ -480,12 +493,10 @@ impl QualifiedTable {
     #[inline]
     #[must_use]
     pub const fn qualification(&self) -> Qualification {
-        if self.object.is_some() {
-            return Qualification::Object;
-        }
-        match self.qualifier {
-            None => Qualification::TableOnly,
-            Some(ref qualifier) => qualifier.qualification(),
+        match self.above {
+            Above::Nothing => Qualification::TableOnly,
+            Above::Path(ref qualifier) => qualifier.qualification(),
+            Above::Object(_) => Qualification::Object,
         }
     }
 }
@@ -512,14 +523,15 @@ impl TryFrom<String> for QualifiedTable {
 /// The dotted path, which is also the serialized form and the form a document writes.
 impl core::fmt::Display for QualifiedTable {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if let Some(object) = self.object.as_ref() {
-            return write!(f, "`{}`", object.dotted());
-        }
-        if let Some(qualifier) = self.qualifier.as_ref() {
-            if let Some(project) = qualifier.project.as_ref() {
-                write!(f, "{project}.")?;
+        match self.above {
+            Above::Object(ref object) => return write!(f, "`{}`", object.dotted()),
+            Above::Path(ref qualifier) => {
+                if let Some(project) = qualifier.project.as_ref() {
+                    write!(f, "{project}.")?;
+                }
+                write!(f, "{}.", qualifier.dataset)?;
             }
-            write!(f, "{}.", qualifier.dataset)?;
+            Above::Nothing => {}
         }
         write!(f, "{}", self.table)
     }

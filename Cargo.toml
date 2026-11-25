@@ -25,8 +25,7 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
-  # EXPERIMENTAL Foundry ontology catalog; see docs/what-foundry-can-carry.md - `#1727`.
-  "crates/sutura-catalog-foundry",
+  "crates/sutura-catalog-foundry", # EXPERIMENTAL: a Foundry ontology; docs/what-foundry-can-carry.md - `#1727`.
   "crates/sutura-catalog-openapi", # EXPERIMENTAL: declaring source configured by an OpenAPI document - `#1727`.
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",

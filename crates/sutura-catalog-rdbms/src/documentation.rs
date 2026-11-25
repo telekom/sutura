@@ -79,8 +79,7 @@ pub(crate) fn default_bounds(
 /// Fixed read shapes. Native mode carries no documentation-view selectors.
 #[derive(Debug, Clone)]
 pub(crate) enum ReadQuery {
-    // Boxed: the mapping is the one large variant, and a `QualifiedTable` in it grew by a pointer.
-    Descriptions(Box<crate::descriptions::MappedDescriptions>),
+    Descriptions(crate::descriptions::MappedDescriptions),
     View {
         schema: String,
         environment: String,

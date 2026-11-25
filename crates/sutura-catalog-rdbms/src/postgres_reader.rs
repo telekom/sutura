@@ -241,7 +241,7 @@ impl PostgresReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         self.bounds = checked_mapping_bounds(mapping.predicate_columns(), row_cap, byte_cap)?;
-        self.query = ReadQuery::Descriptions(Box::new(mapping));
+        self.query = ReadQuery::Descriptions(mapping);
         Ok(self)
     }
 
