@@ -141,6 +141,11 @@ impl Bearer {
     pub fn header(&self) -> String {
         format!("Bearer {}", self.0.expose_secret())
     }
+    /// The token itself, for a client that builds its own header.
+    #[must_use]
+    pub const fn secret(&self) -> &Secret {
+        &self.0
+    }
 }
 
 /// Where a reader's bearer comes from.

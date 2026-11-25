@@ -162,6 +162,12 @@ pub(crate) struct RawSource {
     /// `crate::sources::caller_identity`.
     #[serde(default)]
     pub(crate) foundry_login: Option<RawBrokeredLogin>,
+    /// A `foundry` source's deployment grant, and an impersonating one's startup-only grant - see
+    /// `crate::sources::foundry`.
+    #[serde(default)]
+    pub(crate) client_credentials: Option<crate::client_credentials::RawClientCredentials>,
+    #[serde(default)]
+    pub(crate) verification_client_credentials: Option<crate::client_credentials::RawClientCredentials>,
     #[serde(default)]
     pub(crate) caller_google_token: Option<RawCallerGoogleToken>,
     /// Domain-wide delegation through one service account - see `crate::sources::caller_identity`.

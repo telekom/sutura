@@ -225,3 +225,105 @@ fn a_per_caller_source_is_declared_impersonating_and_can_carry_a_caller() {
         ImpersonationCapability::PerSubjectCredential
     );
 }
+
+/// A deployment grant that mints `minted-1`, `minted-2`, ... on each request, or refuses every one.
+#[derive(Debug)]
+struct Minting {
+    refuses: bool,
+    count: std::sync::atomic::AtomicUsize,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("the fake token endpoint refused the client")]
+struct Refused;
+
+impl super::DeploymentToken for Minting {
+    fn bearer(&self, _deadline: Deadline) -> Result<Secret, super::TokenFailed> {
+        if self.refuses {
+            return Err(super::TokenFailed(Box::new(Refused)));
+        }
+        let n = self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        Ok(Secret::new(format!("minted-{n}")))
+    }
+}
+
+fn shared_declared() -> SharedIdentityDeclared {
+    SharedIdentityDeclared::of(AcknowledgementReason::parse("one Foundry service identity").expect("reason"))
+}
+
+fn shared_over(grant: Minting) -> Fixture {
+    let (seen, received) = channel();
+    let warehouse = FoundryWarehouse::new(
+        source(),
+        SourcePosture::SharedServiceUser {
+            declared: shared_declared(),
+        },
+        OntologyIdentifier::parse("sales_ontology").expect("the ontology parses"),
+        grant,
+        Recording {
+            answer: Answer::Rows,
+            seen,
+        },
+        ResultBudget::of_bytes(core::num::NonZeroUsize::MAX),
+    );
+    Fixture {
+        warehouse,
+        seen: received,
+    }
+}
+
+#[test]
+fn a_shared_source_asks_its_grant_for_each_request_and_sends_nothing_without_one() {
+    let Fixture { warehouse, seen } = shared_over(Minting {
+        refuses: false,
+        count: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let shared = Presented::SharedServiceUser {
+        declared: shared_declared(),
+    };
+    for _ in 0..2 {
+        warehouse
+            .execute(Executable::Query(&plan()), &shared, deadline())
+            .expect("the minted token answers");
+    }
+    assert_eq!(seen.try_iter().collect::<Vec<String>>(), ["minted-1", "minted-2"]);
+
+    let Fixture { warehouse, seen } = shared_over(Minting {
+        refuses: true,
+        count: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let refused = warehouse
+        .execute(Executable::Query(&plan()), &shared, deadline())
+        .expect_err("no token, no question");
+    assert!(matches!(refused, FoundryError::Token { .. }), "{refused:?}");
+    assert_eq!(
+        seen.try_iter().count(),
+        0,
+        "nothing reaches Foundry without the deployment's token"
+    );
+}
+
+#[test]
+fn a_startup_identity_is_never_presented_for_a_question() {
+    let Fixture { warehouse, seen } = each_caller(Answer::Rows);
+    let warehouse = warehouse.with_boot_identity(Secret::new("boot-only-token"));
+    let plan = plan();
+    warehouse
+        .dry_run(Executable::Query(&plan), &callers_token("caller-a.foundry-token"), deadline())
+        .expect("the parse-only request is accepted");
+    warehouse
+        .execute(Executable::Query(&plan), &callers_token("caller-a.foundry-token"), deadline())
+        .expect("the question is answered");
+    let shared = Presented::SharedServiceUser {
+        declared: shared_declared(),
+    };
+    let refused = warehouse
+        .execute(Executable::Query(&plan), &shared, deadline())
+        .expect_err("a question with no caller has no token to send - the startup identity is not one");
+    assert!(matches!(refused, FoundryError::Undeliverable { .. }), "{refused:?}");
+    assert_eq!(
+        seen.try_iter().collect::<Vec<String>>(),
+        ["caller-a.foundry-token", "caller-a.foundry-token"],
+        "only the caller's own token reaches Foundry for a question"
+    );
+}

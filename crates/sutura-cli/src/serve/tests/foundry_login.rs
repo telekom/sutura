@@ -136,6 +136,12 @@ struct Served {
 }
 
 fn served(case: &str, idp: &FakeServer, answer: Answer) -> Served {
+    served_booting(case, idp, answer, None)
+}
+
+/// [`served`], with `boot` as the source's startup-only identity and an anchored metric for it to
+/// verify at start.
+fn served_booting(case: &str, idp: &FakeServer, answer: Answer, boot: Option<&str>) -> Served {
     let issuer = MockIssuer::generating("https://issuer.example.com", "https://sutura.example.com", "the-current-key")
         .expect("a mock issuer generates a key pair");
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
@@ -157,10 +163,14 @@ fn served(case: &str, idp: &FakeServer, answer: Answer) -> Served {
         Recording { answer, seen },
         sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX),
     );
+    let warehouse = match boot {
+        Some(boot) => warehouse.with_boot_identity(Secret::new(boot)),
+        None => warehouse,
+    };
     let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
         sutura_app::surface::LocalService::start(
             // One object type, unqualified: Ontology SQL names an object type by its API name.
-            &catalog_of(bundle_with_a_metric("warehouse", false, "Customer")),
+            &catalog_of(bundle_with_a_metric("warehouse", boot.is_some(), "Customer")),
             sutura_app::Warehouses::of(warehouse),
             sutura_runtime::TracingAuditSink::new(),
             broker,
@@ -361,4 +371,31 @@ fn an_anchor_on_a_foundry_login_source_does_not_boot() {
         .expect_err("a source with no identity of its own has nothing to re-run a certified number as");
     assert!(error.contains("recurring_revenue") && error.contains("warehouse"), "{error}");
     assert_eq!(idp.finish().len(), 0);
+}
+
+#[tokio::test]
+async fn the_startup_identity_verifies_the_anchor_and_no_question_presents_it() {
+    const BOOT: &str = "foundry-boot-only-token";
+    let idp = FakeServer::start(vec![Scripted::ok(&stored(&stored_for(CALLERS[0]), now() + 300))]);
+    let Served {
+        app, issuer, foundry, ..
+    } = served_booting("foundry-login-boot-identity", &idp, Answer::Rows, Some(BOOT));
+    let at_start: Vec<String> = foundry.try_iter().collect();
+    assert_eq!(
+        at_start,
+        [BOOT],
+        "the anchor is verified at start, under the startup identity alone"
+    );
+
+    let token = issuer.mint(&accepted_by(CALLERS[0])).expect("the issuer signs a token");
+    let (status, body) = ask(app, Some(&token)).await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    let asked: Vec<String> = foundry.try_iter().collect();
+    assert!(!asked.is_empty(), "the question must reach Foundry");
+    assert!(
+        asked.iter().all(|sent| *sent == stored_for(CALLERS[0])),
+        "a caller's question presents the caller's own token and never the startup identity's: {asked:?}"
+    );
+    assert!(!body.contains(BOOT), "{body}");
+    assert_eq!(idp.finish().len(), 1);
 }

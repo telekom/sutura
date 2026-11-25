@@ -590,10 +590,16 @@ pub enum SourcePlacement {
         endpoint: String,
         /// The ontology API name or resource identifier sent in the request body.
         ontology: String,
-        /// The deployment token read once at boot: required on a `shared-service-user` source and
-        /// refused on an `impersonation-at-source` one, whose questions each send the caller's own
-        /// token from `foundry_login`. So `None` is that posture, never a missing credential.
+        /// The deployment token read once at boot. A `shared-service-user` source declares exactly
+        /// one of this and `client_credentials`; an `impersonation-at-source` one declares neither,
+        /// because each question sends the caller's own token from `foundry_login`.
         token_file: Option<PathBuf>,
+        /// The deployment's client-credentials grant, minted and refreshed - the shared
+        /// alternative to `token_file`.
+        client_credentials: Option<crate::client_credentials::ClientCredentialsSettings>,
+        /// An impersonating source's startup-only identity: what its anchors run as, declared
+        /// beside `verification_identity`. Never presented for a caller's question.
+        verification_client_credentials: Option<crate::client_credentials::ClientCredentialsSettings>,
     },
 }
 

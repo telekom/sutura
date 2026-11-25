@@ -13,16 +13,21 @@
 //!
 //! # Who a question runs as
 //!
-//! A `shared-service-user` source sends the deployment token it was built with
-//! ([`FoundryWarehouse::new`]). An `impersonation-at-source` source holds no token at all
+//! A `shared-service-user` source sends the deployment's own token ([`FoundryWarehouse::new`]): a
+//! fixed one, or one a [`DeploymentToken`] mints and refreshes - the composition root hands it the
+//! one client-credentials grant every Foundry entry shares. An `impersonation-at-source` source holds no token at all
 //! ([`FoundryWarehouse::each_caller`]): each question sends the bearer the broker presented as
 //! [`Presented::SubjectToken`] - the caller's own Foundry token, which the identity provider stored
 //! when the caller linked their Foundry account - unchanged, so Foundry's own permissions on that
 //! user decide what the question reads, and a `401`/`403` is [`Warehouse::source_refused`].
 //! **Limits:** built and held by fakes only - no tenant has accepted a brokered token here, and
 //! whether such a token carries the scopes this endpoint needs is the tenant's application
-//! registration, unverified. Such a source has no identity at boot, so it verifies no anchor
-//! ([`FoundryError::NoBootIdentity`]).
+//! registration, unverified.
+//!
+//! **Startup is its own identity, typed apart.** An impersonating source verifies anchors only with
+//! a declared [`BootIdentity`] ([`FoundryWarehouse::with_boot_identity`]), which
+//! [`Warehouse::verify_anchor`] reads and the per-question path cannot: the request path matches
+//! only the caller's token there. Without one, an anchor is [`FoundryError::NoBootIdentity`].
 
 use std::time::Instant;
 
@@ -199,6 +204,11 @@ where
     /// as anybody here: an anchor on it cannot be verified.
     #[error("this Foundry source runs each question as its caller and holds no identity to verify an anchor with")]
     NoBootIdentity,
+    #[error("the deployment's Foundry token could not be obtained")]
+    Token {
+        #[source]
+        cause: TokenFailed,
+    },
     #[error("the Foundry endpoint does not support this plan shape")]
     UnsupportedPlan,
 }
@@ -214,24 +224,54 @@ pub struct FoundryWarehouse<T> {
     result_budget: ResultBudget,
 }
 
-/// Whose token a request carries. No variant holds both, so a per-caller source has no deployment
-/// token to fall back to.
+/// Whose token a request carries. No variant holds both a caller's and a deployment's for a
+/// question, so a per-caller source has no deployment token to fall back to.
 #[derive(Debug)]
 enum Bearer {
-    /// The deployment's own token, for a shared source.
-    Deployment(Secret),
-    /// Each caller's own token, as the broker presented it.
-    EachCaller,
+    /// The deployment's own token, for a shared source: every question and every anchor.
+    Deployment(Box<dyn DeploymentToken>),
+    /// Each caller's own token, as the broker presented it; `boot` runs anchors only.
+    EachCaller { boot: Option<BootIdentity> },
 }
+
+/// The deployment's own Foundry bearer, per request: a fixed token, or a grant minted and
+/// refreshed inside the request's deadline.
+pub trait DeploymentToken: core::fmt::Debug + Send + Sync {
+    /// The bearer for one request.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenFailed`] when none could be minted inside `deadline`.
+    fn bearer(&self, deadline: Deadline) -> Result<Secret, TokenFailed>;
+}
+
+/// A fixed token, read once at boot.
+impl DeploymentToken for Secret {
+    fn bearer(&self, _deadline: Deadline) -> Result<Secret, TokenFailed> {
+        Ok(self.clone())
+    }
+}
+
+/// Why no deployment token could be presented. Carries no token.
+#[derive(Debug, thiserror::Error)]
+#[error("no deployment token could be minted")]
+pub struct TokenFailed(#[source] pub Box<dyn std::error::Error + Send + Sync + 'static>);
+
+/// An impersonating source's startup-only identity: what its anchors run as.
+///
+/// **Only [`Warehouse::verify_anchor`] reads it.** It is held inside [`Bearer::EachCaller`], whose
+/// per-question arm matches the caller's token alone, and it has no accessor a question could reach.
+#[derive(Debug)]
+pub struct BootIdentity(Box<dyn DeploymentToken>);
 
 impl<T> FoundryWarehouse<T> {
     /// Builds a connection over a fixed deployment token and the process's result budget.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         source: SourceName,
         posture: SourcePosture,
         ontology: OntologyIdentifier,
-        token: Secret,
+        token: impl DeploymentToken + 'static,
         transport: T,
         result_budget: ResultBudget,
     ) -> Self {
@@ -239,7 +279,7 @@ impl<T> FoundryWarehouse<T> {
             source,
             posture,
             ontology,
-            bearer: Bearer::Deployment(token),
+            bearer: Bearer::Deployment(Box::new(token)),
             transport,
             result_budget,
         }
@@ -258,10 +298,20 @@ impl<T> FoundryWarehouse<T> {
             source,
             posture: SourcePosture::ImpersonationAtSource,
             ontology,
-            bearer: Bearer::EachCaller,
+            bearer: Bearer::EachCaller { boot: None },
             transport,
             result_budget,
         }
+    }
+
+    /// Gives an impersonating source its startup-only identity, so its anchors can be verified. A
+    /// shared source is returned unchanged: its anchors already run as its deployment identity.
+    #[must_use]
+    pub fn with_boot_identity(mut self, boot: impl DeploymentToken + 'static) -> Self {
+        if let Bearer::EachCaller { boot: ref mut held } = self.bearer {
+            *held = Some(BootIdentity(Box::new(boot)));
+        }
+        self
     }
 }
 
@@ -276,27 +326,37 @@ where
     /// The token `presented` sends: the deployment's for a shared leg on a shared source, the
     /// caller's own for a subject's token on a per-caller one - and only where the leg agrees with
     /// this source's declared posture. Every other pairing is refused before any request.
-    fn delivered<'leg>(&'leg self, presented: &'leg Presented) -> WarehouseResult<T::Error, &'leg Secret> {
-        let token = match (&self.bearer, presented) {
-            (Bearer::Deployment(token), Presented::SharedServiceUser { .. }) => token,
-            (Bearer::EachCaller, Presented::SubjectToken { material }) => material,
+    fn delivered(&self, presented: &Presented, deadline: Deadline) -> WarehouseResult<T::Error, Secret> {
+        match (&self.bearer, presented) {
+            (Bearer::Deployment(_), Presented::SharedServiceUser { .. })
+            | (Bearer::EachCaller { .. }, Presented::SubjectToken { .. }) => {}
             (
                 Bearer::Deployment(_),
                 Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. },
             )
             | (
-                Bearer::EachCaller,
+                Bearer::EachCaller { .. },
                 Presented::SharedServiceUser { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. },
             ) => {
                 return Err(FoundryError::Undeliverable {
                     presented: presented.as_str(),
                 });
             }
-        };
+        }
         presented
             .agrees_with(&self.posture, &self.source)
             .map_err(|cause| FoundryError::PresentedDisagreesWithPosture { cause })?;
-        Ok(token)
+        // Agreed: the deployment's token for a shared leg, the caller's own for a subject's.
+        match (&self.bearer, presented) {
+            (Bearer::EachCaller { .. }, Presented::SubjectToken { material }) => Ok(material.clone()),
+            (Bearer::Deployment(token), _) => token.bearer(deadline).map_err(|cause| FoundryError::Token { cause }),
+            (
+                Bearer::EachCaller { .. },
+                Presented::SharedServiceUser { .. } | Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. },
+            ) => Err(FoundryError::Undeliverable {
+                presented: presented.as_str(),
+            }),
+        }
     }
 
     /// The request for `executable`, and the statement it carries for the answer's execution record.
@@ -371,10 +431,10 @@ where
     }
 
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
-        let token = self.delivered(presented)?;
+        let token = self.delivered(presented, deadline)?;
         let (request, _) = self.request(executable, true)?;
         self.transport
-            .execute(&request, token, deadline)
+            .execute(&request, &token, deadline)
             .map_err(|cause| FoundryError::Endpoint { cause })?;
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
@@ -385,11 +445,11 @@ where
         presented: &Presented,
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        let token = self.delivered(presented)?;
+        let token = self.delivered(presented, deadline)?;
         let (request, generated) = self.request(executable, false)?;
         let bytes = self
             .transport
-            .execute(&request, token, deadline)
+            .execute(&request, &token, deadline)
             .map_err(|cause| FoundryError::Endpoint { cause })?;
         // The record every answer carries of what ran: without it the service refuses the answer.
         Ok(self.decode(bytes, accepted_rows(executable), deadline)?.with_execution(
@@ -403,14 +463,21 @@ where
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        let Bearer::Deployment(ref token) = self.bearer else {
-            return Err(FoundryError::NoBootIdentity);
+        // The one reader of the startup identity: the deployment's own on a shared source, the
+        // declared boot identity on an impersonating one, and never a caller's.
+        let minter: &dyn DeploymentToken = match self.bearer {
+            Bearer::Deployment(ref token)
+            | Bearer::EachCaller {
+                boot: Some(BootIdentity(ref token)),
+            } => token.as_ref(),
+            Bearer::EachCaller { boot: None } => return Err(FoundryError::NoBootIdentity),
         };
         let (request, _) = self.request(Executable::Query(plan.plan()), false)?;
         let deadline = boot_deadline();
+        let token = minter.bearer(deadline).map_err(|cause| FoundryError::Token { cause })?;
         let bytes = self
             .transport
-            .execute(&request, token, deadline)
+            .execute(&request, &token, deadline)
             .map_err(|cause| FoundryError::Endpoint { cause })?;
         self.decode(bytes, accepted_rows(Executable::Query(plan.plan())), deadline)?
             .to_rows()
@@ -444,6 +511,7 @@ where
             | FoundryError::WrongSource
             | FoundryError::Undeliverable { .. }
             | FoundryError::NoBootIdentity
+            | FoundryError::Token { .. }
             | FoundryError::UnsupportedPlan => false,
         }
     }

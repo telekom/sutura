@@ -193,6 +193,13 @@ pub(super) fn parse_sources(
     let mut registry = SourceRegistry::parse_billed(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), &billing, mode)
         .map_err(|cause| SettingsError::Sources { cause })?;
     for (written, source) in &raw.sources {
+        crate::sources::foundry::declare(
+            &mut registry,
+            written,
+            source.client_credentials.as_ref(),
+            source.verification_client_credentials.as_ref(),
+        )
+        .map_err(|cause| SettingsError::Sources { cause })?;
         registry
             .declare_admitted_by(written, source.admitted_by.as_deref(), inbound)
             .map_err(|cause| SettingsError::SourceAdmission { cause })?;

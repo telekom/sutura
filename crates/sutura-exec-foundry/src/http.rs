@@ -135,3 +135,16 @@ impl FoundryTransport for HttpFoundry {
         matches!(error, HttpFoundryError::TooLarge { .. })
     }
 }
+
+/// The deployment's bearer from the one client-credentials implementation (or a fixed token),
+/// minted inside what is left of the request's deadline.
+impl crate::DeploymentToken for sutura_http_client::token::TokenSource {
+    fn bearer(&self, deadline: Deadline) -> Result<Secret, crate::TokenFailed> {
+        let left = deadline
+            .remaining_at(Instant::now())
+            .ok_or_else(|| crate::TokenFailed(Box::new(HttpFoundryError::DeadlineSpent)))?;
+        Self::bearer(self, sutura_http_client::Budget::opened(left))
+            .map(|bearer| bearer.secret().clone())
+            .map_err(|cause| crate::TokenFailed(Box::new(cause)))
+    }
+}

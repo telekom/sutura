@@ -2,10 +2,13 @@
 //!
 //! The catalog adapter reads metadata; this module opens the data connection. The two credentials
 //! are intentionally separate settings keys, so a catalog refresh cannot replace the query token.
-//! An `impersonation-at-source` source reads no token here: each question carries the caller's own,
-//! which `crate::serve::broker` retrieves through `foundry_login`.
+//! A shared source presents a `token_file` or its `client_credentials` grant; an
+//! `impersonation-at-source` source reads no token for a question - each carries the caller's own,
+//! which `crate::serve::broker` retrieves through `foundry_login` - and its anchors run as its
+//! declared `verification_client_credentials` grant, or not at all.
 
 use sutura_domain::model::SourceName;
+use sutura_domain::source::SourcePosture::{ImpersonationAtSource, SharedServiceUser};
 use sutura_domain::warehouse::Warehouse as _;
 use sutura_exec_foundry::http::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpFoundry, ReadBounds};
 use sutura_exec_foundry::{FoundryWarehouse, OntologyIdentifier};
@@ -26,6 +29,8 @@ pub(crate) fn build(
         ref endpoint,
         ref ontology,
         ref token_file,
+        client_credentials: ref deployment_grant,
+        ref verification_client_credentials,
     } = *configured.placement()
     else {
         return Err(format!(
@@ -48,29 +53,56 @@ pub(crate) fn build(
     let (agent, rotator) = sutura_http_client::rotating_agent(bounds, outbound.cloned())
         .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
     crate::rotation::drive_rotation("security.outbound.transport_anchors (foundry source)", rotator);
-    let transport = HttpFoundry::rotating(endpoint, bounds, agent);
-    match (identity.posture(), token_file.as_deref()) {
-        (sutura_domain::source::SourcePosture::ImpersonationAtSource, None) => Ok(FoundryWarehouse::each_caller(
-            source.clone(),
-            ontology,
-            transport,
-            working_set.result_budget(),
-        )),
-        (posture @ sutura_domain::source::SourcePosture::SharedServiceUser { .. }, Some(token_file)) => {
+    let grant = |key: &str, declared| {
+        client_credentials(&format!("sources.{source}.{key}"), &endpoint, declared, agent.clone())
+            .map(sutura_http_client::token::TokenSource::ClientCredentials)
+    };
+    let budget = working_set.result_budget();
+    // `sutura_config::sources::foundry::declare` holds these shapes at load; any other is answered
+    // rather than unreachable.
+    match (
+        identity.posture(),
+        token_file.as_deref(),
+        deployment_grant.as_ref(),
+        verification_client_credentials.as_ref(),
+    ) {
+        (ImpersonationAtSource, None, None, boot) => {
+            let boot = boot
+                .map(|declared| grant("verification_client_credentials", declared))
+                .transpose()?;
+            let transport = HttpFoundry::rotating(endpoint, bounds, agent);
+            let warehouse = FoundryWarehouse::each_caller(source.clone(), ontology, transport, budget);
+            Ok(match boot {
+                Some(boot) => warehouse.with_boot_identity(boot),
+                None => warehouse,
+            })
+        }
+        (posture @ SharedServiceUser { .. }, Some(token_file), None, None) => {
             let token = crate::password_file::read_key(&format!("sources.{source}.token_file"), token_file)?;
+            let transport = HttpFoundry::rotating(endpoint, bounds, agent);
             Ok(FoundryWarehouse::new(
                 source.clone(),
                 posture.clone(),
                 ontology,
                 token,
                 transport,
-                working_set.result_budget(),
+                budget,
             ))
         }
-        // Both refused at load; answered rather than unreachable.
-        (sutura_domain::source::SourcePosture::ImpersonationAtSource, Some(_))
-        | (sutura_domain::source::SourcePosture::SharedServiceUser { .. }, None) => Err(format!(
-            "`sources.{source}` reached the Foundry connect step with a `token_file` that does not match its posture"
+        (posture @ SharedServiceUser { .. }, None, Some(declared), None) => {
+            let token = grant("client_credentials", declared)?;
+            let transport = HttpFoundry::rotating(endpoint, bounds, agent);
+            Ok(FoundryWarehouse::new(
+                source.clone(),
+                posture.clone(),
+                ontology,
+                token,
+                transport,
+                budget,
+            ))
+        }
+        (ImpersonationAtSource | SharedServiceUser { .. }, _, _, _) => Err(format!(
+            "`sources.{source}` reached the Foundry connect step with identity keys that do not match its posture"
         )),
     }
 }

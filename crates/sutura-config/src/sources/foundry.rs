@@ -5,11 +5,18 @@
 //! placements separate lets one source be used with a local or another catalog without borrowing a
 //! catalog credential at query time.
 //!
-//! An `impersonation-at-source` entry declares no `token_file` and no `verification_identity`:
-//! each question sends the caller's own Foundry token, which `foundry_login`
-//! (`super::caller_identity`) retrieves per request, and nothing at boot runs as anybody. Either key
-//! would name an identity this source never uses, so both are refused rather than kept for a
-//! fallback that does not exist - and an anchor on such a source does not boot.
+//! # Whose token, per posture
+//!
+//! A `shared-service-user` entry declares exactly one deployment identity: a `token_file`, read
+//! once at boot, or a `client_credentials` block (`crate::client_credentials`), minted on the
+//! entry's own `endpoint` and minted again before it expires.
+//!
+//! An `impersonation-at-source` entry declares neither: each question sends the caller's own
+//! Foundry token, which `foundry_login` (`super::caller_identity`) retrieves per request, and a
+//! deployment token beside it would read as a fallback that does not exist. It MAY declare a
+//! startup-only identity - `verification_identity` naming it and `verification_client_credentials`
+//! holding its grant, both or neither - which runs the anchors at boot and never a caller's
+//! question. Without one, an anchor on the source does not boot.
 
 use std::path::PathBuf;
 
@@ -36,35 +43,144 @@ pub(super) fn parse_placement(
     super::refuse_foreign_keys(alias, kind, dialled_source_keys(entry, &written))?;
     let endpoint = super::required(alias, kind, "endpoint", entry.endpoint)?;
     let ontology = super::required(alias, kind, "ontology", entry.ontology)?;
-    let token_file = if entry.posture.trim() == "impersonation-at-source" {
-        for (key, value) in [
-            ("token_file", entry.token_file),
-            ("verification_identity", entry.verification_identity),
-        ] {
-            if written(value) {
-                return Err(InvalidSourceRegistry::FoundryIdentityBesideCallerLogin {
-                    alias: alias.clone(),
-                    key,
-                });
-            }
-        }
-        None
-    } else {
-        let token_file = PathBuf::from(super::required(alias, kind, "token_file", entry.token_file)?);
-        if token_file.is_relative() {
-            return Err(InvalidSourceRegistry::RelativePath {
-                alias: alias.clone(),
-                key: "token_file",
-                path: token_file,
-            });
-        }
-        Some(token_file)
-    };
+    let token_file = entry.token_file.filter(|_| written(entry.token_file)).map(PathBuf::from);
+    if let Some(ref token_file) = token_file
+        && token_file.is_relative()
+    {
+        return Err(InvalidSourceRegistry::RelativePath {
+            alias: alias.clone(),
+            key: "token_file",
+            path: token_file.clone(),
+        });
+    }
+    // Which identity keys agree with the posture is `declare`'s, once both blocks are read.
     Ok(SourcePlacement::Foundry {
         endpoint: String::from(endpoint),
         ontology: String::from(ontology),
         token_file,
+        client_credentials: None,
+        verification_client_credentials: None,
     })
+}
+
+/// Why a `foundry` source's identity keys do not agree with its posture.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidFoundrySource {
+    /// A deployment identity on an impersonating source, which holds none for a question.
+    #[error(
+        "`{key}` is declared on an `impersonation-at-source` Foundry source, which runs each question with \
+         its caller's own token from `foundry_login` - remove `{key}`"
+    )]
+    IdentityBesideCallerLogin { key: &'static str },
+    #[error("a `shared-service-user` Foundry source needs one of `token_file` or `client_credentials`, and neither is written")]
+    NoDeploymentIdentity,
+    #[error("a `shared-service-user` Foundry source takes one of `token_file` or `client_credentials`, and both are written")]
+    TwoDeploymentIdentities,
+    /// A startup identity on a shared source, whose anchors already run as its deployment identity.
+    #[error(
+        "`verification_client_credentials` is declared on a `shared-service-user` Foundry source, whose \
+         anchors run as its deployment identity - remove it"
+    )]
+    VerificationOnShared,
+    /// One half of an impersonating source's startup identity without the other.
+    #[error("`{written}` is declared without `{missing}` - a Foundry startup identity takes both, or neither")]
+    VerificationIncomplete { written: &'static str, missing: &'static str },
+    #[error("a declared client-credentials block is not usable")]
+    ClientCredentials(#[source] crate::client_credentials::InvalidClientCredentials),
+}
+
+/// Reads one source's `client_credentials` and `verification_client_credentials` blocks into its
+/// placement, and holds every identity key of a `foundry` source to its posture. Run for every
+/// declared source, so a `foundry` source never leaves the registry unchecked; a block on any other
+/// kind is refused as a key that kind does not read.
+pub(crate) fn declare(
+    registry: &mut super::SourceRegistry,
+    written: &str,
+    client_credentials: Option<&crate::client_credentials::RawClientCredentials>,
+    verification_client_credentials: Option<&crate::client_credentials::RawClientCredentials>,
+) -> Result<(), InvalidSourceRegistry> {
+    use crate::client_credentials::ClientCredentialsSettings;
+    use sutura_domain::source::SourcePosture;
+
+    let alias = SourceName::parse(written).map_err(|cause| InvalidSourceRegistry::Alias {
+        written: String::from(written),
+        cause,
+    })?;
+    let Some(source) = registry.by_alias.get_mut(&alias) else {
+        return Ok(());
+    };
+    let kind = source.kind();
+    if kind != SourceKind::Foundry {
+        return super::refuse_foreign_keys(
+            &alias,
+            kind,
+            [
+                ("client_credentials", client_credentials.is_some()),
+                ("verification_client_credentials", verification_client_credentials.is_some()),
+            ],
+        );
+    }
+    let refused = |cause| InvalidSourceRegistry::Foundry {
+        alias: alias.clone(),
+        cause,
+    };
+    let parse = |raw: Option<&crate::client_credentials::RawClientCredentials>, key: &str| {
+        raw.map(|raw| ClientCredentialsSettings::parse(raw, &format!("sources.{alias}.{key}")))
+            .transpose()
+            .map_err(|cause| refused(InvalidFoundrySource::ClientCredentials(cause)))
+    };
+    let grant = parse(client_credentials, "client_credentials")?;
+    let verification = parse(verification_client_credentials, "verification_client_credentials")?;
+    let impersonating = matches!(source.posture(), Some(SourcePosture::ImpersonationAtSource));
+    let named = source
+        .identity()
+        .is_some_and(|identity| !matches!(identity.anchors_run_as(), sutura_domain::source::AnchorIdentity::NoneDeclared));
+    let SourcePlacement::Foundry {
+        ref token_file,
+        client_credentials: ref mut held,
+        verification_client_credentials: ref mut held_verification,
+        ..
+    } = source.placement
+    else {
+        return Ok(());
+    };
+    if impersonating {
+        if token_file.is_some() {
+            return Err(refused(InvalidFoundrySource::IdentityBesideCallerLogin { key: "token_file" }));
+        }
+        if grant.is_some() {
+            return Err(refused(InvalidFoundrySource::IdentityBesideCallerLogin {
+                key: "client_credentials",
+            }));
+        }
+        match (named, verification.is_some()) {
+            (true, false) => {
+                return Err(refused(InvalidFoundrySource::VerificationIncomplete {
+                    written: "verification_identity",
+                    missing: "verification_client_credentials",
+                }));
+            }
+            (false, true) => {
+                return Err(refused(InvalidFoundrySource::VerificationIncomplete {
+                    written: "verification_client_credentials",
+                    missing: "verification_identity",
+                }));
+            }
+            (true, true) | (false, false) => {}
+        }
+    } else {
+        if verification.is_some() {
+            return Err(refused(InvalidFoundrySource::VerificationOnShared));
+        }
+        match (token_file.is_some(), grant.is_some()) {
+            (false, false) => return Err(refused(InvalidFoundrySource::NoDeploymentIdentity)),
+            (true, true) => return Err(refused(InvalidFoundrySource::TwoDeploymentIdentities)),
+            (true, false) | (false, true) => {}
+        }
+    }
+    *held = grant;
+    *held_verification = verification;
+    Ok(())
 }
 
 /// Allows `endpoint` and `token_file` only on the kinds that read them.
@@ -93,6 +209,7 @@ pub(super) fn refuse_elsewhere(
 
 #[cfg(test)]
 mod tests {
+    use super::InvalidFoundrySource;
     use crate::environment::Environment;
     use crate::settings::{Settings, SettingsError, Sources};
     use crate::sources::{InvalidSourceRegistry, SourcePlacement};
@@ -200,13 +317,154 @@ mod tests {
 
     #[test]
     fn a_deployment_identity_beside_foundry_login_is_refused_at_load() {
-        for (key, line) in [
-            ("token_file", "    token_file: /run/sutura/foundry-token\n"),
-            ("verification_identity", "    verification_identity: sutura_anchor_reader\n"),
+        for (key, block) in [
+            ("token_file", String::from("    token_file: /run/sutura/foundry-token\n")),
+            ("client_credentials", grant("client_credentials")),
         ] {
             refused_as(
-                &declared(DIRECT, "foundry", "impersonation-at-source", &format!("{line}{LOGIN}")),
-                &InvalidSourceRegistry::FoundryIdentityBesideCallerLogin { alias: warehouse(), key },
+                &declared(DIRECT, "foundry", "impersonation-at-source", &format!("{block}{LOGIN}")),
+                &InvalidSourceRegistry::Foundry {
+                    alias: warehouse(),
+                    cause: InvalidFoundrySource::IdentityBesideCallerLogin { key },
+                },
+            );
+        }
+    }
+
+    /// A client-credentials block under `key`, four-space indented as an entry's key.
+    fn grant(key: &str) -> String {
+        format!(
+            "    {key}:\n      client_id: sutura-source\n      client_secret_file: /run/secrets/foundry-client-secret\n      \
+             scopes: [api:sql-queries-execute, api:ontologies-read]\n"
+        )
+    }
+
+    const TOKEN_FILE: &str = "    token_file: /run/sutura/foundry-token\n";
+
+    #[test]
+    fn a_shared_foundry_source_declares_a_token_file_or_client_credentials_and_not_both() {
+        let settings = Settings::load(&declared("", "foundry", "shared-service-user", &grant("client_credentials")))
+            .expect("a shared source with a client-credentials grant loads");
+        let source = settings.sources().get(&warehouse()).expect("the source exists");
+        let SourcePlacement::Foundry {
+            token_file: None,
+            client_credentials: Some(ref declared_grant),
+            verification_client_credentials: None,
+            ..
+        } = *source.placement()
+        else {
+            panic!("the grant is carried in place of a token file: {:?}", source.placement());
+        };
+        assert_eq!(declared_grant.client_id(), "sutura-source");
+        assert_eq!(declared_grant.token_path(), crate::client_credentials::DEFAULT_TOKEN_PATH);
+        assert_eq!(declared_grant.scopes(), ["api:sql-queries-execute", "api:ontologies-read"]);
+        for (extra, cause) in [
+            (String::new(), InvalidFoundrySource::NoDeploymentIdentity),
+            (
+                format!("{TOKEN_FILE}{}", grant("client_credentials")),
+                InvalidFoundrySource::TwoDeploymentIdentities,
+            ),
+            (
+                format!("{TOKEN_FILE}{}", grant("verification_client_credentials")),
+                InvalidFoundrySource::VerificationOnShared,
+            ),
+        ] {
+            refused_as(
+                &declared("", "foundry", "shared-service-user", &extra),
+                &InvalidSourceRegistry::Foundry {
+                    alias: warehouse(),
+                    cause,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn a_source_client_credentials_block_is_read_by_the_one_parser_and_named_by_its_key() {
+        let relative = "    client_credentials:\n      client_id: sutura-source\n      client_secret_file: secrets/client\n";
+        refused_as(
+            &declared("", "foundry", "shared-service-user", relative),
+            &InvalidSourceRegistry::Foundry {
+                alias: warehouse(),
+                cause: InvalidFoundrySource::ClientCredentials(
+                    crate::client_credentials::InvalidClientCredentials::RelativeSecretFile {
+                        key: String::from("sources.warehouse.client_credentials"),
+                    },
+                ),
+            },
+        );
+        let off_host = format!(
+            "{}      token_path: https://elsewhere.example.com/token\n",
+            grant("client_credentials")
+        );
+        refused_as(
+            &declared("", "foundry", "shared-service-user", &off_host),
+            &InvalidSourceRegistry::Foundry {
+                alias: warehouse(),
+                cause: InvalidFoundrySource::ClientCredentials(crate::client_credentials::InvalidClientCredentials::TokenPath {
+                    key: String::from("sources.warehouse.client_credentials"),
+                }),
+            },
+        );
+        let on_cube = "security:\n  identity: single-user\n  single_user_because: one operator\nsources:\n  warehouse:\n    \
+                       kind: cube\n    endpoint: https://cube.example.com\n    token_file: /run/cube-token\n    \
+                       posture: shared-service-user\n";
+        let error = Settings::load(
+            &Sources::defaults(Environment::Development).with_overlay(format!("{on_cube}{}", grant("client_credentials"))),
+        )
+        .expect_err("only a foundry source reads the block");
+        assert!(
+            matches!(
+                error.reason(),
+                SettingsError::Sources {
+                    cause: InvalidSourceRegistry::KeyNotForKind {
+                        key: "client_credentials",
+                        ..
+                    }
+                }
+            ),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn an_impersonating_foundry_source_takes_a_startup_identity_as_a_pair() {
+        let named = "    verification_identity: sutura_anchor_reader\n";
+        let settings = Settings::load(&declared(
+            DIRECT,
+            "foundry",
+            "impersonation-at-source",
+            &format!("{named}{}{LOGIN}", grant("verification_client_credentials")),
+        ))
+        .expect("a named startup identity with its grant loads");
+        let source = settings.sources().get(&warehouse()).expect("the source exists");
+        assert!(matches!(
+            source.placement(),
+            SourcePlacement::Foundry {
+                token_file: None,
+                client_credentials: None,
+                verification_client_credentials: Some(_),
+                ..
+            }
+        ));
+        for (extra, written, missing) in [
+            (
+                String::from(named),
+                "verification_identity",
+                "verification_client_credentials",
+            ),
+            (
+                grant("verification_client_credentials"),
+                "verification_client_credentials",
+                "verification_identity",
+            ),
+        ] {
+            refused_as(
+                &declared(DIRECT, "foundry", "impersonation-at-source", &format!("{extra}{LOGIN}")),
+                &InvalidSourceRegistry::Foundry {
+                    alias: warehouse(),
+                    cause: InvalidFoundrySource::VerificationIncomplete { written, missing },
+                },
             );
         }
     }

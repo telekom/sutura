@@ -40,7 +40,7 @@ pub mod caller_identity;
 mod clickhouse;
 mod cube;
 /// The `foundry` entry's own keys, read and refused.
-mod foundry;
+pub mod foundry;
 mod node;
 /// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod oracle;
@@ -564,13 +564,14 @@ pub enum InvalidSourceRegistry {
     /// on `foundry`.
     #[error("`sources.{alias}.{block}` {}", caller_identity::read_only_on(.block))]
     IdentityModeNotForKind { alias: SourceName, block: &'static str },
-    /// `token_file` or `verification_identity` on an impersonating `foundry` source, which holds no
-    /// identity of its own: either would read as a fallback or an anchor identity that is not there.
-    #[error(
-        "`sources.{alias}.{key}` is declared on an `impersonation-at-source` Foundry source, which runs \
-         each question with its caller's own token from `foundry_login` and holds no identity of its own - remove `{key}`"
-    )]
-    FoundryIdentityBesideCallerLogin { alias: SourceName, key: &'static str },
+    /// A `foundry` source's own identity keys do not agree with its posture - see
+    /// [`foundry::InvalidFoundrySource`].
+    #[error("`sources.{alias}` declares a Foundry identity this source cannot use")]
+    Foundry {
+        alias: SourceName,
+        #[source]
+        cause: foundry::InvalidFoundrySource,
+    },
     /// The declared `domain_delegation` block is not usable.
     #[error("`sources.{alias}.domain_delegation.delegating_account` is not usable")]
     DomainDelegation {

@@ -27,17 +27,32 @@ the catalog that defines the questions.
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                                | Type          | Default  | Meaning                                                                                                                                                       |
-| ---------------------------------- | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `endpoint`                         | string        | required | `scheme://host[:port]`. HTTPS for remote hosts; HTTP only for a loopback IP address. No path, query or credentials.                                           |
-| `ontology`                         | string        | required | The ontology API name or RID.                                                                                                                                 |
-| `token_file`                       | absolute path | -        | `shared-service-user` only, and required there: a deployment bearer token, read once at startup. Restart to replace it. Refused on `impersonation-at-source`. |
-| `foundry_login.token_endpoint`     | URL           | -        | `impersonation-at-source` only, and required there: the broker token endpoint `https://<host>/realms/<realm>/broker/<alias>/token`.                           |
-| `foundry_login.client_id`          | string        | -        | The client ID that sutura uses at the identity provider.                                                                                                      |
-| `foundry_login.client_secret_file` | absolute path | -        | A file that holds that client's secret. sutura reads it at startup.                                                                                           |
+| Key                                | Type          | Default  | Meaning                                                                                                                                               |
+| ---------------------------------- | ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `endpoint`                         | string        | required | `scheme://host[:port]`. HTTPS for remote hosts; HTTP only for a loopback IP address. No path, query or credentials.                                   |
+| `ontology`                         | string        | required | The ontology API name or RID.                                                                                                                         |
+| `token_file`                       | absolute path | -        | `shared-service-user` only: a deployment bearer token, read once at startup. Restart to replace it. Write this or `client_credentials`, not both.     |
+| `client_credentials`               | block         | -        | `shared-service-user` only: the deployment's OAuth 2.0 client-credentials grant, minted on `endpoint` and minted again before it expires. Keys below. |
+| `verification_client_credentials`  | block         | -        | `impersonation-at-source` only, with `verification_identity`: the startup-only identity anchors run as. Never presented for a question. Keys below.   |
+| `foundry_login.token_endpoint`     | URL           | -        | `impersonation-at-source` only, and required there: the broker token endpoint `https://<host>/realms/<realm>/broker/<alias>/token`.                   |
+| `foundry_login.client_id`          | string        | -        | The client ID that sutura uses at the identity provider.                                                                                              |
+| `foundry_login.client_secret_file` | absolute path | -        | A file that holds that client's secret. sutura reads it at startup.                                                                                   |
 
-The source's token setting is separate from the catalog's authentication settings. Catalog OAuth
-client credentials do not provide a query credential. The source uses `security.outbound` for its
+Both blocks take the keys of the catalog's `foundry.client_credentials`, read by the same parser:
+
+| Key                  | Type          | Default                       | Meaning                                                               |
+| -------------------- | ------------- | ----------------------------- | --------------------------------------------------------------------- |
+| `client_id`          | string        | required                      | The OAuth 2.0 client of this deployment                               |
+| `client_secret_file` | absolute path | required                      | A file that holds the client secret. sutura reads it once at startup. |
+| `scopes`             | list          | none                          | The scopes to ask for, for example `api:sql-queries-execute`          |
+| `token_path`         | string        | `/multipass/api/oauth2/token` | The path of the token endpoint on `endpoint`. A host is refused.      |
+
+A minted token is held until 60 seconds before its `expires_in`, then minted again; a mint happens
+inside the question's own deadline, and a token answer without `expires_in` is used for one request
+only. A failed mint refuses the question and sends nothing to Foundry.
+
+The source's token settings are separate from the catalog's. Catalog OAuth client credentials do not
+provide a query credential, even though both blocks are read the same way. The source uses `security.outbound` for its
 TLS trust and optional client certificate, for Foundry and for the identity provider.
 
 ## Example
@@ -124,10 +139,16 @@ sources:
 What is refused, and where:
 
 - **At load.** `foundry_login` without `security.inbound.mode: direct`; `foundry_login` on a
-  `shared-service-user` source or on any kind but `foundry`; `token_file` or
-  `verification_identity` beside it; `workload_identity` on a `foundry` source; and an
-  impersonating `foundry` source without `foundry_login`. The source holds no identity of its own,
-  so a catalog anchor on it does not boot - an anchor cannot be re-run as anybody.
+  `shared-service-user` source or on any kind but `foundry`; `token_file` or `client_credentials`
+  beside it; `workload_identity` on a `foundry` source; an impersonating `foundry` source without
+  `foundry_login`; and one of `verification_identity` and `verification_client_credentials` without
+  the other.
+- **At startup.** No caller exists, so the source's anchors run as its declared startup identity:
+  `verification_identity` names it and `verification_client_credentials` holds its grant. That grant
+  is held apart from the question path - the adapter's request path reads only the caller's token,
+  and only anchor verification reads the startup grant - so no question presents it. Without one, an
+  anchor on the source stops startup and names the metric. The adapter has no table-existence
+  check, so startup checks nothing else.
 - **Per question.** A request with no verified caller is refused before any broker request. A caller
   who has not linked a Foundry account gets `403 identity_not_linked`. Any other broker failure, and
   a brokered token whose `accessTokenExpiration` has already passed, is `503 identity_unavailable`
@@ -139,6 +160,8 @@ What is refused, and where:
 
 Limits:
 
+- The startup identity reads what that service user may read, so an anchor certifies the number
+  that identity sees, not any caller's - the limit every impersonating source's anchors carry.
 - sutura sends the brokered token as it is, never logs it and never puts it in a refusal. It does
   not refresh it: refreshing is the identity provider's job. A token that expires during a question
   fails at Foundry.
