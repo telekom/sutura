@@ -49,6 +49,79 @@ fn a_client_credentials_grant_loads_on_the_default_token_path() {
     assert!(shown.contains("client_id: \"catalog-reader\""), "{shown}");
 }
 
+/// A `foundry` catalog writing `catalog_exclusions` and the source of its name writing `source_exclusions`.
+fn with_source(catalog_exclusions: &str, source_exclusions: &str) -> String {
+    format!(
+        "{}{catalog_exclusions}sources:\n  ontology:\n    kind: foundry\n    endpoint: https://foundry.example.com\n    \
+         ontology: sales\n    token_file: /run/secrets/foundry-query-token\n    posture: shared-service-user\n{source_exclusions}",
+        overlay(&format!("    token_file: /run/secrets/foundry-token\n{ONTOLOGY}"))
+    )
+}
+
+fn source_exclusions(settings: &Settings) -> String {
+    let alias = sutura_domain::model::SourceName::parse("ontology").expect("an alias");
+    let source = settings.sources().get(&alias).expect("the source is declared");
+    format!("{:?}", source.placement())
+}
+
+#[test]
+fn a_source_writes_its_own_exclusions_and_wins_over_the_catalog_default() {
+    let default = load(&with_source("", "")).expect("no exclusions written loads");
+    assert!(
+        source_exclusions(&default).contains("com.palantir.system."),
+        "{}",
+        source_exclusions(&default)
+    );
+
+    let opted_out = load(&with_source("", "    exclude_object_types: []\n")).expect("an empty list loads");
+    let shown = source_exclusions(&opted_out);
+    assert!(shown.contains("ObjectTypeExclusions({})"), "{shown}");
+    let catalog = opted_out
+        .catalogs()
+        .each()
+        .find_map(crate::catalog::CatalogSettings::foundry)
+        .expect("the foundry catalog")
+        .exclusions();
+    assert_eq!(
+        catalog,
+        sutura_domain::model::ObjectTypeExclusions::none(),
+        "the catalog took the list only the source wrote"
+    );
+
+    let copied = load(&with_source("      exclude_object_types: [\"Aircraft\"]\n", "")).expect("the catalog's list loads");
+    assert!(
+        source_exclusions(&copied).contains("Exact(\"Aircraft\")"),
+        "{}",
+        source_exclusions(&copied)
+    );
+
+    let agreeing = load(&with_source(
+        "      exclude_object_types: [\"Aircraft\"]\n",
+        "    exclude_object_types: [\"Aircraft\"]\n",
+    ))
+    .expect("the same list on both loads");
+    assert!(source_exclusions(&agreeing).contains("Exact(\"Aircraft\")"));
+    load(&with_source(
+        "      exclude_object_types: [\"Aircraft\", \"com.example.*\"]\n",
+        "    exclude_object_types: [\"com.example.*\", \"Aircraft\", \"Aircraft\"]\n",
+    ))
+    .expect("the same patterns in another order, or repeated, are the same list");
+
+    let disagreeing = refused(&with_source(
+        "      exclude_object_types: [\"Aircraft\"]\n",
+        "    exclude_object_types: []\n",
+    ));
+    assert!(
+        disagreeing.contains("ExclusionsDisagree") && disagreeing.contains("ontology"),
+        "{disagreeing}"
+    );
+    let malformed = refused(&with_source("", "    exclude_object_types: [\"com.*.x\"]\n"));
+    assert!(
+        malformed.contains("ExcludeObjectTypes") && malformed.contains("com.*.x"),
+        "{malformed}"
+    );
+}
+
 #[test]
 fn neither_or_both_auths_is_refused() {
     let neither = refused(&overlay(ONTOLOGY));

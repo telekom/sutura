@@ -59,6 +59,7 @@ pub(crate) fn build(
         client_credentials: ref deployment_grant,
         ref verification_client_credentials,
         ref exclude_object_types,
+        ..
     } = *configured.placement()
     else {
         return Err(format!(

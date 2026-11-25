@@ -38,6 +38,7 @@ and these keys:
 | `foundry_login.client_id`          | string        | -        | The client ID that sutura uses at the identity provider.                                                                                                                                                                      |
 | `foundry_login.client_secret_file` | absolute path | -        | A file that holds that client's secret. sutura reads it at startup.                                                                                                                                                           |
 | `catalog_visibility`               | string        | absent   | `"per-caller"`: narrow each caller's catalog view to the object types their own `foundry_login` token lists. Refused without `foundry_login`. See [the catalog page](../catalogs/foundry.md#narrowing-what-each-caller-sees). |
+| `exclude_object_types`             | list          | see text | Object types this source leaves out: exact API names, or prefixes ending in `.*`; `[]` for none. See below.                                                                                                                   |
 
 Both blocks take the keys of the catalog's `foundry.client_credentials`, read by the same parser:
 
@@ -70,12 +71,22 @@ type does not resolve is the same `source_refused` answer, naming no object type
 listed with no usable RID (only a question needing that type is refused; the read logs how many at
 `DEBUG`), left out by the exclusions, or not found by Foundry behind its RID. In the last case the
 entries the statement used are dropped, so the next question reads them again - a recreated type
-is picked up without waiting five minutes. **Unverified:** which status Foundry answers for a RID
-the token may not see. A `401`/`403` is `source_refused`; a `404`, or an `errorName` ending
-`NotFound`, is read as not found; any other answer is the data system failing.
+is picked up without waiting five minutes. A name that did not resolve is not read again for 30
+seconds for the same caller token (at most 4096 such entries, never shared between tokens), so a
+caller asking about an object type that is not there does not re-read the list on every question.
+**Unverified:** which answer Foundry gives for a RID the token may not see. A `401`/`403` is
+`source_refused`. Only an `errorName` of `ObjectTypeNotFound`, bare or after a `Namespace:` prefix
+(the name Foundry's public API documents for an object type that is not found or not visible to the
+token), is read as not found and drops entries; a bare `404` or any other `NotFound` does not. Any
+other answer is the data system failing.
 
-The source leaves out the object types its catalog's `foundry.exclude_object_types` leaves out. A
-model naming one by API name stops startup, and a refreshed bundle naming one is not adopted. A
+The source leaves out the object types in its own `exclude_object_types` - the same grammar as the
+catalog's - else those the `foundry` catalog of the same name writes in `foundry.exclude_object_types`,
+else `["com.palantir.system.*"]`. The source and that catalog end with one list: when only the
+source writes one, the catalog takes it too. `[]` on the source opts both out. Both written with
+different sets of patterns - order and repeats do not count - is refused at load, naming the
+source. A model naming one by API name
+stops startup, and a refreshed bundle naming one is not adopted. A
 model naming one by RID cannot be checked then; a question on it is refused once a read has listed
 that RID as excluded.
 

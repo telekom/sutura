@@ -172,6 +172,9 @@ pub(crate) struct RawSource {
     pub(crate) client_credentials: Option<crate::client_credentials::RawClientCredentials>,
     #[serde(default)]
     pub(crate) verification_client_credentials: Option<crate::client_credentials::RawClientCredentials>,
+    /// A `foundry` source's own object-type exclusions - see `crate::sources::foundry`.
+    #[serde(default)]
+    pub(crate) exclude_object_types: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) caller_google_token: Option<RawCallerGoogleToken>,
     /// Domain-wide delegation through one service account - see `crate::sources::caller_identity`.

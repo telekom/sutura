@@ -637,3 +637,6 @@ a_not_linked_caller_is_answered_from_the_held_refusal_without_asking_again # ser
 concurrent_first_requests_for_one_caller_share_one_listing # serve/tests/foundry_visibility.rs, declared in serve/tests.rs beside the catalog visibility the base lacks; the base run reverts the declaration, so the module is not compiled there
 the_agent_surface_takes_a_slot_before_narrowing_dials_and_none_on_a_held_listing # serve/tests/foundry_visibility.rs, declared in serve/tests.rs beside the catalog visibility the base lacks; the base run reverts the declaration, so the module is not compiled there
 a_refused_load_names_only_what_went_wrong_unless_names_are_asked_for # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_name_that_did_not_resolve_is_not_read_again_for_that_token_and_is_for_another # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
+the_source_debug_shows_no_api_name_or_resource_identifier # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
+only_an_error_naming_a_missing_object_type_drops_a_resolved_rid # inline in http.rs beside the transport, whose base the base run restores and which has no test module there

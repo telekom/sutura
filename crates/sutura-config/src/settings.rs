@@ -238,10 +238,22 @@ impl Settings {
         // has to be parsed before the entry that may read it.
         let security = parse::parse_security(raw)?;
         let mut sources = parse::parse_sources(raw, security.identity(), security.inbound())?;
-        let catalogs = catalogs::parse_catalogs(raw, &sources)?;
-        for catalog in catalogs.each() {
-            if let Some(foundry) = catalog.foundry() {
-                sources.exclude_object_types(catalog.name(), foundry.exclusions());
+        let mut catalogs = catalogs::parse_catalogs(raw, &sources)?;
+        // One effective list per alias: whichever of the catalog and the source wrote one, and both
+        // only when they hold the same patterns.
+        for catalog in catalogs.each_mut() {
+            let name = catalog.name().clone();
+            let Some(foundry) = catalog.foundry_mut() else {
+                continue;
+            };
+            match foundry.written_exclusions() {
+                Some(exclusions) => crate::sources::foundry::exclude_object_types(&mut sources, &name, exclusions)
+                    .map_err(|cause| SettingsError::Sources { cause })?,
+                None => {
+                    if let Some(exclusions) = crate::sources::foundry::written_exclusions(&sources, &name) {
+                        foundry.adopt_exclusions(exclusions);
+                    }
+                }
             }
         }
         Ok(Self {

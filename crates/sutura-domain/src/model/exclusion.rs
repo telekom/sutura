@@ -8,7 +8,7 @@
 ///
 /// Nothing more - no other wildcard, no regex. A segment is ASCII letters, digits, `_` or `-`, never
 /// empty.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ApiNamePattern {
     Exact(String),
     /// The prefix including its trailing `.`.
@@ -65,15 +65,20 @@ impl ApiNamePattern {
 
 /// The object types left out. [`Self::default`] is `com.palantir.system.*`, the platform's own
 /// types the object-type list serves beside an ontology's; an empty list leaves nothing out.
+///
+/// A SET of patterns: two lists that hold the same patterns in another order, or one twice, are
+/// equal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObjectTypeExclusions(Vec<ApiNamePattern>);
+pub struct ObjectTypeExclusions(std::collections::BTreeSet<ApiNamePattern>);
 
 /// The default exclusion, as a settings file would write it.
 pub const DEFAULT_EXCLUSION: &str = "com.palantir.system.*";
 
 impl Default for ObjectTypeExclusions {
     fn default() -> Self {
-        Self(vec![ApiNamePattern::Under(String::from("com.palantir.system."))])
+        Self(std::collections::BTreeSet::from([ApiNamePattern::Under(String::from(
+            "com.palantir.system.",
+        ))]))
     }
 }
 
@@ -81,7 +86,7 @@ impl ObjectTypeExclusions {
     /// Leaves nothing out.
     #[must_use]
     pub const fn none() -> Self {
-        Self(Vec::new())
+        Self(std::collections::BTreeSet::new())
     }
 
     /// # Errors
@@ -118,6 +123,11 @@ mod tests {
         assert!(!exact.excludes("com.example.InternalTwo"));
 
         assert!(!ObjectTypeExclusions::none().excludes("com.palantir.system.Evolution"));
+        assert_eq!(
+            ObjectTypeExclusions::parse(["b.*", "a", "b.*"]).expect("parses"),
+            ObjectTypeExclusions::parse(["a", "b.*"]).expect("parses"),
+            "order and repeats do not change a list"
+        );
 
         for refused in [
             "",

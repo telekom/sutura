@@ -601,9 +601,12 @@ pub enum SourcePlacement {
         /// beside `verification_identity`. Never presented for a caller's question.
         verification_client_credentials: Option<crate::client_credentials::ClientCredentialsSettings>,
         /// The object types the source's API-name directory and each caller's listing leave out:
-        /// the `foundry` catalog of the same alias's `foundry.exclude_object_types`, or the default
-        /// when no such catalog is declared - so the catalog, the directory and the listing agree.
+        /// the one list the source and the `foundry` catalog of the same alias share - whichever of
+        /// the two wrote one (the catalog adopts the source's when only the source wrote it), else
+        /// the default. Both written with different sets of patterns is refused at load.
         exclude_object_types: sutura_domain::model::ObjectTypeExclusions,
+        /// Whether the source wrote `exclude_object_types` itself.
+        exclusions_written: bool,
     },
 }
 

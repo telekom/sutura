@@ -198,6 +198,7 @@ pub(super) fn parse_sources(
             written,
             source.client_credentials.as_ref(),
             source.verification_client_credentials.as_ref(),
+            source.exclude_object_types.as_deref(),
         )
         .map_err(|cause| SettingsError::Sources { cause })?;
         registry

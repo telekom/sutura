@@ -54,7 +54,7 @@ pub use error::FoundryError;
 
 use bearer::Bearer;
 pub use bearer::{BootIdentity, DeploymentToken, TokenFailed};
-pub use directory::{DIRECTORY_TTL, DirectoryFailed, Listed, ObjectTypeDirectory, ResourceIds};
+pub use directory::{DIRECTORY_TTL, DirectoryFailed, Listed, MAX_UNRESOLVED, ObjectTypeDirectory, ResourceIds, UNRESOLVED_TTL};
 use directory::{Directory, Whose};
 
 /// The JSON request sent to Foundry's ontology SQL endpoint.

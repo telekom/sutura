@@ -775,18 +775,6 @@ impl SourceRegistry {
         clickhouse::acknowledge_hash_buckets(self, written, value)
     }
 
-    /// Gives the `foundry` source `alias` the exclusions its catalog of the same name declares.
-    pub(crate) fn exclude_object_types(&mut self, alias: &SourceName, exclusions: &sutura_domain::model::ObjectTypeExclusions) {
-        if let Some(source) = self.by_alias.get_mut(alias)
-            && let SourcePlacement::Foundry {
-                ref mut exclude_object_types,
-                ..
-            } = source.placement
-        {
-            exclude_object_types.clone_from(exclusions);
-        }
-    }
-
     /// Reads the whole `sources:` tree.
     ///
     /// **`mode` is an input rather than something derived from the entries**, and that direction is

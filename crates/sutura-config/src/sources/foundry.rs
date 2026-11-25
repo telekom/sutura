@@ -61,6 +61,7 @@ pub(super) fn parse_placement(
         client_credentials: None,
         verification_client_credentials: None,
         exclude_object_types: sutura_domain::model::ObjectTypeExclusions::default(),
+        exclusions_written: false,
     })
 }
 
@@ -88,6 +89,14 @@ pub enum InvalidFoundrySource {
     VerificationIncomplete { written: &'static str, missing: &'static str },
     #[error("a declared client-credentials block is not usable")]
     ClientCredentials(#[source] crate::client_credentials::InvalidClientCredentials),
+    #[error("`exclude_object_types` holds {value:?}, which is neither an exact API name nor a prefix ending in `.*`")]
+    ExcludeObjectTypes { value: String },
+    /// The source and the catalog of the same alias each wrote `exclude_object_types`, differently.
+    #[error(
+        "`exclude_object_types` on the source and `foundry.exclude_object_types` on the catalog of the same name \
+         differ - write it once, or write the same list in both"
+    )]
+    ExclusionsDisagree,
 }
 
 /// Reads one source's `client_credentials` and `verification_client_credentials` blocks into its
@@ -99,6 +108,7 @@ pub(crate) fn declare(
     written: &str,
     client_credentials: Option<&crate::client_credentials::RawClientCredentials>,
     verification_client_credentials: Option<&crate::client_credentials::RawClientCredentials>,
+    exclude_object_types: Option<&[String]>,
 ) -> Result<(), InvalidSourceRegistry> {
     use crate::client_credentials::ClientCredentialsSettings;
     use sutura_domain::source::SourcePosture;
@@ -118,6 +128,7 @@ pub(crate) fn declare(
             [
                 ("client_credentials", client_credentials.is_some()),
                 ("verification_client_credentials", verification_client_credentials.is_some()),
+                ("exclude_object_types", exclude_object_types.is_some()),
             ],
         );
     }
@@ -131,6 +142,14 @@ pub(crate) fn declare(
             .map_err(|cause| refused(InvalidFoundrySource::ClientCredentials(cause)))
     };
     let grant = parse(client_credentials, "client_credentials")?;
+    let exclusions = exclude_object_types
+        .map(|patterns| sutura_domain::model::ObjectTypeExclusions::parse(patterns.iter().map(String::as_str)))
+        .transpose()
+        .map_err(|cause| {
+            refused(InvalidFoundrySource::ExcludeObjectTypes {
+                value: String::from(cause.value()),
+            })
+        })?;
     let verification = parse(verification_client_credentials, "verification_client_credentials")?;
     let impersonating = matches!(source.posture(), Some(SourcePosture::ImpersonationAtSource));
     let named = source
@@ -140,6 +159,8 @@ pub(crate) fn declare(
         ref token_file,
         client_credentials: ref mut held,
         verification_client_credentials: ref mut held_verification,
+        exclude_object_types: ref mut held_exclusions,
+        ref mut exclusions_written,
         ..
     } = source.placement
     else {
@@ -181,6 +202,55 @@ pub(crate) fn declare(
     }
     *held = grant;
     *held_verification = verification;
+    if let Some(exclusions) = exclusions {
+        *held_exclusions = exclusions;
+        *exclusions_written = true;
+    }
+    Ok(())
+}
+
+/// The exclusions the `foundry` source `alias` wrote itself, if it wrote any.
+pub(crate) fn written_exclusions<'a>(
+    registry: &'a super::SourceRegistry,
+    alias: &SourceName,
+) -> Option<&'a sutura_domain::model::ObjectTypeExclusions> {
+    match registry.by_alias.get(alias)?.placement {
+        SourcePlacement::Foundry {
+            ref exclude_object_types,
+            exclusions_written: true,
+            ..
+        } => Some(exclude_object_types),
+        _ => None,
+    }
+}
+
+/// Gives the `foundry` source `alias` the exclusions its catalog of the same name wrote, unless
+/// the source wrote its own: the source's key wins.
+///
+/// # Errors
+///
+/// [`InvalidFoundrySource::ExclusionsDisagree`] when both wrote it, differently.
+pub(crate) fn exclude_object_types(
+    registry: &mut super::SourceRegistry,
+    alias: &SourceName,
+    catalog: &sutura_domain::model::ObjectTypeExclusions,
+) -> Result<(), InvalidSourceRegistry> {
+    if let Some(source) = registry.by_alias.get_mut(alias)
+        && let SourcePlacement::Foundry {
+            ref mut exclude_object_types,
+            exclusions_written,
+            ..
+        } = source.placement
+    {
+        if !exclusions_written {
+            exclude_object_types.clone_from(catalog);
+        } else if exclude_object_types != catalog {
+            return Err(InvalidSourceRegistry::Foundry {
+                alias: alias.clone(),
+                cause: InvalidFoundrySource::ExclusionsDisagree,
+            });
+        }
+    }
     Ok(())
 }
 

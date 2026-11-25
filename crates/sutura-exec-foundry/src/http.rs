@@ -15,6 +15,18 @@ pub use sutura_http_client::{
 
 use crate::{FoundryTransport, SqlRequest};
 
+/// The `errorName` Foundry's public API documents for an object type that is not found or not
+/// visible to the token.
+pub const OBJECT_TYPE_NOT_FOUND: &str = "ObjectTypeNotFound";
+
+/// Whether `name` is [`OBJECT_TYPE_NOT_FOUND`], bare or after a `Namespace:` prefix.
+fn names_a_missing_object_type(name: Option<&ErrorName>) -> bool {
+    name.is_some_and(|name| {
+        let name = name.as_str();
+        name.rsplit_once(':').map_or(name, |(_, local)| local) == OBJECT_TYPE_NOT_FOUND
+    })
+}
+
 /// The Foundry Ontology SQL endpoint's fixed path.
 pub const SQL_PATH: &str = "/api/v2/sqlQueries/executeOntology";
 
@@ -140,14 +152,14 @@ impl FoundryTransport for HttpFoundry {
         matches!(error, HttpFoundryError::TooLarge { .. })
     }
 
-    /// A `404`, or an `errorName` ending `NotFound`. **Unverified:** no tenant has answered a
-    /// statement naming a RID its token may not see, or a recreated type's old RID, here.
+    /// Only an `errorName` that names a missing object type ([`OBJECT_TYPE_NOT_FOUND`], bare or
+    /// after a `Namespace:` prefix); a bare `404`, or another `NotFound`, is not one.
+    /// **Unverified:** Foundry's public API documents `ObjectTypeNotFound` for its ontology
+    /// endpoints - not found, or not visible to the token - and no tenant has answered an Ontology
+    /// SQL statement naming a stale or unseen RID here.
     fn object_not_found(&self, error: &Self::Error) -> bool {
         match error {
-            HttpFoundryError::Refused { status: 404, .. } => true,
-            HttpFoundryError::Refused { error_name, .. } => {
-                error_name.as_ref().is_some_and(|name| name.as_str().ends_with("NotFound"))
-            }
+            HttpFoundryError::Refused { error_name, .. } => names_a_missing_object_type(error_name.as_ref()),
             HttpFoundryError::Unreachable(_)
             | HttpFoundryError::Unreadable(_)
             | HttpFoundryError::TooLarge { .. }
@@ -167,5 +179,30 @@ impl crate::DeploymentToken for sutura_http_client::token::TokenSource {
         Self::bearer(self, sutura_http_client::Budget::opened(left))
             .map(|bearer| bearer.secret().clone())
             .map_err(crate::TokenFailed::Mint)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErrorName, names_a_missing_object_type};
+
+    fn named(error_name: &str) -> Option<ErrorName> {
+        ErrorName::from_answer(&format!(r#"{{"errorCode":"NOT_FOUND","errorName":"{error_name}"}}"#))
+    }
+
+    #[test]
+    fn only_an_error_naming_a_missing_object_type_drops_a_resolved_rid() {
+        for missing in ["ObjectTypeNotFound", "Ontologies:ObjectTypeNotFound"] {
+            assert!(names_a_missing_object_type(named(missing).as_ref()), "{missing}");
+        }
+        for other in [
+            "OntologyNotFound",
+            "SqlQueries:QueryNotFound",
+            "Default:NotFound",
+            "ObjectTypeNotFoundX",
+        ] {
+            assert!(!names_a_missing_object_type(named(other).as_ref()), "{other}");
+        }
+        assert!(!names_a_missing_object_type(None), "a bare 404 drops nothing");
     }
 }

@@ -186,6 +186,39 @@ fn an_api_name_no_read_holds_is_refused_naming_the_table_and_nothing_is_sent() {
 }
 
 #[test]
+fn a_name_that_did_not_resolve_is_not_read_again_for_that_token_and_is_for_another() {
+    let (warehouse, _, listing) = source(vec![ids(&[("Aircraft", AIRCRAFT)])]);
+    for _ in 0..3 {
+        assert!(matches!(
+            probe(&warehouse, "Airport", "caller-a"),
+            Err(FoundryError::UnknownObjectType { .. })
+        ));
+    }
+    assert_eq!(*listing.tokens.lock(), ["caller-a"], "the same token read the list again");
+    assert!(matches!(
+        probe(&warehouse, "Airport", "caller-b"),
+        Err(FoundryError::UnknownObjectType { .. })
+    ));
+    assert_eq!(
+        *listing.tokens.lock(),
+        ["caller-a", "caller-b"],
+        "one token's unresolved name was held for another"
+    );
+}
+
+#[test]
+fn the_source_debug_shows_no_api_name_or_resource_identifier() {
+    let (warehouse, _, _) = source(vec![ids(&[("Aircraft", AIRCRAFT)])]);
+    probe(&warehouse, "Aircraft", "caller-a").expect("resolves");
+    drop(probe(&warehouse, "Airport", "caller-a"));
+    let shown = format!("{warehouse:?}");
+    for leaked in ["Aircraft", "Airport", AIRCRAFT, "caller-a"] {
+        assert!(!shown.contains(leaked), "{leaked} in {shown}");
+    }
+    assert!(shown.contains("names: 1"), "{shown}");
+}
+
+#[test]
 fn a_narrower_read_adds_to_the_map_and_never_evicts_another_callers_entries() {
     let (warehouse, _, listing) = source(vec![ids(&[("Aircraft", AIRCRAFT)]), ids(&[("Airport", AIRPORT)])]);
     probe(&warehouse, "Aircraft", "caller-a").expect("caller a's read holds it");

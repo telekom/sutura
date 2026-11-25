@@ -49,7 +49,9 @@ a new token before the old one expires, so a catalog refresh does not fail after
 `foundry.exclude_object_types` takes nothing beyond an exact API name or `<prefix>.*` - no other
 wildcard and no regular expression; any other pattern is refused at load, naming it. The
 `kind: foundry` source of the same alias leaves out the same object types, when it resolves an API
-name and when it narrows a caller's view, so all three agree. An excluded object type is dropped
+name and when it narrows a caller's view, so all three agree - unless that source writes its own
+`exclude_object_types`: then the catalog takes the source's list, so the two still agree. Both
+written with different sets of patterns is refused at load. An excluded object type is dropped
 before any name check and before its links are read. Each load logs how many were left out at
 `INFO`, and their API names at `DEBUG`.
 

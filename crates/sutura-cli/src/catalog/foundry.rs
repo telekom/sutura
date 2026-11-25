@@ -96,5 +96,5 @@ pub(crate) fn reader(
             )?)
         }
     };
-    Ok(HttpOntologyReader::new(endpoint, ontology, token, bounds, agent).excluding(foundry.exclusions().clone()))
+    Ok(HttpOntologyReader::new(endpoint, ontology, token, bounds, agent).excluding(foundry.exclusions()))
 }

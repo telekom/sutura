@@ -15,12 +15,22 @@
 //! own token, decides. sutura answers that caller the same refusal either way: a name their read
 //! lacks is [`crate::FoundryError::UnknownObjectType`], and Foundry not finding a RID the statement
 //! named is [`crate::FoundryError::StaleObjectType`] - both `source_refused`, naming no object type.
-//! **The limit:** which status Foundry answers for a RID the token may not see is unverified; a `401`
-//! or `403` is the same refusal, a `404` or an `errorName` ending `NotFound` is read as *not found*,
-//! and any other answer surfaces as the data system failing. A RID is metadata, not row data, and no
+//! **The limit:** which answer Foundry gives for a RID the token may not see is unverified. A
+//! `401` or `403` is the same refusal; only an `errorName` of `ObjectTypeNotFound` (bare or after a
+//! `Namespace:` prefix) is read as *not found* - a bare `404` is not - and any other answer surfaces
+//! as the data system failing. A RID is metadata, not row data, and no
 //! row is read except under the caller's own token.
+//!
+//! **A name that did not resolve is not read again for [`UNRESOLVED_TTL`], for that caller.** The
+//! adapter sees a caller's token, not who they are, so the entry is keyed by a keyed hash of the
+//! token - never shared between two tokens - and the set is bounded by [`MAX_UNRESOLVED`]. A caller
+//! whose token rotates reads again once.
+//!
+//! **Neither map prints its entries**: `Debug` shows counts only, so an API name or a RID never
+//! reaches a log through a `{:?}` of the source.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::BuildHasher as _;
 use std::time::Instant;
 
 use sutura_domain::identity::Secret;
@@ -72,6 +82,12 @@ pub enum DirectoryFailed {
 /// How long one entry answers its API name after the read that last returned it.
 pub const DIRECTORY_TTL: core::time::Duration = core::time::Duration::from_secs(300);
 
+/// How long a name that did not resolve under one token is answered so without reading again.
+pub const UNRESOLVED_TTL: core::time::Duration = core::time::Duration::from_secs(30);
+
+/// The most unresolved (token, name) entries held; a full set drops the expired, then the oldest.
+pub const MAX_UNRESOLVED: usize = 4096;
+
 /// Which map a lookup reads and fills: a question's, under its own token, or an anchor's, under the
 /// startup identity. Never both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,12 +116,21 @@ enum Known {
 /// Each API name's entry and when a read last returned it.
 type Entries = BTreeMap<String, (Instant, Known)>;
 
-/// The entries of one map and when each was last returned.
-#[derive(Debug, Default)]
+/// The entries of one map and when each was last returned. `Debug` is hand-written: counts only.
+#[derive(Default)]
 struct Held {
     names: Entries,
     excluded: BTreeMap<ResourceId, Instant>,
     read_at: Option<Instant>,
+}
+
+impl core::fmt::Debug for Held {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Held")
+            .field("names", &self.names.len())
+            .field("excluded", &self.excluded.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Held {
@@ -165,12 +190,28 @@ impl Lookup {
     }
 }
 
-/// The object-type list and the two maps over it - see the module header.
-#[derive(Debug)]
+/// A name that did not resolve, under one token's keyed hash.
+type Unresolved = HashMap<(u64, String), Instant>;
+
+/// The object-type list and the two maps over it - see the module header. `Debug` is
+/// hand-written: counts only.
 pub(crate) struct Directory {
     lister: Box<dyn ObjectTypeDirectory>,
     questions: parking_lot::Mutex<Held>,
     boot: parking_lot::Mutex<Held>,
+    unresolved: parking_lot::Mutex<Unresolved>,
+    /// Keys the token hash; random per process, so a hash says nothing outside it.
+    keys: std::collections::hash_map::RandomState,
+}
+
+impl core::fmt::Debug for Directory {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Directory")
+            .field("questions", &*self.questions.lock())
+            .field("boot", &*self.boot.lock())
+            .field("unresolved", &self.unresolved.lock().len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Directory {
@@ -179,6 +220,37 @@ impl Directory {
             lister,
             questions: parking_lot::Mutex::new(Held::default()),
             boot: parking_lot::Mutex::new(Held::default()),
+            unresolved: parking_lot::Mutex::new(HashMap::new()),
+            keys: std::collections::hash_map::RandomState::new(),
+        }
+    }
+
+    fn token_key(&self, token: &Secret) -> u64 {
+        #[expect(clippy::disallowed_methods, reason = "hashed with a per-process key, never kept or shown")]
+        let token = token.expose_secret();
+        self.keys.hash_one(token)
+    }
+
+    /// Whether `api_name` did not resolve under the token hashed to `key` within [`UNRESOLVED_TTL`].
+    fn recently_unresolved(&self, key: u64, api_name: &str) -> bool {
+        self.unresolved
+            .lock()
+            .get(&(key, String::from(api_name)))
+            .is_some_and(|at| at.elapsed() < UNRESOLVED_TTL)
+    }
+
+    fn remember_unresolved(&self, key: u64, api_names: impl Iterator<Item = String>) {
+        let mut unresolved = self.unresolved.lock();
+        for api_name in api_names {
+            if unresolved.len() >= MAX_UNRESOLVED {
+                unresolved.retain(|_, at| at.elapsed() < UNRESOLVED_TTL);
+            }
+            if unresolved.len() >= MAX_UNRESOLVED
+                && let Some(oldest) = unresolved.iter().min_by_key(|&(_, at)| *at).map(|(entry, _)| entry.clone())
+            {
+                unresolved.remove(&oldest);
+            }
+            unresolved.insert((key, api_name), Instant::now());
         }
     }
 
@@ -200,12 +272,29 @@ impl Directory {
         deadline: Deadline,
     ) -> Result<Lookup, DirectoryFailed> {
         let held = self.held(whose);
-        let answered = held.lock().answers(api_names.iter().copied(), !ids.is_empty());
+        let key = (whose == Whose::Question).then(|| self.token_key(token));
+        // A name this token found unresolved moments ago is not a reason to read again.
+        let unanswered: Vec<&str> = api_names
+            .iter()
+            .copied()
+            .filter(|api_name| !key.is_some_and(|key| self.recently_unresolved(key, api_name)))
+            .collect();
+        let answered = held.lock().answers(unanswered.iter().copied(), !ids.is_empty());
         if !answered {
             let listed = self.lister.listed(token, deadline)?;
             held.lock().merge(listed);
         }
         let held = held.lock();
+        // Only a read stamps a name unresolved, so asking again does not keep it held past its time.
+        if let Some(key) = key.filter(|_| !answered) {
+            self.remember_unresolved(
+                key,
+                api_names
+                    .iter()
+                    .filter(|api_name| held.resolved(api_name) == Resolution::Unlisted)
+                    .map(|&api_name| String::from(api_name)),
+            );
+        }
         Ok(Lookup {
             names: api_names
                 .iter()

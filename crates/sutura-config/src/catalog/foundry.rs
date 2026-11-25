@@ -41,7 +41,8 @@ pub enum FoundryAuth {
 pub struct FoundrySettings {
     ontology: String,
     auth: FoundryAuth,
-    exclusions: ObjectTypeExclusions,
+    /// As written; `None` is the default.
+    exclusions: Option<ObjectTypeExclusions>,
 }
 
 impl FoundrySettings {
@@ -61,14 +62,14 @@ impl FoundrySettings {
                     .map_err(InvalidFoundryCatalog::ClientCredentials)?,
             ),
         };
-        let exclusions = match raw.exclude_object_types.as_deref() {
-            None => ObjectTypeExclusions::default(),
-            Some(patterns) => ObjectTypeExclusions::parse(patterns.iter().map(String::as_str)).map_err(|cause| {
-                InvalidFoundryCatalog::ExcludeObjectTypes {
-                    value: String::from(cause.value()),
-                }
-            })?,
-        };
+        let exclusions = raw
+            .exclude_object_types
+            .as_deref()
+            .map(|patterns| ObjectTypeExclusions::parse(patterns.iter().map(String::as_str)))
+            .transpose()
+            .map_err(|cause| InvalidFoundryCatalog::ExcludeObjectTypes {
+                value: String::from(cause.value()),
+            })?;
         Ok(Self {
             ontology: String::from(ontology),
             auth,
@@ -86,10 +87,24 @@ impl FoundrySettings {
         &self.auth
     }
 
-    /// The object types this catalog, and the source of the same alias, leave out.
+    /// The object types this catalog leaves out: as written, else the default.
+    #[must_use]
+    pub fn exclusions(&self) -> ObjectTypeExclusions {
+        self.exclusions.clone().unwrap_or_default()
+    }
+
+    /// `exclude_object_types` when this entry wrote it - what the source of the same alias takes
+    /// unless it writes its own.
     #[inline]
-    pub const fn exclusions(&self) -> &ObjectTypeExclusions {
-        &self.exclusions
+    pub const fn written_exclusions(&self) -> Option<&ObjectTypeExclusions> {
+        self.exclusions.as_ref()
+    }
+
+    /// Takes the list the source of the same alias wrote, for an entry that wrote none.
+    pub(crate) fn adopt_exclusions(&mut self, exclusions: &ObjectTypeExclusions) {
+        if self.exclusions.is_none() {
+            self.exclusions = Some(exclusions.clone());
+        }
     }
 }
 

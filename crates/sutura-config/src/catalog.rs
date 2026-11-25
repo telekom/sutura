@@ -446,6 +446,11 @@ impl CatalogSettings {
         self.foundry.as_ref()
     }
 
+    /// The foundry-only settings, to adopt the same-alias source's exclusions at load.
+    pub(crate) const fn foundry_mut(&mut self) -> Option<&mut FoundrySettings> {
+        self.foundry.as_mut()
+    }
+
     /// Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.
     ///
     /// A separate step rather than three more parameters on [`Self::parse`], so every existing
@@ -672,6 +677,10 @@ impl Catalogs {
     /// Every catalog, in declaration order.
     pub fn each(&self) -> impl Iterator<Item = &CatalogSettings> {
         self.entries.iter()
+    }
+
+    pub(crate) fn each_mut(&mut self) -> impl Iterator<Item = &mut CatalogSettings> {
+        self.entries.iter_mut()
     }
 
     /// How many catalogs are declared.
