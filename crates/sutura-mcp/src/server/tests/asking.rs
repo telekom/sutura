@@ -513,3 +513,157 @@ async fn a_caller_scoped_away_from_a_metric_does_not_receive_that_metrics_knowle
 fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
+
+/// `describe_catalog`'s `model` argument, scoped to this caller - the per-identity twin of
+/// `describe_model`'s own module-level helper of the same name, which only ever runs under
+/// `Asking::TheProcessOwner`.
+fn describe_model(name: &str) -> rmcp::model::CallToolRequestParams {
+    super::call(Capability::DescribeCatalog.id(), &serde_json::json!({ "model": name }))
+}
+
+/// Unwraps a completed tool call's structured content, the same shape every other cell in this
+/// file reaches by hand.
+fn structured(response: rmcp::model::CallToolResponse) -> serde_json::Value {
+    let result = match response {
+        rmcp::model::CallToolResponse::Complete(result) => result,
+        other => panic!("a catalog tool call completes, got {other:?}"),
+    };
+    result.structured_content.expect("the catalog carries structured content")
+}
+
+/// **#2071's second ask, identity leg:** a model whose only metric is restricted away from this
+/// caller must be refused with the EXACT bytes a model this catalog never declares is refused
+/// with - `describe.rs`'s `unknown_model`/`unknown_metric` fold is deliberately non-disclosing, and
+/// this is the proof that the fold still holds now that `model` is accepted by way of a metric's
+/// own ownership rather than only a model-level audience. `ErrorData` derives `PartialEq`, so the
+/// two refusals are compared for equality rather than merely both being "some error".
+#[tokio::test]
+async fn a_restricted_only_models_name_is_refused_identically_to_one_this_catalog_never_declares() {
+    let catalog = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
+    let peer = a_peer().await;
+
+    let with_restricted_customers = AgentSurface::new(
+        Arc::new(testing::RestrictedSurface::over(
+            testing::bundle_with_a_restricted_only_model(),
+        )),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+        testing::instructions(),
+        None,
+    );
+    let outsider = subject_asked("outsider@example.com", catalog.clone());
+    let restricted_error = with_restricted_customers
+        .call_tool(
+            describe_model("customers"),
+            hand_built_context(1, peer.clone(), Some(outsider)),
+        )
+        .await
+        .expect_err("a model whose only metric is outside this caller's grant is refused");
+
+    let without_customers_at_all = AgentSurface::new(
+        Arc::new(testing::RestrictedSurface::over(testing::bundle())),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+        testing::instructions(),
+        None,
+    );
+    let outsider_again = subject_asked("outsider@example.com", catalog);
+    let unknown_error = without_customers_at_all
+        .call_tool(describe_model("customers"), hand_built_context(2, peer, Some(outsider_again)))
+        .await
+        .expect_err("a model this catalog never declares is refused");
+
+    // Each refusal must have reached the real `unknown_model` fold - which names the model back in
+    // its message - rather than an unrelated parse failure that would hold both sides "equal" for
+    // the wrong reason. `DescribeCatalogArgs` carries no `model` field at all before this PR, so a
+    // base run would reject `{"model": "customers"}` as an unrecognized field before either bundle
+    // is ever consulted, which this assertion catches: that rejection does not name "customers".
+    assert!(restricted_error.message.contains("customers"), "{restricted_error:?}");
+    assert!(unknown_error.message.contains("customers"), "{unknown_error:?}");
+    assert_eq!(
+        restricted_error, unknown_error,
+        "a restricted-only model must be refused with the exact bytes an absent model is, so a \
+         caller cannot tell the two apart: {restricted_error:?} vs {unknown_error:?}"
+    );
+}
+
+/// **#2071's second ask, identity leg:** a `finance`-granted caller naming the model whose only
+/// metric its grant covers gets back that metric alone - never the other model's own metric, which
+/// would mean `model` widened the view rather than narrowed it.
+#[tokio::test]
+async fn a_granted_caller_asking_for_a_visible_model_sees_only_that_models_metrics() {
+    let surface = AgentSurface::new(
+        Arc::new(testing::RestrictedSurface::over(
+            testing::bundle_with_a_restricted_only_model(),
+        )),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+        testing::instructions(),
+        None,
+    );
+    let peer = a_peer().await;
+    let catalog = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
+    let finance = sutura_domain::model::AudienceId::parse("finance").expect("a test audience id is one");
+    let finance_caller = audience_asked(
+        "finance-caller@example.com",
+        catalog,
+        std::collections::BTreeSet::from([finance]),
+    );
+
+    let response = surface
+        .call_tool(describe_model("customers"), hand_built_context(1, peer, Some(finance_caller)))
+        .await
+        .expect("a finance-granted caller may name the model its only visible metric owns");
+    let json = structured(response).to_string();
+    assert!(json.contains("\"finance_only\""), "{json}");
+    assert!(
+        !json.contains("\"revenue\""),
+        "a model-narrowed listing must not carry the other model's metric: {json}"
+    );
+}
+
+/// **#2071's second ask, identity leg:** `customers` carries no model-level audience of its own -
+/// a caller accepts its name only by way of the one metric it owns being visible. Accepting the
+/// NAME must not be mistaken for granting the model's physical schema: with `listing_physical_schema`
+/// on, this caller's `models` section stays empty, because `ScopedView::models` gates on the
+/// model's own audience, which this caller was never granted.
+#[tokio::test]
+async fn a_model_accepted_only_through_a_visible_metric_carries_no_physical_schema() {
+    let surface = AgentSurface::new(
+        Arc::new(testing::RestrictedSurface::over(
+            testing::bundle_with_a_restricted_only_model(),
+        )),
+        Asking::PerRequest,
+        CatalogProse::Quoted,
+        super::admission(""),
+        super::reply(""),
+        testing::instructions(),
+        None,
+    )
+    .listing_physical_schema(true);
+    let peer = a_peer().await;
+    let catalog = Permitted::granted_by([Capability::DescribeCatalog.scope()]);
+    let finance = sutura_domain::model::AudienceId::parse("finance").expect("a test audience id is one");
+    let finance_caller = audience_asked(
+        "finance-caller@example.com",
+        catalog,
+        std::collections::BTreeSet::from([finance]),
+    );
+
+    let response = surface
+        .call_tool(describe_model("customers"), hand_built_context(1, peer, Some(finance_caller)))
+        .await
+        .expect("accepting the name is not granting the model's own physical schema");
+    let json = structured(response);
+    let models = json.get("models").and_then(serde_json::Value::as_array);
+    assert!(
+        models.is_none_or(Vec::is_empty),
+        "a model accepted only through a visible metric must carry no models/columns entry of its own: {json}"
+    );
+}

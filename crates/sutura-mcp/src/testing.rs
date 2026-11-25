@@ -25,7 +25,8 @@
 /// `describe_catalog(model: ...)`'s own fixtures - split off, the 1000-line `max-lines` cap.
 mod catalog_fixtures;
 pub(crate) use catalog_fixtures::{
-    bundle_with_a_restricted_metric, bundle_with_many_models, bundle_with_two_metric_owning_models, bundle_with_two_models,
+    bundle_with_a_restricted_metric, bundle_with_a_restricted_only_model, bundle_with_many_metrics, bundle_with_many_models,
+    bundle_with_two_metric_owning_models, bundle_with_two_models,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -609,8 +610,15 @@ pub(crate) struct RestrictedSurface {
 
 impl RestrictedSurface {
     pub(crate) fn new() -> Self {
+        Self::over(bundle_with_a_restricted_metric())
+    }
+
+    /// The same fixture shape over a caller-supplied bundle, for a scoping test that needs a
+    /// different audience arrangement than [`bundle_with_a_restricted_metric`]'s - a model whose
+    /// only metric is restricted, for instance.
+    pub(crate) fn over(definitions: PinnedDefinitions) -> Self {
         Self {
-            definitions: Arc::new(bundle_with_a_restricted_metric()),
+            definitions: Arc::new(definitions),
         }
     }
 }

@@ -158,6 +158,54 @@ pub(crate) fn bundle_with_many_models(count: usize) -> PinnedDefinitions {
     .expect("the test definitions hash")
 }
 
+/// `count` metrics over one model, each described at `description_bytes` - the metric-pool twin of
+/// [`bundle_with_many_models`], for `describe_catalog`'s own metric-budget tests
+/// (`github.com/telekom/sutura#2071`'s second ask). A large enough `count` crosses not only
+/// [`sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`] but the omission LIST's own
+/// [`sutura_app::catalog_budget::MAX_OMITTED_NAMES`] cap; `description_bytes` is a second knob
+/// because `count * description_bytes` also has to stay under `Definitions::assemble`'s own
+/// bundle-wide prose cap, so crossing the omission-count cap needs more, smaller metrics rather
+/// than more metrics at [`sutura_domain::catalog::MAX_DESCRIPTION_BYTES`] itself.
+pub(crate) fn bundle_with_many_metrics(count: usize, description_bytes: usize) -> PinnedDefinitions {
+    let long = description(&"x".repeat(description_bytes));
+    let model = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([column("amount_cents"), column("order_date")]),
+        description("Orders, one row per order."),
+    );
+    let metrics = (0..count)
+        .map(|index| {
+            let name = format!("metric_{index:03}");
+            Metric::new(
+                MetricName::parse(&name).expect("a generated test metric name is a name"),
+                ModelName::parse("orders").expect("a test model is a model"),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+                Vec::new(),
+                column("order_date"),
+                BTreeSet::from([Grain::Day]),
+                Vec::new(),
+                None,
+                long.clone(),
+                Audience::Open,
+            )
+            .expect("no dimensions to duplicate")
+        })
+        .collect();
+    let definitions = Definitions::assemble(vec![model], vec![], metrics).expect("the generated test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
 /// [`bundle`], plus a second metric restricted to the `finance` audience - `docs/adr/0028`.
 ///
 /// One bundle, two callers, two different catalogs: `revenue` stays open so every caller can still
@@ -209,6 +257,77 @@ pub(crate) fn bundle_with_a_restricted_metric() -> PinnedDefinitions {
     )
     .expect("no dimensions to duplicate");
     let definitions = sutura_domain::catalog::Definitions::assemble(vec![model], vec![], vec![revenue, finance_only])
+        .expect("the test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            source(),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
+/// Two models: `orders` owns an open metric, `customers` owns ONLY a `finance`-restricted one and
+/// carries no audience of its own - `describe_catalog(model: ...)`'s identity-path tests
+/// (`github.com/telekom/sutura#2071` ask 2). Unlike [`bundle_with_a_restricted_metric`], where the
+/// restricted metric shares a model with an open one, `customers` here has no OTHER metric to keep
+/// it accepted - a caller outside `finance` must see `customers` exactly as if it were not declared
+/// at all, and a `finance`-granted caller must be able to name it by accepting the metric it reads.
+pub(crate) fn bundle_with_a_restricted_only_model() -> PinnedDefinitions {
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let orders = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([column("amount_cents"), column("order_date")]),
+        description("Orders, one row per order."),
+    );
+    let customers = Model::new(
+        ModelName::parse("customers").expect("a test model is a model"),
+        source(),
+        TableName::parse("customers").expect("a test table is a table"),
+        BTreeSet::from([column("customer_id")]),
+        description("Customers, one row per customer."),
+    );
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        Vec::new(),
+        None,
+        description("Revenue, in minor units."),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let restricted_to_finance = Audience::Restricted(
+        sutura_domain::catalog::AudienceGrant::parse(BTreeSet::from([
+            AudienceId::parse("finance").expect("a test audience id is one")
+        ]))
+        .expect("one id grants"),
+    );
+    let finance_only = Metric::new(
+        MetricName::parse("finance_only").expect("a test metric is a metric"),
+        ModelName::parse("customers").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::Count,
+            column("customer_id"),
+        ))),
+        Vec::new(),
+        column("customer_id"),
+        BTreeSet::from([Grain::Day]),
+        Vec::new(),
+        None,
+        description("Only a finance-granted caller may see this."),
+        restricted_to_finance,
+    )
+    .expect("no dimensions to duplicate");
+    let definitions = Definitions::assemble(vec![orders, customers], vec![], vec![revenue, finance_only])
         .expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),

@@ -8,6 +8,7 @@
 // `cargo xtask max-lines` fails at a thousand lines under `crates/` and this file plus that case is
 // over it. What moved is the whole of the column-zero property, which is one decision and one
 // hostile fixture; the fixture itself stays here, because `definitions` above declares it.
+mod budget;
 mod column_zero;
 mod injection_corpus;
 mod listed_physical_schema;

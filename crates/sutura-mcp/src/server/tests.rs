@@ -32,7 +32,9 @@ mod deadline;
 /// header says what it builds instead and why.
 #[cfg(test)]
 mod asking;
-/// `describe_catalog`'s `model` argument, over the wire - `github.com/telekom/sutura#2071`'s second ask.
+/// `describe_catalog`'s `model` and `metric` arguments, over the wire - `github.com/telekom/sutura#2071`'s second ask.
+#[cfg(test)]
+mod describe_metric;
 #[cfg(test)]
 mod describe_model;
 /// The catalog tool after a refresh swaps the served bundle.

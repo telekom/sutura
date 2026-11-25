@@ -35,6 +35,12 @@ mod catalog_prose;
 /// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
 mod catalog_model;
 
+/// Whether the catalog route's `metric` query parameter narrows and refuses correctly, and that
+/// `model` and `metric` together are refused rather than one silently winning.
+///
+/// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
+mod catalog_metric;
+
 /// Whether the catalog route reads the bundle being served after a refresh swaps it.
 ///
 /// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's, and this one is

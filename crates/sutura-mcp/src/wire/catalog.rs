@@ -651,6 +651,7 @@ fn push_prose(out: &mut String, prose: &str, heading: &str) {
 
 #[cfg(test)]
 mod tests {
+    use sutura_app::catalog_budget::MAX_OMITTED_NAMES;
     use sutura_app::prompt::CatalogProse;
     use sutura_domain::pinned::view::ScopedView;
 
@@ -768,6 +769,72 @@ mod tests {
             let name = name.as_str().expect("an omitted model's name is a string");
             assert!(text.contains(name), "{text}");
         }
+    }
+
+    /// The metric pool's own version of [`an_over_bound_catalog_carries_whole_models_and_names_the_rest`]:
+    /// whole metrics up to the bound, the rest named - and named WITH their model, since a metric's
+    /// name alone does not say where to narrow a follow-up `describe_catalog(model: ...)` call to
+    /// (`github.com/telekom/sutura#2071`'s second ask).
+    #[test]
+    fn an_over_bound_catalog_carries_whole_metrics_and_names_the_rest_with_model() {
+        const METRIC_COUNT: usize = 40;
+        let bundle = crate::testing::bundle_with_many_metrics(METRIC_COUNT, 4000);
+        let view = ScopedView::everything(&bundle);
+        let content = CatalogContent::of(&view, CatalogProse::Quoted, None);
+        let json = serde_json::to_value(&content).expect("the catalog serializes");
+        let included = json["metrics"].as_array().expect("metrics is a list");
+        let omitted = json["omitted_metrics"].as_array().expect("some metric was omitted");
+        assert!(!included.is_empty(), "{json}");
+        assert!(!omitted.is_empty(), "every metric fit - make the fixture bigger: {json}");
+        assert_eq!(included.len() + omitted.len(), METRIC_COUNT, "{json}");
+        // Under the 200-name omission cap, so the count field stays at zero and unserialized.
+        assert!(json.get("omitted_metrics_more").is_none(), "{json}");
+        for name in omitted {
+            let name = name.as_str().expect("an omitted metric's name is a string");
+            assert!(
+                name.contains("(model orders)"),
+                "an omitted metric is named without its model: {name}"
+            );
+        }
+        let text = content.as_text();
+        for name in omitted {
+            let name = name.as_str().expect("an omitted metric's name is a string");
+            assert!(text.contains(name), "{text}");
+        }
+    }
+
+    /// Enough metrics that the number omitted crosses
+    /// [`sutura_app::catalog_budget::MAX_OMITTED_NAMES`]'s own 200-name cap on the omission list
+    /// itself, so the true count must appear as its own field rather than only being inferable by
+    /// counting names that are no longer all there.
+    #[test]
+    fn an_over_bound_catalog_with_more_than_the_omission_cap_carries_a_separate_count() {
+        const METRIC_COUNT: usize = 400;
+        let bundle = crate::testing::bundle_with_many_metrics(METRIC_COUNT, 1000);
+        let view = ScopedView::everything(&bundle);
+        let content = CatalogContent::of(&view, CatalogProse::Quoted, None);
+        let json = serde_json::to_value(&content).expect("the catalog serializes");
+        let included = json["metrics"].as_array().expect("metrics is a list").len();
+        let omitted = json["omitted_metrics"].as_array().expect("some metric was omitted");
+        let truly_omitted = METRIC_COUNT - included;
+        assert!(
+            truly_omitted > MAX_OMITTED_NAMES,
+            "make the fixture bigger - the omission list's own cap was never crossed: {included} included, {truly_omitted} omitted"
+        );
+        assert_eq!(
+            omitted.len(),
+            MAX_OMITTED_NAMES,
+            "the omission list itself must stay capped: {json}"
+        );
+        let more = json["omitted_metrics_more"]
+            .as_u64()
+            .and_then(|more| usize::try_from(more).ok())
+            .expect("the true omission count must be its own field once the name list is capped");
+        assert_eq!(
+            more,
+            truly_omitted - MAX_OMITTED_NAMES,
+            "the count field must carry what the name list could not: {json}"
+        );
     }
 }
 
