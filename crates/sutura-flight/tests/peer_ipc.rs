@@ -8,6 +8,7 @@
 //! Limit: each cell's registry 59.2.0 outcome is traced from source, not run here; CI's run is
 //! the proof.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Int64Array, RecordBatch};
@@ -532,5 +533,113 @@ mod tests {
             matches!(&error, FlightError::DecodeError(message) if message.contains("Invalid variadic count")),
             "{error}"
         );
+    }
+
+    /// A finished flatbuffer `Message` wrapping a `RecordBatch` header for a single `Utf8View`
+    /// column with the given `variadicBufferCounts` entry, plus the 16-byte data body it declares
+    /// (two 8-byte buffers: a null/views buffer and one variadic data buffer).
+    fn variadic_record_batch_message(variadic_count: i64) -> (Vec<u8>, arrow_buffer::Buffer) {
+        let mut fbb = FlatBufferBuilder::new();
+        let nodes = fbb.create_vector(&[FieldNode::new(1, 0)]);
+        let buffers = fbb.create_vector(&[Buffer::new(0, 8), Buffer::new(8, 8)]);
+        let variadic_counts = fbb.create_vector::<i64>(&[variadic_count]);
+        let record_batch = IpcRecordBatch::create(
+            &mut fbb,
+            &RecordBatchArgs {
+                length: 1,
+                nodes: Some(nodes),
+                buffers: Some(buffers),
+                compression: None,
+                variadicBufferCounts: Some(variadic_counts),
+            },
+        );
+        fbb.finish_minimal(record_batch);
+        (fbb.finished_data().to_vec(), arrow_buffer::Buffer::from(vec![0u8; 16]))
+    }
+
+    /// Cell J: `apache/arrow-rs#10755`'s projected-decode half, exercised through arrow-ipc's own
+    /// *public* `reader::read_record_batch`, not the vendored crate's internal test module - the
+    /// root workspace `Cargo.toml` excludes `vendor/`, so a test inside `vendor/arrow-ipc/src/reader.rs`
+    /// never compiles or runs under any workspace-wide `cargo`/`nextest` invocation and is invisible
+    /// to causality and CI alike. This cell is the one moved here for that reason.
+    ///
+    /// Red on base, per count, with `Some(&[])` (the empty projection selects nothing, so
+    /// `skip_field`'s `Utf8View`/`BinaryView` arm runs instead of `create_array`'s read arm):
+    /// registry 59.2.0's arm is `let count = variadic_count.pop_front()...; let count = count + 2;
+    /// for _ in 0..count { self.skip_buffer() }`, where the old `skip_buffer` was
+    /// `self.buffers.next().unwrap()`.
+    /// - `-2`: `count + 2 == 0`, so `0..0` skips nothing and returns `Ok` silently - no error at all,
+    ///   let alone "Invalid variadic count".
+    /// - `-1`: `count + 2 == 1`, skips one of the two buffers harmlessly - `Ok`, no error.
+    /// - `1`: `count + 2 == 3`, the loop's third `self.buffers.next().unwrap()` call finds only two
+    ///   buffers remain and panics on the `None`, aborting the process under `panic = "abort"`.
+    /// - `i64::MAX`: `count + 2` overflows `i64` and panics with "attempt to add with overflow" in a
+    ///   debug-profile build, again aborting under `panic = "abort"` in release.
+    ///
+    /// None of these four produces "Invalid variadic count", so each is red against base; the fix's
+    /// `next_variadic_buffer_count` turns every one into that same typed `ArrowError::IpcError`.
+    #[test]
+    fn a_peer_negative_variadic_buffer_count_is_refused_under_projection_too() {
+        let schema: arrow_schema::SchemaRef = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "col",
+            arrow_schema::DataType::Utf8View,
+            true,
+        )]));
+        let dictionaries: HashMap<i64, ArrayRef> = HashMap::new();
+        let metadata = MetadataVersion::V5;
+
+        for count in [-2, -1, 1, i64::MAX] {
+            for projection in [None, Some([].as_slice())] {
+                let (message_bytes, data_buffer) = variadic_record_batch_message(count);
+                let batch = flatbuffers::root::<IpcRecordBatch>(&message_bytes).expect("a well-formed record batch header");
+
+                let error = arrow_ipc::reader::read_record_batch(
+                    &data_buffer,
+                    batch,
+                    Arc::clone(&schema),
+                    &dictionaries,
+                    projection,
+                    &metadata,
+                )
+                .expect_err("an invalid variadic count is refused, not accepted or panicked");
+                assert!(
+                    error.to_string().contains("Invalid variadic count"),
+                    "count {count}, projection {projection:?}: {error}"
+                );
+            }
+        }
+    }
+
+    /// The valid count for a message with two buffers is zero, under both projection modes.
+    #[test]
+    fn a_peer_valid_variadic_buffer_count_is_accepted() {
+        let schema: arrow_schema::SchemaRef = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "col",
+            arrow_schema::DataType::Utf8View,
+            true,
+        )]));
+        let dictionaries: HashMap<i64, ArrayRef> = HashMap::new();
+        let metadata = MetadataVersion::V5;
+
+        for projection in [None, Some([].as_slice())] {
+            let (message_bytes, data_buffer) = variadic_record_batch_message(0);
+            let batch = flatbuffers::root::<IpcRecordBatch>(&message_bytes).expect("a well-formed record batch header");
+
+            let result = arrow_ipc::reader::read_record_batch(
+                &data_buffer,
+                batch,
+                Arc::clone(&schema),
+                &dictionaries,
+                projection,
+                &metadata,
+            );
+            match result {
+                Ok(_) => {}
+                Err(error) => assert!(
+                    !error.to_string().contains("Invalid variadic count"),
+                    "projection {projection:?}: {error}"
+                ),
+            }
+        }
     }
 }
