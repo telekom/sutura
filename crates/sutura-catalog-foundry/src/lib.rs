@@ -38,8 +38,13 @@
 //! Object-type metadata carries no measure, grain, required filter, value allowlist or anchor -
 //! aggregation is a query-time operation in Foundry - so none is declared. The bundle is the same
 //! for every caller: the reader presents the deployment's own token, and every caller sees what that
-//! token sees, whatever Foundry would show each caller.
+//! token sees, whatever Foundry would show each caller. `caller::CallerObjectTypes` is what a
+//! deployment that narrows each caller's VIEW of that bundle lists with instead - the bundle itself
+//! does not change.
 
+/// The object types one caller can see, listed under that caller's own token.
+#[cfg(feature = "http")]
+pub mod caller;
 pub mod document;
 pub mod fixture;
 #[cfg(feature = "http")]

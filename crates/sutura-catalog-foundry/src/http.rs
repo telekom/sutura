@@ -154,15 +154,22 @@ pub enum HttpReaderError {
 const OBJECT_TYPES: &str = "object types";
 const LINK_TYPES: &str = "outgoing link types";
 
-/// A Foundry ontology's metadata API, reached over HTTP.
+/// Where and how the ontology API is dialled, without a bearer: [`HttpOntologyReader`] adds the
+/// deployment's, [`crate::caller::CallerObjectTypes`] each caller's.
 #[derive(Debug)]
-pub struct HttpOntologyReader {
+pub(crate) struct OntologyApi {
     endpoint: Endpoint,
     ontology: OntologyIdentifier,
-    token: TokenSource,
     bounds: ReadBounds,
     limits: PageLimits,
     agent: RotatingAgent,
+}
+
+/// A Foundry ontology's metadata API, reached over HTTP.
+#[derive(Debug)]
+pub struct HttpOntologyReader {
+    api: OntologyApi,
+    token: TokenSource,
 }
 
 impl HttpOntologyReader {
@@ -177,18 +184,14 @@ impl HttpOntologyReader {
         agent: RotatingAgent,
     ) -> Self {
         Self {
-            endpoint,
-            ontology,
+            api: OntologyApi::new(endpoint, ontology, bounds, agent),
             token,
-            bounds,
-            limits: PAGE_LIMITS,
-            agent,
         }
     }
 
     #[must_use]
     pub const fn with_page_limits(mut self, limits: PageLimits) -> Self {
-        self.limits = limits;
+        self.api.limits = limits;
         self
     }
 
@@ -203,16 +206,42 @@ impl HttpOntologyReader {
     ) -> Result<OutboundAgent, sutura_tls::LoadError> {
         sutura_http_client::rotating_agent(bounds, declared)
     }
+}
+
+impl OntologyApi {
+    pub(crate) const fn new(endpoint: Endpoint, ontology: OntologyIdentifier, bounds: ReadBounds, agent: RotatingAgent) -> Self {
+        Self {
+            endpoint,
+            ontology,
+            bounds,
+            limits: PAGE_LIMITS,
+            agent,
+        }
+    }
+
+    pub(crate) const fn bounds(&self) -> ReadBounds {
+        self.bounds
+    }
+
+    /// The object-type list's path.
+    pub(crate) fn object_types_path(&self) -> String {
+        format!("{API_ROOT}/{}/objectTypes", self.ontology.as_str())
+    }
+
+    /// Every object type, page after page, each request carrying `token`'s bearer.
+    pub(crate) fn object_types(&self, token: &TokenSource, budget: Budget) -> Result<Vec<ObjectType>, HttpReaderError> {
+        self.list(token, budget, OBJECT_TYPES, &self.object_types_path())
+    }
 
     /// Every entry of one list, page after page.
-    fn list<T>(&self, budget: Budget, what: &'static str, path: &str) -> Result<Vec<T>, HttpReaderError>
+    fn list<T>(&self, token: &TokenSource, budget: Budget, what: &'static str, path: &str) -> Result<Vec<T>, HttpReaderError>
     where
         T: DeserializeOwned,
     {
         let mut pager = Pager::new(self.limits);
         let mut entries = Vec::new();
         loop {
-            let page: Page<T> = self.fetch(budget, what, path, &pager)?;
+            let page: Page<T> = self.fetch(token, budget, what, path, &pager)?;
             let next = page.next_page_token();
             if next.is_some_and(|token| token.len() > MAX_PAGE_TOKEN_BYTES) {
                 return Err(HttpReaderError::PageTokenTooLong {
@@ -230,7 +259,14 @@ impl HttpOntologyReader {
         }
     }
 
-    fn fetch<T>(&self, budget: Budget, what: &'static str, path: &str, pager: &Pager) -> Result<Page<T>, HttpReaderError>
+    fn fetch<T>(
+        &self,
+        token: &TokenSource,
+        budget: Budget,
+        what: &'static str,
+        path: &str,
+        pager: &Pager,
+    ) -> Result<Page<T>, HttpReaderError>
     where
         T: DeserializeOwned,
     {
@@ -238,10 +274,7 @@ impl HttpOntologyReader {
             what,
             budget_seconds: self.bounds.timeout().as_secs(),
         })?;
-        let bearer = self
-            .token
-            .bearer(budget)
-            .map_err(|cause| HttpReaderError::Token { what, cause })?;
+        let bearer = token.bearer(budget).map_err(|cause| HttpReaderError::Token { what, cause })?;
         let url = format!("{}{path}", self.endpoint.as_str());
         let mut request = self
             .agent
@@ -295,9 +328,9 @@ impl OntologyReader for HttpOntologyReader {
     type Error = HttpReaderError;
 
     fn read(&self) -> Result<Ontology, Self::Error> {
-        let budget = Budget::opened(self.bounds.timeout());
-        let root = format!("{API_ROOT}/{}/objectTypes", self.ontology.as_str());
-        let object_types: Vec<ObjectType> = self.list(budget, OBJECT_TYPES, &root)?;
+        let budget = Budget::opened(self.api.bounds.timeout());
+        let root = self.api.object_types_path();
+        let object_types = self.api.object_types(&self.token, budget)?;
         let mut outgoing = BTreeMap::new();
         for object_type in &object_types {
             let api_name = object_type.api_name();
@@ -305,7 +338,12 @@ impl OntologyReader for HttpOntologyReader {
                 api_name: api_name.chars().filter(|c| !c.is_control()).take(80).collect(),
                 cause,
             })?;
-            let sides: Vec<LinkTypeSide> = self.list(budget, LINK_TYPES, &format!("{root}/{api_name}/outgoingLinkTypes"))?;
+            let sides: Vec<LinkTypeSide> = self.api.list(
+                &self.token,
+                budget,
+                LINK_TYPES,
+                &format!("{root}/{api_name}/outgoingLinkTypes"),
+            )?;
             outgoing.insert(String::from(object_type.api_name()), sides);
         }
         Ok(Ontology::new(object_types, outgoing))
