@@ -3626,7 +3626,7 @@ Planning and that local part stop at the request's deadline. What this does not 
 <td>RFC 9728 metadata of the resource</td>
 </tr>
 <tr>
-<td><code>GET /v1/catalog</code></td>
+<td><code>GET /v1/catalog[?model=&lt;name&gt;\|metric=&lt;name&gt;]</code></td>
 <td><code>security.access_token</code> if set, and <code>sutura:catalog.read</code></td>
 <td>The metrics, grains, dimensions, allowed filter values and knowledge</td>
 </tr>
@@ -3665,6 +3665,23 @@ the listener with the API, so only a network control can keep it internal. Its l
 caller or a source.</p>
 <p>There is no readiness route. The listener opens only after every anchor reproduces its certified number, so an open
 port already means a verified catalog, and <code>/health</code> is the one probe.</p>
+<p><code>GET /v1/catalog</code>'s own listing is held to the same shared byte bound (<a href="../agent-prompt/">the agent prompt</a> names it)
+as the agent surface's <code>describe_catalog</code>: the body's fixed parts (<code>provenance</code>, <code>catalog_prose</code>, <code>knowledge</code>) are
+measured first, and only what remains - less a reserve held back up front for the omission list's own worst-case
+size, so that list cannot itself be what pushes the body over the bound - is spent on its <code>metrics</code> list, not its
+<code>models</code>, since this body carries no model listing at all. A catalog that crosses it comes back with whole metrics
+up to the bound plus an <code>omitted_metrics</code> list, never a metric cut off mid-way; each entry is a <code>{"metric": ...,
+"model": ...}</code> object rather than a joined string, so a client reads either field without parsing the other out of
+it, and <code>omitted_metrics_more</code> carries the count past that list's own cap. As on the agent surface, the FIRST metric
+is always included even if it alone is larger than what remained, so a body can land over the bound by that one
+metric's own size - see <a href="../agent-prompt/">the agent prompt</a>'s own note on this for the exact shape of that overshoot.
+<code>?model=&lt;name&gt;</code> narrows the answer to one named model's own metrics. <code>?metric=&lt;name&gt;</code> narrows it to exactly that one
+metric's own entry instead, read back whole and outside the byte bound - the way to read back a metric a previous,
+byte-bounded listing named in <code>omitted_metrics</code> but left out. Give at most one of the two. A name that does not parse
+as a model or a metric name is <code>400 not_a_question</code>; a name that parses but names nothing this caller may see
+(unknown, or real but invisible) is <code>404 model_unknown</code> or <code>404 catalog_metric_unknown</code>; <code>model</code> and <code>metric</code> given together
+is <code>400 not_a_question</code> too. Any other query key is <code>400 not_a_question</code> as well: the route takes no further
+parameter.</p>
 <h3 id="a-refusal-carries-a-status">A refusal carries a status<a class="headerlink" href="#a-refusal-carries-a-status" title="Permanent link">&para;</a></h3>
 <p><code>POST /v1/query</code> answers <code>200</code> only when the question was answered. An answer has <code>"outcome": "answer"</code> and the
 definition version and digest that it came from:</p>

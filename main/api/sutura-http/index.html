@@ -6048,6 +6048,19 @@ honoured wherever the prose is carried, and the escaping stays where the delimit
 <p>Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
 catalog port takes no request context and cannot - so this is a reader's view of a pinned
 bundle rather than an input to one.</p>
+<h3 id="use-unknowncatalognamebody"><code>use UnknownCatalogNameBody</code><a class="headerlink" href="#use-unknowncatalognamebody" title="Permanent link">&para;</a></h3>
+<p>A <code>model</code> query parameter that parses but names no model this caller may see - whether it does
+not exist at all or exists outside this caller's granted audiences is not distinguished, for the
+same reason <code>ScopedView::model</code> folds both into one <code>None</code>: a message that told the two apart
+would disclose a restricted model's existence to a caller who was never granted it.</p>
+<p><strong>Neither <code>crate::problem::Failure</code> nor <code>crate::problem::ProblemBody</code>, and not
+<code>super::RefusalBody</code> either.</strong> This is not a system failure - the request was fine and nothing
+upstream is unwell - and it is not a governance refusal of a <em>question</em>: reading the catalog
+produces no <code>sutura_domain::query::ToolOutcome</code>, so there is no <code>sutura_domain::query::RefusalReason</code>
+variant to carry it, and manufacturing one would put a listing's absence into the enum that a
+query's own refusals are audited through. <code>sutura-mcp</code>'s <code>server::describe::unknown_model</code> makes
+the identical call for the identical reason, as its own ad hoc <code>ErrorData</code> outside both
+<code>ToolOutcome</code> and this crate's audited refusal path.</p>
 <h3 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h3>
 <p>The raw SQL tool's own wire shape, kept apart from every certified shape above for the reason
 its own module documentation gives.
@@ -6133,7 +6146,7 @@ prose, and a description that still reached an agent through a second transport 
 setting a statement about one surface rather than about the deployment. So the omission is
 honoured wherever the prose is carried, and the escaping stays where the delimiter is.</p>
 <h5 id="methods_28">Methods<a class="headerlink" href="#methods_28" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-213-1"><a id="__codelineno-213-1" name="__codelineno-213-1" href="#__codelineno-213-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-213-1"><a id="__codelineno-213-1" name="__codelineno-213-1" href="#__codelineno-213-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ModelName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">MetricName</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The reader's view of a caller-scoped catalog, under the prose setting this deployment was
 started with.</p>
@@ -6148,6 +6161,21 @@ apply one visibility rule and this body holds no second copy of it.</p>
 <code>CatalogProse::default()</code> is <code>Quoted</code>, so a conversion reachable without the setting fails
 OPEN: it ships the prose of a deployment that asked for none, which is the defect this
 function exists to close. A second argument cannot be left out.</p>
+<p><strong><code>model</code> narrows <code>metrics</code> to the ones tied to that model, nothing else.</strong> Absent, the whole
+view's metrics are rendered, held to <code>MAX_CATALOG_LISTING_BYTES</code> the same way <code>sutura-mcp</code>'s
+physical-schema listing is bounded - this body carries no model's own columns or
+relationships, only the metric descriptions a caller already needs to ask a question, but a
+deployment with an unusually large metric vocabulary can still make that list itself large.
+<code>model</code> naming nothing this caller may see is this function's caller's own job to refuse
+before reaching it - see <code>crate::routes::v1::catalog::catalog</code>.</p>
+<p><strong><code>metric</code> narrows to that one metric's own entry, emitted whole regardless of
+<code>MAX_CATALOG_LISTING_BYTES</code></strong> - it names exactly one thing to read back, not a listing, the
+same choice <code>sutura-mcp</code>'s <code>CatalogContent::of_with_physical_schema</code> makes for its own
+<code>metric</code> argument. <code>model</code> and <code>metric</code> together is this function's caller's own job to
+refuse, same as an unknown name.</p>
+<p><strong>One shared <code>MAX_CATALOG_LISTING_BYTES</code> budget for the whole body</strong>: the fixed parts
+(<code>provenance</code>, <code>catalog_prose</code>, <code>knowledge</code>) are measured first and subtracted, and only what
+remains goes to the metrics pool - see that constant's own doc.</p>
 <h5 id="implements_65">Implements<a class="headerlink" href="#implements_65" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h4 id="struct-metricbody"><code>struct MetricBody</code><a class="headerlink" href="#struct-metricbody" title="Permanent link">&para;</a></h4>
@@ -6159,16 +6187,41 @@ catalog port takes no request context and cannot - so this is a reader's view of
 bundle rather than an input to one.</p>
 <h5 id="implements_66">Implements<a class="headerlink" href="#implements_66" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
-<h4 id="struct-dimensionbody"><code>struct DimensionBody</code><a class="headerlink" href="#struct-dimensionbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-215-1"><a id="__codelineno-215-1" name="__codelineno-215-1" href="#__codelineno-215-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
+<h4 id="struct-omittedmetric"><code>struct OmittedMetric</code><a class="headerlink" href="#struct-omittedmetric" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-215-1"><a id="__codelineno-215-1" name="__codelineno-215-1" href="#__codelineno-215-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">OmittedMetric</span>
 </span></code></pre></div>
-<p>One dimension of one metric.</p>
+<p>One metric left out of <code>CatalogBody::metrics</code> to hold the body under its shared budget.</p>
+<p>Both names together, so <code>?metric=&lt;name&gt;</code> is reachable without a client first discovering, by
+some other means, which model this metric belongs to.</p>
 <h5 id="implements_67">Implements<a class="headerlink" href="#implements_67" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
+<h4 id="struct-dimensionbody"><code>struct DimensionBody</code><a class="headerlink" href="#struct-dimensionbody" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-216-1"><a id="__codelineno-216-1" name="__codelineno-216-1" href="#__codelineno-216-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
+</span></code></pre></div>
+<p>One dimension of one metric.</p>
+<h5 id="implements_68">Implements<a class="headerlink" href="#implements_68" title="Permanent link">&para;</a></h5>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
+<h4 id="struct-unknowncatalognamebody"><code>struct UnknownCatalogNameBody</code><a class="headerlink" href="#struct-unknowncatalognamebody" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-217-1"><a id="__codelineno-217-1" name="__codelineno-217-1" href="#__codelineno-217-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownCatalogNameBody</span>
+</span></code></pre></div>
+<p>A <code>model</code> query parameter that parses but names no model this caller may see - whether it does
+not exist at all or exists outside this caller's granted audiences is not distinguished, for the
+same reason <code>ScopedView::model</code> folds both into one <code>None</code>: a message that told the two apart
+would disclose a restricted model's existence to a caller who was never granted it.</p>
+<p><strong>Neither <code>crate::problem::Failure</code> nor <code>crate::problem::ProblemBody</code>, and not
+<code>super::RefusalBody</code> either.</strong> This is not a system failure - the request was fine and nothing
+upstream is unwell - and it is not a governance refusal of a <em>question</em>: reading the catalog
+produces no <code>sutura_domain::query::ToolOutcome</code>, so there is no <code>sutura_domain::query::RefusalReason</code>
+variant to carry it, and manufacturing one would put a listing's absence into the enum that a
+query's own refusals are audited through. <code>sutura-mcp</code>'s <code>server::describe::unknown_model</code> makes
+the identical call for the identical reason, as its own ad hoc <code>ErrorData</code> outside both
+<code>ToolOutcome</code> and this crate's audited refusal path.</p>
+<h5 id="implements_69">Implements<a class="headerlink" href="#implements_69" title="Permanent link">&para;</a></h5>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>IntoResponse</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="module-execution">Module <code>execution</code><a class="headerlink" href="#module-execution" title="Permanent link">&para;</a></h3>
 <p>Submitted operations on a certified answer; disclosure, not standalone replay.</p>
 <h4 id="enum-executionbody"><code>enum ExecutionBody</code><a class="headerlink" href="#enum-executionbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-216-1"><a id="__codelineno-216-1" name="__codelineno-216-1" href="#__codelineno-216-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ExecutionBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-218-1"><a id="__codelineno-218-1" name="__codelineno-218-1" href="#__codelineno-218-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ExecutionBody</span>
 </span></code></pre></div>
 <h5 id="variants_26">Variants<a class="headerlink" href="#variants_26" title="Permanent link">&para;</a></h5>
 <ul>
@@ -6178,12 +6231,12 @@ bundle rather than an input to one.</p>
 <li><code>Cube</code></li>
 <li><code>Node</code></li>
 </ul>
-<h5 id="implements_68">Implements<a class="headerlink" href="#implements_68" title="Permanent link">&para;</a></h5>
+<h5 id="implements_70">Implements<a class="headerlink" href="#implements_70" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h4 id="struct-parameterbody"><code>struct ParameterBody</code><a class="headerlink" href="#struct-parameterbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-217-1"><a id="__codelineno-217-1" name="__codelineno-217-1" href="#__codelineno-217-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ParameterBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-219-1"><a id="__codelineno-219-1" name="__codelineno-219-1" href="#__codelineno-219-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ParameterBody</span>
 </span></code></pre></div>
-<h5 id="implements_69">Implements<a class="headerlink" href="#implements_69" title="Permanent link">&para;</a></h5>
+<h5 id="implements_71">Implements<a class="headerlink" href="#implements_71" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 
 

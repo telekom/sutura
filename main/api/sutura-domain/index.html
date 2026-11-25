@@ -6609,6 +6609,15 @@ model are unchanged by this type existing.</p>
 thing any data system names, so a project without a dataset is <em>unrepresentable</em> here rather than
 refused by a check somebody has to remember to run. There is no constructor that takes a project
 alone and no field a caller could leave out.</p>
+<h3 id="constant-max_identifier_len"><code>constant MAX_IDENTIFIER_LEN</code><a class="headerlink" href="#constant-max_identifier_len" title="Permanent link">&para;</a></h3>
+<p>The longest identifier we accept.</p>
+<p>63 is the tightest limit among the data systems we target, and it is a <em>silent</em> limit there:
+a longer name is truncated rather than rejected, which turns "the column does not exist" into
+"the query read a different column". Rejecting here is the only place that failure is visible.</p>
+<p><strong><code>pub</code>, not crate-private</strong> - <code>sutura_app::catalog_budget</code> reserves worst-case bytes for an
+omitted name's entry before it fills a listing's metrics/models pool, and a second,
+hand-copied limit would drift from this one silently. One constant, read from where names are
+parsed.</p>
 <h2 id="module-nonempty">Module <code>nonempty</code><a class="headerlink" href="#module-nonempty" title="Permanent link">&para;</a></h2>
 <p>A list that cannot be empty, because the constructor that would produce one does not exist.</p>
 <p><strong>Unrepresentable over checked</strong>, the same argument <code>secure-by-design</code> makes for the rest of this
