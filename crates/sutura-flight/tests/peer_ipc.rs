@@ -8,15 +8,16 @@
 //! Limit: each cell's registry 59.2.0 outcome is traced from source, not run here; CI's run is
 //! the proof.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, Int64Array, RecordBatch};
+use arrow_array::{Array as _, ArrayRef, Int64Array, RecordBatch, StringViewArray};
 use arrow_flight::{FlightData, decode::FlightRecordBatchStream, error::FlightError};
 use arrow_ipc::{
     BodyCompression, BodyCompressionArgs, BodyCompressionMethod, Buffer, CompressionType, Decimal, DecimalArgs, Endianness,
     Field, FieldArgs, FieldNode, FixedSizeBinary, FixedSizeBinaryArgs, Message, MessageArgs, MessageHeader, MetadataVersion,
     Null, NullArgs, RecordBatch as IpcRecordBatch, RecordBatchArgs, Schema, SchemaArgs, Struct_, Struct_Args, Type, Union,
-    UnionArgs,
+    UnionArgs, Utf8ViewBuilder,
 };
 use flatbuffers::FlatBufferBuilder;
 use futures_util::{TryStreamExt as _, stream};
@@ -462,5 +463,196 @@ mod tests {
             matches!(&error, FlightError::DecodeError(message) if message.contains("null_bit_buffer size too small")),
             "{error}"
         );
+    }
+
+    /// A `RecordBatch` frame for a single variadic (`Utf8View`/`BinaryView`) column, with an
+    /// attacker-controlled `variadicBufferCounts` entry.
+    fn variadic_record_batch_frame(node_len: i64, buffers: &[Buffer], variadic_count: i64) -> FlightData {
+        let mut fbb = FlatBufferBuilder::new();
+        let nodes = fbb.create_vector(&[FieldNode::new(node_len, 0)]);
+        let buffers = fbb.create_vector(buffers);
+        let variadic_counts = fbb.create_vector::<i64>(&[variadic_count]);
+        let record_batch = IpcRecordBatch::create(
+            &mut fbb,
+            &RecordBatchArgs {
+                length: node_len,
+                nodes: Some(nodes),
+                buffers: Some(buffers),
+                compression: None,
+                variadicBufferCounts: Some(variadic_counts),
+            },
+        );
+        let message = Message::create(
+            &mut fbb,
+            &MessageArgs {
+                version: MetadataVersion::V5,
+                header_type: MessageHeader::RecordBatch,
+                header: Some(record_batch.as_union_value()),
+                bodyLength: 0,
+                custom_metadata: None,
+            },
+        );
+        fbb.finish(message, None);
+        frame(fbb.finished_data().to_vec(), Vec::new())
+    }
+
+    /// Cell I: `apache/arrow-rs#10755`, backported because the fix first shipped in arrow-ipc
+    /// 60.0.0 and our registry pin is 59.2.0, a different arrow major we cannot bump in this PR.
+    ///
+    /// Corrupted field: a `Utf8View` column whose `variadicBufferCounts` entry declares `-2`
+    /// against a single (null) buffer.
+    /// Registry 59.2.0 panic: `arrow-ipc-59.2.0/src/reader.rs`'s `Utf8View`/`BinaryView` arm reads
+    /// the declared count as `i64`, computes `count + 2` without checking non-negativity, and
+    /// `(0..count)` is an empty range once `count <= 0` - collecting zero buffers. The dispatcher
+    /// then calls `create_primitive_array` with an empty buffer slice, which indexes `buffers[0]`
+    /// unconditionally and panics: `index out of bounds: the len is 0 but the index is 0`.
+    /// The `leg_frames` release fuzz target found this shape; the crash input is retained at
+    /// `fuzz/seeds/leg_frames/negative-variadic-buffer-count`.
+    #[test]
+    fn a_peer_negative_variadic_buffer_count_is_refused_not_panicked() {
+        let mut fbb = FlatBufferBuilder::new();
+        let name = fbb.create_string("poison");
+        let utf8_view = Utf8ViewBuilder::new(&mut fbb).finish();
+        let field = Field::create(
+            &mut fbb,
+            &FieldArgs {
+                name: Some(name),
+                nullable: true,
+                type_type: Type::Utf8View,
+                type_: Some(utf8_view.as_union_value()),
+                dictionary: None,
+                children: None,
+                custom_metadata: None,
+            },
+        );
+        let schema_frame = finish_schema_message(&mut fbb, field);
+        let bad_batch = variadic_record_batch_frame(0, &[Buffer::new(0, 0)], -2);
+
+        let error = run(decode_all(vec![schema_frame, bad_batch])).expect_err("a negative variadic buffer count is refused");
+        assert!(
+            matches!(&error, FlightError::DecodeError(message) if message.contains("Invalid variadic count")),
+            "{error}"
+        );
+    }
+
+    /// A finished flatbuffer `Message` wrapping a `RecordBatch` header for a single `Utf8View`
+    /// column with the given `variadicBufferCounts` entry, plus the 16-byte data body it declares
+    /// (two 8-byte buffers: a null/views buffer and one variadic data buffer).
+    fn variadic_record_batch_message(variadic_count: i64) -> (Vec<u8>, arrow_buffer::Buffer) {
+        let mut fbb = FlatBufferBuilder::new();
+        let nodes = fbb.create_vector(&[FieldNode::new(1, 0)]);
+        let buffers = fbb.create_vector(&[Buffer::new(0, 8), Buffer::new(8, 8)]);
+        let variadic_counts = fbb.create_vector::<i64>(&[variadic_count]);
+        let record_batch = IpcRecordBatch::create(
+            &mut fbb,
+            &RecordBatchArgs {
+                length: 1,
+                nodes: Some(nodes),
+                buffers: Some(buffers),
+                compression: None,
+                variadicBufferCounts: Some(variadic_counts),
+            },
+        );
+        fbb.finish_minimal(record_batch);
+        (fbb.finished_data().to_vec(), arrow_buffer::Buffer::from(vec![0u8; 16]))
+    }
+
+    /// Cell J: `apache/arrow-rs#10755`'s projected-decode half, exercised through arrow-ipc's own
+    /// *public* `reader::read_record_batch`, not the vendored crate's internal test module - the
+    /// root workspace `Cargo.toml` excludes `vendor/`, so a test inside `vendor/arrow-ipc/src/reader.rs`
+    /// never compiles or runs under any workspace-wide `cargo`/`nextest` invocation and is invisible
+    /// to causality and CI alike. This cell is the one moved here for that reason.
+    ///
+    /// Red on base, per count, with `Some(&[])` (the empty projection selects nothing, so
+    /// `skip_field`'s `Utf8View`/`BinaryView` arm runs instead of `create_array`'s read arm):
+    /// registry 59.2.0's arm is `let count = variadic_count.pop_front()...; let count = count + 2;
+    /// for _ in 0..count { self.skip_buffer() }`, where the old `skip_buffer` was
+    /// `self.buffers.next().unwrap()`.
+    /// - `-2`: `count + 2 == 0`, so `0..0` skips nothing and returns `Ok` silently - no error at all,
+    ///   let alone "Invalid variadic count".
+    /// - `-1`: `count + 2 == 1`, skips one of the two buffers harmlessly - `Ok`, no error.
+    /// - `1`: `count + 2 == 3`, the loop's third `self.buffers.next().unwrap()` call finds only two
+    ///   buffers remain and panics on the `None`, aborting the process under `panic = "abort"`.
+    /// - `i64::MAX`: `count + 2` overflows `i64` and panics with "attempt to add with overflow" in a
+    ///   debug-profile build, again aborting under `panic = "abort"` in release.
+    ///
+    /// None of these four produces "Invalid variadic count", so each is red against base; the fix's
+    /// `next_variadic_buffer_count` turns every one into that same typed `ArrowError::IpcError`.
+    #[test]
+    fn a_peer_negative_variadic_buffer_count_is_refused_under_projection_too() {
+        let schema: arrow_schema::SchemaRef = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "col",
+            arrow_schema::DataType::Utf8View,
+            true,
+        )]));
+        let dictionaries: HashMap<i64, ArrayRef> = HashMap::new();
+        let metadata = MetadataVersion::V5;
+
+        for count in [-2, -1, 1, i64::MAX] {
+            for projection in [None, Some([].as_slice())] {
+                let (message_bytes, data_buffer) = variadic_record_batch_message(count);
+                let batch = flatbuffers::root::<IpcRecordBatch>(&message_bytes).expect("a well-formed record batch header");
+
+                let error = arrow_ipc::reader::read_record_batch(
+                    &data_buffer,
+                    batch,
+                    Arc::clone(&schema),
+                    &dictionaries,
+                    projection,
+                    &metadata,
+                )
+                .expect_err("an invalid variadic count is refused, not accepted or panicked");
+                assert!(
+                    error.to_string().contains("Invalid variadic count"),
+                    "count {count}, projection {projection:?}: {error}"
+                );
+            }
+        }
+    }
+
+    /// The valid count for a message with two buffers is zero, under both projection modes.
+    #[test]
+    fn a_peer_valid_variadic_buffer_count_is_accepted() {
+        let schema: arrow_schema::SchemaRef = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "col",
+            arrow_schema::DataType::Utf8View,
+            true,
+        )]));
+        let dictionaries: HashMap<i64, ArrayRef> = HashMap::new();
+        let metadata = MetadataVersion::V5;
+
+        for projection in [None, Some([].as_slice())] {
+            let (message_bytes, data_buffer) = variadic_record_batch_message(0);
+            let batch = flatbuffers::root::<IpcRecordBatch>(&message_bytes).expect("a well-formed record batch header");
+
+            let result = arrow_ipc::reader::read_record_batch(
+                &data_buffer,
+                batch,
+                Arc::clone(&schema),
+                &dictionaries,
+                projection,
+                &metadata,
+            );
+            match result {
+                Ok(decoded) => {
+                    // The decoded row count comes from the batch header's declared length, not
+                    // from whichever columns got read, so it holds under an empty projection too.
+                    assert_eq!(decoded.num_rows(), 1, "projection {projection:?}");
+                    if projection.is_none() {
+                        let column = decoded
+                            .column(0)
+                            .as_any()
+                            .downcast_ref::<StringViewArray>()
+                            .expect("the sole column decodes as a Utf8View array");
+                        assert_eq!(column.len(), 1);
+                        assert_eq!(column.value(0), "", "an all-zero view decodes as an empty string");
+                    }
+                }
+                Err(error) => assert!(
+                    !error.to_string().contains("Invalid variadic count"),
+                    "projection {projection:?}: {error}"
+                ),
+            }
+        }
     }
 }
