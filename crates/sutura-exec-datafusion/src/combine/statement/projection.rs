@@ -7,6 +7,7 @@ use datafusion::arrow::datatypes::Schema;
 use datafusion::sql::sqlparser::ast::{Expr, Select, SelectItem, Statement, Visit as _, Visitor};
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::parser::{Parser, ParserError};
+use sutura_domain::catalog::PrefilterIneligible;
 use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{PolicyRead, StatementLegs, StatementStopped};
 use sutura_domain::raw::RawStatement;
@@ -101,6 +102,7 @@ where
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
+        ineligible: Option<PrefilterIneligible>,
     ) -> Stopped<RawRows, L::Stop> {
         if !self.admitted.contains(statement.as_str()) {
             return Err(super::unplanned(
@@ -109,7 +111,7 @@ where
             ));
         }
         self.legs
-            .run_planned(source, statement, tables, policy)
+            .run_planned(source, statement, tables, policy, ineligible)
             .map_err(StatementStopped::Leg)
     }
 }
@@ -308,7 +310,7 @@ mod tests {
         let mut guarded = Guarded::new(&mut legs);
         guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
         guarded
-            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread)
+            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None)
             .unwrap();
         assert_eq!(legs.opened, 1);
         assert_eq!(legs.ran, 1);
@@ -321,10 +323,10 @@ mod tests {
         let other = RawStatement::parse("SELECT id FROM other_items").unwrap();
         let mut legs = Legs::default();
         let mut guarded = Guarded::new(&mut legs);
-        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread);
+        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None);
         assert!(matches!(before_open, Err(StatementStopped::NotPlanned)), "{before_open:?}");
         guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
-        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread);
+        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread, None);
         assert!(matches!(other_text, Err(StatementStopped::NotPlanned)), "{other_text:?}");
         assert_eq!(legs.ran, 0);
     }

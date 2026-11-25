@@ -131,7 +131,7 @@ fn refused(sql: &str, columns: usize) -> RawRefusalReason {
 fn a_search_over_a_protected_cube_table_past_the_row_cap_says_it_needs_narrowing() {
     assert_eq!(
         refused("select id from docs where body like '%needle%'", 2),
-        RawRefusalReason::PolicySearchNeedsNarrowing
+        RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None }
     );
 }
 

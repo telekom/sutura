@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
-index 8c128526f..f6c724923 100644
 --- a/crates/sutura-app/src/raw.rs
 +++ b/crates/sutura-app/src/raw.rs
-@@ -357,9 +357,7 @@ where
+@@ -454,9 +454,7 @@
          let presented = credentials
              .presented_for(source)
              .map_err(|cause| LegStop::Failed(RunSqlError::Credentials { cause }))?;
@@ -11,5 +10,5 @@ index 8c128526f..f6c724923 100644
 -            .map_err(|cause| LegStop::Failed(RunSqlError::Posture { cause }))?;
 +        drop(presented.agrees_with(warehouse.posture(), source));
          let budget_seconds = self.deadline.budget().seconds();
-         // Checked before each leg is run and never re-derived - the same shape `crate::answer`'s own
-         // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the leg
+         let now = Instant::now();
+         let is_policy_read = policy.is_read();

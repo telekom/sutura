@@ -381,3 +381,43 @@ and a long statement placed before a raw string's last,
 `a_raw_statement_whose_budget_is_already_spent_is_refused_by_name`. The pinned driver's `execute`
 returns only once a statement has finished, even one whose first rows are ready at once, so the
 stop is always an `execute` or prepare failure and never one of the stream it hands back.
+
+## Seventh amendment, 2026-11-25: a raw policy-search leg gets a second, narrower margin
+
+`docs/raw-text-search.md`'s named refusal (`policy_search_needs_narrowing`) races the same `408`
+backstop this record's Decision 2 already names, and loses it worse than an ordinary leg: a
+policy-column read also pays for local masking and this leg's own classification of the adapter's
+failure AFTER the port call returns, both inside the one-second `REPLY_MARGIN` that margin was
+sized for an adapter's teardown alone. `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` (two seconds,
+`crates/sutura-app/src/raw.rs`) is carved out of such a leg's own `Deadline` on top of the
+`REPLY_MARGIN` already subtracted from the request timeout - narrower than the leg's
+`remaining_at`, never wider, and only for a leg this request classifies as a policy-column read.
+An unread or non-policy leg keeps the budget Decision 1 already describes, unnarrowed.
+
+**Only when the narrowed budget is itself still usable.** Subtracting a fixed margin from a small
+remaining budget can leave a near-zero or negative one; a deployment configuring a low
+`server.request_timeout_seconds` reaches a policy leg with little more than the margin left on
+every such read. Refusing there before the data system is ever asked is worse than the race this
+margin exists to narrow, so the leg narrows only when
+`remaining.saturating_sub(POLICY_LEG_TEARDOWN_MARGIN) >= POLICY_LEG_MIN_BUDGET` - a second,
+SMALLER floor (one second, `crates/sutura-app/src/raw.rs`), not the margin again. The first version
+of this amendment checked the floor against the margin itself; an HTTP-level regression cell at a
+`request_timeout_seconds` of 5s caught that it narrowed too rarely to matter at a realistic low
+timeout, never reaching the `422` ahead of the transport's own `408`. Below `POLICY_LEG_MIN_BUDGET`
+the leg keeps the full, unnarrowed remaining budget instead - the behaviour before this margin
+existed, which still risks losing the race this amendment opens.
+
+**What this does not close.** There is no tokio-level abort tied to this margin, the same limit
+Decision 1's table already states per adapter: an adapter that ignores the deadline it is handed
+can still run past it and lose the race to the transport's generic `408`, exactly as before this
+margin existed, only later. The margin narrows the window; it does not add an interrupt. Held by
+`crates/sutura-app/src/raw/policy_search.rs`'s
+`a_policy_leg_is_narrowed_by_the_full_margin_when_the_remaining_budget_affords_it`,
+`a_policy_leg_keeps_the_full_budget_when_narrowing_would_leave_too_little`,
+`a_policy_leg_in_the_low_timeout_band_narrows_once_the_floor_still_allows_it` and
+`a_policy_leg_below_the_floor_keeps_the_full_budget_rather_than_a_too_thin_one`, which read the
+`Deadline` the port was handed rather than timing anything, plus
+`crates/sutura-http/src/harness/run_sql.rs`'s
+`a_policy_search_leg_past_its_deadline_reaches_the_caller_by_name_ahead_of_the_408`, proving the
+named refusal is what a caller sees ahead of the transport's `408` under a slow adapter over the
+real transport.

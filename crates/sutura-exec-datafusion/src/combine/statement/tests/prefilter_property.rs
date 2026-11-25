@@ -4,11 +4,11 @@
 //! regex-driven redaction rules (applied in order, as a column's declared `redact` list would be),
 //! and every raw text a small alphabet can spell, if `preserves` admits the needle against each
 //! rule in the sequence, a LIKE match on the text the rules produce implies a LIKE match on the
-//! raw text. `preserves` is deliberately exercised directly (it is `pub(super)`, reached as
-//! `super::super::text_prefilter::preserves`) rather than through `condition`'s SQL-rewrite
-//! surface: the property under test is the admission rule against an actual regex-driven
-//! redaction, not the planner's statement rewrite, which `text_prefilter.rs`'s own tests already
-//! cover.
+//! raw text. `preserves` is deliberately exercised directly (it is `pub` on
+//! `sutura_domain::catalog`, the hexagon's interior - this crate reaches in as a caller, exactly
+//! like the adapter code it tests) rather than through `condition`'s SQL-rewrite surface: the
+//! property under test is the admission rule against an actual regex-driven redaction, not the
+//! planner's statement rewrite, which `text_prefilter.rs`'s own tests already cover.
 //!
 //! Every call here passes `upper = false, folded = false`: the sweep does not exercise
 //! `preserves`'s uppercasing or case-folding branches. `text_prefilter.rs`'s own tests cover those
@@ -16,7 +16,7 @@
 
 use regex::{NoExpand, Regex};
 
-use super::super::text_prefilter::preserves;
+use sutura_domain::catalog::preserves;
 
 /// A column's one `redact` rule: an engine-side regex and its literal replacement.
 struct Rule {

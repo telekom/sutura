@@ -11,6 +11,7 @@ use std::collections::BTreeSet;
 
 use arrow_schema::SchemaRef;
 
+use crate::catalog::PrefilterIneligible;
 use crate::model::{QualifiedTable, SourceName};
 use crate::raw::{RawStatement, SqlConstruct};
 use crate::warehouse::RawRows;
@@ -188,6 +189,7 @@ pub trait StatementLegs {
         statement: &RawStatement,
         _tables: &BTreeSet<QualifiedTable>,
         _policy: PolicyRead,
+        _ineligible: Option<PrefilterIneligible>,
     ) -> Result<RawRows, Self::Stop> {
         self.run(source, statement)
     }

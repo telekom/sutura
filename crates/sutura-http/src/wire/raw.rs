@@ -167,7 +167,7 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         | RawRefusalReason::UnsupportedSyntax { .. }
         | RawRefusalReason::SourceFailed
         | RawRefusalReason::DeadlineExceeded { .. }
-        | RawRefusalReason::PolicySearchNeedsNarrowing => StatusCode::UNPROCESSABLE_ENTITY,
+        | RawRefusalReason::PolicySearchNeedsNarrowing { .. } => StatusCode::UNPROCESSABLE_ENTITY,
         // 403: the data system refused it at the identity/authorization level - the same status a
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
@@ -232,7 +232,7 @@ mod tests {
             ),
             (RawRefusalReason::PlanSpansMoreThanOneSource, axum::http::StatusCode::CONFLICT),
             (
-                RawRefusalReason::PolicySearchNeedsNarrowing,
+                RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None },
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             ),
         ] {

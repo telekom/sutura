@@ -309,9 +309,10 @@ impl<W: DataSystemUnderTest> StatementLegs for Recorded<'_, W> {
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
+        ineligible: Option<sutura_domain::catalog::PrefilterIneligible>,
     ) -> Result<RawRows, Self::Stop> {
         self.statements.push(String::from(statement.as_str()));
-        self.inner.run_planned(source, statement, tables, policy)
+        self.inner.run_planned(source, statement, tables, policy, ineligible)
     }
 }
 

@@ -27,6 +27,7 @@
 use core::fmt;
 use std::collections::BTreeSet;
 
+use crate::catalog;
 use crate::model::SourceName;
 use crate::source::ExecutedAs;
 
@@ -213,13 +214,46 @@ pub enum RawRefusalReason {
     /// answer exceeded a size or row bound before local masking and filtering.
     ///
     /// A supported filter on a column without a policy narrows the rows needing masking. This is a
-    /// backstop, not acceleration: it preserves the request's deadline and source bounds. Cube only
-    /// accepts the policy-free comparison shapes in `docs/raw-text-search.md`; other predicates
-    /// stay local. A projection over a policy column is classified the same way as a search.
-    /// Planning, pre-leg and local-part deadlines retain [`Self::DeadlineExceeded`].
-    /// **What it discloses:** a column the caller can already read carries a text policy, and
-    /// nothing about that policy.
-    PolicySearchNeedsNarrowing,
+    /// backstop, not acceleration. A policy-column search leg's OWN deadline is narrower than the
+    /// rest of the request's: `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` carves two seconds off
+    /// the remaining budget so this leg's local masking and the carry back to the transport finish
+    /// before the per-request deadline fires, UNLESS doing so would leave less than
+    /// `sutura_app::raw::POLICY_LEG_MIN_BUDGET` (one second) left, in which case the leg keeps the
+    /// full, unnarrowed remaining budget instead. Neither narrowing is a hard stop: nothing here
+    /// `tokio::time::timeout`-aborts the adapter call mid-flight, so a leg that is already past its
+    /// (possibly narrowed) deadline when the data system's own round trip returns still has to run
+    /// local masking on whatever rows came back before this refusal is minted. Cube only accepts
+    /// the policy-free comparison shapes in `docs/raw-text-search.md`; other predicates stay local.
+    /// A projection over a policy column is classified the same way as a search.
+    ///
+    /// **What it discloses, stated plainly rather than claimed safe:** per probe, the caller learns
+    /// which of three coarse categories applied -
+    /// [`PrefilterIneligible::caller_category`](catalog::PrefilterIneligible::caller_category): no
+    /// `raw_prefilter` is declared on this column, the search term's own shape is ineligible, or the
+    /// search term overlaps the column's redaction marker. A single probe says only that much. A
+    /// SWEEP of needles against the same column, each one read off this category, still lets a
+    /// caller map which characters a redaction marker's own shape contains, needle by needle - the
+    /// same way any membership oracle leaks its predicate's shape under repetition. `ineligible`
+    /// carries no replacement-rule index or other server-side detail outside this process; that
+    /// stays in the log line this refusal is built from.
+    ///
+    /// `ineligible` names WHY [`catalog::eligible`] could not admit pushing the search down, over
+    /// the same needle and the column's own policy, computed once before the leg is dispatched -
+    /// never derived from how long the search ran or what it returned. **`None` is not an
+    /// exhaustive, enumerable set** - it is every point where that check was never reached at all,
+    /// which includes but is not limited to: the statement's dialect has no raw-prefilter
+    /// capability, the column's own collation is one that capability does not admit, an Oracle
+    /// column that is declared but is not a LOB, a column that declares no text policy at all, and
+    /// Cube running its text policy locally rather than through this prefilter - plus every shape
+    /// the search-recognition pass (`sutura_exec_datafusion::combine::statement::text_prefilter::discover`)
+    /// does not parse as one isolated, row-preserving `LIKE '%needle%'` comparison over the column
+    /// at all: a projection-only read with no comparison to recognize, a sibling conjunct in the
+    /// same statement that could raise on an unredacted row, a join, subquery or CTE, an alias that
+    /// renames or shadows the column, and any other statement shape that pass's own structural
+    /// checks decline. The reason carries no signal distinguishing any of these from one another.
+    PolicySearchNeedsNarrowing {
+        ineligible: Option<catalog::PrefilterIneligible>,
+    },
 }
 
 impl RawRefusalReason {
@@ -242,7 +276,7 @@ impl RawRefusalReason {
             Self::SourceRefused => "source_refused",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::PlanSpansMoreThanOneSource => "plan_spans_more_than_one_source",
-            Self::PolicySearchNeedsNarrowing => "policy_search_needs_narrowing",
+            Self::PolicySearchNeedsNarrowing { .. } => "policy_search_needs_narrowing",
         }
     }
 }
@@ -272,7 +306,15 @@ impl fmt::Display for RawRefusalReason {
                 f,
                 "the statement reads from more than one data system, and this deployment runs a statement against one"
             ),
-            Self::PolicySearchNeedsNarrowing => write!(
+            Self::PolicySearchNeedsNarrowing {
+                ineligible: Some(reason),
+            } => write!(
+                f,
+                "a statement over a column under a text policy reached a time or source result bound \
+                 ({category}); add a filter on a column without a policy",
+                category = reason.caller_category()
+            ),
+            Self::PolicySearchNeedsNarrowing { ineligible: None } => write!(
                 f,
                 "a statement over a column under a text policy reached a time or source result bound; add a filter on a column without a policy"
             ),
@@ -408,6 +450,7 @@ mod compile_fail_has_no_provenance {}
 #[cfg(test)]
 mod tests {
     use super::{InvalidRawStatement, RawOutcome, RawRefusalReason, RawStatement, SqlConstruct};
+    use crate::catalog::PrefilterIneligible;
 
     #[test]
     fn a_statement_is_trimmed_and_bounded() {
@@ -482,7 +525,7 @@ mod tests {
             RawRefusalReason::SourceRefused,
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
             RawRefusalReason::PlanSpansMoreThanOneSource,
-            RawRefusalReason::PolicySearchNeedsNarrowing,
+            RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None },
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -510,8 +553,28 @@ mod tests {
             "plan_spans_more_than_one_source"
         );
         assert_eq!(
-            RawRefusalReason::PolicySearchNeedsNarrowing.code(),
+            RawRefusalReason::PolicySearchNeedsNarrowing { ineligible: None }.code(),
             "policy_search_needs_narrowing"
         );
+    }
+
+    /// A redaction rule's index never reaches a caller: the two [`PrefilterIneligible`] variants
+    /// that collapse into the same `caller_category` render identically, not merely "without a
+    /// digit" - this would also catch a mutation that kept the index out of the sentence but added
+    /// it elsewhere, e.g. in a debug-formatted field.
+    #[test]
+    fn a_redaction_rule_index_never_reaches_the_caller_sentence() {
+        let via_replacement = RawRefusalReason::PolicySearchNeedsNarrowing {
+            ineligible: Some(PrefilterIneligible::AgreesWithReplacement { replacement_index: 7 }),
+        }
+        .to_string();
+        assert!(!via_replacement.contains('7'), "{via_replacement}");
+        assert!(!via_replacement.contains('#'), "{via_replacement}");
+
+        let via_marker = RawRefusalReason::PolicySearchNeedsNarrowing {
+            ineligible: Some(PrefilterIneligible::AgreesWithTruncationMarker),
+        }
+        .to_string();
+        assert_eq!(via_replacement, via_marker);
     }
 }

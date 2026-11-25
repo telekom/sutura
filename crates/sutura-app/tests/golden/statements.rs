@@ -233,6 +233,7 @@ impl<W: DataSystemUnderTest> StatementLegs for Executing<'_, W> {
         statement: &RawStatement,
         tables: &BTreeSet<QualifiedTable>,
         _policy: PolicyRead,
+        _ineligible: Option<sutura_domain::catalog::PrefilterIneligible>,
     ) -> Result<RawRows, Self::Stop> {
         if source != self.warehouse.source() || !self.expected_scans.contains(tables) {
             return Err(String::from("the native leg received an unexpected source or scan set"));

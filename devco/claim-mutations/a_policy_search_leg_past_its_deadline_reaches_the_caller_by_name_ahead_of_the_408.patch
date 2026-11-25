@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
+index a89674f1a..0c9157bb4 100644
+--- a/crates/sutura-app/src/raw.rs
++++ b/crates/sutura-app/src/raw.rs
+@@ -508,7 +508,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
+         let leg_deadline = if is_policy_read {
+             let narrowed = leg_budget.duration().saturating_sub(POLICY_LEG_TEARDOWN_MARGIN);
+             if narrowed >= POLICY_LEG_MIN_BUDGET {
+-                Budget::parse(narrowed).map_or(self.deadline, |budget| Deadline::opened_at(now, budget))
++                Budget::parse(narrowed).map_or(self.deadline, |_budget| self.deadline)
+             } else {
+                 self.deadline
+             }

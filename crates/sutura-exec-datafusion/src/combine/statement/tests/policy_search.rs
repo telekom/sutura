@@ -64,6 +64,7 @@ impl StatementLegs for Noting {
         _statement: &RawStatement,
         _tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
+        _ineligible: Option<sutura_domain::catalog::PrefilterIneligible>,
     ) -> Result<RawRows, Self::Stop> {
         self.told.push((source.clone(), policy));
         Err(source.clone())
@@ -87,6 +88,7 @@ impl StatementLegs for Reading<'_> {
         statement: &RawStatement,
         _tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
+        _ineligible: Option<sutura_domain::catalog::PrefilterIneligible>,
     ) -> Result<RawRows, Self::Stop> {
         self.told.push((source.clone(), policy));
         self.engines.run(source, statement)

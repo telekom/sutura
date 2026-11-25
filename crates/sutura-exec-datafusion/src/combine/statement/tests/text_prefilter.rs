@@ -10,6 +10,7 @@ use datafusion::sql::sqlparser::parser::Parser;
 use sutura_domain::catalog::COLLATION_METADATA_KEY;
 
 use sutura_domain::catalog::Collation;
+use sutura_domain::catalog::PrefilterIneligible;
 
 use super::*;
 
@@ -755,4 +756,63 @@ fn clickhouse_prefilters_a_binary_column_with_the_stored_column_named_through_it
         "the condition filters the stored table inside the view: {rewritten}"
     );
     assert!(rewritten.contains("replaceRegexpAll(`notes`.`BODY`,"), "{rewritten}");
+}
+
+/// `text::apply_to` itself - the real production entry point, not the test-only [`apply`]
+/// wrapper that discards [`PrefilterIneligible`] - over one parsed statement.
+fn ineligibility(sql: &str, table: StatementTable) -> Option<PrefilterIneligible> {
+    let mut statements = Parser::parse_sql(&GenericDialect, sql).expect("generated SQL parses");
+    let [statement] = statements.as_mut_slice() else {
+        panic!("one statement");
+    };
+    let dialect = table.dialect();
+    super::super::text::apply_to(statement, &[table], dialect).expect("an acknowledged policy must rewrite successfully")
+}
+
+#[test]
+fn apply_to_names_a_needle_outside_the_alphanumeric_or_underscore_alphabet() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%ab-c%'";
+    assert_eq!(
+        ineligibility(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true)),
+        Some(PrefilterIneligible::NeedleShape)
+    );
+}
+
+#[test]
+fn apply_to_names_the_replacement_a_needle_agrees_with() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    assert_eq!(
+        ineligibility(sql, table(TypeDialect::DataFusion, &["[TERM]"], true, false, true)),
+        Some(PrefilterIneligible::AgreesWithReplacement { replacement_index: 0 })
+    );
+}
+
+#[test]
+fn apply_to_admits_an_eligible_needle() {
+    let sql = "SELECT \"BODY\" FROM \"notes\" WHERE \"BODY\" LIKE '%TERM%'";
+    assert_eq!(
+        ineligibility(sql, table(TypeDialect::DataFusion, &["[masked]"], true, false, true)),
+        None
+    );
+}
+
+/// The same three outcomes through Oracle's native `UPPER(column)` comparison, which `condition`
+/// only recognizes as evidence at all when the column is a LOB - a separate branch from the
+/// bare-column comparison the tests above exercise.
+#[test]
+fn apply_to_covers_the_oracle_native_upper_path() {
+    let eligible_sql = "SELECT count(\"BODY\") FROM \"notes\" n WHERE UPPER(n.\"BODY\") LIKE '%TERM%'";
+    assert_eq!(
+        ineligibility(eligible_sql, table(TypeDialect::Oracle, &["[masked]"], true, true, true)),
+        None
+    );
+    let shape_sql = "SELECT count(\"BODY\") FROM \"notes\" n WHERE UPPER(n.\"BODY\") LIKE '%ab-c%'";
+    assert_eq!(
+        ineligibility(shape_sql, table(TypeDialect::Oracle, &["[masked]"], true, true, true)),
+        Some(PrefilterIneligible::NeedleShape)
+    );
+    assert_eq!(
+        ineligibility(eligible_sql, table(TypeDialect::Oracle, &["[TERM]"], true, true, true)),
+        Some(PrefilterIneligible::AgreesWithReplacement { replacement_index: 0 })
+    );
 }
