@@ -134,25 +134,20 @@ impl RecordBatchDecoder<'_> {
                     self.next_buffer()?,
                     self.next_buffer()?,
                 ];
-                self.create_primitive_array(field_node, data_type, &buffers)
+                self.create_primitive_array(field, field_node, data_type, &buffers)
             }
             BinaryView | Utf8View => {
-                let count = variadic_counts
-                    .pop_front()
-                    .ok_or(ArrowError::IpcError(format!(
-                        "Missing variadic count for {data_type} column"
-                    )))?;
-                let count = count + 2; // view and null buffer.
+                let count = self.next_variadic_buffer_count(variadic_counts, data_type)?;
                 let buffers = (0..count)
                     .map(|_| self.next_buffer())
                     .collect::<Result<Vec<_>, _>>()?;
                 let field_node = self.next_node(field)?;
-                self.create_primitive_array(field_node, data_type, &buffers)
+                self.create_primitive_array(field, field_node, data_type, &buffers)
             }
             FixedSizeBinary(_) => {
                 let field_node = self.next_node(field)?;
                 let buffers = [self.next_buffer()?, self.next_buffer()?];
-                self.create_primitive_array(field_node, data_type, &buffers)
+                self.create_primitive_array(field, field_node, data_type, &buffers)
             }
             List(list_field) | LargeList(list_field) | Map(list_field, _) => {
                 let list_node = self.next_node(field)?;
@@ -297,7 +292,7 @@ impl RecordBatchDecoder<'_> {
             _ => {
                 let field_node = self.next_node(field)?;
                 let buffers = [self.next_buffer()?, self.next_buffer()?];
-                self.create_primitive_array(field_node, data_type, &buffers)
+                self.create_primitive_array(field, field_node, data_type, &buffers)
             }
         }
     }
@@ -306,11 +301,27 @@ impl RecordBatchDecoder<'_> {
     /// primitive array ref
     fn create_primitive_array(
         &self,
+        field: &Field,
         field_node: &FieldNode,
         data_type: &DataType,
         buffers: &[Buffer],
     ) -> Result<ArrayRef, ArrowError> {
         let length = field_node.length() as usize;
+        // Every arm below indexes `buffers[0]` (the null buffer) and at least
+        // `buffers[1]`; `Utf8`/`Binary` variants additionally need `buffers[2]`. A
+        // short slice here (e.g. a `BinaryView`/`Utf8View` column whose declared
+        // variadic buffer count collects fewer than 2 buffers) must be refused
+        // before any indexing, not reach it as a panic.
+        let needed_buffers = match data_type {
+            Utf8 | Binary | LargeBinary | LargeUtf8 => 3,
+            _ => 2,
+        };
+        if buffers.len() < needed_buffers {
+            return Err(ArrowError::IpcError(format!(
+                "Field {field} of type {data_type} needs at least {needed_buffers} buffers, got {}",
+                buffers.len()
+            )));
+        }
         let null_buffer = checked_null_buffer(field_node, &buffers[0])?;
         let mut builder = match data_type {
             Utf8 | Binary | LargeBinary | LargeUtf8 => {
@@ -696,6 +707,37 @@ impl<'a> RecordBatchDecoder<'a> {
 
     fn skip_buffer(&mut self) {
         self.buffers.next().unwrap();
+    }
+
+    /// Takes the number of variadic buffers declared for one `BinaryView` or `Utf8View`
+    /// column, and returns the total number of buffers to read for it (the declared
+    /// count plus the view and null buffer). The declared count comes from the IPC
+    /// message, so it may be missing, negative, or larger than the number of buffers
+    /// the message actually has; any of those previously collected fewer than the 2
+    /// buffers `create_primitive_array` indexes into, reaching that as a panic instead
+    /// of this error. Backported from `apache/arrow-rs#10755`.
+    fn next_variadic_buffer_count(
+        &self,
+        variadic_counts: &mut VecDeque<i64>,
+        data_type: &DataType,
+    ) -> Result<usize, ArrowError> {
+        let count = variadic_counts.pop_front().ok_or_else(|| {
+            ArrowError::IpcError(format!("Missing variadic count for {data_type} column"))
+        })?;
+
+        let remaining = self.buffers.len();
+
+        // The view buffer and the null buffer are not counted as variadic.
+        usize::try_from(count)
+            .ok()
+            .and_then(|count| count.checked_add(2))
+            .filter(|total| *total <= remaining)
+            .ok_or_else(|| {
+                ArrowError::IpcError(format!(
+                    "Invalid variadic count {count} for {data_type} column, \
+                     with {remaining} buffer(s) left in the message"
+                ))
+            })
     }
 
     fn next_node(&mut self, field: &Field) -> Result<&'a FieldNode, ArrowError> {

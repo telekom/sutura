@@ -16,7 +16,7 @@ use arrow_ipc::{
     BodyCompression, BodyCompressionArgs, BodyCompressionMethod, Buffer, CompressionType, Decimal, DecimalArgs, Endianness,
     Field, FieldArgs, FieldNode, FixedSizeBinary, FixedSizeBinaryArgs, Message, MessageArgs, MessageHeader, MetadataVersion,
     Null, NullArgs, RecordBatch as IpcRecordBatch, RecordBatchArgs, Schema, SchemaArgs, Struct_, Struct_Args, Type, Union,
-    UnionArgs,
+    UnionArgs, Utf8ViewBuilder,
 };
 use flatbuffers::FlatBufferBuilder;
 use futures_util::{TryStreamExt as _, stream};
@@ -460,6 +460,76 @@ mod tests {
         let error = run(decode_all(vec![schema_frame, bad_batch])).expect_err("a short struct validity buffer is refused");
         assert!(
             matches!(&error, FlightError::DecodeError(message) if message.contains("null_bit_buffer size too small")),
+            "{error}"
+        );
+    }
+
+    /// A `RecordBatch` frame for a single variadic (`Utf8View`/`BinaryView`) column, with an
+    /// attacker-controlled `variadicBufferCounts` entry.
+    fn variadic_record_batch_frame(node_len: i64, buffers: &[Buffer], variadic_count: i64) -> FlightData {
+        let mut fbb = FlatBufferBuilder::new();
+        let nodes = fbb.create_vector(&[FieldNode::new(node_len, 0)]);
+        let buffers = fbb.create_vector(buffers);
+        let variadic_counts = fbb.create_vector::<i64>(&[variadic_count]);
+        let record_batch = IpcRecordBatch::create(
+            &mut fbb,
+            &RecordBatchArgs {
+                length: node_len,
+                nodes: Some(nodes),
+                buffers: Some(buffers),
+                compression: None,
+                variadicBufferCounts: Some(variadic_counts),
+            },
+        );
+        let message = Message::create(
+            &mut fbb,
+            &MessageArgs {
+                version: MetadataVersion::V5,
+                header_type: MessageHeader::RecordBatch,
+                header: Some(record_batch.as_union_value()),
+                bodyLength: 0,
+                custom_metadata: None,
+            },
+        );
+        fbb.finish(message, None);
+        frame(fbb.finished_data().to_vec(), Vec::new())
+    }
+
+    /// Cell I: `apache/arrow-rs#10755`, backported because the fix first shipped in arrow-ipc
+    /// 60.0.0 and our registry pin is 59.2.0, a different arrow major we cannot bump in this PR.
+    ///
+    /// Corrupted field: a `Utf8View` column whose `variadicBufferCounts` entry declares `-2`
+    /// against a single (null) buffer.
+    /// Registry 59.2.0 panic: `arrow-ipc-59.2.0/src/reader.rs`'s `Utf8View`/`BinaryView` arm reads
+    /// the declared count as `i64`, computes `count + 2` without checking non-negativity, and
+    /// `(0..count)` is an empty range once `count <= 0` - collecting zero buffers. The dispatcher
+    /// then calls `create_primitive_array` with an empty buffer slice, which indexes `buffers[0]`
+    /// unconditionally and panics: `index out of bounds: the len is 0 but the index is 0`.
+    /// The `leg_frames` release fuzz target found this shape; the crash input is retained at
+    /// `fuzz/seeds/leg_frames/negative-variadic-buffer-count`.
+    #[test]
+    fn a_peer_negative_variadic_buffer_count_is_refused_not_panicked() {
+        let mut fbb = FlatBufferBuilder::new();
+        let name = fbb.create_string("poison");
+        let utf8_view = Utf8ViewBuilder::new(&mut fbb).finish();
+        let field = Field::create(
+            &mut fbb,
+            &FieldArgs {
+                name: Some(name),
+                nullable: true,
+                type_type: Type::Utf8View,
+                type_: Some(utf8_view.as_union_value()),
+                dictionary: None,
+                children: None,
+                custom_metadata: None,
+            },
+        );
+        let schema_frame = finish_schema_message(&mut fbb, field);
+        let bad_batch = variadic_record_batch_frame(0, &[Buffer::new(0, 0)], -2);
+
+        let error = run(decode_all(vec![schema_frame, bad_batch])).expect_err("a negative variadic buffer count is refused");
+        assert!(
+            matches!(&error, FlightError::DecodeError(message) if message.contains("Invalid variadic count")),
             "{error}"
         );
     }
