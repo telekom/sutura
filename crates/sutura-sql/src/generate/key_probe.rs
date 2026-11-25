@@ -145,9 +145,13 @@ fn oracle_compound_probe(key: &DeclaredKey<'_>, over: Vec<Expr>, dialect: Dialec
 }
 
 /// `ast` rendered as `key`'s probe: no parameter, and the placeholder count held to that.
+///
+/// A dotted object is put back as one quoted identifier here too, so a Foundry probe counts the
+/// object its key promises and never a table of its local name.
 fn finished(key: &DeclaredKey<'_>, ast: &Expression, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     let params = Vec::new();
-    let sql = render(ast, dialect)?;
-    assert_placeholder_count(ast, dialect, &params)?;
+    let ast = super::named_objects(ast.clone(), std::iter::once(key.table()), dialect)?;
+    let sql = render(&ast, dialect)?;
+    assert_placeholder_count(&ast, dialect, &params)?;
     Ok(GeneratedQuery::new(key.source().clone(), sql, params))
 }
