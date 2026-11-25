@@ -332,6 +332,25 @@ impl SemanticCatalog for FixedCatalog {
     }
 }
 
+/// A catalog port that hands back [`bundle_with_two_models`] - `describe_catalog(model: ...)`'s own
+/// over-the-wire test needs a second model with no metric of its own to assert IS excluded, which
+/// [`FixedCatalog`]'s single-model bundle cannot provide.
+pub(crate) struct TwoModelCatalog;
+
+impl SemanticCatalog for TwoModelCatalog {
+    type Error = Unreachable;
+
+    const KIND: CatalogKind = CatalogKind::Golden;
+
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::everything()
+    }
+
+    fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+        Ok(bundle_with_two_models())
+    }
+}
+
 /// A data system that answers every statement with one prepared result.
 ///
 /// One result for every plan, which is exactly enough: nothing in the transport depends on the

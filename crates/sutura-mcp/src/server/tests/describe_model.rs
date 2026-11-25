@@ -6,22 +6,42 @@
 use rmcp::ServiceError;
 use rmcp::model::{CallToolRequestParams, ErrorCode};
 use sutura_app::Capability;
+use sutura_app::surface::LocalService;
+
+use crate::testing;
 
 /// The catalog tool, narrowed to one named model.
 fn describe_model(name: &str) -> CallToolRequestParams {
     super::call(Capability::DescribeCatalog.id(), &serde_json::json!({ "model": name }))
 }
 
-/// `model` narrows `describe_catalog` to one named model's own metrics, never the whole catalog's.
+/// A service over [`testing::TwoModelCatalog`] - this file's own discriminating test needs a second
+/// model with no metric of its own, to assert `describe_catalog(model: "orders")` excludes it.
+fn two_model_service() -> super::CertifiedService {
+    LocalService::start(
+        &testing::TwoModelCatalog,
+        testing::fake_warehouse(),
+        std::sync::Arc::new(testing::CountingSink::default()),
+        testing::broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the two-model fixture bundle validates")
+}
+
+/// `model` narrows `describe_catalog` to one named model's own metrics, never the whole catalog's -
+/// over a two-model bundle, so the OTHER model's absence is actually proven, not merely unasserted.
 #[tokio::test]
 async fn describe_catalog_with_a_model_argument_answers_only_that_models_metrics() {
-    let client = super::connected(super::certified_service()).await;
+    let client = super::connected(two_model_service()).await;
     let result = client
         .call_tool(describe_model("orders"))
         .await
         .expect("a real, visible model is not a protocol error");
     assert_ne!(result.is_error, Some(true), "{result:?}");
-    assert!(super::text_of(&result).contains("revenue"), "{}", super::text_of(&result));
+    let text = super::text_of(&result);
+    assert!(text.contains("revenue"), "{text}");
+    assert!(!text.contains("customers"), "{text}");
     drop(client.cancel().await);
 }
 
@@ -55,5 +75,10 @@ async fn describe_catalog_with_a_malformed_model_name_is_refused_as_a_protocol_e
         panic!("expected a protocol error, got {error:?}");
     };
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
+    assert!(
+        data.message.contains("letters, digits and underscore"),
+        "expected the parse cause, got {}",
+        data.message
+    );
     drop(client.cancel().await);
 }
