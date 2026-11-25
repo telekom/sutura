@@ -1,14 +1,14 @@
 //! The object types one caller can see, listed with that caller's own Foundry token.
 //!
-//! The [`CallerListing`] `docs/adr/20261125083027-catalog-visibility-per-caller.md` decides.
-//! Dials only the object-type list the catalog reader dials, at the same [`Endpoint`], under the
-//! same bounds; never the link types. The bearer is the [`Presented::SubjectToken`] a broker minted
-//! for this caller, borrowed as a [`BorrowedBearer`] for the one request and never kept or cloned.
+//! The [`CallerListing`](sutura_domain::visibility::CallerListing) `docs/adr/20261125083027-catalog-visibility-per-caller.md` decides.
+//! Dials only the object-type list the catalog reader dials, at the same [`Endpoint`](crate::http::Endpoint), under the
+//! same bounds; never the link types. The bearer is the [`Presented::SubjectToken`](sutura_domain::identity::Presented::SubjectToken) a broker minted
+//! for this caller, borrowed as a [`BorrowedBearer`](crate::http::BorrowedBearer) for the one request and never kept or cloned.
 //! An object type is listed under both names a model may give it: its API name's table, and its
 //! resource identifier's. An API name the mapping refuses is not listed by that name - no model can
 //! name it so.
 //!
-//! The same list answers [`CallerObjectTypes::resource_ids`], which resolves an API name to the RID
+//! The same list answers [`CallerObjectTypes::resource_ids`](crate::caller::CallerObjectTypes::resource_ids), which resolves an API name to the RID
 //! Ontology SQL queries it by, under whatever token the question it serves is about to send. An
 //! object type listed without a usable RID is set aside by name rather than failing the read, so
 //! only a question that needs it is refused.

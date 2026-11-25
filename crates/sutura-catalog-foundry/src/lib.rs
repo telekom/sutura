@@ -54,7 +54,6 @@
 //! deployment that narrows each caller's VIEW of that bundle lists with instead - the bundle itself
 //! does not change.
 
-/// The object types one caller can see, listed under that caller's own token.
 #[cfg(feature = "http")]
 pub mod caller;
 pub mod document;
