@@ -405,6 +405,17 @@ fn finance_metric_name() -> sutura_domain::model::MetricName {
     sutura_domain::model::MetricName::parse("finance_only").expect("a test metric is a metric")
 }
 
+/// A model whose only metric is [`restricted_only_metric_name`] - unlike `orders`, this model owns
+/// no open metric, so an outsider's `?model=` on it must read as unknown rather than merely empty.
+fn restricted_only_model_name() -> sutura_domain::model::ModelName {
+    sutura_domain::model::ModelName::parse("forecasts").expect("a test model is a model")
+}
+
+/// The one metric [`restricted_only_model_name`] owns, restricted to `finance`.
+fn restricted_only_metric_name() -> sutura_domain::model::MetricName {
+    sutura_domain::model::MetricName::parse("forecast_total").expect("a test metric is a metric")
+}
+
 /// [`crate::testing::bundle`], plus a second metric restricted to the `finance` audience.
 ///
 /// One bundle, two verified callers, two different catalogs: `revenue` stays open so every caller
@@ -465,8 +476,40 @@ fn bundle_with_a_restricted_metric() -> sutura_domain::pinned::PinnedDefinitions
         restricted_to_finance,
     )
     .expect("no dimensions to duplicate");
-    let definitions =
-        Definitions::assemble(vec![model], vec![], vec![revenue, finance_only]).expect("the test bundle is consistent");
+    let restricted_model = Model::new(
+        restricted_only_model_name(),
+        source(),
+        TableName::parse("forecasts").expect("a test table is a table"),
+        std::collections::BTreeSet::from([column("period"), column("forecast_cents")]),
+        description("Forecasts, one row per period - this catalog's only model with no open metric."),
+    );
+    let forecast_total = Metric::new(
+        restricted_only_metric_name(),
+        restricted_only_model_name(),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::Sum,
+            column("forecast_cents"),
+        ))),
+        Vec::new(),
+        column("period"),
+        std::collections::BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        description("A forecast only a finance-granted caller may see; its model owns nothing else."),
+        Audience::Restricted(
+            AudienceGrant::parse(std::collections::BTreeSet::from([
+                AudienceId::parse("finance").expect("a test audience id is one")
+            ]))
+            .expect("one id grants"),
+        ),
+    )
+    .expect("no dimensions to duplicate");
+    let definitions = Definitions::assemble(
+        vec![model, restricted_model],
+        vec![],
+        vec![revenue, finance_only, forecast_total],
+    )
+    .expect("the test bundle is consistent");
     let knowledge = notes_about_the_restricted_metric(&definitions);
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
@@ -583,6 +626,17 @@ fn app_serving_two_metrics_with(issuer: &MockIssuer, published: &PublishedKeySet
 /// `GET /v1/catalog`, carrying `token`. Returns the status and the whole body.
 async fn catalog(app: &axum::Router, token: &str) -> (StatusCode, String) {
     call(app, request("GET", "/v1/catalog", Some(token), axum::body::Body::empty())).await
+}
+
+/// `GET /v1/catalog?<query>`, carrying `token`. Returns the status, every header and the whole
+/// body - [`catalog`]'s status-and-body pair cannot prove two responses are identical down to a
+/// header a caller's own client would also see.
+async fn catalog_full(app: &axum::Router, token: &str, query: &str) -> crate::testing::Answered {
+    crate::testing::answer(
+        app,
+        request("GET", &format!("/v1/catalog?{query}"), Some(token), axum::body::Body::empty()),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -708,6 +762,121 @@ async fn an_invisible_metric_is_refused_byte_identically_to_an_unknown_one() {
         unknown_json["reason"]["detail"].as_str().expect("a refusal carries a detail"),
         "an invisible metric and an unknown one must read as the same refusal"
     );
+}
+
+/// A name no catalog declares, the same length as `real` - so a byte-for-byte comparison against
+/// a real, hidden name is not upset by `Content-Length` alone: `UnknownCatalogNameBody`'s `detail`
+/// echoes the queried name verbatim, and two different lengths would make every header comparison
+/// fail for a reason that has nothing to do with whether the two refusals read the same.
+fn same_length_absent_name(real: &str) -> String {
+    "z".repeat(real.len())
+}
+
+#[tokio::test]
+async fn a_restricted_only_model_is_refused_byte_identically_to_an_unknown_one() {
+    // `forecasts` owns one metric and it is restricted - unlike `orders`, which an outsider can
+    // still name because `revenue` stays open. An outsider's `?model=forecasts` has to read as
+    // `model_unknown`, with the same status, body and EVERY header a model this catalog never
+    // declared at all would produce - `UnknownCatalogNameBody::of`'s own door.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "restricted-model-byte-identical").expect("the key set publishes");
+    let app = app_serving_two_metrics(&issuer, &published);
+    let outsider = issuer
+        .mint(&accepted_by("outsider@example.com"))
+        .expect("the issuer signs a token");
+    let absent = same_length_absent_name(restricted_only_model_name().as_str());
+
+    let restricted = catalog_full(&app, &outsider, &format!("model={}", restricted_only_model_name())).await;
+    let unknown = catalog_full(&app, &outsider, &format!("model={absent}")).await;
+
+    assert_eq!(restricted.status, StatusCode::NOT_FOUND, "{}", restricted.body);
+    assert_eq!(restricted.status, unknown.status);
+    assert_eq!(
+        restricted.headers, unknown.headers,
+        "a restricted-only model must read as unknown, header for header"
+    );
+
+    let restricted_json: serde_json::Value = serde_json::from_str(&restricted.body).expect("a refusal is JSON");
+    let unknown_json: serde_json::Value = serde_json::from_str(&unknown.body).expect("a refusal is JSON");
+    assert_eq!(restricted_json["code"], "model_unknown", "{}", restricted.body);
+    // Only the echoed model name may differ between the two bodies.
+    let restricted_detail = restricted_json["detail"]
+        .as_str()
+        .expect("a refusal carries a detail")
+        .replace(restricted_only_model_name().as_str(), &absent);
+    assert_eq!(
+        restricted_detail,
+        unknown_json["detail"].as_str().expect("a refusal carries a detail"),
+        "a restricted-only model and an unknown one must read as the same refusal"
+    );
+}
+
+#[tokio::test]
+async fn a_restricted_metric_is_refused_byte_identically_to_an_unknown_one_over_catalog() {
+    // The `/v1/catalog` mirror of `an_invisible_metric_is_refused_byte_identically_to_an_unknown_one`
+    // above, which is `/v1/query`'s own refusal - same property, `UnknownCatalogNameBody`'s shape
+    // instead of `/v1/query`'s, and every header compared too.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "restricted-metric-byte-identical-catalog").expect("the key set publishes");
+    let app = app_serving_two_metrics(&issuer, &published);
+    let outsider = issuer
+        .mint(&accepted_by("outsider@example.com"))
+        .expect("the issuer signs a token");
+    let absent = same_length_absent_name(finance_metric_name().as_str());
+
+    let restricted = catalog_full(&app, &outsider, &format!("metric={}", finance_metric_name())).await;
+    let unknown = catalog_full(&app, &outsider, &format!("metric={absent}")).await;
+
+    assert_eq!(restricted.status, StatusCode::NOT_FOUND, "{}", restricted.body);
+    assert_eq!(restricted.status, unknown.status);
+    assert_eq!(
+        restricted.headers, unknown.headers,
+        "a restricted metric must read as unknown, header for header"
+    );
+
+    let restricted_json: serde_json::Value = serde_json::from_str(&restricted.body).expect("a refusal is JSON");
+    let unknown_json: serde_json::Value = serde_json::from_str(&unknown.body).expect("a refusal is JSON");
+    assert_eq!(restricted_json["code"], "catalog_metric_unknown", "{}", restricted.body);
+    let restricted_detail = restricted_json["detail"]
+        .as_str()
+        .expect("a refusal carries a detail")
+        .replace(finance_metric_name().as_str(), &absent);
+    assert_eq!(
+        restricted_detail,
+        unknown_json["detail"].as_str().expect("a refusal carries a detail"),
+        "a restricted metric and an unknown one must read as the same refusal"
+    );
+}
+
+#[tokio::test]
+async fn a_granted_callers_model_filter_narrows_to_that_models_own_metrics() {
+    // `crate::harness::catalog_model`'s narrowing test only ever runs unauthenticated, i.e.
+    // `Scope::Everything` - this is the same property under a real `Scope::Granted` view: a
+    // finance-mapped caller sees both `orders` and `forecasts`, and `?model=forecasts` must not
+    // leak `orders`' own `revenue` in with it.
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "granted-model-scoping").expect("the key set publishes");
+    let app = app_serving_two_metrics(&issuer, &published);
+    let finance = a_finance_caller(&issuer);
+
+    let (status, body) = call(
+        &app,
+        request(
+            "GET",
+            &format!("/v1/catalog?model={}", restricted_only_model_name()),
+            Some(&finance),
+            axum::body::Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let parsed: serde_json::Value = serde_json::from_str(&body).expect("a catalog body is JSON");
+    let metrics = parsed["metrics"].as_array().expect("metrics is an array");
+    // The metrics LIST, not the whole body: the `knowledge` section's caveat names `revenue` too
+    // (it is about both metrics), so a bare `body.contains("revenue")` would fail for a reason that
+    // has nothing to do with the `model` filter this test is about.
+    assert_eq!(metrics.len(), 1, "{body}");
+    assert_eq!(metrics[0]["name"], restricted_only_metric_name().as_str(), "{body}");
 }
 
 /// One question about `metric`, through the real router.

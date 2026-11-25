@@ -950,12 +950,11 @@ pub(crate) async fn call(app: &axum::Router, request: axum::extract::Request) ->
     (answered.status, answered.body)
 }
 
-/// Everything a test asks of one response: the status, the challenge and the body.
-///
-/// A named struct rather than a three-tuple, because the three modules that need it each wanted a
-/// different two of the three and a tuple made every call site restate which.
+/// Everything a test asks of one response, a named struct rather than a tuple because each
+/// caller wants a different subset; `headers` is the whole map so a comparison reads it directly.
 pub(crate) struct Answered {
     pub(crate) status: axum::http::StatusCode,
+    pub(crate) headers: axum::http::HeaderMap,
     /// The RFC 6750 challenge, where the response carried one.
     pub(crate) challenge: Option<String>,
     pub(crate) body: String,
@@ -966,8 +965,8 @@ pub(crate) async fn asked(app: &axum::Router, method: &str, path: &str, token: O
     answer(app, request(method, path, token, axum::body::Body::from(A_QUESTION))).await
 }
 
-/// One call through the real router.
-async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered {
+/// One call through the real router, reading everything the response carries.
+pub(crate) async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered {
     use tower::ServiceExt as _;
 
     let response = app
@@ -976,8 +975,8 @@ async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered
         .await
         .expect("the router is infallible as a service");
     let status = response.status();
-    let challenge = response
-        .headers()
+    let headers = response.headers().clone();
+    let challenge = headers
         .get(axum::http::header::WWW_AUTHENTICATE)
         .and_then(|value| value.to_str().ok())
         .map(String::from);
@@ -986,6 +985,7 @@ async fn answer(app: &axum::Router, request: axum::extract::Request) -> Answered
         .expect("the test response body is readable");
     Answered {
         status,
+        headers,
         challenge,
         body: String::from_utf8_lossy(&bytes).into_owned(),
     }
