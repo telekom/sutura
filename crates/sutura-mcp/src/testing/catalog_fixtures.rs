@@ -60,10 +60,10 @@ pub(crate) fn bundle_with_two_models() -> PinnedDefinitions {
     .expect("the test definitions hash")
 }
 
-/// Enough physical models, each sized under [`crate::wire::catalog::MAX_UNFILTERED_MODELS_BYTES`]'s
-/// own cap on one [`sutura_domain::catalog::Description`] (4 KiB), that an unfiltered, physical-schema
-/// `describe_catalog` crosses the 64 KiB bound on the whole listing - built for that bound's own
-/// tests, never for anything answered.
+/// Enough physical models, each sized under [`sutura_domain::catalog::MAX_DESCRIPTION_BYTES`]'s own
+/// cap on one [`sutura_domain::catalog::Description`] (4 KiB), that an unfiltered, physical-schema
+/// `describe_catalog` crosses [`sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`]'s 64 KiB
+/// bound on the whole listing - built for that bound's own tests, never for anything answered.
 ///
 /// No metric at all: the bound this fixture exercises is on [`crate::wire::catalog::ModelContent`]
 /// alone, and a metric would only add bytes nothing here reads.

@@ -313,7 +313,7 @@ Planning and that local part stop at the request's deadline. What this does not 
 | ------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `GET /health`                                                 | none                                                      | Liveness. The body is `{"status":"ok"}`                                                      |
 | `GET /.well-known/oauth-protected-resource[/<resource path>]` | none, `direct` mode only                                  | RFC 9728 metadata of the resource                                                            |
-| `GET /v1/catalog`                                             | `security.access_token` if set, and `sutura:catalog.read` | The metrics, grains, dimensions, allowed filter values and knowledge                         |
+| `GET /v1/catalog[?model=<name>]`                              | `security.access_token` if set, and `sutura:catalog.read` | The metrics, grains, dimensions, allowed filter values and knowledge                         |
 | `POST /v1/query`                                              | `security.access_token` if set, and `sutura:metrics.ask`  | One certified question                                                                       |
 | `POST /v1/sql/run`                                            | `security.access_token` if set, and `sutura:sql.run`      | The raw SQL tool, when it is on                                                              |
 | `POST /mcp`                                                   | as `/v1`, when `server.agent_surface.enabled`             | The agent surface                                                                            |
@@ -330,6 +330,12 @@ caller or a source.
 
 There is no readiness route. The listener opens only after every anchor reproduces its certified number, so an open
 port already means a verified catalog, and `/health` is the one probe.
+
+`GET /v1/catalog`'s own listing is capped at a byte bound; a catalog that crosses it comes back with whole models up
+to the bound plus the omitted models' names, never a model cut off mid-way. `?model=<name>` narrows the answer to one
+named model's own metrics - a name that does not parse as a model name is `400 not_a_question`, and a name that parses
+but names no model this caller may see (unknown, or real but invisible) is `404 model_unknown`. Any other query key is
+`400 not_a_question` too: the route takes no second parameter yet.
 
 ### A refusal carries a status
 
