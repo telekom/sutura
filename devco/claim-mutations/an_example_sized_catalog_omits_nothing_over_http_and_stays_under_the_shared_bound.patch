@@ -13,7 +13,7 @@
 -    let mut costs: Vec<usize> = candidates.iter().map(&mut entry_cost).collect();
 -    costs.sort_unstable_by(|left, right| right.cmp(left));
 -    OMISSION_HEADER_RESERVE + costs.into_iter().take(max_omittable).sum::<usize>()
-+    OMISSION_HEADER_RESERVE + MAX_OMITTED_NAMES * (2 * sutura_domain::model::MAX_IDENTIFIER_LEN + 32)
++    MAX_CATALOG_LISTING_BYTES + OMISSION_HEADER_RESERVE - OMISSION_HEADER_RESERVE
  }
  
  #[cfg(test)]

@@ -347,13 +347,21 @@ fn a_caller_reads_the_same_knowledge_over_http_as_over_mcp() {
 /// `telekom/sutura#2081`'s second ask - naming it here would fail the base build of every other
 /// test in this file, not just this one. `BOUND` also makes this a `Claim-Cell`: main's own
 /// omission reserve already leaves this catalog untouched, so this test is green against base too,
-/// and is declared as such (see `devco/claim-mutations/`).
+/// and is declared as such (see `devco/claim-mutations/`). The killing mutation inflates
+/// `omission_reserve` to `MAX_CATALOG_LISTING_BYTES` itself, which zeroes the metrics pool's
+/// `remaining` budget (`MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost).saturating_sub(reserve)`
+/// saturates to 0 regardless of `fixed_cost`) - `CatalogBody` has only this one pool, no models pool
+/// to also drain the way `sutura-mcp`'s twin test does, so a mutation sized to starve ONE pool
+/// still had room to spare here under the old (half-sized) reserve; this one leaves none, so 10 of
+/// the example's 11 metrics are omitted and `omitted_metrics` is non-empty.
 #[cfg(feature = "agent")]
 #[test]
 fn an_example_sized_catalog_omits_nothing_over_http_and_stays_under_the_shared_bound() {
     /// Mirrors `sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`, which this file cannot name
     /// without breaking the base build (see the doc comment above).
     const BOUND: usize = 128 * 1024;
+    /// `examples/single-player/catalog/metrics/` holds exactly this many metric definitions.
+    const EXAMPLE_METRIC_COUNT: usize = 11;
 
     let issuer = an_issuer();
     let published = PublishedKeySet::of(&issuer, "serve-agent-catalog-budget").expect("the key set publishes");
@@ -369,7 +377,8 @@ fn an_example_sized_catalog_omits_nothing_over_http_and_stays_under_the_shared_b
     assert_eq!(over_http.status, 200, "{}", over_http.body);
     let body = over_http.json();
     assert!(body["omitted_metrics"].as_array().is_none_or(Vec::is_empty), "{body}");
-    assert!(!body["metrics"].as_array().expect("metrics is a list").is_empty(), "{body}");
+    let metrics = body["metrics"].as_array().expect("metrics is a list");
+    assert_eq!(metrics.len(), EXAMPLE_METRIC_COUNT, "{body}");
     assert!(
         over_http.body.len() <= BOUND,
         "the example catalog body overshot the shared bound ({} bytes)",
