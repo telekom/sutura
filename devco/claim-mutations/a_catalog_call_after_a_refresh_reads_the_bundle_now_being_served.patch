@@ -54,7 +54,7 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
                      self.operator_instructions.as_deref(),
 --- a/crates/sutura-mcp/src/server/describe.rs
 +++ b/crates/sutura-mcp/src/server/describe.rs
-@@ -7,8 +7,6 @@
+@@ -8,8 +8,6 @@
  use rmcp::ErrorData;
  use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, ErrorCode};
  
@@ -63,7 +63,7 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
  use super::{MalformedQuestion, RenderedCause, invalid};
  use crate::wire::{CatalogContent, DescribeCatalogArgs};
  
-@@ -52,17 +50,14 @@
+@@ -53,18 +51,15 @@
  /// way - a JSON-RPC error with no record - as [`super::no_established_caller`] and
  /// [`super::not_granted`] already are: every refusal this handler can make before a `Surface` call is
  /// reached shares that absence.
@@ -76,15 +76,16 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
      operator_instructions: Option<&str>,
      list_physical_schema: bool,
      model: Option<String>,
+     metric: Option<String>,
 -) -> Result<CallToolResult, ErrorData>
 -where
 -    S: Surface,
 -{
 +) -> Result<CallToolResult, ErrorData> {
-     // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
-     // `#266`: the text block honoured it while `structured_content` beside it carried every
-     // description, so a deployment that had withheld its catalog prose shipped it anyway to any
-@@ -71,7 +66,6 @@
+     // Mutually exclusive by the tool's own doc comment on `DescribeCatalogArgs` - checked before
+     // either name is parsed, so a caller that sent both gets one refusal rather than whichever
+     // parse error happened to run first.
+@@ -79,7 +74,6 @@
      //
      // And the view is built here, from the caller this request's own verification resolved - see the
      // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.

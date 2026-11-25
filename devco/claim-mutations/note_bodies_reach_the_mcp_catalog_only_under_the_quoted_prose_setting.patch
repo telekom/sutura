@@ -1,11 +1,11 @@
 --- a/crates/sutura-mcp/src/wire/catalog.rs
 +++ b/crates/sutura-mcp/src/wire/catalog.rs
-@@ -278,7 +278,7 @@
-         //
-         // NOT narrowed by `model`: the glossary, caveats and worked examples are catalog-wide prose,
-         // not one model's own description, so a per-model request still needs the terms it uses.
+@@ -307,7 +307,7 @@
+         // NOT narrowed by `model`/`metric`: the glossary, caveats and worked examples are
+         // catalog-wide prose, not one model's or metric's own description, so a narrowed request
+         // still needs the terms it uses.
 -        let knowledge = sutura_app::prompt::catalog_knowledge(view, prose);
 +        let knowledge = sutura_app::prompt::catalog_knowledge(view, CatalogProse::Quoted);
-         let (models, omitted_models) = if list_physical_schema {
-             fn content_of(
-                 model: &sutura_domain::catalog::Model,
+         // The operator's own text is DEPLOYMENT-WIDE - the same for every caller - so it gets its
+         // own section and heading, outside the untrusted-catalog notice, and a preamble written for
+         // a tool that returns no refusal rules. Rendered here rather than by `catalog_knowledge`

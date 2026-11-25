@@ -13,10 +13,13 @@ use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_t
 
 /// The metric vocabulary, read off the caller's view of the pinned bundle.
 ///
-/// Held to [`MAX_CATALOG_LISTING_BYTES`] the same way [`super::physical::physical_schema`] is: a metric's
+/// `budget` is this pool's SHARE of the whole prompt's [`MAX_CATALOG_LISTING_BYTES`] - `render`
+/// spends the document's other, fixed-size sections first and hands what remains here, then hands
+/// whatever this function did not spend to [`super::physical::physical_schema`] in turn. A metric's
 /// whole section (grains, dimensions, caveats) is included or not at all, and one left out is still
-/// named, so an agent always knows `describe_catalog(model: <its model>)` can still read it.
-pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogProse) -> String {
+/// named - with its model - so an agent always knows `describe_catalog(metric: <its name>)` (or
+/// `model: <its model>`) can still read it.
+pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogProse, budget: usize) -> String {
     let pinned = view.pinned();
     // The version and the digest read straight off the bundle rather than through a `Provenance`.
     // Provenance is what travels with an ANSWER and now carries the posture each leg executed as;
@@ -54,12 +57,12 @@ pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogPr
             let mut section = format!("### {}\n", metric.name());
             section.push('\n');
             section.push_str(&one_metric(metric, notes, prose));
-            (String::from(metric.name().as_str()), section)
+            (format!("{} (model {})", metric.name(), metric.model()), section)
         })
         .collect();
     let (included, omitted_names, omitted_count) = fill_to_budget(
         fragments,
-        MAX_CATALOG_LISTING_BYTES,
+        budget,
         MAX_OMITTED_NAMES,
         |(_, section)| section.len(),
         |(name, _)| name.clone(),
@@ -83,8 +86,9 @@ fn metrics_omission_note(names: &[String], total: usize) -> String {
         String::new()
     };
     format!(
-        "Left out of this listing over its {MAX_CATALOG_LISTING_BYTES}-byte bound ({total} metric(s)): \
-         {}{suffix}. Call `describe_catalog` with that metric's own model to read its detail.",
+        "Left out of this listing over its shared {MAX_CATALOG_LISTING_BYTES}-byte bound ({total} \
+         metric(s), each named with its own model): {}{suffix}. Call `describe_catalog` with that \
+         metric's own `metric` name, or its `model`, to read its detail.",
         names.join(", ")
     )
 }

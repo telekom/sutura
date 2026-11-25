@@ -483,7 +483,7 @@ where
                 // Parsed rather than discarded, so the parse reads as the check it is: the only
                 // field is `model`, and what it proves beyond that is that the caller sent nothing
                 // else this tool does not declare.
-                let model = describe::catalog(request)?.into_model();
+                let (model, metric) = describe::catalog(request)?.into_model_and_metric();
                 // `asked.context()` is the caller this request's own verification established - the
                 // same value the port's `answer` and `run_sql` doors carry. Scoping the catalog by it
                 // makes THIS door per-caller: one verified caller's view of the bundle is not
@@ -503,6 +503,7 @@ where
                     self.operator_instructions.as_deref(),
                     self.list_physical_schema,
                     model,
+                    metric,
                 )?
             }
             Capability::AskMetric => {

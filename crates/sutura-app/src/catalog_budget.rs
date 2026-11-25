@@ -53,12 +53,21 @@ pub fn fill_to_budget<T>(
 /// without being so tight that an ordinarily authored catalog ever brushes it - a listing that size
 /// is itself the signal to read it one item at a time rather than in full.
 ///
-/// **The limit:** each of the call sites above spends this budget on its OWN pool of items
-/// (metrics, or physical models), not on one shared total across every section of one result -
-/// combining them into a single running budget would need the metrics and the models to be walked
-/// in one interleaved order, which none of these renderers do. A result whose metrics alone and
-/// whose models alone each stay under 64 KiB can therefore still exceed 128 KiB combined; narrowing
-/// to one model keeps both pools small in the ordinary case.
+/// **One shared budget per whole agent-facing result, spent in sequence - never one per pool.**
+/// Each call site first measures its FIXED parts (the notice, the knowledge section, the operator's
+/// instructions, the provenance trailer - on `sutura-mcp` counted once per half the result carries,
+/// since the structured and the text half both pay for them independently), subtracts that from
+/// `MAX_CATALOG_LISTING_BYTES`, then hands what remains to the metrics pool's own `fill_to_budget`
+/// call, then hands what metrics did not spend to the physical-models pool's call. No interleaving
+/// is needed for this: the pools are still walked one after another, only the budget each is handed
+/// is `remaining_after_the_previous_pool` rather than a fresh 64 KiB every time, so the whole result
+/// - fixed parts plus every pool - never exceeds this one bound.
+///
+/// **The limit:** the spend order is fixed (metrics always get first claim on what is left after
+/// the fixed parts, models get what metrics did not spend), so a result with an enormous metric
+/// vocabulary and a small physical schema can still omit models it would have carried whole had the
+/// pools been budgeted the other way around. `model`/`metric` narrows the metrics pool to what one
+/// name needs and sidesteps this ordering entirely.
 pub const MAX_CATALOG_LISTING_BYTES: usize = 64 * 1024;
 
 /// How many omitted names a listing keeps before it stops naming them and states the count instead.

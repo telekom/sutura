@@ -95,6 +95,8 @@ use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::Ceilings;
 
+use crate::catalog_budget::MAX_CATALOG_LISTING_BYTES;
+
 // The bounds section, its own module for the reason `knowledge` has one: this file is at the limit
 // `cargo xtask max-lines` enforces and cannot be exempted.
 mod bounds;
@@ -343,35 +345,72 @@ pub fn render(view: &ScopedView<'_>, inputs: &PromptInputs<'_>) -> String {
     let (notes, scoped) = scoped_knowledge(view);
     let notes = notes.as_ref();
     let audience = knowledge::Audience::Prompt { scoped };
-    let mut sections: Vec<String> = vec![
-        what_this_is(inputs),
-        workflow(inputs),
-        refusals(),
-        // Immediately after the refusals, because that is where `MetricUnknown`'s remedy is: an agent
-        // that has just been told to use a name from the list is the one that needs to know which
-        // names were considered and rejected. Empty - and therefore dropped - unless the provider
-        // declares that it records such a thing.
-        knowledge::not_defined(notes, inputs.prose, audience),
-        bounds::bounds(inputs.ceilings),
-        no_such_field(inputs),
-        operations(inputs.tools),
-        knowledge::declaration(notes, audience),
-        knowledge::glossary(notes, inputs.prose, audience),
-        physical_schema_guidance(pinned),
-        if inputs.list_physical_schema {
-            physical_schema(view, inputs.prose)
-        } else {
-            String::new()
-        },
-        metrics(view, notes, inputs.prose),
-        knowledge::examples(notes, inputs.prose, audience),
-        provenance(inputs),
-    ];
-    if let Some(text) = inputs.instructions {
+    // Every section below but the catalog's own two is rendered in full regardless of size - its
+    // bytes are fixed by this deployment's own prose and knowledge, not by how much the catalog
+    // happens to define. Those fixed bytes are spent first against ONE shared
+    // `MAX_CATALOG_LISTING_BYTES` budget, and what remains is handed to the metrics section, then
+    // whatever metrics did not spend is handed to the physical-schema section - never one fresh
+    // budget per section, which is how a prompt could carry up to 128 KiB of catalog content for a
+    // 64 KiB bound before this ordering existed.
+    let what_this_is = what_this_is(inputs);
+    let workflow = workflow(inputs);
+    let refusals = refusals();
+    // Immediately after the refusals, because that is where `MetricUnknown`'s remedy is: an agent
+    // that has just been told to use a name from the list is the one that needs to know which
+    // names were considered and rejected. Empty - and therefore dropped - unless the provider
+    // declares that it records such a thing.
+    let not_defined = knowledge::not_defined(notes, inputs.prose, audience);
+    let bounds = bounds::bounds(inputs.ceilings);
+    let no_such_field = no_such_field(inputs);
+    let operations = operations(inputs.tools);
+    let declaration = knowledge::declaration(notes, audience);
+    let glossary = knowledge::glossary(notes, inputs.prose, audience);
+    let guidance = physical_schema_guidance(pinned);
+    let examples = knowledge::examples(notes, inputs.prose, audience);
+    let provenance = provenance(inputs);
+    let instructions = inputs.instructions.and_then(|text| {
         let text = text.trim();
-        if !text.is_empty() {
-            sections.push(operator_instructions(text));
-        }
+        (!text.is_empty()).then(|| operator_instructions(text))
+    });
+    let fixed_cost = what_this_is.len()
+        + workflow.len()
+        + refusals.len()
+        + not_defined.len()
+        + bounds.len()
+        + no_such_field.len()
+        + operations.len()
+        + declaration.len()
+        + glossary.len()
+        + guidance.len()
+        + examples.len()
+        + provenance.len()
+        + instructions.as_deref().map_or(0, str::len);
+    let remaining = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost);
+    let metrics_section = metrics(view, notes, inputs.prose, remaining);
+    let remaining_for_models = remaining.saturating_sub(metrics_section.len());
+    let physical_schema_section = if inputs.list_physical_schema {
+        physical_schema(view, inputs.prose, remaining_for_models)
+    } else {
+        String::new()
+    };
+    let mut sections: Vec<String> = vec![
+        what_this_is,
+        workflow,
+        refusals,
+        not_defined,
+        bounds,
+        no_such_field,
+        operations,
+        declaration,
+        glossary,
+        guidance,
+        physical_schema_section,
+        metrics_section,
+        examples,
+        provenance,
+    ];
+    if let Some(text) = instructions {
+        sections.push(text);
     }
     // Empty sections are dropped rather than joined, so a deployment whose provider records none of
     // the four gets the document it had before this existed - not a run of headings over nothing.

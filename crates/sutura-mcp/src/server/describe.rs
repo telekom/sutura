@@ -60,10 +60,17 @@ pub(super) fn describe<S>(
     operator_instructions: Option<&str>,
     list_physical_schema: bool,
     model: Option<String>,
+    metric: Option<String>,
 ) -> Result<CallToolResult, ErrorData>
 where
     S: Surface,
 {
+    // Mutually exclusive by the tool's own doc comment on `DescribeCatalogArgs` - checked before
+    // either name is parsed, so a caller that sent both gets one refusal rather than whichever
+    // parse error happened to run first.
+    if model.is_some() && metric.is_some() {
+        return Err(model_and_metric_together());
+    }
     // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
     // `#266`: the text block honoured it while `structured_content` beside it carried every
     // description, so a deployment that had withheld its catalog prose shipped it anyway to any
@@ -94,11 +101,30 @@ where
     {
         return Err(unknown_model(name));
     }
+    // `metric` mirrors `model`: parsed into the same newtype every other identifier goes through,
+    // then checked against THIS caller's view - `ScopedView::metric` already applies the same
+    // visibility rule `view.model`/`view.metrics()` do, so an existing but invisible metric is
+    // refused exactly as an absent one is, per `docs/adr/0028`.
+    let metric = metric
+        .map(|raw| sutura_domain::model::MetricName::parse(&raw))
+        .transpose()
+        .map_err(|error| RenderedCause::of(&error).into_error_data())?;
+    if let Some(name) = &metric
+        && view.metric(name).is_none()
+    {
+        return Err(unknown_metric(name));
+    }
     // The operator's own text - the raw value, before it was folded into the rendered prompt - rides
     // the catalog tool so a gateway that surfaces only tools (and never delivers
     // `initialize.instructions`) still reaches the operator's rules.
-    let listing =
-        CatalogContent::of_with_physical_schema(&view, prose, operator_instructions, list_physical_schema, model.as_ref());
+    let listing = CatalogContent::of_with_physical_schema(
+        &view,
+        prose,
+        operator_instructions,
+        list_physical_schema,
+        model.as_ref(),
+        metric.as_ref(),
+    );
     let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
     // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
@@ -116,6 +142,29 @@ fn unknown_model(name: &sutura_domain::model::ModelName) -> ErrorData {
     ErrorData::new(
         ErrorCode::INVALID_PARAMS,
         format!("this catalog defines no model called `{name}`"),
+        None,
+    )
+}
+
+/// A `metric` argument that parses but names no metric this caller may see - the same
+/// non-disclosing fold [`unknown_model`] does, for the same reason: a message that told "does not
+/// exist" apart from "exists outside your grant" would disclose a restricted metric's existence to
+/// a caller who was never granted it.
+fn unknown_metric(name: &sutura_domain::model::MetricName) -> ErrorData {
+    ErrorData::new(
+        ErrorCode::INVALID_PARAMS,
+        format!("this catalog defines no metric called `{name}`"),
+        None,
+    )
+}
+
+/// `model` and `metric` given together - refused rather than one silently winning, since a caller
+/// that sent both likely expected the narrower of the two and silently picking one would answer a
+/// question nobody asked.
+fn model_and_metric_together() -> ErrorData {
+    ErrorData::new(
+        ErrorCode::INVALID_PARAMS,
+        "give at most one of `model` and `metric`, not both",
         None,
     )
 }

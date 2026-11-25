@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget};
 use sutura_app::prompt::CatalogProse;
-use sutura_domain::model::{Grain, ModelName};
+use sutura_domain::model::{Grain, MetricName, ModelName};
 use sutura_domain::pinned::view::ScopedView;
 
 use super::{ProvenanceBody, bundle_body};
@@ -44,11 +44,17 @@ pub struct CatalogBody {
     /// mid-metric.
     metrics: Vec<MetricBody>,
     /// Metrics that exist and are visible, but were left out of [`Self::metrics`] to hold this
-    /// listing under [`MAX_CATALOG_LISTING_BYTES`]. Capped at [`MAX_OMITTED_NAMES`] names; a true
-    /// count past that cap is appended as a trailing `"...and N more"` entry rather than a second
-    /// field. Read an omitted metric back with `?model=` set to its own model.
+    /// listing under [`MAX_CATALOG_LISTING_BYTES`]. Each entry names the metric AND its model
+    /// (`"<metric> (model <model>)"`), reachable with `?metric=` directly, with no need to discover
+    /// which model it belongs to first. Capped at [`MAX_OMITTED_NAMES`] names;
+    /// [`Self::omitted_metrics_more`] carries the true count past that cap.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     omitted_metrics: Vec<String>,
+    /// How many more metrics were left out of [`Self::omitted_metrics`] than that list names. A
+    /// separate field rather than a trailing `"...and N more"` string in the name list, so a client
+    /// reading names does not have to recognize a sentinel entry as something other than a name.
+    #[serde(skip_serializing_if = "is_zero")]
+    omitted_metrics_more: usize,
     /// The catalog's own knowledge - glossary, caveats, terms recorded as undefined and worked
     /// examples - as text, the same text the agent surface's `describe_catalog` returns for this
     /// caller.
@@ -124,8 +130,23 @@ impl CatalogBody {
     /// deployment with an unusually large metric vocabulary can still make that list itself large.
     /// `model` naming nothing this caller may see is this function's caller's own job to refuse
     /// before reaching it - see `crate::routes::v1::catalog::catalog`.
+    ///
+    /// **`metric` narrows to that one metric's own entry, emitted whole regardless of
+    /// [`MAX_CATALOG_LISTING_BYTES`]** - it names exactly one thing to read back, not a listing, the
+    /// same choice `sutura-mcp`'s `CatalogContent::of_with_physical_schema` makes for its own
+    /// `metric` argument. `model` and `metric` together is this function's caller's own job to
+    /// refuse, same as an unknown name.
+    ///
+    /// **One shared [`MAX_CATALOG_LISTING_BYTES`] budget for the whole body**: the fixed parts
+    /// (`provenance`, `catalog_prose`, `knowledge`) are measured first and subtracted, and only what
+    /// remains goes to the metrics pool - see that constant's own doc.
     #[must_use]
-    pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse, model: Option<&ModelName>) -> Self {
+    pub fn of(
+        view: &ScopedView<'_>,
+        prose: sutura_config::CatalogProse,
+        model: Option<&ModelName>,
+        metric: Option<&MetricName>,
+    ) -> Self {
         // Exhaustive rather than `is_quoted()` in an `if`: a question asked of one variant reads every
         // future spelling as the `else`, and on this setting the `else` withholds prose nobody asked
         // to withhold. The app crate's own type is what `catalog_knowledge` takes, so one mapping
@@ -135,19 +156,26 @@ impl CatalogBody {
             sutura_config::CatalogProse::Omitted => CatalogProse::Omitted,
         };
         let quoted = shared.is_quoted();
+        let provenance = bundle_body(view.pinned());
+        let knowledge = sutura_app::prompt::catalog_knowledge(view, shared);
+        let fixed_cost = serde_json::to_vec(&provenance).map_or(0, |bytes| bytes.len())
+            + prose.as_str().len()
+            + serde_json::to_string(&knowledge).map_or(0, |text| text.len());
+        let remaining = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost);
         let all_metrics: Vec<MetricBody> = view
             .metrics()
-            .filter(|metric| model.is_none_or(|name| metric.model() == name))
-            .map(|metric| MetricBody {
-                name: String::from(metric.name().as_str()),
-                model: String::from(metric.model().as_str()),
-                description: quoted.then(|| String::from(metric.description())),
+            .filter(|m| model.is_none_or(|name| m.model() == name))
+            .filter(|m| metric.is_none_or(|name| m.name() == name))
+            .map(|m| MetricBody {
+                name: String::from(m.name().as_str()),
+                model: String::from(m.model().as_str()),
+                description: quoted.then(|| String::from(m.description())),
                 grains: {
-                    let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
+                    let mut grains: Vec<Grain> = m.grains().iter().copied().collect();
                     grains.sort_unstable_by(|a, b| b.cmp(a));
                     grains.into_iter().map(|grain| String::from(grain.as_str())).collect()
                 },
-                dimensions: metric
+                dimensions: m
                     .dimensions()
                     .values()
                     .map(|dimension| DimensionBody {
@@ -161,25 +189,42 @@ impl CatalogBody {
                     .collect(),
             })
             .collect();
-        let (metrics, omitted_names, omitted_count) = fill_to_budget(
-            all_metrics,
-            MAX_CATALOG_LISTING_BYTES,
-            MAX_OMITTED_NAMES,
-            |metric| serde_json::to_vec(metric).map_or(0, |bytes| bytes.len()),
-            |metric| metric.name.clone(),
-        );
-        let mut omitted_metrics = omitted_names;
-        if omitted_count > omitted_metrics.len() {
-            omitted_metrics.push(format!("...and {} more", omitted_count - omitted_metrics.len()));
-        }
+        let (metrics, omitted_metrics, omitted_metrics_more) = if metric.is_some() {
+            (all_metrics, Vec::new(), 0)
+        } else {
+            let (included, omitted_names, omitted_count) = fill_to_budget(
+                all_metrics,
+                remaining,
+                MAX_OMITTED_NAMES,
+                |m| serde_json::to_vec(m).map_or(0, |bytes| bytes.len()),
+                |m| format!("{} (model {})", m.name, m.model),
+            );
+            let more = omitted_count.saturating_sub(omitted_names.len());
+            (included, omitted_names, more)
+        };
         Self {
-            provenance: bundle_body(view.pinned()),
+            provenance,
             catalog_prose: prose.as_str(),
             metrics,
             omitted_metrics,
-            knowledge: sutura_app::prompt::catalog_knowledge(view, shared),
+            omitted_metrics_more,
+            knowledge,
         }
     }
+}
+
+/// `serde(skip_serializing_if)` for `omitted_metrics_more` - zero means every omitted metric (if
+/// any) is already named, so the field is dropped rather than serialized as a bare `0`.
+///
+/// `serde`'s `skip_serializing_if` calls this with `&usize`, so neither the signature nor its
+/// by-reference argument is this function's choice to make.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    clippy::missing_const_for_fn,
+    reason = "signature is fixed by serde's skip_serializing_if contract"
+)]
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// A `model` query parameter that parses but names no model this caller may see - whether it does
@@ -210,10 +255,29 @@ impl UnknownModelBody {
             detail: format!("this catalog defines no model called `{name}`"),
         }
     }
+
+    /// The identical non-disclosing fold as [`Self::of`], for a `metric` query parameter instead of
+    /// `model` - still this type, rather than a second one, since the two carry the same shape and
+    /// the same status.
+    pub(crate) fn of_metric(name: &MetricName) -> Self {
+        Self {
+            code: "metric_unknown",
+            detail: format!("this catalog defines no metric called `{name}`"),
+        }
+    }
 }
 
 impl IntoResponse for UnknownModelBody {
     fn into_response(self) -> Response {
-        (StatusCode::NOT_FOUND, Json(self)).into_response()
+        // `private, no-store`: this body's wording already differs for a caller who sent a
+        // restricted name versus an absent one would, were it not for the non-disclosing fold above
+        // - a shared cache must never be the thing that lets one caller's probe read back what
+        // another caller's request produced.
+        (
+            StatusCode::NOT_FOUND,
+            [(axum::http::header::CACHE_CONTROL, "private, no-store")],
+            Json(self),
+        )
+            .into_response()
     }
 }

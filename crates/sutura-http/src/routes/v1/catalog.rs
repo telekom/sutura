@@ -16,7 +16,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::header;
 use axum::response::{IntoResponse as _, Response};
-use sutura_domain::model::ModelName;
+use sutura_domain::model::{MetricName, ModelName};
 
 use crate::problem::{Detail, Failure};
 use crate::state::ServiceState;
@@ -25,7 +25,14 @@ use crate::wire::{CatalogBody, UnknownModelBody};
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "catalog";
 
-/// The query string `GET /catalog` takes: at most one field, `model`.
+/// `model` and `metric` given together - refused the same way a malformed `model` is, since the
+/// request itself asked a question with no single answer rather than naming something this caller
+/// may not see.
+#[derive(Debug, thiserror::Error)]
+#[error("give at most one of `model` and `metric`, not both")]
+struct ModelAndMetricTogether;
+
+/// The query string `GET /catalog` takes: `model` and `metric`, at most one of the two.
 ///
 /// `deny_unknown_fields`: an unrecognized key is a caller's own typo (`?modle=`) or a client built
 /// against a key this route never had, and silently ignoring either reads back as "the whole
@@ -35,8 +42,13 @@ const TAG: &str = "catalog";
 #[serde(deny_unknown_fields)]
 pub(crate) struct CatalogQuery {
     /// The model's own name - the same identifier its physical schema prints as `model <name>`, on
-    /// the one transport that prints physical schema. Omit it for the whole catalog.
+    /// the one transport that prints physical schema. Omit it for the whole catalog. Mutually
+    /// exclusive with `metric`.
     model: Option<String>,
+    /// One metric's own name, to read back exactly that metric's entry - the way to read back a
+    /// single metric a previous, byte-bounded listing named but left out in `omitted_metrics`. Omit
+    /// it for the whole catalog. Mutually exclusive with `model`.
+    metric: Option<String>,
 }
 
 /// The metrics this catalog defines, and its knowledge as this caller may see it, with the version
@@ -44,7 +56,9 @@ pub(crate) struct CatalogQuery {
 ///
 /// `model` narrows the answer to one named model's own metrics - mirroring `sutura-mcp`'s
 /// `describe_catalog(model: ...)`, `crate::openapi::tests::both_transports_describe_the_same_tools`'s
-/// reason to exist. Omit it for the whole catalog.
+/// reason to exist. `metric` narrows to one metric's own entry instead - the way to read back a
+/// single metric a previous listing named in `omitted_metrics` but left out. Give at most one of
+/// the two; both together is `400`. Omit both for the whole catalog.
 #[utoipa::path(
     get,
     path = "/catalog",
@@ -59,8 +73,9 @@ pub(crate) struct CatalogQuery {
         (status = 200, description = "The pinned bundle, as a reader's view.", body = CatalogBody),
         (
             status = 400,
-            description = "`model` does not parse as a model name, or the query string carries a \
-                           key this route does not take.",
+            description = "`model` does not parse as a model name, `metric` does not parse as a \
+                           metric name, both are given together, or the query string carries a key \
+                           this route does not take.",
             body = crate::problem::ProblemBody
         ),
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
@@ -79,10 +94,10 @@ pub(crate) struct CatalogQuery {
         ),
         (
             status = 404,
-            description = "`model` parses but names no model this caller may see. Its own shape, \
-                           not `ProblemBody`: reading a catalog produces no outcome a `ProblemBody` \
-                           could carry, and a well-formed name the caller may not see is not a \
-                           system failure - see `UnknownModelBody`'s own documentation.",
+            description = "`model` or `metric` parses but names nothing this caller may see. Its \
+                           own shape, not `ProblemBody`: reading a catalog produces no outcome a \
+                           `ProblemBody` could carry, and a well-formed name the caller may not see \
+                           is not a system failure - see `UnknownModelBody`'s own documentation.",
             body = UnknownModelBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
@@ -124,8 +139,26 @@ pub(crate) async fn catalog(
     // Parsed into the same newtype every other identifier on this surface goes through. A malformed
     // `model` is `Failure::NotAQuestion` - the request itself could not be read - never confused with
     // `UnknownModelBody` below, which is a well-formed name this caller may not see.
+    if query.model.is_some() && query.metric.is_some() {
+        return Failure::NotAQuestion {
+            detail: Detail::of(&ModelAndMetricTogether),
+        }
+        .into_response();
+    }
     let model = match query.model {
         Some(raw) => match ModelName::parse(&raw) {
+            Ok(name) => Some(name),
+            Err(error) => {
+                return Failure::NotAQuestion {
+                    detail: Detail::of(&error),
+                }
+                .into_response();
+            }
+        },
+        None => None,
+    };
+    let metric = match query.metric {
+        Some(raw) => match MetricName::parse(&raw) {
             Ok(name) => Some(name),
             Err(error) => {
                 return Failure::NotAQuestion {
@@ -151,12 +184,20 @@ pub(crate) async fn catalog(
     {
         return UnknownModelBody::of(name).into_response();
     }
+    // `metric` mirrors `model`: `ScopedView::metric` already applies the same visibility rule, so a
+    // metric that exists but is outside this caller's grant is refused exactly as an absent one is.
+    if let Some(name) = &metric
+        && view.metric(name).is_none()
+    {
+        return UnknownModelBody::of_metric(name).into_response();
+    }
     (
         [(header::CACHE_CONTROL, "private, no-store")],
         Json(CatalogBody::of(
             &view,
             state.settings().prompt().catalog_prose(),
             model.as_ref(),
+            metric.as_ref(),
         )),
     )
         .into_response()
