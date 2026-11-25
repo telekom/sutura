@@ -66,7 +66,7 @@ fn bundle() -> PinnedDefinitions {
 fn described_relationships_keep_composite_keys_and_hide_an_invisible_endpoint() {
     let bundle = bundle();
     let view = ScopedView::granted_by(&bundle, GrantedAudiences::none());
-    let content = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true);
+    let content = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true, None, None);
     let json = serde_json::to_value(&content).unwrap();
     assert_eq!(
         json["models"]
@@ -90,7 +90,11 @@ fn described_relationships_keep_composite_keys_and_hide_an_invisible_endpoint() 
         !text.contains("events_hidden") && !text.contains("hidden_apps") && !text.contains("hidden_origin"),
         "{text}"
     );
-    let prompt = sutura_app::prompt::physical_schema(&view, CatalogProse::Omitted);
+    let prompt = sutura_app::prompt::physical_schema(
+        &view,
+        CatalogProse::Omitted,
+        sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES,
+    );
     assert!(
         prompt.contains("Relationship `events_apps`: `events` -> `apps` (`many_to_one`)"),
         "{prompt}"
@@ -107,7 +111,14 @@ fn described_relationships_keep_composite_keys_and_hide_an_invisible_endpoint() 
             .flatten()
             .all(|model| model.get("relationships").is_none())
     );
-    let full = CatalogContent::of_with_physical_schema(&ScopedView::everything(&bundle), CatalogProse::Omitted, None, true);
+    let full = CatalogContent::of_with_physical_schema(
+        &ScopedView::everything(&bundle),
+        CatalogProse::Omitted,
+        None,
+        true,
+        None,
+        None,
+    );
     assert_eq!(
         serde_json::to_value(full).unwrap()["models"]
             .as_array()

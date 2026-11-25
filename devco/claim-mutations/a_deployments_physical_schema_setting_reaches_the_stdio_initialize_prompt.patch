@@ -1,13 +1,11 @@
-diff --git a/crates/sutura-app/src/prompt.rs b/crates/sutura-app/src/prompt.rs
-index dd87d9544..c07f088bd 100644
 --- a/crates/sutura-app/src/prompt.rs
 +++ b/crates/sutura-app/src/prompt.rs
-@@ -330,7 +330,7 @@ pub fn render(view: &ScopedView<'_>, inputs: &PromptInputs<'_>) -> String {
-         knowledge::declaration(notes, audience),
-         knowledge::glossary(notes, inputs.prose, audience),
-         physical_schema_guidance(pinned),
--        if inputs.list_physical_schema {
-+        if inputs.list_physical_schema && false {
-             physical_schema(view, inputs.prose)
-         } else {
-             String::new()
+@@ -388,7 +388,7 @@
+     let remaining = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost);
+     let metrics_section = metrics(view, notes, inputs.prose, remaining);
+     let remaining_for_models = remaining.saturating_sub(metrics_section.len());
+-    let physical_schema_section = if inputs.list_physical_schema {
++    let physical_schema_section = if inputs.list_physical_schema && false {
+         physical_schema(view, inputs.prose, remaining_for_models)
+     } else {
+         String::new()

@@ -6,8 +6,12 @@
 //! rather than a share of lines - the same split `sutura-mcp`'s own `wire::catalog` already made
 //! for the mirror-image reason.
 
+use axum::Json;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget, omission_reserve};
 use sutura_app::prompt::CatalogProse;
-use sutura_domain::model::Grain;
+use sutura_domain::model::{Grain, MetricName, ModelName};
 use sutura_domain::pinned::view::ScopedView;
 
 use super::{ProvenanceBody, bundle_body};
@@ -35,7 +39,23 @@ pub struct CatalogBody {
     /// appearing in the settings parser too. It reads `quoted` on a surface that quotes nothing
     /// because the word names the SETTING and not this renderer.
     catalog_prose: &'static str,
+    /// Held to [`MAX_CATALOG_LISTING_BYTES`] the same way `sutura-mcp`'s physical-schema listing is: a
+    /// metric is carried whole or left out and named in [`Self::omitted_metrics`], never truncated
+    /// mid-metric.
     metrics: Vec<MetricBody>,
+    /// Metrics that exist and are visible, but were left out of [`Self::metrics`] to hold this
+    /// listing under [`MAX_CATALOG_LISTING_BYTES`]. Each entry carries both the metric AND its model,
+    /// as a structured [`OmittedMetric`] rather than a joined string, reachable with `?metric=`
+    /// directly, with no need to parse out which part of a string is the model. Capped at
+    /// [`MAX_OMITTED_NAMES`] entries; [`Self::omitted_metrics_more`] carries the true count past that
+    /// cap.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    omitted_metrics: Vec<OmittedMetric>,
+    /// How many more metrics were left out of [`Self::omitted_metrics`] than that list names. A
+    /// separate field rather than a trailing `"...and N more"` string in the name list, so a client
+    /// reading names does not have to recognize a sentinel entry as something other than a name.
+    #[serde(skip_serializing_if = "is_zero")]
+    omitted_metrics_more: usize,
     /// The catalog's own knowledge - glossary, caveats, terms recorded as undefined and worked
     /// examples - as text, the same text the agent surface's `describe_catalog` returns for this
     /// caller.
@@ -54,6 +74,10 @@ pub struct CatalogBody {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct MetricBody {
     name: String,
+    /// The model this metric is defined over - the value `?model=` takes to narrow this same
+    /// listing, or to read that model's own physical detail where a transport exposes one. The only
+    /// place this name is carried next to a metric.
+    model: String,
     /// The author's own prose, or absent where the operator omitted it.
     ///
     /// `Option` rather than an empty string, because *this deployment ships no catalog prose* and
@@ -65,6 +89,16 @@ pub struct MetricBody {
     /// Coarsest first, which is the order an anchor is checked at.
     grains: Vec<String>,
     dimensions: Vec<DimensionBody>,
+}
+
+/// One metric left out of [`CatalogBody::metrics`] to hold the body under its shared budget.
+///
+/// Both names together, so `?metric=<name>` is reachable without a client first discovering, by
+/// some other means, which model this metric belongs to.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct OmittedMetric {
+    metric: String,
+    model: String,
 }
 
 /// One dimension of one metric.
@@ -99,8 +133,31 @@ impl CatalogBody {
     /// `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
     /// OPEN: it ships the prose of a deployment that asked for none, which is the defect this
     /// function exists to close. A second argument cannot be left out.
+    ///
+    /// **`model` narrows `metrics` to the ones tied to that model, nothing else.** Absent, the whole
+    /// view's metrics are rendered, held to [`MAX_CATALOG_LISTING_BYTES`] the same way `sutura-mcp`'s
+    /// physical-schema listing is bounded - this body carries no model's own columns or
+    /// relationships, only the metric descriptions a caller already needs to ask a question, but a
+    /// deployment with an unusually large metric vocabulary can still make that list itself large.
+    /// `model` naming nothing this caller may see is this function's caller's own job to refuse
+    /// before reaching it - see `crate::routes::v1::catalog::catalog`.
+    ///
+    /// **`metric` narrows to that one metric's own entry, emitted whole regardless of
+    /// [`MAX_CATALOG_LISTING_BYTES`]** - it names exactly one thing to read back, not a listing, the
+    /// same choice `sutura-mcp`'s `CatalogContent::of_with_physical_schema` makes for its own
+    /// `metric` argument. `model` and `metric` together is this function's caller's own job to
+    /// refuse, same as an unknown name.
+    ///
+    /// **One shared [`MAX_CATALOG_LISTING_BYTES`] budget for the whole body**: the fixed parts
+    /// (`provenance`, `catalog_prose`, `knowledge`) are measured first and subtracted, and only what
+    /// remains goes to the metrics pool - see that constant's own doc.
     #[must_use]
-    pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self {
+    pub fn of(
+        view: &ScopedView<'_>,
+        prose: sutura_config::CatalogProse,
+        model: Option<&ModelName>,
+        metric: Option<&MetricName>,
+    ) -> Self {
         // Exhaustive rather than `is_quoted()` in an `if`: a question asked of one variant reads every
         // future spelling as the `else`, and on this setting the `else` withholds prose nobody asked
         // to withhold. The app crate's own type is what `catalog_knowledge` takes, so one mapping
@@ -110,17 +167,25 @@ impl CatalogBody {
             sutura_config::CatalogProse::Omitted => CatalogProse::Omitted,
         };
         let quoted = shared.is_quoted();
-        let metrics = view
+        let provenance = bundle_body(view.pinned());
+        let knowledge = sutura_app::prompt::catalog_knowledge(view, shared);
+        let fixed_cost = serde_json::to_vec(&provenance).map_or(0, |bytes| bytes.len())
+            + serde_json::to_string(prose.as_str()).map_or(0, |text| text.len())
+            + serde_json::to_string(&knowledge).map_or(0, |text| text.len());
+        let all_metrics: Vec<MetricBody> = view
             .metrics()
-            .map(|metric| MetricBody {
-                name: String::from(metric.name().as_str()),
-                description: quoted.then(|| String::from(metric.description())),
+            .filter(|m| model.is_none_or(|name| m.model() == name))
+            .filter(|m| metric.is_none_or(|name| m.name() == name))
+            .map(|m| MetricBody {
+                name: String::from(m.name().as_str()),
+                model: String::from(m.model().as_str()),
+                description: quoted.then(|| String::from(m.description())),
                 grains: {
-                    let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
+                    let mut grains: Vec<Grain> = m.grains().iter().copied().collect();
                     grains.sort_unstable_by(|a, b| b.cmp(a));
                     grains.into_iter().map(|grain| String::from(grain.as_str())).collect()
                 },
-                dimensions: metric
+                dimensions: m
                     .dimensions()
                     .values()
                     .map(|dimension| DimensionBody {
@@ -134,11 +199,249 @@ impl CatalogBody {
                     .collect(),
             })
             .collect();
+        let (metrics, omitted_metrics, omitted_metrics_more) = if metric.is_some() {
+            (all_metrics, Vec::new(), 0)
+        } else {
+            // Sized from the REAL candidates about to be weighed, not a worst-case identifier
+            // length - see `omission_reserve`'s own doc. `+1` per entry for the JSON array's own
+            // comma separator; `metric_cost` below gets the same "+1" so the array as a whole can
+            // never cost more than the sum of what `fill_to_budget` charged for it.
+            let reserve = omission_reserve(&all_metrics, |m| {
+                serde_json::to_vec(&OmittedMetric {
+                    metric: m.name.clone(),
+                    model: m.model.clone(),
+                })
+                .map_or(0, |bytes| bytes.len())
+                    + 1
+            });
+            let remaining = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost).saturating_sub(reserve);
+            let (included, omitted_names, omitted_count) = fill_to_budget(
+                all_metrics,
+                remaining,
+                MAX_OMITTED_NAMES,
+                |m| serde_json::to_vec(m).map_or(0, |bytes| bytes.len()) + 1,
+                |m| OmittedMetric {
+                    metric: m.name.clone(),
+                    model: m.model.clone(),
+                },
+            );
+            let more = omitted_count.saturating_sub(omitted_names.len());
+            (included, omitted_names, more)
+        };
         Self {
-            provenance: bundle_body(view.pinned()),
+            provenance,
             catalog_prose: prose.as_str(),
             metrics,
-            knowledge: sutura_app::prompt::catalog_knowledge(view, shared),
+            omitted_metrics,
+            omitted_metrics_more,
+            knowledge,
         }
+    }
+}
+
+/// `serde(skip_serializing_if)` for `omitted_metrics_more` - zero means every omitted metric (if
+/// any) is already named, so the field is dropped rather than serialized as a bare `0`.
+///
+/// `serde`'s `skip_serializing_if` calls this with `&usize`, so neither the signature nor its
+/// by-reference argument is this function's choice to make.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    clippy::missing_const_for_fn,
+    reason = "signature is fixed by serde's skip_serializing_if contract"
+)]
+fn is_zero(count: &usize) -> bool {
+    *count == 0
+}
+
+/// A `model` query parameter that parses but names no model this caller may see - whether it does
+/// not exist at all or exists outside this caller's granted audiences is not distinguished, for the
+/// same reason [`ScopedView::model`] folds both into one `None`: a message that told the two apart
+/// would disclose a restricted model's existence to a caller who was never granted it.
+///
+/// **Neither [`crate::problem::Failure`] nor [`crate::problem::ProblemBody`], and not
+/// [`super::RefusalBody`] either.** This is not a system failure - the request was fine and nothing
+/// upstream is unwell - and it is not a governance refusal of a *question*: reading the catalog
+/// produces no [`sutura_domain::query::ToolOutcome`], so there is no [`sutura_domain::query::RefusalReason`]
+/// variant to carry it, and manufacturing one would put a listing's absence into the enum that a
+/// query's own refusals are audited through. `sutura-mcp`'s `server::describe::unknown_model` makes
+/// the identical call for the identical reason, as its own ad hoc `ErrorData` outside both
+/// `ToolOutcome` and this crate's audited refusal path.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct UnknownCatalogNameBody {
+    /// A stable code, the same shape as [`crate::problem::ProblemBody::code`] so a client already
+    /// branching on one field keeps doing so here.
+    code: &'static str,
+    detail: String,
+}
+
+impl UnknownCatalogNameBody {
+    pub(crate) fn of(name: &ModelName) -> Self {
+        Self {
+            code: "model_unknown",
+            detail: format!("this catalog defines no model called `{name}`"),
+        }
+    }
+
+    /// The identical non-disclosing fold as [`Self::of`], for a `metric` query parameter instead of
+    /// `model` - still this type, rather than a second one, since the two carry the same shape and
+    /// the same status.
+    ///
+    /// **`catalog_metric_unknown`, not `metric_unknown`.** `sutura_domain::query::RefusalReason::MetricUnknown`
+    /// already renders as `metric_unknown` for a QUESTION naming a metric the catalog does not
+    /// define - a different surface, reached through `/v1/query`, audited through
+    /// `ToolOutcome::Refusal`. This 404 is a LISTING lookup with no such refusal behind it; the two
+    /// codes must stay distinct so a client branching on `code` cannot be handed the same string for
+    /// two different doors. `model_unknown` has no such collision - no `RefusalReason` variant names
+    /// a model - so it keeps its plain name.
+    pub(crate) fn of_metric(name: &MetricName) -> Self {
+        Self {
+            code: "catalog_metric_unknown",
+            detail: format!("this catalog defines no metric called `{name}`"),
+        }
+    }
+}
+
+impl IntoResponse for UnknownCatalogNameBody {
+    fn into_response(self) -> Response {
+        // `private, no-store` is DEFENCE IN DEPTH, not the control that keeps the two cases
+        // indistinguishable - the fold two callers above is what does that, by sending the same
+        // code and the same detail shape for "does not exist" and "exists outside your grant"
+        // alike. The header exists on top of that fold so a shared proxy between this deployment
+        // and its callers is never the thing that lets one caller's probe read back what another
+        // caller's request produced, should the fold ever regress.
+        (
+            StatusCode::NOT_FOUND,
+            [(axum::http::header::CACHE_CONTROL, "private, no-store")],
+            Json(self),
+        )
+            .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES};
+    use sutura_domain::capabilities::MetadataCapabilities;
+    use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
+    use sutura_domain::knowledge::Knowledge;
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+    use sutura_domain::model::{Aggregate, Grain, MetricName, ModelName, TableName};
+    use sutura_domain::pinned::view::ScopedView;
+    use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
+
+    use super::CatalogBody;
+    use crate::testing::{column, description, source};
+
+    /// `count` metrics over one model, each described at `description_bytes` - large enough that a
+    /// handful already dwarfs the shared catalog budget, small enough that `count` of them stays
+    /// under `Definitions::assemble`'s own whole-bundle size limit - the same two-knob shape
+    /// `sutura-mcp`'s own budget fixture uses, built from this crate's own test helpers rather than
+    /// copied from theirs.
+    fn bundle_with_many_metrics(count: usize, description_bytes: usize) -> PinnedDefinitions {
+        let amount = column("amount_cents");
+        let model = Model::new(
+            ModelName::parse("orders").expect("a test model is a model"),
+            source(),
+            TableName::parse("orders").expect("a test table is a table"),
+            BTreeSet::from([amount.clone()]),
+            description("Orders, one row per order."),
+        );
+        let long = Description::parse("x".repeat(description_bytes)).expect("the generated description is a description");
+        let metrics = (0..count)
+            .map(|index| {
+                Metric::new(
+                    MetricName::parse(format!("metric_{index:03}")).expect("a generated test metric name is a name"),
+                    ModelName::parse("orders").expect("a test model is a model"),
+                    Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, amount.clone()))),
+                    Vec::new(),
+                    amount.clone(),
+                    BTreeSet::from([Grain::Day]),
+                    Vec::new(),
+                    None,
+                    long.clone(),
+                    Audience::Open,
+                )
+                .expect("no dimensions to duplicate")
+            })
+            .collect();
+        let definitions = Definitions::assemble(vec![model], vec![], metrics).expect("the generated test bundle is consistent");
+        PinnedDefinitions::pin(
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+            definitions.clone(),
+            Knowledge::none(),
+            ContributionManifest::single(
+                source(),
+                Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+            ),
+        )
+        .expect("the generated test definitions hash")
+    }
+
+    /// Enough metrics that the listing crosses [`MAX_CATALOG_LISTING_BYTES`]: whole metrics survive
+    /// up to the bound, the rest come back as structured `{metric, model}` entries under
+    /// `omitted_metrics`, and the WHOLE serialized body - the thing a caller actually receives,
+    /// including every byte the omission list itself costs - stays under the same shared bound.
+    #[test]
+    fn an_over_bound_catalog_body_carries_structured_omissions_and_stays_under_the_shared_bound() {
+        const METRIC_COUNT: usize = 40;
+        let bundle = bundle_with_many_metrics(METRIC_COUNT, 4000);
+        let view = ScopedView::everything(&bundle);
+        let body = CatalogBody::of(&view, sutura_config::CatalogProse::Quoted, None, None);
+        let json = serde_json::to_value(&body).expect("the catalog body serializes");
+        let included = json["metrics"].as_array().expect("metrics is a list");
+        let omitted = json["omitted_metrics"].as_array().expect("some metric was omitted");
+        assert!(!included.is_empty(), "{json}");
+        assert!(!omitted.is_empty(), "every metric fit - make the fixture bigger: {json}");
+        assert_eq!(included.len() + omitted.len(), METRIC_COUNT, "{json}");
+        assert!(json.get("omitted_metrics_more").is_none(), "{json}");
+        for entry in omitted {
+            assert!(entry["metric"].is_string(), "{entry}");
+            assert_eq!(entry["model"], "orders", "an omitted metric must carry its model: {entry}");
+        }
+        let total_bytes = serde_json::to_vec(&body).expect("the catalog body serializes").len();
+        assert!(
+            total_bytes <= MAX_CATALOG_LISTING_BYTES,
+            "the whole body overshot the shared bound ({total_bytes} bytes)"
+        );
+    }
+
+    /// The omission-cap twin of the test above: enough metrics that the true count crosses
+    /// [`MAX_OMITTED_NAMES`], so `omitted_metrics_more` must carry what the capped name list cannot
+    /// - and the body stays under the shared bound even then.
+    #[test]
+    fn an_over_bound_catalog_body_with_more_than_the_omission_cap_carries_a_separate_count() {
+        const METRIC_COUNT: usize = 400;
+        let bundle = bundle_with_many_metrics(METRIC_COUNT, 1000);
+        let view = ScopedView::everything(&bundle);
+        let body = CatalogBody::of(&view, sutura_config::CatalogProse::Quoted, None, None);
+        let json = serde_json::to_value(&body).expect("the catalog body serializes");
+        let included = json["metrics"].as_array().expect("metrics is a list").len();
+        let omitted = json["omitted_metrics"].as_array().expect("some metric was omitted");
+        let truly_omitted = METRIC_COUNT - included;
+        assert!(
+            truly_omitted > MAX_OMITTED_NAMES,
+            "make the fixture bigger - the omission list's own cap was never crossed: {included} included, {truly_omitted} omitted"
+        );
+        assert_eq!(
+            omitted.len(),
+            MAX_OMITTED_NAMES,
+            "the omission list itself must stay capped: {json}"
+        );
+        let more = json["omitted_metrics_more"]
+            .as_u64()
+            .and_then(|more| usize::try_from(more).ok())
+            .expect("the true omission count must be its own field once the name list is capped");
+        assert_eq!(
+            more,
+            truly_omitted - MAX_OMITTED_NAMES,
+            "the count field must carry what the name list could not: {json}"
+        );
+        let total_bytes = serde_json::to_vec(&body).expect("the catalog body serializes").len();
+        assert!(
+            total_bytes <= MAX_CATALOG_LISTING_BYTES,
+            "the whole body overshot the shared bound ({total_bytes} bytes)"
+        );
     }
 }

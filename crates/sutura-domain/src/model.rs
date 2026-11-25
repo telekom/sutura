@@ -110,7 +110,12 @@ impl core::fmt::Display for IdentifierCase {
 /// 63 is the tightest limit among the data systems we target, and it is a *silent* limit there:
 /// a longer name is truncated rather than rejected, which turns "the column does not exist" into
 /// "the query read a different column". Rejecting here is the only place that failure is visible.
-const MAX_IDENTIFIER_LEN: usize = 63;
+///
+/// **`pub`, not crate-private** - `sutura_app::catalog_budget` reserves worst-case bytes for an
+/// omitted name's entry before it fills a listing's metrics/models pool, and a second,
+/// hand-copied limit would drift from this one silently. One constant, read from where names are
+/// parsed.
+pub const MAX_IDENTIFIER_LEN: usize = 63;
 
 /// Why a name was rejected.
 ///

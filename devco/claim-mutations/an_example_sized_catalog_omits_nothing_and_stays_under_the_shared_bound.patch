@@ -1,0 +1,19 @@
+--- a/crates/sutura-app/src/catalog_budget.rs
++++ b/crates/sutura-app/src/catalog_budget.rs
+@@ -129,13 +129,10 @@
+ /// included content alone safely under it - which is exactly how a result could overshoot this
+ /// bound by tens of kilobytes before this reserve existed (`github.com/telekom/sutura#2071`).
+ pub fn omission_reserve<T>(candidates: &[T], mut entry_cost: impl FnMut(&T) -> usize) -> usize {
+-    let max_omittable = candidates.len().saturating_sub(1).min(MAX_OMITTED_NAMES);
+-    if max_omittable == 0 {
+-        return OMISSION_HEADER_RESERVE;
++    for item in candidates {
++        entry_cost(item);
+     }
+-    let mut costs: Vec<usize> = candidates.iter().map(&mut entry_cost).collect();
+-    costs.sort_unstable_by(|left, right| right.cmp(left));
+-    OMISSION_HEADER_RESERVE + costs.into_iter().take(max_omittable).sum::<usize>()
++    OMISSION_HEADER_RESERVE + MAX_OMITTED_NAMES * (2 * sutura_domain::model::MAX_IDENTIFIER_LEN + 32)
+ }
+ 
+ #[cfg(test)]

@@ -299,23 +299,23 @@ mod tests {
         }
     }
 
-    /// The catalog tool takes NO arguments, and that is a shape rather than an absence.
+    /// The catalog tool takes exactly two optional arguments, `model` and `metric`, and nothing
+    /// else - a shape rather than an absence.
     ///
-    /// A tool advertising an open object is a tool whose surface a caller can guess at. Every field
-    /// forbidden above is forbidden here too, and there is nothing else it could be given either -
-    /// which is what makes "descriptive content only, and nothing a caller sends selects it" a
-    /// statement about the type rather than about the handler.
+    /// A tool advertising an open object is a tool whose surface a caller can guess at.
+    /// `github.com/telekom/sutura#2071`'s second ask gave this tool its `model` argument and then
+    /// its `metric` one; before either it took none at all, which
+    /// `the_catalog_tool_takes_no_arguments_at_all` pinned.
     #[test]
-    fn the_catalog_tool_takes_no_arguments_at_all() {
+    fn the_catalog_tool_takes_only_optional_model_and_metric_arguments() {
         let schema = input_schema(Capability::DescribeCatalog);
-        assert_eq!(
-            schema
-                .get("properties")
-                .and_then(serde_json::Value::as_object)
-                .map_or(0, serde_json::Map::len),
-            0,
-            "{schema:?}"
-        );
+        let properties = schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .expect("the generated schema describes properties");
+        let mut names: Vec<&str> = properties.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["metric", "model"], "{names:?}");
         assert_eq!(
             schema.get("additionalProperties"),
             Some(&serde_json::Value::Bool(false)),

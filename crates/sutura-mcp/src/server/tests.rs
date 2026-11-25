@@ -32,6 +32,11 @@ mod deadline;
 /// header says what it builds instead and why.
 #[cfg(test)]
 mod asking;
+/// `describe_catalog`'s `model` and `metric` arguments, over the wire - `github.com/telekom/sutura#2071`'s second ask.
+#[cfg(test)]
+mod describe_metric;
+#[cfg(test)]
+mod describe_model;
 /// The catalog tool after a refresh swaps the served bundle.
 #[cfg(test)]
 mod refresh;
@@ -49,12 +54,12 @@ fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
     let view = ScopedView::everything(&bundle);
     let model_label = "model orders (table orders)";
     let model_description = "Orders, one row per order.";
-    let disabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, false);
+    let disabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, false, None, None);
     let disabled_json = serde_json::to_value(&disabled).expect("the catalog serializes");
     assert!(disabled_json.get("models").is_none(), "{disabled_json}");
     assert!(!disabled.as_text().contains(model_label));
 
-    let enabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true);
+    let enabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None, None);
     let enabled_json = serde_json::to_value(&enabled).expect("the catalog serializes");
     assert_eq!(enabled_json["models"][0]["name"], "orders");
     assert_eq!(enabled_json["models"][0]["columns"][0]["name"], "amount_cents");
@@ -62,7 +67,7 @@ fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
     assert!(enabled.as_text().contains(model_label));
     assert!(enabled.as_text().contains(&format!("> {model_description}")));
 
-    let omitted = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true);
+    let omitted = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true, None, None);
     let omitted_json = serde_json::to_value(&omitted).expect("the catalog serializes");
     assert!(omitted_json["models"][0].get("description").is_none());
     assert!(!omitted.as_text().contains(model_description));
@@ -527,24 +532,24 @@ async fn catalog_prose_omitted_omits_it_from_the_tool_answers() {
 
 /// The catalog tool's arguments are PARSED, so a caller cannot believe it narrowed a listing.
 ///
-/// Without the parse this call deserializes cleanly, `metric` is dropped on the floor, and a model
-/// that asked about one metric is handed every one of them while believing it filtered.
+/// `columns` names neither of the tool's two declared fields (`model`, `metric`) - `deny_unknown_fields`
+/// makes sending it a named parse error, not a silently dropped key that answered unfiltered.
 #[tokio::test]
 async fn an_argument_the_catalog_tool_does_not_declare_answers_the_fixed_sentence_without_the_callers_key() {
     let client = connected(certified_service()).await;
     let error = client
         .call_tool(call(
             Capability::DescribeCatalog.id(),
-            &serde_json::json!({ "metric": "revenue" }),
+            &serde_json::json!({ "columns": ["amount_cents"] }),
         ))
         .await
-        .expect_err("the catalog tool declares no arguments");
+        .expect_err("the catalog tool declares no `columns` argument");
     let ServiceError::McpError(data) = error else {
         panic!("expected a protocol error, got {error:?}");
     };
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
     // The fixed sentence, never the serde cause that repeats the caller's own key.
-    assert!(!data.message.contains("metric"), "{}", data.message);
+    assert!(!data.message.contains("columns"), "{}", data.message);
     drop(client.cancel().await);
 }
 

@@ -53,6 +53,11 @@ pub use crate::warehouses::{SourceAlreadyOpen, Warehouses};
 // same reason `federated` is its own file.
 mod bounds;
 
+// Bounds a catalog LISTING's own size (the prompt's physical schema section, or a transport's
+// describe_catalog/CatalogBody) rather than a query answer's - `pub` because both `sutura-mcp` and
+// `sutura-http` depend on this crate and need the same selector, not a copy each.
+pub mod catalog_budget;
+
 // The application-facing interface a transport consumes, with the ports' generics erased: a
 // DRIVING port and its one implementor. The argument for it being here rather than in `sutura-http`
 // is the module's own documentation - a plain comment here rather than a doc comment, because

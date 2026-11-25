@@ -5,7 +5,23 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed\nto what the calling principal may see - the metrics, grains, dimensions and permitted values.\n\nIt also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms\nrecorded as undefined it carries) and the deployment operator's instructions. There is nothing to\nfilter or select, so send an empty object.",
+  "description": "This tool returns the catalog of what this deployment measures, narrowed to what the calling\nprincipal may see - the metrics, grains, dimensions and permitted values.\n\n`model` is optional and narrows the answer to one named model: only the metrics tied to it, and -\nwhere the operator exposes physical schema - only that model's own columns and relationships.\n`metric` is optional and narrows the answer to that one metric alone, naming nothing about its\nmodel's physical schema - the way to read back a single metric a previous, byte-bounded listing\nnamed but left out. Give at most one of the two; both together is refused. Omit both for the\nwhole catalog. An unfiltered catalog whose metrics or physical schema would be large is itself\ncapped at a byte bound shared across the whole result; where it is, every item left out is named\nexplicitly along with how to read it back - call this tool again with `model` or `metric` set to\none of those names.\n\nThis tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and\nterms recorded as undefined it carries) and the deployment operator's instructions - neither is\nscoped to one model or metric, so `model`/`metric` does not narrow them.",
+  "properties": {
+    "metric": {
+      "description": "One metric's own name, to read back exactly that metric's entry - nothing about its model's\nphysical schema. Omit it for the whole catalog. Mutually exclusive with `model`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "description": "The model's own name - the same identifier its physical schema prints as `model <name>`.\nOmit it for the whole catalog. Mutually exclusive with `metric`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
   "title": "DescribeCatalogArgs",
   "type": "object"
 }

@@ -226,3 +226,56 @@ fn a_deployments_reply_deadline_reaches_the_spawned_surface() {
     drop(agent.initialize());
     assert!(agent.close().success(), "the process did not exit cleanly");
 }
+
+/// `telekom/sutura#2081`'s own regression: the up-front omission reserve in
+/// `sutura_app::catalog_budget` must be sized from the catalog's ACTUAL candidates, not a
+/// worst-case guess - a worst-case reserve big enough to always be safe is also big enough to
+/// evict models and metrics a real, example-sized catalog never needed to omit at all.
+///
+/// `examples/single-player` is the catalog this repository tells a reader to run, and it is
+/// nowhere near the shared bound - so a correctly-sized reserve must leave it with every model and
+/// every metric present, and the whole reply (both halves `described_catalog` reads together -
+/// they are budgeted against ONE bound, not one each) still inside it.
+///
+/// A local `BOUND` rather than `sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES` itself: this
+/// file is kept at HEAD by the causality base run, and that constant did not exist before
+/// `telekom/sutura#2081`'s second ask - naming it here would fail the base build of every other
+/// test in this file, not just this one. `BOUND` also makes this a `Claim-Cell`: main's own
+/// omission reserve already leaves this catalog untouched, so this test is green against base too,
+/// and is declared as such (see `devco/claim-mutations/`).
+#[test]
+fn an_example_sized_catalog_omits_nothing_and_stays_under_the_shared_bound() {
+    /// Mirrors `sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`, which this file cannot name
+    /// without breaking the base build (see the doc comment above).
+    const BOUND: usize = 128 * 1024;
+
+    let (structured, text) = described_catalog(&example_settings(
+        "mcp-catalog-budget",
+        "prompt:\n  list_physical_schema: true\n",
+    ));
+    assert!(
+        structured["omitted_metrics"].as_array().is_none_or(Vec::is_empty),
+        "{structured}"
+    );
+    assert!(
+        structured["omitted_models"].as_array().is_none_or(Vec::is_empty),
+        "{structured}"
+    );
+    assert!(
+        !structured["models"].as_array().expect("models is a list").is_empty(),
+        "{structured}"
+    );
+    assert!(
+        !structured["metrics"].as_array().expect("metrics is a list").is_empty(),
+        "{structured}"
+    );
+
+    // Both halves are budgeted together, against the one shared bound - not each against its own
+    // copy of it, which would let the pair together cross what one half alone never would.
+    let structured_bytes = structured.to_string().len();
+    assert!(
+        structured_bytes + text.len() <= BOUND,
+        "the example catalog's two halves together overshot the shared bound ({structured_bytes} + {} bytes)",
+        text.len()
+    );
+}

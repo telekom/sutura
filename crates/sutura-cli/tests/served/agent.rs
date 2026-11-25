@@ -335,6 +335,57 @@ fn a_caller_reads_the_same_knowledge_over_http_as_over_mcp() {
     assert_eq!(http_knowledge, mcp_knowledge, "the two transports read different knowledge");
 }
 
+/// `telekom/sutura#2081`'s own regression, over `GET /v1/catalog`: the up-front omission reserve
+/// in `sutura_app::catalog_budget` must be sized from the catalog's ACTUAL candidates, not a
+/// worst-case guess, or an example-sized catalog - nowhere near the shared bound - loses metrics it
+/// never needed to shed. `CatalogBody` carries no physical schema at all (`docs/agent-prompt.md`),
+/// so there is no model pool to check here the way [`super::settings`]'s MCP twin
+/// `an_example_sized_catalog_omits_nothing_and_stays_under_the_shared_bound` does.
+///
+/// A local `BOUND` rather than `sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES` itself: this
+/// file is kept at HEAD by the causality base run, and that constant did not exist before
+/// `telekom/sutura#2081`'s second ask - naming it here would fail the base build of every other
+/// test in this file, not just this one. `BOUND` also makes this a `Claim-Cell`: main's own
+/// omission reserve already leaves this catalog untouched, so this test is green against base too,
+/// and is declared as such (see `devco/claim-mutations/`). The killing mutation inflates
+/// `omission_reserve` to `MAX_CATALOG_LISTING_BYTES` itself, which zeroes the metrics pool's
+/// `remaining` budget (`MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost).saturating_sub(reserve)`
+/// saturates to 0 regardless of `fixed_cost`) - `CatalogBody` has only this one pool, no models pool
+/// to also drain the way `sutura-mcp`'s twin test does, so a mutation sized to starve ONE pool
+/// still had room to spare here under the old (half-sized) reserve; this one leaves none, so 10 of
+/// the example's 11 metrics are omitted and `omitted_metrics` is non-empty.
+#[cfg(feature = "agent")]
+#[test]
+fn an_example_sized_catalog_omits_nothing_over_http_and_stays_under_the_shared_bound() {
+    /// Mirrors `sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`, which this file cannot name
+    /// without breaking the base build (see the doc comment above).
+    const BOUND: usize = 128 * 1024;
+    /// `examples/single-player/catalog/metrics/` holds exactly this many metric definitions.
+    const EXAMPLE_METRIC_COUNT: usize = 11;
+
+    let issuer = an_issuer();
+    let published = PublishedKeySet::of(&issuer, "serve-agent-catalog-budget").expect("the key set publishes");
+    let served = start_configured(
+        "agent-catalog-budget",
+        &crate::harness::settings_with_agent_surface(&example_root(), &issuer, published.path()),
+    );
+    let token = issuer
+        .mint(&accepted_by("reader@example.com"))
+        .expect("the issuer mints a token");
+
+    let over_http = served.get("/v1/catalog", Some(&token));
+    assert_eq!(over_http.status, 200, "{}", over_http.body);
+    let body = over_http.json();
+    assert!(body["omitted_metrics"].as_array().is_none_or(Vec::is_empty), "{body}");
+    let metrics = body["metrics"].as_array().expect("metrics is a list");
+    assert_eq!(metrics.len(), EXAMPLE_METRIC_COUNT, "{body}");
+    assert!(
+        over_http.body.len() <= BOUND,
+        "the example catalog body overshot the shared bound ({} bytes)",
+        over_http.body.len()
+    );
+}
+
 /// `/mcp` reads no more of a body than `server.max_body_bytes`, the bound `/v1` reads under: the
 /// same over-cap body is a `413` on both, and the same message under the cap is answered.
 #[cfg(feature = "agent")]

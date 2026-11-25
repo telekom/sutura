@@ -30,6 +30,24 @@ use fixtures::*;
 /// through `super`.
 mod catalog_prose;
 
+/// Whether the catalog route's `model` query parameter narrows and refuses correctly.
+///
+/// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
+mod catalog_model;
+
+/// Whether the catalog route's `metric` query parameter narrows and refuses correctly, and that
+/// `model` and `metric` together are refused rather than one silently winning.
+///
+/// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
+mod catalog_metric;
+
+/// Whether a REAL `Scope::Granted` caller's catalog view narrows and refuses the same way an
+/// unauthenticated `Scope::Everything` one does, over a model and a metric this audience mapping
+/// restricts.
+///
+/// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
+mod catalog_identity;
+
 /// Whether the catalog route reads the bundle being served after a refresh swaps it.
 ///
 /// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's, and this one is

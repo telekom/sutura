@@ -78,6 +78,56 @@ table or column name reaches the output. An operator can enable
 `prompt.list_physical_schema` to list descriptive model, table and column metadata. That listing
 does not make a physical name queryable, and it does not certify a metric.
 
+**`describe_catalog` takes two optional, mutually exclusive arguments, `model` and `metric`**, on
+the agent tool and on `GET /v1/catalog` alike. `model` is the same identifier the physical schema
+prints as `model <name>`; given one, the answer narrows to that model's own metrics (and, where
+physical schema is on, that model's own columns and relationships) and nothing else. `metric` is
+one metric's own name; given one, the answer narrows to exactly that metric's own entry instead,
+emitted whole - the way to read back a single metric a byte-bounded listing below named but left
+out. A name that parses but names nothing the caller may see, for either argument - unknown or real
+but invisible - is refused rather than answered with an empty listing; giving both at once is
+refused the same way.
+
+**One shared byte budget per whole agent-facing result, not one per section.** The agent tool's
+result, `GET /v1/catalog`'s body, and this rendered system prompt all hold their WHOLE output - not
+only a physical-schema listing - to `MAX_CATALOG_LISTING_BYTES` (128 KiB), spent once, in sequence:
+the fixed parts first (the notice, the catalog's own knowledge - counted once per half of the agent
+tool's result, since its structured and its text half both carry that knowledge independently -
+the operator's instructions, and the provenance trailer), then whatever remains goes to the metrics
+pool, then whatever the metrics pool did not spend goes to the physical-schema pool (relationships
+counted there too). `GET /v1/catalog` carries no physical schema at all, so it has nothing to spend
+on that last pool, but it IS held to the same budget on its metrics. **Metric descriptions and their
+`allowed_values` ARE counted** against this budget: they are the part of the metrics pool a widely
+authored catalog can make large, so leaving them uncounted would defeat the bound's own point.
+
+Under the budget nothing changes. Over it, whole items are included up to the bound - never one
+truncated mid-metric or mid-model - and the rest are named in an explicit `omitted_metrics` or
+`omitted_models` list, so every omission is reachable by `model` or by `metric` with no need to
+discover which model it belongs to first. Each omitted metric carries its model alongside it: the
+agent tool's structured half and `GET /v1/catalog`'s body give this as a `{"metric": ..., "model":
+...}` object per entry, and the two text renderings (the agent tool's text half, this prompt) give
+the same pair as `"<metric> (model <model>)"`. A sentence points back at `describe_catalog(metric:
+<name>)` or `describe_catalog(model: <name>)`. **A single metric whose own `allowed_values` is
+itself large still reaches the caller in full through `describe_catalog(metric: <name>)`**, because
+that argument's answer bypasses the budget entirely rather than being cut down to fit it - the one
+case this document's byte bound does not apply to.
+
+**The bound a result can actually reach is not exactly `MAX_CATALOG_LISTING_BYTES`, in two
+directions.** It can land under it: before either pool is filled, the budget has a reserve held
+back from it, sized from that pool's own real candidates - never a worst case guessed from
+`MAX_OMITTED_NAMES` - so a result that never actually omits anything still never spent that
+reserve, and that reserve is what keeps a result's own omission note from being the thing that
+pushes it over the bound. It can also land over it, in the one place the budget is deliberately
+not enforced: the **first** item handed to each pool is always included even if it alone is larger
+than the pool's whole remaining budget - an empty listing would read as "this deployment defines
+nothing" rather than "ask for one by name", which is worse. That one item's own size has no cap
+this document's budget imposes (a metric's `allowed_values` or a model's column count can make it
+arbitrarily large), so the true worst case for one pool is `remaining budget for that pool + that
+one item's own size`, and the true worst case for a whole result is every pool's own worst case
+added together. Narrowing with `model` or `metric` does not change this, since a narrowed request
+still fills the same pools, only ever with fewer candidates - and `model` and `metric` are mutually
+exclusive, so a request never narrows by both at once.
+
 The document carries four sections for which the catalog
 body has no field at all, listed in the table above: the glossary, the terms recorded as not
 defined, what this deployment records about its own definitions, and the worked questions. It also
