@@ -248,6 +248,19 @@ fn brokered_login(
     login: &sutura_config::sources::caller_identity::BrokeredLogin,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<sutura_domain::identity::Delegation, String> {
+    Ok(sutura_domain::identity::Delegation::linked(std::sync::Arc::new(
+        linked_login(key, login, outbound)?,
+    )))
+}
+
+/// The broker token endpoint client one `google_login` or `foundry_login` block declares, its
+/// client secret read here - the one composition `serve` and `foundry-check` both open.
+#[cfg(any(feature = "bigquery", feature = "foundry"))]
+pub(crate) fn linked_login(
+    key: &str,
+    login: &sutura_config::sources::caller_identity::BrokeredLogin,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_http_client::delegation::BrokeredLogin, String> {
     use sutura_http_client::delegation::{BrokeredLogin, ExchangeClient, TokenEndpoint};
 
     let (agent, bounds) = exchange_agent(outbound)?;
@@ -256,9 +269,7 @@ fn brokered_login(
     let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), login.client_secret_file())?;
     let client =
         ExchangeClient::new(login.client_id(), secret).map_err(|cause| format!("`{key}.client_id` is unusable: {cause}"))?;
-    Ok(sutura_domain::identity::Delegation::linked(std::sync::Arc::new(
-        BrokeredLogin::new(endpoint, client, agent, bounds),
-    )))
+    Ok(BrokeredLogin::new(endpoint, client, agent, bounds))
 }
 
 /// The exchange a `workload_identity` `BigQuery` source's subjects go through: Google's token

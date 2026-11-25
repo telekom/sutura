@@ -604,3 +604,14 @@ a_foundry_login_source_carries_its_per_caller_catalog # sources/catalog_visibili
 per_caller_visibility_without_a_foundry_login_to_list_with_is_refused # sources/catalog_visibility/tests.rs, declared in sources/catalog_visibility.rs, which the base lacks; the module is not compiled there
 a_catalog_visibility_other_than_per_caller_is_refused_not_read_as_absent # sources/catalog_visibility/tests.rs, declared in sources/catalog_visibility.rs, which the base lacks; the module is not compiled there
 a_foundry_login_source_loads_with_its_catalog_narrowed_per_caller # in serve/tests/foundry_login.rs, declared in serve/tests.rs, which adds no test and is reverted for the base run; names FoundryWarehouse::each_caller, which base lacks
+a_shared_tenant_is_checked_a_step_at_a_time_with_no_token_host_or_identifier_in_the_output # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_foundry_login_source_reports_the_broker_answer_and_parses_under_the_linked_token # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_broker_answer_without_an_expiry_is_reported_with_its_scope_and_nothing_reaches_foundry # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_foundry_login_source_with_no_caller_token_asks_for_one_and_asks_nobody # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_refused_client_credentials_mint_stops_the_catalog_at_its_first_step # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_dotted_object_is_probed_as_one_quoted_identifier_aliased_to_its_local_name # in generate/object_probe.rs, which this branch adds; the base run reverts generate.rs, which declares it
+a_plain_object_is_probed_by_its_name # in generate/object_probe.rs, which this branch adds; the base run reverts generate.rs, which declares it
+only_a_shaped_top_level_error_name_is_kept # beside ErrorName in message.rs, which this branch adds; the base file has no such test
+a_stored_answer_reports_its_expiry_and_scope_before_either_is_held_to_anything # beside StoredAnswer in delegation/linked.rs, which this branch adds; the base file has no such test
+foundry_check_is_listed_in_every_build_and_takes_only_an_optional_token_file # in main.rs beside the command table it reads, which the base run reverts
+a_shared_source_minting_its_own_token_is_checked_before_and_under_it # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in

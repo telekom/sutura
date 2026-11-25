@@ -31,7 +31,7 @@ use sutura_domain::catalog::DefinitionsByteBound;
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 use sutura_http::LocalService;
 
-mod foundry;
+pub(crate) mod foundry;
 
 /// The service either composition root builds over one opened catalog kind.
 ///

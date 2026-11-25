@@ -9,7 +9,8 @@ use std::time::Instant;
 use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::deadline::Deadline;
 pub use sutura_http_client::{
-    DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, InvalidEndpoint, InvalidReadBounds, ReadBounds,
+    DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, ErrorName, InvalidEndpoint, InvalidReadBounds, ReadBounds,
+    TransportFault,
 };
 
 use crate::{FoundryTransport, SqlRequest};
@@ -24,8 +25,9 @@ pub enum HttpFoundryError {
     Unreachable(#[source] Box<ureq::Error>),
     #[error("the Foundry SQL answer could not be read")]
     Unreadable(#[source] Box<ureq::Error>),
+    /// `error_name` is the answer's `errorName` in its own shape; nothing else of the answer is kept.
     #[error("Foundry refused the SQL request with {status}")]
-    Refused { status: u16 },
+    Refused { status: u16, error_name: Option<ErrorName> },
     #[error("the Foundry SQL answer was larger than the {cap}-byte cap this transport reads")]
     TooLarge { cap: u64 },
     #[error("the deadline ran out before Foundry answered")]
@@ -89,7 +91,10 @@ impl HttpFoundry {
             return Err(HttpFoundryError::TooLarge { cap });
         }
         if !status.is_success() {
-            return Err(HttpFoundryError::Refused { status: status.as_u16() });
+            return Err(HttpFoundryError::Refused {
+                status: status.as_u16(),
+                error_name: core::str::from_utf8(&body).ok().and_then(ErrorName::from_answer),
+            });
         }
         Ok(body)
     }
@@ -118,7 +123,7 @@ impl FoundryTransport for HttpFoundry {
     }
 
     fn source_refused(&self, error: &Self::Error) -> bool {
-        matches!(error, HttpFoundryError::Refused { status: 401 | 403 })
+        matches!(error, HttpFoundryError::Refused { status: 401 | 403, .. })
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {

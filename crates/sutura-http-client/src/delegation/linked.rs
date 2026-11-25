@@ -11,6 +11,7 @@ use sutura_domain::identity::{Delegated, DelegationFailed, LinkedLogin, Secret};
 
 use super::{ExchangeClient, OverHttp, TokenEndpoint};
 use crate::ReadBounds;
+use crate::token::Scopes;
 
 /// [`LinkedLogin`] over HTTP, at a `/realms/<realm>/broker/<alias>/token` endpoint.
 #[derive(Debug)]
@@ -26,27 +27,75 @@ impl BrokeredLogin {
     ) -> Self {
         Self(OverHttp::new(endpoint, client, agent, bounds))
     }
-}
 
-impl LinkedLogin for BrokeredLogin {
+    /// The stored answer for `subject`, its expiry not yet held to anything: what an operator's
+    /// check reports. [`LinkedLogin::retrieve`] is this, then [`StoredAnswer::delegated_at`].
+    ///
+    /// # Errors
+    ///
+    /// [`DelegationFailed`] for an answer `retrieve` refuses for any reason but its expiry.
     #[expect(
         clippy::disallowed_methods,
         reason = "the subject token and the client secret go into one form body over the declared \
                   endpoint, and the answer is read here once; no error built below carries any of them"
     )]
-    fn retrieve(&self, subject: &Secret) -> Result<Delegated, DelegationFailed> {
+    pub fn stored(&self, subject: &Secret) -> Result<StoredAnswer, DelegationFailed> {
         let client = &self.0.client;
         let (status, text) = self.0.send(&[
             ("token", subject.expose_secret()),
             ("client_id", client.id.as_str()),
             ("client_secret", client.secret.expose_secret()),
         ])?;
-        opaque_answered(status, text.expose_secret(), super::now())
+        stored_answer(status, text.expose_secret())
     }
 }
 
-/// The stored token response, with a field for nothing but what is checked: its refresh token and
-/// ID token bind to nothing.
+impl LinkedLogin for BrokeredLogin {
+    fn retrieve(&self, subject: &Secret) -> Result<Delegated, DelegationFailed> {
+        self.stored(subject)?.delegated_at(super::now())
+    }
+}
+
+/// A broker answer that passed every check but its expiry.
+#[derive(Debug)]
+pub struct StoredAnswer {
+    token: Secret,
+    not_after: Option<u64>,
+    scope: Option<Scopes>,
+}
+
+impl StoredAnswer {
+    /// The answer's `accessTokenExpiration`, in Unix seconds, when it carries one.
+    #[must_use]
+    pub const fn not_after_unix_seconds(&self) -> Option<u64> {
+        self.not_after
+    }
+
+    /// The answer's `scope`, when it carries one made of scope tokens.
+    #[must_use]
+    pub const fn scope(&self) -> Option<&Scopes> {
+        self.scope.as_ref()
+    }
+
+    /// The token, held to an `accessTokenExpiration` after `now`.
+    ///
+    /// # Errors
+    ///
+    /// [`DelegationFailed::Malformed`] without one, [`DelegationFailed::AlreadyExpired`] at or
+    /// before `now`.
+    pub fn delegated_at(self, now: u64) -> Result<Delegated, DelegationFailed> {
+        let not_after = self.not_after.ok_or(DelegationFailed::Malformed {
+            what: "no accessTokenExpiration",
+        })?;
+        if not_after <= now {
+            return Err(DelegationFailed::AlreadyExpired);
+        }
+        Ok(Delegated::new(self.token, not_after))
+    }
+}
+
+/// The stored token response, with a field for nothing but what is checked or reported: its
+/// refresh token and ID token bind to nothing.
 #[derive(serde::Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 struct StoredToken {
@@ -54,10 +103,19 @@ struct StoredToken {
     token_type: Option<String>,
     #[serde(rename = "accessTokenExpiration")]
     access_token_expiration: Option<u64>,
+    #[serde(default)]
+    scope: Option<String>,
 }
 
-/// Validates the broker's answer at `now`. Pure, so every refusal has a cell without a socket.
+/// Validates the broker's answer at `now` as [`LinkedLogin::retrieve`] does. Pure, so every refusal
+/// has a cell without a socket.
+#[cfg(test)]
 fn opaque_answered(status: u16, text: &str, now: u64) -> Result<Delegated, DelegationFailed> {
+    stored_answer(status, text)?.delegated_at(now)
+}
+
+/// Validates the broker's answer, all but its expiry.
+fn stored_answer(status: u16, text: &str) -> Result<StoredAnswer, DelegationFailed> {
     if !(200..300).contains(&status) {
         return Err(super::refusal(status, serde_json::from_str(text).ok().as_ref()));
     }
@@ -71,13 +129,14 @@ fn opaque_answered(status: u16, text: &str, now: u64) -> Result<Delegated, Deleg
         .access_token
         .filter(|token| !token.is_empty())
         .ok_or(DelegationFailed::Malformed { what: "no access_token" })?;
-    let not_after = stored.access_token_expiration.ok_or(DelegationFailed::Malformed {
-        what: "no accessTokenExpiration",
-    })?;
-    if not_after <= now {
-        return Err(DelegationFailed::AlreadyExpired);
-    }
-    Ok(Delegated::new(Secret::new(token), not_after))
+    Ok(StoredAnswer {
+        token: Secret::new(token),
+        not_after: stored.access_token_expiration,
+        scope: stored
+            .scope
+            .and_then(|scope| Scopes::parse(scope.split_whitespace()).ok())
+            .filter(|scopes| !scopes.as_str().is_empty()),
+    })
 }
 
 #[cfg(test)]
@@ -157,6 +216,24 @@ mod tests {
         #[expect(clippy::disallowed_methods, reason = "the cell reads the one token the answer keeps")]
         let token = answered.into_token().expose_secret().to_owned();
         assert_eq!(token, "ya29.opaque-google-token");
+    }
+
+    #[test]
+    fn a_stored_answer_reports_its_expiry_and_scope_before_either_is_held_to_anything() {
+        let without = super::stored_answer(200, &stored(r#""scope":"api:sql-queries-execute api:ontologies-read""#))
+            .expect("an answer without an expiry is still a stored answer");
+        assert_eq!(without.not_after_unix_seconds(), None);
+        assert_eq!(
+            without.scope().map(crate::token::Scopes::as_str),
+            Some("api:sql-queries-execute api:ontologies-read")
+        );
+        let with = super::stored_answer(
+            200,
+            &stored(&format!(r#""accessTokenExpiration":{},"scope":"bad\"scope""#, NOW + 60)),
+        )
+        .expect("a stored answer");
+        assert_eq!(with.not_after_unix_seconds(), Some(NOW + 60));
+        assert!(with.scope().is_none(), "a scope that is not scope tokens is not reported");
     }
 
     #[test]

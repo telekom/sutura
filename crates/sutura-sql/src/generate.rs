@@ -612,6 +612,8 @@ mod flashback;
 mod key_probe;
 /// One leg, as one statement.
 mod leg;
+/// One table's reference probe, for a parse-only mode.
+mod object_probe;
 /// One leg, restricted to a range of its root table's pages.
 mod pages;
 /// Several metrics on one data system, as one statement.
@@ -621,6 +623,7 @@ pub use flashback::{AsOfRefused, InvalidKeyBucket, KeyBucket, Scn, generate_leg_
 pub use key_probe::generate_key_probe;
 use leg::leg_within;
 use measure::{Guard, measure_expression, predicate_values, term_expression};
+pub use object_probe::{OBJECT_PROBE_LABEL, generate_object_probe};
 pub use pages::generate_leg_pages;
 pub use stacked::generate_stacked;
 

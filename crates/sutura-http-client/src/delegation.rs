@@ -367,7 +367,7 @@ fn claims_of(token: &str) -> Option<serde_json::Value> {
 
 mod linked;
 mod pool;
-pub use linked::BrokeredLogin;
+pub use linked::{BrokeredLogin, StoredAnswer};
 pub use pool::{GOOGLE_STS, GoogleSts};
 
 #[cfg(test)]

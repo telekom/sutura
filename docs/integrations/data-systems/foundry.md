@@ -73,6 +73,48 @@ sources:
     posture: "shared-service-user"
 ```
 
+## Check a tenant
+
+`sutura foundry-check` reads the same settings as `sutura serve` (`SUTURA_CONFIG_DIR`). It checks
+each `foundry` catalog and each `foundry` source one step at a time and prints one line per step:
+
+1. The catalog credential: the token file, or one client-credentials mint.
+2. The object-type list: the count, and the model name each dotted API name maps to.
+3. Each object type's outgoing link types, and the joins the catalog keeps from them.
+4. For a shared source, its own token: the token file, or one client-credentials mint. For a
+   `foundry_login` source, the broker answer for one caller: whether it has
+   `accessTokenExpiration`, and its `scope` if it has one. A `verification_client_credentials`
+   startup identity is not checked; only anchor verification uses it.
+5. One parse-only request per source, against the first plain object type and the first dotted
+   one, under the token that `serve` would send.
+
+For a `foundry_login` source, give the caller's own access token in a file or in
+`SUTURA_CALLER_TOKEN`, never on the command line:
+
+```sh
+SUTURA_CONFIG_DIR=/etc/sutura sutura foundry-check /run/sutura/caller-token
+```
+
+```text
+catalog ontology credential: ok - the token file was read
+catalog ontology object types: ok - 6 listed, 2 dotted API name(s) mapped
+catalog ontology mapped com.palantir.system.Evolution: ok - model com_palantir_system_Evolution
+catalog ontology mapped com.palantir.system.EvolutionProposal: ok - model com_palantir_system_EvolutionProposal
+catalog ontology links Flight: ok - 4 link side(s) read, 3 join(s) carried, 1 omitted
+catalog ontology load: ok - 6 model(s), 3 join(s)
+source ontology broker: ok - a linked Foundry token was returned; accessTokenExpiration present, 3540 s left; scope api:sql-queries-execute api:ontologies-read
+source ontology parse-only Flight: ok - Foundry parsed the statement
+source ontology parse-only com.palantir.system.Evolution (dotted, one quoted identifier): refused - Foundry refused the SQL request with 400, errorName <name>
+```
+
+Each line ends in `ok`, `refused` (Foundry, the identity provider or the catalog's own rules said
+no) or `failed` (no answer). The exit code is non-zero unless every line is `ok`. A line has no
+token, host, ontology identifier, request or answer text, or row value. It can have counts, HTTP
+statuses, Foundry's `errorName`, OAuth 2.0 error codes, scopes, object-type API names and the
+configured aliases, so it can be pasted into a public issue. When a setting cannot be read, the
+line says only that; `sutura serve` prints the full message. The redaction is tested with the fakes
+for the cases those tests trigger. A new error field is not checked until a test triggers it.
+
 ## Execution and limits
 
 The adapter sends `POST /api/v2/sqlQueries/executeOntology?preview=true`. Values remain native JSON

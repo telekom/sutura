@@ -40,6 +40,22 @@ fn open_one(
     settings: &sutura_config::CatalogSettings,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::http::HttpOntologyReader>, String> {
+    let name = settings.name();
+    Ok(sutura_catalog_foundry::FoundryCatalog::new(
+        name.clone(),
+        settings.version().clone(),
+        name.clone(),
+        reader(settings, outbound)?,
+    ))
+}
+
+/// The reader one declared `foundry` catalog reads through, its credential read at boot - the one
+/// composition `serve` and `foundry-check` both open.
+#[cfg(feature = "foundry")]
+pub(crate) fn reader(
+    settings: &sutura_config::CatalogSettings,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_catalog_foundry::http::HttpOntologyReader, String> {
     use sutura_catalog_foundry::http::{
         DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, HttpOntologyReader, OntologyIdentifier, ReadBounds,
         TokenSource,
@@ -80,10 +96,5 @@ fn open_one(
             )?)
         }
     };
-    Ok(sutura_catalog_foundry::FoundryCatalog::new(
-        name.clone(),
-        settings.version().clone(),
-        name.clone(),
-        HttpOntologyReader::new(endpoint, ontology, token, bounds, agent),
-    ))
+    Ok(HttpOntologyReader::new(endpoint, ontology, token, bounds, agent))
 }

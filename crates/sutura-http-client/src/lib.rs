@@ -68,5 +68,5 @@ pub use agent::{AgentConfig, OutboundAgent, Pinned, RotatingAgent, agent, agent_
 pub use bounds::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, InvalidReadBounds, ReadBounds};
 pub use budget::Budget;
 pub use endpoint::{Endpoint, InvalidEndpoint, ShownEndpoint};
-pub use message::EndpointMessage;
+pub use message::{EndpointMessage, ErrorName, TransportFault};
 pub use paging::{DEFAULT_MAX_ENTITIES, DEFAULT_PAGE_SIZE, InvalidPageLimits, PageLimits, PageReport, Pager, PagingRefusal};

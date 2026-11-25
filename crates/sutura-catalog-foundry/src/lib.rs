@@ -70,7 +70,7 @@ use sutura_domain::pinned::{
 type Content = (Definitions, Knowledge);
 
 /// The model name an object type becomes, and the table it names.
-type Named = (ModelName, QualifiedTable);
+pub type Named = (ModelName, QualifiedTable);
 
 /// The longest piece of an answer a refusal quotes.
 const SHOWN_CHARS: usize = 80;
@@ -253,12 +253,13 @@ impl<R: OntologyReader> FoundryCatalog<R> {
     }
 }
 
-/// The model name and table an object type's API name becomes - see the crate header.
+/// The model name and table an object type's API name becomes - see the crate header. The one
+/// mapping a load and an operator's check both read.
 ///
 /// # Errors
 ///
 /// [`FoundryError::ObjectTypeName`] naming the API name.
-fn model_name(api_name: &str) -> Result<Named, FoundryError> {
+pub fn model_name(api_name: &str) -> Result<Named, FoundryError> {
     let refused = |cause| FoundryError::ObjectTypeName {
         on: shown(api_name),
         cause,

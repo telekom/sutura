@@ -33,7 +33,7 @@ use std::time::Instant;
 
 use arrow_buffer::Buffer;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
-use sutura_domain::model::SourceName;
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::arrow::{Accumulating, ResultBudget, UnannouncedBatch};
@@ -377,6 +377,45 @@ where
             SqlRequest::from_query(&generated, &self.ontology, row_limit, dry_run),
             generated,
         ))
+    }
+
+    /// Asks Foundry to parse, in the endpoint's parse-only mode, a row count over `table` as the
+    /// Foundry dialect names it, under the token `presented` delivers: whether the endpoint accepts
+    /// that token and resolves that reference. Nothing runs, and no answer is decoded.
+    ///
+    /// # Errors
+    ///
+    /// [`FoundryError::Endpoint`] for Foundry's refusal; the refusals [`Warehouse::dry_run`] gives
+    /// for a token this source cannot deliver; [`FoundryError::Render`] for a table the dialect
+    /// cannot name.
+    pub fn parse_object(
+        &self,
+        table: &QualifiedTable,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> WarehouseResult<T::Error, ()> {
+        let token = self.delivered(presented, deadline)?;
+        let generated = sutura_sql::generate_object_probe(&self.source, table, Dialect::Foundry)
+            .map_err(|cause| FoundryError::Render { cause })?;
+        let request = SqlRequest::from_query(&generated, &self.ontology, 1, true);
+        self.transport
+            .execute(&request, &token, deadline)
+            .map_err(|cause| FoundryError::Endpoint { cause })?;
+        Ok(())
+    }
+
+    /// Obtains, and drops, a shared source's own bearer - a fixed token as it is, or one mint of its
+    /// grant - for an operator's check. `None` for a per-caller source: its startup identity is read
+    /// by [`Warehouse::verify_anchor`] alone.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenFailed`] inside the `Some` when no bearer could be obtained within `deadline`.
+    pub fn deployment_token(&self, deadline: Deadline) -> Option<Result<(), TokenFailed>> {
+        match self.bearer {
+            Bearer::Deployment(ref token) => Some(token.bearer(deadline).map(drop)),
+            Bearer::EachCaller { .. } => None,
+        }
     }
 
     fn decode(&self, bytes: Vec<u8>, most_rows: usize, deadline: Deadline) -> WarehouseResult<T::Error, ResultBatches> {

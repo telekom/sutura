@@ -33,8 +33,8 @@ use sutura_domain::model::InvalidQualifiedTable;
 pub use sutura_http_client::token::{TokenSource, TokenUnavailable};
 use sutura_http_client::{Budget, PageReport, Pager};
 pub use sutura_http_client::{
-    DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, EndpointMessage, InvalidEndpoint,
-    InvalidReadBounds, OutboundAgent, PageLimits, PagingRefusal, ReadBounds, RotatingAgent,
+    DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, EndpointMessage, ErrorName,
+    InvalidEndpoint, InvalidReadBounds, OutboundAgent, PageLimits, PagingRefusal, ReadBounds, RotatingAgent, TransportFault,
 };
 
 use crate::OntologyReader;
@@ -119,11 +119,13 @@ pub enum HttpReaderError {
         #[source]
         cause: Box<ureq::Error>,
     },
+    /// `error_name` is the answer's `errorName` in its own shape, read off the whole answer.
     #[error("Foundry refused the {what} request with {status}")]
     Refused {
         what: &'static str,
         status: u16,
         detail: EndpointMessage,
+        error_name: Option<ErrorName>,
     },
     #[error("the Foundry {what} answer was larger than the {cap}-byte cap this reader will read")]
     TooLarge { what: &'static str, cap: u64 },
@@ -205,6 +207,38 @@ impl HttpOntologyReader {
         declared: Option<sutura_tls::Declared>,
     ) -> Result<OutboundAgent, sutura_tls::LoadError> {
         sutura_http_client::rotating_agent(bounds, declared)
+    }
+
+    /// Where this reader's bearer comes from. The steps of [`OntologyReader::read`] one at a time,
+    /// each in a deadline of its own, are a [`TokenSource::bearer`] on this, [`Self::object_types`]
+    /// and [`Self::outgoing_link_types`].
+    #[must_use]
+    pub const fn token(&self) -> &TokenSource {
+        &self.token
+    }
+
+    /// This reader's whole-read deadline, which each step opens for itself.
+    #[must_use]
+    pub const fn timeout(&self) -> core::time::Duration {
+        self.api.bounds.timeout()
+    }
+
+    /// Every object type, page after page.
+    ///
+    /// # Errors
+    ///
+    /// [`HttpReaderError`].
+    pub fn object_types(&self) -> Result<Vec<ObjectType>, HttpReaderError> {
+        self.api.object_types(&self.token, Budget::opened(self.timeout()))
+    }
+
+    /// One object type's outgoing link types; its API name is parsed before it reaches a path.
+    ///
+    /// # Errors
+    ///
+    /// [`HttpReaderError::ObjectTypeName`] for a name that is not one, else [`HttpReaderError`].
+    pub fn outgoing_link_types(&self, api_name: &str) -> Result<Vec<LinkTypeSide>, HttpReaderError> {
+        self.api.outgoing(&self.token, Budget::opened(self.timeout()), api_name)
     }
 }
 
@@ -318,9 +352,30 @@ impl OntologyApi {
                 what,
                 status: status.as_u16(),
                 detail: EndpointMessage::bounded(&text),
+                error_name: ErrorName::from_answer(&text),
             });
         }
         serde_json::from_str(&text).map_err(|cause| HttpReaderError::Shape { what, cause })
+    }
+
+    /// One object type's outgoing link types, each request carrying `token`'s bearer; its API name
+    /// is parsed before it reaches a path.
+    pub(crate) fn outgoing(
+        &self,
+        token: &TokenSource,
+        budget: Budget,
+        api_name: &str,
+    ) -> Result<Vec<LinkTypeSide>, HttpReaderError> {
+        crate::object_table(api_name).map_err(|cause| HttpReaderError::ObjectTypeName {
+            api_name: api_name.chars().filter(|c| !c.is_control()).take(80).collect(),
+            cause,
+        })?;
+        self.list(
+            token,
+            budget,
+            LINK_TYPES,
+            &format!("{}/{api_name}/outgoingLinkTypes", self.object_types_path()),
+        )
     }
 }
 
@@ -328,22 +383,11 @@ impl OntologyReader for HttpOntologyReader {
     type Error = HttpReaderError;
 
     fn read(&self) -> Result<Ontology, Self::Error> {
-        let budget = Budget::opened(self.api.bounds.timeout());
-        let root = self.api.object_types_path();
+        let budget = Budget::opened(self.timeout());
         let object_types = self.api.object_types(&self.token, budget)?;
         let mut outgoing = BTreeMap::new();
         for object_type in &object_types {
-            let api_name = object_type.api_name();
-            crate::object_table(api_name).map_err(|cause| HttpReaderError::ObjectTypeName {
-                api_name: api_name.chars().filter(|c| !c.is_control()).take(80).collect(),
-                cause,
-            })?;
-            let sides: Vec<LinkTypeSide> = self.api.list(
-                &self.token,
-                budget,
-                LINK_TYPES,
-                &format!("{root}/{api_name}/outgoingLinkTypes"),
-            )?;
+            let sides = self.api.outgoing(&self.token, budget, object_type.api_name())?;
             outgoing.insert(String::from(object_type.api_name()), sides);
         }
         Ok(Ontology::new(object_types, outgoing))

@@ -77,7 +77,7 @@ use worker::run as run_worker;
     feature = "foundry",
     feature = "node"
 ))]
-mod broker;
+pub(crate) mod broker;
 
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
 mod bigquery;
