@@ -399,3 +399,19 @@ async fn the_startup_identity_verifies_the_anchor_and_no_question_presents_it() 
     assert!(!body.contains(BOOT), "{body}");
     assert_eq!(idp.finish().len(), 1);
 }
+
+#[test]
+fn a_foundry_login_source_loads_with_its_catalog_narrowed_per_caller() {
+    let idp = FakeServer::start(Vec::new());
+    let entry = foundry_entry(&idp, std::path::Path::new("/run/secrets/idp-client-secret"));
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"multi-user\"\n  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+         authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
+         algorithms: [\"ES256\"]\n{entry}    catalog_visibility: \"per-caller\"\n"
+    )));
+    assert!(
+        settings.is_ok(),
+        "`catalog_visibility: per-caller` beside a `foundry_login` is a declaration this source can honour: {settings:?}"
+    );
+    assert_eq!(idp.finish().len(), 0, "loading settings dials nothing");
+}

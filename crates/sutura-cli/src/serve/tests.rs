@@ -443,6 +443,10 @@ pub(in crate::serve) mod delegation_served;
 #[cfg(all(feature = "foundry", feature = "bigquery"))]
 mod foundry_login;
 
+// `catalog_visibility: per-caller` on that source: each caller's catalog narrowed by their own token.
+#[cfg(all(feature = "foundry", feature = "bigquery"))]
+mod foundry_visibility;
+
 #[test]
 #[cfg(feature = "bigquery")]
 fn a_catalog_reading_two_kinds_of_source_now_opens_both_and_reaches_the_second_kinds_own_boot_check() {

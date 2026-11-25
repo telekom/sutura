@@ -45,9 +45,18 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
-    crate::catalog::start_composed(catalogs, engines, broker, combiner, settings).map(|service| match gate {
-        Some(gate) => Arc::new(service.with_adoption_gate(gate)) as Serving,
-        None => Arc::new(service) as Serving,
+    let visibility = super::visibility::declared(settings)?;
+    crate::catalog::start_composed(catalogs, engines, broker, combiner, settings).map(|service| {
+        // Before the erasure: the narrowing is held by the service, so every transport over it -
+        // `/v1/catalog` and the agent surface alike - reads one decision.
+        let service = match visibility {
+            Some(visibility) => service.with_catalog_visibility(visibility),
+            None => service,
+        };
+        match gate {
+            Some(gate) => Arc::new(service.with_adoption_gate(gate)) as Serving,
+            None => Arc::new(service) as Serving,
+        }
     })
 }
 

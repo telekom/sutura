@@ -97,6 +97,8 @@ mod cube;
 mod foundry;
 /// The `node` half: another sutura node running a source's legs, inside the mix only.
 mod node;
+/// The sources that narrow each caller's catalog view, `sources.<alias>.catalog_visibility`.
+mod visibility;
 
 /// The same, for the `DuckDB` file this root opens read-only.
 mod duckdb;
