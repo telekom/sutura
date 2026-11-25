@@ -23,6 +23,10 @@ allowed to read the catalog and not to ask a question - real least authority ove
 It buys nothing over the rows: both operations read the same bundle and every question runs with
 whatever access the process already had. Describing scope filtering as per-caller **data** access
 would be exactly the overstatement to avoid.
+The same holds for a `foundry_login` source's `catalog_visibility: per-caller`
+(`docs/adr/20261125083027-catalog-visibility-per-caller.md`): it hides models whose object type the
+caller's own token does not list, from the catalog and listing doors only - questions still compile
+against the whole bundle, and Foundry's refusal under that token is the data control.
 
 `docs/where-identity-is-proven.md` is one row per identity claim and the venue that can honestly
 answer it, with what each venue **cannot** answer beside it. Read it before citing a green run as

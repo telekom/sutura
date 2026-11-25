@@ -105,5 +105,65 @@ sutura refuses the whole load, and names the object type, when:
 ## Identity
 
 The reader sends the token of the deployment on every request. It is one token for every caller,
-because sutura loads a catalog without a caller's identity. Every caller sees the object types that
+because sutura loads a catalog without a caller's identity. The bundle holds the object types that
 this token can see. Use a service user that can see only what every caller may see.
+
+### Narrowing what each caller sees
+
+!!! warning "Built, not observed"
+
+    Held by fakes only: a loopback identity provider and a loopback fake of Foundry's object-type
+    list. No Foundry tenant has listed object types under a brokered token for it.
+
+A [`kind: foundry` source](../data-systems/foundry.md#identity) that runs each question with
+`foundry_login` can also narrow each caller's VIEW of the catalog. Write
+`catalog_visibility: "per-caller"` on that source:
+
+```yaml
+sources:
+  ontology:
+    kind: "foundry"
+    endpoint: "https://foundry.example.com"
+    ontology: "sales_ontology"
+    posture: "impersonation-at-source"
+    catalog_visibility: "per-caller"
+    foundry_login:
+      token_endpoint: "https://idp.example.com/realms/example/broker/foundry/token"
+      client_id: "sutura"
+      client_secret_file: "/run/sutura/idp-client-secret"
+```
+
+For `GET /v1/catalog`, the agent surface's `describe_catalog` tool and its `initialize` prompt,
+sutura then lists the source's object types with the caller's own brokered Foundry token - the
+same token `foundry_login` gets for a question - and shows only the models on that source whose
+object type is in that list. A metric over a hidden model is hidden too, and so is a join to one.
+The definitions do not change: the bundle, its digest and its provenance stay the deployment's.
+
+| Value          | Meaning                                                                       |
+| -------------- | ----------------------------------------------------------------------------- |
+| absent         | The default. Every caller sees every model, and nothing is listed per caller. |
+| `"per-caller"` | Narrowed as above. Refused at load on a source without `foundry_login`.       |
+
+One caller's list is reused for 60 seconds, for up to 1024 callers, and never for another caller.
+
+What a failure answers - never the unnarrowed catalog:
+
+- A caller with no linked Foundry account: `403 identity_not_linked`.
+- Any other identity provider failure: `503 identity_unavailable`.
+- Foundry did not list, or refused the caller's token: `503 unavailable`.
+
+**It narrows what a caller sees. It is not a data control.** Foundry evaluating each question under
+the caller's own token is the data control. A caller who names a hidden metric can still ask it;
+Foundry then refuses it under their token, and that refusal differs from the one for a metric that
+does not exist.
+
+Limits:
+
+- Text in the bundle is not narrowed: a metric's description, a note, or the operator's
+  instructions that name a hidden model still reach every caller.
+- Models on other sources are not narrowed.
+- A metric over catalog-authored SQL is judged by its own model only.
+- A permission Foundry removes stays visible for up to 60 seconds.
+- Only `sutura serve` narrows: the `sutura` command refuses an impersonating Foundry source.
+- Whether a Foundry application's token may list object types, and whether Foundry lists them per
+  user as sutura expects, is unverified.

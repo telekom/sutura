@@ -27,16 +27,17 @@ the catalog that defines the questions.
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                                | Type          | Default  | Meaning                                                                                                                                               |
-| ---------------------------------- | ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `endpoint`                         | string        | required | `scheme://host[:port]`. HTTPS for remote hosts; HTTP only for a loopback IP address. No path, query or credentials.                                   |
-| `ontology`                         | string        | required | The ontology API name or RID.                                                                                                                         |
-| `token_file`                       | absolute path | -        | `shared-service-user` only: a deployment bearer token, read once at startup. Restart to replace it. Write this or `client_credentials`, not both.     |
-| `client_credentials`               | block         | -        | `shared-service-user` only: the deployment's OAuth 2.0 client-credentials grant, minted on `endpoint` and minted again before it expires. Keys below. |
-| `verification_client_credentials`  | block         | -        | `impersonation-at-source` only, with `verification_identity`: the startup-only identity anchors run as. Never presented for a question. Keys below.   |
-| `foundry_login.token_endpoint`     | URL           | -        | `impersonation-at-source` only, and required there: the broker token endpoint `https://<host>/realms/<realm>/broker/<alias>/token`.                   |
-| `foundry_login.client_id`          | string        | -        | The client ID that sutura uses at the identity provider.                                                                                              |
-| `foundry_login.client_secret_file` | absolute path | -        | A file that holds that client's secret. sutura reads it at startup.                                                                                   |
+| Key                                | Type          | Default  | Meaning                                                                                                                                                                                                                       |
+| ---------------------------------- | ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `endpoint`                         | string        | required | `scheme://host[:port]`. HTTPS for remote hosts; HTTP only for a loopback IP address. No path, query or credentials.                                                                                                           |
+| `ontology`                         | string        | required | The ontology API name or RID.                                                                                                                                                                                                 |
+| `token_file`                       | absolute path | -        | `shared-service-user` only: a deployment bearer token, read once at startup. Restart to replace it. Write this or `client_credentials`, not both.                                                                             |
+| `client_credentials`               | block         | -        | `shared-service-user` only: the deployment's OAuth 2.0 client-credentials grant, minted on `endpoint` and minted again before it expires. Keys below.                                                                         |
+| `verification_client_credentials`  | block         | -        | `impersonation-at-source` only, with `verification_identity`: the startup-only identity anchors run as. Never presented for a question. Keys below.                                                                           |
+| `foundry_login.token_endpoint`     | URL           | -        | `impersonation-at-source` only, and required there: the broker token endpoint `https://<host>/realms/<realm>/broker/<alias>/token`.                                                                                           |
+| `foundry_login.client_id`          | string        | -        | The client ID that sutura uses at the identity provider.                                                                                                                                                                      |
+| `foundry_login.client_secret_file` | absolute path | -        | A file that holds that client's secret. sutura reads it at startup.                                                                                                                                                           |
+| `catalog_visibility`               | string        | absent   | `"per-caller"`: narrow each caller's catalog view to the object types their own `foundry_login` token lists. Refused without `foundry_login`. See [the catalog page](../catalogs/foundry.md#narrowing-what-each-caller-sees). |
 
 Both blocks take the keys of the catalog's `foundry.client_credentials`, read by the same parser:
 
@@ -172,8 +173,11 @@ Limits:
 - The `sutura` command (`query`, `mcp`) attaches no broker and refuses an impersonating Foundry
   source. Only `sutura serve` runs one.
 - The [Foundry catalog](../catalogs/foundry.md) stays deployment-scoped: it reads metadata as its
-  service user, and every caller sees the same models. A per-caller catalog visibility filter is
-  out of scope and needs an ADR. A caller can therefore see a model whose objects Foundry will then
-  refuse them; no rows reach them, but the model's name and columns do.
+  service user. By default every caller sees the same models, so a caller can see a model whose
+  objects Foundry will then refuse them; no rows reach them, but the model's name and columns do.
+  `catalog_visibility: "per-caller"` on this source narrows each caller's view to the object types
+  their own brokered token lists
+  ([Narrowing what each caller sees](../catalogs/foundry.md#narrowing-what-each-caller-sees)). It
+  hides names and is not a data control.
 - An ADBC or Arrow Flight transport would take the same bearer. Whether Foundry's Flight endpoint
   accepts a third-party application's user token is unverified.
