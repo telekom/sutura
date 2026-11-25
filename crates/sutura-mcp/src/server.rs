@@ -181,7 +181,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use rmcp::model::{
-    CallToolRequestMethod, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorCode, Implementation,
+    CallToolRequestMethod, CallToolRequestParams, CallToolResponse, CallToolResult, ErrorCode, Implementation,
     InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::{RequestContext, RoleServer};
@@ -198,12 +198,15 @@ use sutura_runtime::Admission;
 
 use crate::Asking;
 use crate::tool;
-use crate::wire::{AskArgs, CatalogContent, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, RunSqlArgs};
+use crate::wire::{AskArgs, DescribeCatalogArgs, MalformedQuestion, MalformedStatement, RunSqlArgs};
 use metered::Turn;
 
 mod bounds;
+/// The catalog door, `describe_catalog`, and the per-caller narrowing it and `initialize` share.
+mod catalog;
 mod metered;
 mod outcome;
+use catalog::{describe, hidden_for};
 
 /// The agent-facing surface over one [`Surface`].
 ///
@@ -425,12 +428,16 @@ where
         let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref())
             .listing_physical_schema(self.list_physical_schema)
             .ceilings(self.ceilings);
-        std::future::ready(self.asked(&context).and_then(|asked| {
+        async move {
+            let asked = self.asked(&context)?;
             let definitions = self.service.definitions();
-            let view = sutura_app::scoped_for(&definitions, asked.context());
+            let hidden = hidden_for(&self.service, asked.context(), &definitions, self.reply)
+                .await
+                .map_err(|failure| ErrorData::internal_error(outcome::sentence(&failure), None))?;
+            let view = sutura_app::scoped_for(&definitions, asked.context()).hiding(hidden);
             self.negotiate_initialize(&request)
                 .map(|negotiated| negotiated.with_instructions(sutura_app::prompt::render(&view, &inputs)))
-        }))
+        }
     }
 
     /// The tools this peer may invoke, and no cursor: the set is bounded by
@@ -498,10 +505,12 @@ where
                 describe(
                     &self.service,
                     asked.context(),
+                    self.reply,
                     self.prose,
                     self.operator_instructions.as_deref(),
                     self.list_physical_schema,
                 )
+                .await
             }
             Capability::AskMetric => {
                 let turn = Turn::of(&self.admission, &context);
@@ -784,64 +793,6 @@ fn invalid(error: &MalformedQuestion) -> ErrorData {
         _ => RenderedCause::of(error),
     }
     .into_error_data()
-}
-
-/// The served bundle, as THIS caller's view, rendered as a tool result.
-///
-/// **No blocking pool and no data system**, which is why this is not `async` and takes no slot: it
-/// reads the validated bundle being served, taken once for this call, so a refresh that lands while
-/// it renders does not change what it renders. The same judgement
-/// `sutura_http::routes::v1::catalog` makes, for the same reason.
-///
-/// **The view is the caller's at this door - `docs/adr/0028`.** A caller sees only the metrics its
-/// mapped audiences name, mirrored from `sutura_http::routes::v1::catalog`'s `CatalogBody::of(&view, …)`.
-/// `scoped_for` reads an absent or process-owner caller as `Subject::TheDeploymentItself`, which
-/// maps to the whole bundle, so an operator in stdio mode still sees exactly what they always saw;
-/// a verified caller sees the bundle cut to their grant. That the renderer CANNOT skip the scope is
-/// the point of taking `&ScopedView` rather than a bare `&PinnedDefinitions`.
-///
-/// **The `initialize.instructions` prompt goes through the same view.** `initialize` renders it
-/// per caller with `sutura_app::prompt::render`, which takes a `&ScopedView` too, so its
-/// metric list and knowledge sections withhold what this listing withholds. What neither scopes is
-/// the operator's own text, which is deployment-wide by design.
-///
-/// **No audit record either, and that is deliberate rather than an omission.**
-/// `sutura_domain::audit::CallRecord` records the outcome of a *question*, and this is not one - there
-/// is no `ToolOutcome` to derive a record from and `Surface::definitions` writes none. So the
-/// invariant *every outcome is recorded before it is returned* is untouched: this produces no outcome.
-/// Whether reading the catalog is itself worth a record is a real question and the answer would be a
-/// third `RecordedOutcome` variant, which is a change to what a record means rather than a field added
-/// to one.
-fn describe<S>(
-    service: &Arc<S>,
-    context: &sutura_domain::identity::RequestContext,
-    prose: sutura_app::prompt::CatalogProse,
-    operator_instructions: Option<&str>,
-    list_physical_schema: bool,
-) -> CallToolResult
-where
-    S: Surface,
-{
-    // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
-    // `#266`: the text block honoured it while `structured_content` beside it carried every
-    // description, so a deployment that had withheld its catalog prose shipped it anyway to any
-    // client reading the structured half. `CatalogContent::of_with_physical_schema` cannot be
-    // called without the answer.
-    //
-    // And the view is built here, from the caller this request's own verification resolved - see the
-    // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
-    let definitions = service.definitions();
-    let view = sutura_app::scoped_for(&definitions, context);
-    // The operator's own text - the raw value, before it was folded into the rendered prompt - rides
-    // the catalog tool so a gateway that surfaces only tools (and never delivers
-    // `initialize.instructions`) still reaches the operator's rules.
-    let listing = CatalogContent::of_with_physical_schema(&view, prose, operator_instructions, list_physical_schema);
-    let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
-    // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
-    // numbers and vectors, so serializing it cannot fail, and there is no `unwrap` in this workspace
-    // to say so.
-    result.structured_content = serde_json::to_value(&listing).ok();
-    result
 }
 
 /// One question, under both bounds, as a tool result.
