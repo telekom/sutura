@@ -82,6 +82,15 @@ impl Surface for Serving {
         self.surface.spent_bytes_total()
     }
 
+    fn hidden_models(
+        &self,
+        context: &RequestContext,
+        pinned: &PinnedDefinitions,
+        deadline: Deadline,
+    ) -> Result<sutura_domain::visibility::HiddenModels, SurfaceFailure> {
+        self.surface.hidden_models(context, pinned, deadline)
+    }
+
     fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
         self.surface.worker_slots_wanted()
     }

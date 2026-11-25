@@ -60,6 +60,10 @@ mod bounds;
 // every name in that argument lives in the other file.
 pub mod surface;
 
+// Per-caller catalog visibility: the models a caller's own credential lets them see, asked of each
+// declared source, and the cache over the answers.
+pub mod visibility;
+
 // The agent-facing system prompt, derived from the tool surface and the pinned bundle. Here for the
 // same reason `sources` and `grains_coarsest_first` below are: a shape the application can offer
 // for free, that every one of its callers needs, belongs with the application rather than with one

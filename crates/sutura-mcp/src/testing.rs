@@ -34,10 +34,7 @@ use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Definitions, Descrip
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
 };
-use sutura_domain::knowledge::{
-    Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
-    Phrase, Referent,
-};
+use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, AudienceId, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName,
@@ -50,6 +47,10 @@ use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, ExecutedAs, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Value, Warehouse};
+
+/// The glossary fixture, in its own file for `cargo xtask max-lines`.
+mod glossary;
+pub(crate) use glossary::bundle_with_restricted_metric_and_glossary;
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: i64 = 197_122;
@@ -224,119 +225,6 @@ pub(crate) fn bundle_with_a_restricted_metric() -> PinnedDefinitions {
         ContributionManifest::single(
             source(),
             Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
-        ),
-    )
-    .expect("the test definitions hash")
-}
-
-/// [`bundle_with_a_restricted_metric`], plus a glossary entry that names the `finance_only` metric
-/// and an operator instructions file - the fixture issue #971's audience-scoped knowledge test needs.
-///
-/// One bundle carries the two metrics and one glossary entry pointing at the RESTRICTED one, so a
-/// caller who may not see `finance_only` must not receive the entry either, while the deployment's
-/// own view keeps both.
-pub(crate) fn bundle_with_restricted_metric_and_glossary() -> PinnedDefinitions {
-    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
-    let model = Model::new(
-        ModelName::parse("orders").expect("a test model is a model"),
-        source(),
-        TableName::parse("orders").expect("a test table is a table"),
-        BTreeSet::from([column("amount_cents"), column("order_date"), column("region")]),
-        description("Orders, one row per order."),
-    );
-    let revenue = Metric::new(
-        MetricName::parse("revenue").expect("a test metric is a metric"),
-        ModelName::parse("orders").expect("a test model is a model"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-        Vec::new(),
-        column("order_date"),
-        BTreeSet::from([Grain::Day, Grain::Month]),
-        Vec::new(),
-        None,
-        description("Revenue, in minor units."),
-        Audience::Open,
-    )
-    .expect("no dimensions to duplicate");
-    let restricted_to_finance = Audience::Restricted(
-        sutura_domain::catalog::AudienceGrant::parse(BTreeSet::from([
-            AudienceId::parse("finance").expect("a test audience id is one")
-        ]))
-        .expect("one id grants"),
-    );
-    let finance_only = Metric::new(
-        MetricName::parse("finance_only").expect("a test metric is a metric"),
-        ModelName::parse("orders").expect("a test model is a model"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-        Vec::new(),
-        column("order_date"),
-        BTreeSet::from([Grain::Month]),
-        Vec::new(),
-        None,
-        description("Only a finance-granted caller may see this."),
-        restricted_to_finance,
-    )
-    .expect("no dimensions to duplicate");
-    let definitions = sutura_domain::catalog::Definitions::assemble(vec![model], vec![], vec![revenue, finance_only])
-        .expect("the test bundle is consistent");
-    let finance_only_name = MetricName::parse("finance_only").expect("a restricted metric is a metric");
-    let finance_only_referent = Referent::Metric {
-        metric: finance_only_name.clone(),
-    };
-    let knowledge = Knowledge::assemble(
-        &definitions,
-        KnowledgeInput::new(
-            KnowledgeCapabilities::of([
-                Capability::Glossary,
-                Capability::Caveats,
-                Capability::Examples,
-                Capability::Absences,
-            ]),
-            vec![GlossaryEntry::new(
-                Phrase::parse("capital expense").expect("a test phrase is a phrase"),
-                BTreeSet::new(),
-                finance_only_referent.clone(),
-                NoteBody::parse("the finance-only meaning of capex").expect("a test body is a body"),
-            )],
-            vec![Caveat::new(
-                NoteName::parse("finance_only_caveat").expect("a test note name is a name"),
-                // About BOTH the open `revenue` and the restricted `finance_only`, so the
-                // all-referents rule is the thing under test: a caller who may see only
-                // `revenue` still loses this caveat because one of its referents is invisible.
-                vec![
-                    finance_only_referent,
-                    Referent::Metric {
-                        metric: MetricName::parse("revenue").expect("a test metric is a metric"),
-                    },
-                ],
-                NoteBody::parse("only a finance-granted caller should trust this number").expect("a test body is a body"),
-            )],
-            vec![Absence::new(
-                Phrase::parse("customer lifetime value").expect("a test phrase is a phrase"),
-                BTreeSet::new(),
-                NoteBody::parse("CLV is deliberately undefined here").expect("a test body is a body"),
-            )],
-            vec![Example::new(
-                NoteName::parse("finance_only_example").expect("a test note name is a name"),
-                vec![Phrase::parse("finance example").expect("a test phrase is a phrase")],
-                Query::single(
-                    finance_only_name,
-                    Grain::Month,
-                    crate::testing::june(),
-                    Vec::new(),
-                    Vec::new(),
-                ),
-                NoteBody::parse("ask exactly this").expect("a test body is a body"),
-            )],
-        ),
-    )
-    .expect("every note names a declared metric");
-    PinnedDefinitions::pin(
-        DefinitionVersion::parse("test-1").expect("a test version is a version"),
-        definitions.clone(),
-        knowledge.clone(),
-        ContributionManifest::single(
-            source(),
-            Contribution::of(MetadataCapabilities::produced(&definitions, &knowledge)),
         ),
     )
     .expect("the test definitions hash")
@@ -633,6 +521,15 @@ impl Surface for FailingSurface {
     fn spent_bytes_total(&self) -> Option<u64> {
         None
     }
+
+    fn hidden_models(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _pinned: &sutura_domain::pinned::PinnedDefinitions,
+        _deadline: sutura_domain::warehouse::deadline::Deadline,
+    ) -> Result<sutura_domain::visibility::HiddenModels, sutura_app::surface::SurfaceFailure> {
+        Ok(sutura_domain::visibility::HiddenModels::none())
+    }
 }
 
 /// A surface over [`bundle_with_a_restricted_metric`] that answers nothing else.
@@ -685,6 +582,15 @@ impl Surface for RestrictedSurface {
     fn spent_bytes_total(&self) -> Option<u64> {
         None
     }
+
+    fn hidden_models(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _pinned: &sutura_domain::pinned::PinnedDefinitions,
+        _deadline: sutura_domain::warehouse::deadline::Deadline,
+    ) -> Result<sutura_domain::visibility::HiddenModels, sutura_app::surface::SurfaceFailure> {
+        Ok(sutura_domain::visibility::HiddenModels::none())
+    }
 }
 
 /// The metadata-visibility fixture with the knowledge half issue #971 introduces: an open metric, a
@@ -736,6 +642,15 @@ impl Surface for RestrictedKnowledgeSurface {
         // This fixture carries no `SpendLedger` at all; `#993` added the trait method and this
         // metadata-visibility fixture must satisfy it like its sibling surfaces do.
         None
+    }
+
+    fn hidden_models(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _pinned: &sutura_domain::pinned::PinnedDefinitions,
+        _deadline: sutura_domain::warehouse::deadline::Deadline,
+    ) -> Result<sutura_domain::visibility::HiddenModels, sutura_app::surface::SurfaceFailure> {
+        Ok(sutura_domain::visibility::HiddenModels::none())
     }
 }
 
@@ -821,6 +736,15 @@ impl Surface for RecordingSurface {
     fn spent_bytes_total(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
         None
+    }
+
+    fn hidden_models(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _pinned: &sutura_domain::pinned::PinnedDefinitions,
+        _deadline: sutura_domain::warehouse::deadline::Deadline,
+    ) -> Result<sutura_domain::visibility::HiddenModels, sutura_app::surface::SurfaceFailure> {
+        Ok(sutura_domain::visibility::HiddenModels::none())
     }
 }
 
@@ -947,6 +871,15 @@ impl Surface for HoldingSurface {
     fn spent_bytes_total(&self) -> Option<u64> {
         // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
         None
+    }
+
+    fn hidden_models(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _pinned: &sutura_domain::pinned::PinnedDefinitions,
+        _deadline: sutura_domain::warehouse::deadline::Deadline,
+    ) -> Result<sutura_domain::visibility::HiddenModels, sutura_app::surface::SurfaceFailure> {
+        Ok(sutura_domain::visibility::HiddenModels::none())
     }
 }
 

@@ -81,6 +81,15 @@ impl Surface for RotatingSurface {
     fn spent_bytes_total(&self) -> Option<u64> {
         None
     }
+
+    fn hidden_models(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _pinned: &sutura_domain::pinned::PinnedDefinitions,
+        _deadline: sutura_domain::warehouse::deadline::Deadline,
+    ) -> Result<sutura_domain::visibility::HiddenModels, sutura_app::surface::SurfaceFailure> {
+        Ok(sutura_domain::visibility::HiddenModels::none())
+    }
 }
 
 fn rotating() -> (RotatingSurface, PinnedDefinitions) {
