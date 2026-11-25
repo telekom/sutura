@@ -618,7 +618,22 @@ a_shared_source_minting_its_own_token_is_checked_before_and_under_it # in foundr
 foundry_names_a_dotted_object_as_one_quoted_identifier_aliased_to_its_local_name # in generate/tests/dotted.rs, declared in generate/tests.rs, which adds no test and is reverted for the base run, so the module is not compiled there
 every_other_dialect_refuses_a_dotted_object # in generate/tests/dotted.rs, declared in generate/tests.rs, which adds no test and is reverted for the base run, so the module is not compiled there
 a_foundry_key_probe_names_a_dotted_object_as_one_quoted_identifier # in generate/tests/dotted.rs, declared in generate/tests.rs, which adds no test and is reverted for the base run, so the module is not compiled there
+the_default_exclusion_drops_platform_types_before_their_links_are_read_and_names_none # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+tenant_names_are_printed_only_when_asked_for # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+arguments_take_names_and_one_token_file_and_refuse_anything_more # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_token_written_where_its_file_belongs_is_refused_and_never_presented # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+an_impersonating_source_mints_its_declared_startup_identity_and_nothing_else # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in
+a_pattern_is_an_exact_name_or_a_dotted_prefix_and_nothing_else # in model/exclusion.rs, which this branch adds; the base run reverts model.rs, which declares it
+an_object_type_is_queried_by_the_rid_the_list_read_under_the_callers_token_returns # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
 each_narrowing_failure_is_its_own_initialize_error # in server/catalog/tests.rs, which this branch adds; the base run reverts server/catalog.rs, which declares it
+foundry_names_each_object_type_by_the_resource_identifier_it_resolved_to # in generate/tests/dotted.rs, declared in generate/tests.rs, which adds no test and is reverted for the base run, so the module is not compiled there
+an_api_name_no_read_holds_is_refused_naming_the_table_and_nothing_is_sent # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
+a_narrower_read_adds_to_the_map_and_never_evicts_another_callers_entries # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
+an_anchors_reads_never_fill_the_map_questions_read # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
+a_type_listed_without_a_rid_refuses_only_a_question_that_needs_it # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
+an_excluded_type_is_refused_by_api_name_at_boot_and_by_rid_at_query_time # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
+a_rid_foundry_no_longer_finds_is_dropped_and_read_again_by_the_next_question # in directory_tests.rs, which this branch adds; the base run reverts lib.rs, which declares it
 a_not_linked_caller_is_answered_from_the_held_refusal_without_asking_again # serve/tests/foundry_visibility.rs, declared in serve/tests.rs beside the catalog visibility the base lacks; the base run reverts the declaration, so the module is not compiled there
 concurrent_first_requests_for_one_caller_share_one_listing # serve/tests/foundry_visibility.rs, declared in serve/tests.rs beside the catalog visibility the base lacks; the base run reverts the declaration, so the module is not compiled there
 the_agent_surface_takes_a_slot_before_narrowing_dials_and_none_on_a_held_listing # serve/tests/foundry_visibility.rs, declared in serve/tests.rs beside the catalog visibility the base lacks; the base run reverts the declaration, so the module is not compiled there
+a_refused_load_names_only_what_went_wrong_unless_names_are_asked_for # in foundry_check/tests.rs, declared in foundry_check.rs, which this branch adds; the base has no module to run it in

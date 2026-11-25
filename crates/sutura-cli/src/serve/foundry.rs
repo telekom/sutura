@@ -31,19 +31,20 @@ type Served = (
 );
 
 /// The service a Foundry-only deployment answers through: the declared-subject broker, because an
-/// `impersonation-at-source` source sends each caller's own brokered Foundry token. No pre-flight:
-/// the adapter takes the port's default.
+/// `impersonation-at-source` source sends each caller's own brokered Foundry token. `gate` runs the
+/// pre-flight boot ran - the tables `exclude_object_types` leaves out - over every refreshed bundle.
 #[cfg(feature = "foundry")]
 pub(super) fn served(
     catalogs: &crate::catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<super::FoundrySource>,
     combiner: sutura_exec_datafusion::DataFusionCombiner,
+    gate: Option<sutura_app::surface::AdoptionGate<super::FoundrySource>>,
     settings: &sutura_config::Settings,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<Served, String> {
     let broker = super::broker::build_broker(settings.sources(), outbound)?;
     Ok((
-        super::compose::started(catalogs, engines, broker, combiner, None, settings)?,
+        super::compose::started(catalogs, engines, broker, combiner, gate, settings)?,
         None,
     ))
 }

@@ -148,7 +148,7 @@ pub enum AsOfRefused {
 /// [`AsOfRefused::NoKey`] for a bucket past the leg's keys, then the leg's own rendering.
 pub fn generate_leg_as_of(leg: &LegPlan, scn: Scn, bucket: Option<KeyBucket>) -> Result<GeneratedQuery, AsOfRefused> {
     let within = bucket.map(|bucket| within(leg, bucket)).transpose()?;
-    let mut ast = leg_statement(leg, Dialect::Oracle, within)?;
+    let mut ast = leg_statement(leg, Dialect::Oracle, within, &super::ObjectReferences::NONE)?;
     let tables = leg.tables().joins().len().saturating_add(1);
     let stamped = stamp(&mut ast, scn);
     if stamped != tables {

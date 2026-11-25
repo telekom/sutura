@@ -237,7 +237,13 @@ impl Settings {
         // in single-user mode borrows the mode's own declaration as its acknowledgement, so the mode
         // has to be parsed before the entry that may read it.
         let security = parse::parse_security(raw)?;
-        let sources = parse::parse_sources(raw, security.identity(), security.inbound())?;
+        let mut sources = parse::parse_sources(raw, security.identity(), security.inbound())?;
+        let catalogs = catalogs::parse_catalogs(raw, &sources)?;
+        for catalog in catalogs.each() {
+            if let Some(foundry) = catalog.foundry() {
+                sources.exclude_object_types(catalog.name(), foundry.exclusions());
+            }
+        }
         Ok(Self {
             layers,
             environment,
@@ -249,7 +255,7 @@ impl Settings {
                 raw.api.docs.unwrap_or_else(|| ApiSettings::docs_default_for(environment)),
                 raw.api.docs.is_some(),
             ),
-            catalogs: catalogs::parse_catalogs(raw, &sources)?,
+            catalogs,
             runtime: parse::parse_runtime(raw)?,
             prompt: parse::parse_prompt(raw)?,
             tools: parse::parse_tools(raw)?,

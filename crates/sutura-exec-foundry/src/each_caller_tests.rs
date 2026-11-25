@@ -233,14 +233,10 @@ struct Minting {
     count: std::sync::atomic::AtomicUsize,
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("the fake token endpoint refused the client")]
-struct Refused;
-
 impl super::DeploymentToken for Minting {
     fn bearer(&self, _deadline: Deadline) -> Result<Secret, super::TokenFailed> {
         if self.refuses {
-            return Err(super::TokenFailed(Box::new(Refused)));
+            return Err(super::TokenFailed::DeadlineSpent);
         }
         let n = self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         Ok(Secret::new(format!("minted-{n}")))

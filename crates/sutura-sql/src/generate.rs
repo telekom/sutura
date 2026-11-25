@@ -536,6 +536,18 @@ fn named_objects<'plan>(
     tables: impl IntoIterator<Item = &'plan QualifiedTable>,
     dialect: Dialect,
 ) -> Result<Expression, GenerateError> {
+    named_objects_with(ast, tables, dialect, &ObjectReferences::NONE)
+}
+
+/// [`named_objects`], with `references` naming a table that carries no object reference of its
+/// own - a Foundry object type an author wrote by its API name, resolved to its resource
+/// identifier by the adapter before the statement is built.
+fn named_objects_with<'plan>(
+    ast: Expression,
+    tables: impl IntoIterator<Item = &'plan QualifiedTable>,
+    dialect: Dialect,
+    references: &ObjectReferences,
+) -> Result<Expression, GenerateError> {
     use polyglot_sql::expressions::Identifier;
 
     if dialect != Dialect::Foundry {
@@ -543,7 +555,14 @@ fn named_objects<'plan>(
     }
     let objects: std::collections::BTreeMap<String, String> = tables
         .into_iter()
-        .filter_map(|table| Some((table.name().to_string(), table.object_path()?.dotted())))
+        .filter_map(|table| {
+            let physical = references
+                .0
+                .get(table.name())
+                .map(|id| String::from(id.as_str()))
+                .or_else(|| table.object_reference())?;
+            Some((table.name().to_string(), physical))
+        })
         .collect();
     if objects.is_empty() {
         return Ok(ast);
@@ -625,7 +644,7 @@ use leg::leg_within;
 use measure::{Guard, measure_expression, predicate_values, term_expression};
 pub use object_probe::{OBJECT_PROBE_LABEL, generate_object_probe};
 pub use pages::generate_leg_pages;
-pub use stacked::generate_stacked;
+pub use stacked::{generate_stacked, generate_stacked_with};
 
 /// The statement, as this dialect writes it.
 ///
@@ -786,8 +805,45 @@ fn grouped(
     Ok(statement.where_(where_clause).group_by(grouping))
 }
 
+/// The resource identifier each table a statement names by its local name is rendered as.
+///
+/// For a dialect that resolves objects by identifier - Foundry's Ontology SQL, which resolves an
+/// object type by its RID and not by its API name. Keyed by the table's local name.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ObjectReferences(std::collections::BTreeMap<TableName, sutura_domain::model::ResourceId>);
+
+impl ObjectReferences {
+    /// No table resolved: each renders as its own reference, or by its name.
+    pub const NONE: Self = Self(std::collections::BTreeMap::new());
+
+    /// Renders the table known locally as `local` as `id`.
+    pub fn insert(&mut self, local: TableName, id: sutura_domain::model::ResourceId) {
+        drop(self.0.insert(local, id));
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The resource identifier the table known locally as `local` is rendered as.
+    #[must_use]
+    pub fn get(&self, local: &TableName) -> Option<&sutura_domain::model::ResourceId> {
+        self.0.get(local)
+    }
+}
+
 /// Renders a plan as one statement, paired with its parameters.
 pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    generate_with(plan, dialect, &ObjectReferences::NONE)
+}
+
+/// [`generate`], each table in `references` rendered as its resource identifier.
+///
+/// # Errors
+///
+/// [`GenerateError`], as [`generate`].
+pub fn generate_with(plan: &QueryPlan, dialect: Dialect, references: &ObjectReferences) -> Result<GeneratedQuery, GenerateError> {
     let Head {
         mut projection,
         grouping,
@@ -854,10 +910,11 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         PlaceholderStyle::Question | PlaceholderStyle::Colon => emitted,
         PlaceholderStyle::Numbered => plan.params().to_vec(),
     };
-    let ast = named_objects(
+    let ast = named_objects_with(
         ast,
         std::iter::once(plan.table()).chain(plan.joins().iter().map(PlanJoin::table)),
         dialect,
+        references,
     )?;
     let sql = render(&ast, dialect)?;
     assert_placeholder_count(&ast, dialect, &params)?;
@@ -906,7 +963,20 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// a parse check is not an execution - the executed evidence is
 /// `crates/sutura-exec-postgres/tests/conformance.rs`'s leg cell against a provisioned tier.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
-    leg_within(leg, dialect, None)
+    leg_within(leg, dialect, None, &ObjectReferences::NONE)
+}
+
+/// [`generate_leg`], each table in `references` rendered as its resource identifier.
+///
+/// # Errors
+///
+/// [`GenerateError`], as [`generate_leg`].
+pub fn generate_leg_with(
+    leg: &LegPlan,
+    dialect: Dialect,
+    references: &ObjectReferences,
+) -> Result<GeneratedQuery, GenerateError> {
+    leg_within(leg, dialect, None, references)
 }
 
 /// What this module claims about the dialect layer, measured against the layer itself.

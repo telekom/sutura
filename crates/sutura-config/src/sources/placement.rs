@@ -600,6 +600,10 @@ pub enum SourcePlacement {
         /// An impersonating source's startup-only identity: what its anchors run as, declared
         /// beside `verification_identity`. Never presented for a caller's question.
         verification_client_credentials: Option<crate::client_credentials::ClientCredentialsSettings>,
+        /// The object types the source's API-name directory and each caller's listing leave out:
+        /// the `foundry` catalog of the same alias's `foundry.exclude_object_types`, or the default
+        /// when no such catalog is declared - so the catalog, the directory and the listing agree.
+        exclude_object_types: sutura_domain::model::ObjectTypeExclusions,
     },
 }
 

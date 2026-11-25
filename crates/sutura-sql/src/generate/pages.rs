@@ -35,5 +35,5 @@ pub fn generate_leg_pages(leg: &LegPlan, from_page: u32, to_page: Option<u32>) -
         (Some(from), Some(to)) => Some(from.and(to)),
         (from, to) => from.or(to),
     };
-    leg_within(leg, Dialect::Postgres, range)
+    leg_within(leg, Dialect::Postgres, range, &super::ObjectReferences::NONE)
 }

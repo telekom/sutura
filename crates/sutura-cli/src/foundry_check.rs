@@ -1,15 +1,20 @@
 //! `sutura foundry-check`: the configured Foundry catalogs and sources, read through the same
 //! compositions `serve` opens and checked one step at a time, one line per step.
 //!
-//! Every line is `<subject>: ok|refused|failed - <reason>`, for a tester to paste into a public
-//! issue. **What a line may carry**: a count, an HTTP status, Foundry's `errorName`, an OAuth 2.0
-//! error code, a scope, an object type's API name and the model name it maps to, a configured
-//! alias. **What it never carries**: a token, a host, an ontology identifier, request or answer
-//! text, a row value. Held by construction - a reason is the top-level `Display` of this
-//! workspace's own error, whose fields are those kinds, plus a [`TransportFault`] in place of a
-//! transport error's own text, which can name the host - and by `tests`, which look for a token
-//! and the host in the output. **The limit:** a new field on one of those errors reaches the
-//! output unreviewed, and only a field the tests provoke is looked for.
+//! Every line is `<subject>: ok|refused|failed - <reason>`. **What a line may carry**: a count, an
+//! HTTP status, Foundry's `errorName`, an OAuth 2.0 error code, a scope, a configured alias.
+//! **What it never carries**: a token, a host, an ontology identifier, request or answer text, a
+//! row value - and, by default, no object type's API name or the model name it maps to: those are
+//! the tenant's own data, replaced at render by `object type #n` ([`Report`]). `--names` prints
+//! them, for the operator alone - never for a public issue.
+//!
+//! Held by construction - a reason is the top-level `Display` of this workspace's own error, whose
+//! fields are those kinds, plus a [`TransportFault`] in place of a transport error's own text,
+//! which can name the host; every name read off the object-type list is registered and replaced -
+//! and by `tests`, which look for a token, the host and the names in the output. **The limit:** a
+//! new field on one of those errors reaches the output unreviewed, and only a field the tests
+//! provoke is looked for; a name is replaced as text, so a name that is also a common word is
+//! replaced there too.
 //!
 //! `refused` is the far side, or this deployment's own grammar, saying no; `failed` is no answer.
 //! The exit code is non-zero unless every line is `ok`.
@@ -63,22 +68,72 @@ struct Line {
     reason: String,
 }
 
-/// Every step, in the order it ran.
+/// Every step, in the order it ran, and every tenant name a step read.
 #[derive(Debug, Default)]
-pub(crate) struct Report(Vec<Line>);
+pub(crate) struct Report {
+    lines: Vec<Line>,
+    /// Whether tenant names are printed (`--names`), or replaced by `object type #n`.
+    names: bool,
+    /// Each object type's API name and the model name it maps to, in the order first read.
+    tenant: Vec<TenantName>,
+}
+
+/// An object type's API name, and the model name it maps to - both the tenant's own data.
+#[derive(Debug)]
+struct TenantName {
+    api_name: String,
+    model: Option<String>,
+}
 
 impl Report {
+    /// A report that prints tenant names - `--names`.
+    pub(crate) fn naming() -> Self {
+        Self {
+            names: true,
+            ..Self::default()
+        }
+    }
+
     fn push(&mut self, subject: impl Into<String>, verdict: Verdict, reason: impl Into<String>) {
-        self.0.push(Line {
+        self.lines.push(Line {
             subject: subject.into(),
             verdict,
             reason: reason.into(),
         });
     }
 
+    /// Registers an object type's API name, and the model name it maps to, as tenant data.
+    fn read_name(&mut self, api_name: &str, model: Option<&ModelName>) {
+        if !self.tenant.iter().any(|known| known.api_name == api_name) {
+            self.tenant.push(TenantName {
+                api_name: String::from(api_name),
+                model: model.map(|model| String::from(model.as_str())),
+            });
+        }
+    }
+
+    /// `text` with every registered name replaced, longest first, unless names are printed.
+    fn redacted(&self, text: &str) -> String {
+        if self.names {
+            return String::from(text);
+        }
+        let mut names: Vec<(&str, String)> = Vec::new();
+        for (index, TenantName { api_name, model }) in self.tenant.iter().enumerate() {
+            names.push((api_name.as_str(), format!("object type #{}", index + 1)));
+            if let Some(model) = model.as_deref() {
+                names.push((model, format!("model of object type #{}", index + 1)));
+            }
+        }
+        names.sort_by_key(|(name, _)| core::cmp::Reverse(name.len()));
+        names
+            .into_iter()
+            .filter(|(name, _)| !name.is_empty())
+            .fold(String::from(text), |text, (name, label)| text.replace(name, &label))
+    }
+
     /// Whether every step is `ok`.
     pub(crate) fn passed(&self) -> bool {
-        !self.0.is_empty() && self.0.iter().all(|line| line.verdict == Verdict::Ok)
+        !self.lines.is_empty() && self.lines.iter().all(|line| line.verdict == Verdict::Ok)
     }
 
     pub(crate) fn render(&self) -> String {
@@ -88,8 +143,14 @@ impl Report {
 
 impl core::fmt::Display for Report {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        for line in &self.0 {
-            writeln!(f, "{}: {} - {}", line.subject, line.verdict.as_str(), line.reason)?;
+        for line in &self.lines {
+            writeln!(
+                f,
+                "{}: {} - {}",
+                self.redacted(&line.subject),
+                line.verdict.as_str(),
+                self.redacted(&line.reason)
+            )?;
         }
         Ok(())
     }
@@ -111,11 +172,44 @@ impl Probe {
     }
 }
 
+/// What `foundry-check`'s arguments ask for: whether to print tenant names, and the file a caller's
+/// token is in.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Arguments<'a> {
+    names: bool,
+    token_file: Option<&'a str>,
+}
+
+/// Reads `[--names] [caller-token-file]`. Anything more is refused rather than ignored: a second
+/// value is most likely a token pasted onto the command line.
+pub(crate) fn arguments(args: &[String]) -> Result<Arguments<'_>, &'static str> {
+    let mut read = Arguments {
+        names: false,
+        token_file: None,
+    };
+    for arg in args {
+        match arg.as_str() {
+            "--names" if !read.names => read.names = true,
+            flag if flag.starts_with('-') => return Err("an unknown flag: only `--names` is read"),
+            path if read.token_file.is_none() => read.token_file = Some(path),
+            _ => return Err("more than one value: give the caller's token in one file, never on the command line"),
+        }
+    }
+    Ok(read)
+}
+
 /// The command: the configuration `serve` reads, then each Foundry catalog and source.
 pub(crate) fn foundry_check(args: &[String]) -> ExitCode {
-    let mut report = Report::default();
+    let read = match arguments(args) {
+        Ok(read) => read,
+        Err(reason) => {
+            eprintln!("sutura foundry-check: {reason}");
+            return ExitCode::from(2);
+        }
+    };
+    let mut report = if read.names { Report::naming() } else { Report::default() };
     match crate::sources::configured() {
-        Ok(settings) => match caller_token(args.first()) {
+        Ok(settings) => match caller_token(read.token_file) {
             Ok(caller) => check_configured(&settings, caller.as_ref(), &mut report),
             Err(reason) => report.push("caller token", Verdict::Failed, reason),
         },
@@ -134,7 +228,8 @@ pub(crate) fn foundry_check(args: &[String]) -> ExitCode {
 }
 
 /// The caller's own access token: the file `path` names, else [`CALLER_TOKEN_VARIABLE`], else none.
-fn caller_token(path: Option<&String>) -> Result<Option<Secret>, &'static str> {
+/// A path that is no readable file - a token typed in its place - is refused, never presented.
+pub(crate) fn caller_token(path: Option<&str>) -> Result<Option<Secret>, &'static str> {
     if let Some(path) = path {
         return crate::password_file::read_key("caller-token-file", std::path::Path::new(path))
             .map(Some)
@@ -262,15 +357,15 @@ pub(crate) fn check_catalog(
     if !check_credential(subject, reader.token(), reader.timeout(), report) {
         return Vec::new();
     }
-    let object_types = match reader.object_types() {
-        Ok(object_types) => object_types,
+    let (object_types, excluded) = match reader.object_types() {
+        Ok(listed) => sutura_catalog_foundry::kept(listed, reader.exclusions()),
         Err(cause) => {
-            let (verdict, reason) = reader_reason(&cause);
+            let (verdict, reason) = reader_reason(&cause, report.names);
             report.push(format!("{subject} object types"), verdict, reason);
             return Vec::new();
         }
     };
-    let probes = mapped(subject, &object_types, report);
+    let probes = mapped(subject, &object_types, excluded.len(), report);
     let mut outgoing = std::collections::BTreeMap::new();
     let mut read: Vec<(String, usize)> = Vec::new();
     let mut unread = 0_usize;
@@ -283,12 +378,16 @@ pub(crate) fn check_catalog(
             }
             Err(cause) => {
                 unread += 1;
-                let (verdict, reason) = reader_reason(&cause);
+                let (verdict, reason) = reader_reason(&cause, report.names);
                 report.push(format!("{subject} links {api_name}"), verdict, reason);
             }
         }
     }
-    let load = loaded(catalog, Ontology::new(object_types, outgoing));
+    let load = loaded(
+        catalog,
+        Ontology::new(object_types, outgoing).with_excluded(excluded),
+        report.names,
+    );
     let carried = load.as_ref().ok().map(|(carried, _)| carried);
     for (api_name, sides) in read {
         let reason = carried.map_or_else(
@@ -320,14 +419,16 @@ pub(crate) fn check_catalog(
 
 /// The object-type step: the count, each dotted API name and the model name it maps to, and each
 /// one the mapping refuses. The probes are the first plain and the first dotted object type.
-fn mapped(subject: &str, object_types: &[ObjectType], report: &mut Report) -> Vec<Probe> {
+fn mapped(subject: &str, object_types: &[ObjectType], excluded: usize, report: &mut Report) -> Vec<Probe> {
     let mut dotted = 0_usize;
     let mut lines = Report::default();
     let mut plain_probe = None;
     let mut dotted_probe = None;
     for object_type in object_types {
         let api_name = object_type.api_name();
-        match sutura_catalog_foundry::model_name(api_name) {
+        let mapping = sutura_catalog_foundry::model_name(api_name);
+        report.read_name(api_name, mapping.as_ref().ok().map(|(model, _)| model));
+        match mapping {
             Ok((model, table)) => {
                 let probe = Probe {
                     api_name: String::from(api_name),
@@ -335,21 +436,31 @@ fn mapped(subject: &str, object_types: &[ObjectType], report: &mut Report) -> Ve
                 };
                 if probe.dotted() {
                     dotted += 1;
-                    lines.push(format!("{subject} mapped {api_name}"), Verdict::Ok, format!("model {model}"));
+                    lines.push(
+                        format!("{subject} mapped {api_name}"),
+                        Verdict::Ok,
+                        format!("maps to {model}"),
+                    );
                     dotted_probe.get_or_insert(probe);
                 } else {
                     plain_probe.get_or_insert(probe);
                 }
             }
-            Err(cause) => lines.push(format!("{subject} mapped {api_name}"), Verdict::Refused, chain(&cause)),
+            Err(cause) => {
+                let reason = reason_naming(report.names, chain(&cause), cause.kind());
+                lines.push(format!("{subject} mapped {api_name}"), Verdict::Refused, reason);
+            }
         }
     }
     report.push(
         format!("{subject} object types"),
         Verdict::Ok,
-        format!("{} listed, {dotted} dotted API name(s) mapped", object_types.len()),
+        format!(
+            "{} listed, {excluded} excluded by `foundry.exclude_object_types`, {dotted} dotted API name(s) mapped",
+            object_types.len() + excluded
+        ),
     );
-    report.0.extend(lines.0);
+    report.lines.extend(lines.lines);
     plain_probe.into_iter().chain(dotted_probe).collect()
 }
 
@@ -378,7 +489,7 @@ type Load = Result<(Carried, String), String>;
 
 /// The catalog's own load over what was read: the joins it carries per model and the load's line,
 /// or its refusal's.
-fn loaded(catalog: &sutura_config::CatalogSettings, ontology: Ontology) -> Load {
+fn loaded(catalog: &sutura_config::CatalogSettings, ontology: Ontology, names: bool) -> Load {
     let loading = FoundryCatalog::new(
         catalog.name().clone(),
         catalog.version().clone(),
@@ -399,7 +510,16 @@ fn loaded(catalog: &sutura_config::CatalogSettings, ontology: Ontology) -> Load 
             );
             Ok((carried, line))
         }
-        Err(cause) => Err(chain(&cause)),
+        Err(cause) => Err(reason_naming(names, chain(&cause), cause.kind())),
+    }
+}
+
+/// `full` when names are printed; else `kind`, saying what `--names` adds.
+fn reason_naming(names: bool, full: String, kind: &str) -> String {
+    if names {
+        full
+    } else {
+        format!("{kind}; `--names` prints which")
     }
 }
 
@@ -449,6 +569,14 @@ pub(crate) fn check_source(checking: &Checking<'_>, source: &FoundrySource, logi
             return;
         }
         (SourcePosture::ImpersonationAtSource, Some(login)) => {
+            // The startup identity anchors run as, when one is declared: one mint, dropped.
+            if let Some(minted) = source.boot_token(parse_only_deadline()) {
+                let (verdict, reason) = match minted {
+                    Ok(()) => (Verdict::Ok, String::from("a client-credentials token was minted")),
+                    Err(cause) => token_failed_reason(&cause),
+                };
+                report.push(format!("{subject} startup identity"), verdict, reason);
+            }
             let Some(caller) = caller else {
                 report.push(
                     format!("{subject} broker"),
@@ -479,17 +607,20 @@ pub(crate) fn check_source(checking: &Checking<'_>, source: &FoundrySource, logi
         return;
     }
     for probe in probes {
-        let shape = if probe.dotted() {
-            " (dotted, one quoted identifier)"
-        } else {
-            ""
-        };
-        let line = format!("{subject} parse-only {}{shape}", probe.api_name);
-        match source.parse_object(&probe.table, &presented, parse_only_deadline()) {
-            Ok(()) => report.push(line, Verdict::Ok, "Foundry parsed the statement"),
-            Err(cause) => {
-                let (verdict, reason) = source_reason(&cause);
-                report.push(line, verdict, reason);
+        let shape = if probe.dotted() { " (dotted)" } else { "" };
+        // The form a question is sent in, by resource identifier; then the API name as written,
+        // which Ontology SQL may not resolve - the line says which form this tenant accepts.
+        for (reference, form) in [
+            (sutura_exec_foundry::Reference::Resolved, "by resource identifier"),
+            (sutura_exec_foundry::Reference::AsWritten, "by API name"),
+        ] {
+            let line = format!("{subject} parse-only {}{shape} {form}", probe.api_name);
+            match source.parse_object(&probe.table, reference, &presented, parse_only_deadline()) {
+                Ok(()) => report.push(line, Verdict::Ok, "Foundry resolved the reference and parsed the statement"),
+                Err(cause) => {
+                    let (verdict, reason) = source_reason(&cause, report.names);
+                    report.push(line, verdict, reason);
+                }
             }
         }
     }
@@ -558,6 +689,7 @@ fn token_reason(cause: &TokenUnavailable) -> (Verdict, String) {
         ),
         TokenUnavailable::Refused { .. } => (Verdict::Refused, cause.to_string()),
         TokenUnavailable::DeadlineSpent
+        | TokenUnavailable::WaitedOut
         | TokenUnavailable::TooLarge { .. }
         | TokenUnavailable::Malformed { .. }
         | TokenUnavailable::WrongTokenType => (Verdict::Failed, cause.to_string()),
@@ -566,10 +698,10 @@ fn token_reason(cause: &TokenUnavailable) -> (Verdict, String) {
 
 /// A deployment token's failure: the grant's own refusal when it is one, never its text otherwise.
 fn token_failed_reason(cause: &sutura_exec_foundry::TokenFailed) -> (Verdict, String) {
-    cause
-        .0
-        .downcast_ref::<TokenUnavailable>()
-        .map_or_else(|| (Verdict::Failed, cause.to_string()), token_reason)
+    match cause {
+        sutura_exec_foundry::TokenFailed::Mint(mint) => token_reason(mint),
+        sutura_exec_foundry::TokenFailed::DeadlineSpent => (Verdict::Failed, cause.to_string()),
+    }
 }
 
 fn error_name(name: Option<&sutura_http_client::ErrorName>) -> String {
@@ -579,7 +711,7 @@ fn error_name(name: Option<&sutura_http_client::ErrorName>) -> String {
     )
 }
 
-fn reader_reason(cause: &HttpReaderError) -> (Verdict, String) {
+fn reader_reason(cause: &HttpReaderError, names: bool) -> (Verdict, String) {
     match cause {
         HttpReaderError::Token { cause: token, .. } => {
             let (verdict, reason) = token_reason(token);
@@ -590,7 +722,14 @@ fn reader_reason(cause: &HttpReaderError) -> (Verdict, String) {
             format!("{cause}: {}", TransportFault::of(transport).as_str()),
         ),
         HttpReaderError::Refused { error_name: name, .. } => (Verdict::Refused, format!("{cause}{}", error_name(name.as_ref()))),
-        HttpReaderError::ObjectTypeName { .. } => (Verdict::Refused, chain(cause)),
+        HttpReaderError::ObjectTypeName { .. } => (
+            Verdict::Refused,
+            reason_naming(
+                names,
+                chain(cause),
+                "an object type API name is not a name, so its link types were not asked for",
+            ),
+        ),
         HttpReaderError::Paging { cause: paging, .. } => (Verdict::Failed, format!("{cause}: {paging}")),
         HttpReaderError::DeadlineSpent { .. }
         | HttpReaderError::TooLarge { .. }
@@ -611,7 +750,7 @@ fn delegation_reason(cause: &DelegationFailed) -> (Verdict, String) {
     }
 }
 
-fn source_reason(cause: &sutura_exec_foundry::FoundryError<HttpFoundryError>) -> (Verdict, String) {
+fn source_reason(cause: &sutura_exec_foundry::FoundryError<HttpFoundryError>, names: bool) -> (Verdict, String) {
     use sutura_exec_foundry::FoundryError;
 
     match cause {
@@ -632,6 +771,31 @@ fn source_reason(cause: &sutura_exec_foundry::FoundryError<HttpFoundryError>) ->
             let (verdict, reason) = token_failed_reason(token);
             (verdict, format!("{cause}: {reason}"))
         }
+        FoundryError::Directory { .. } => (Verdict::Refused, chain(cause)),
+        FoundryError::UnknownObjectType { .. } => (
+            Verdict::Refused,
+            reason_naming(
+                names,
+                chain(cause),
+                "the object type is not in the object-type list this token reads",
+            ),
+        ),
+        FoundryError::NoResourceId { .. } => (
+            Verdict::Refused,
+            reason_naming(
+                names,
+                chain(cause),
+                "the object type was listed with no usable resource identifier",
+            ),
+        ),
+        FoundryError::ExcludedObjectType { .. } => (
+            Verdict::Refused,
+            reason_naming(names, chain(cause), "the object type is one this source leaves out"),
+        ),
+        FoundryError::StaleObjectType { cause: endpoint } => (
+            Verdict::Refused,
+            format!("Foundry found no object type behind the resource identifier: {endpoint}"),
+        ),
         _ => (Verdict::Failed, cause.to_string()),
     }
 }

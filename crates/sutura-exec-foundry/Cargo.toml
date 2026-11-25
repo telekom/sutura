@@ -21,6 +21,8 @@ http = [
 sutura-domain = { workspace = true }
 sutura-sql = { workspace = true }
 thiserror = { workspace = true }
+# The object-type directory's held read, behind the lock this workspace bans `std`'s for.
+parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 arrow-array = { workspace = true }

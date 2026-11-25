@@ -42,58 +42,13 @@ pub enum UnusableToken {
     NotABearerValue,
 }
 
-/// Why a declared scope list is unusable.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidScope {
-    /// Empty, or carrying a space, a `"` or a `\`, or a byte outside printable ASCII
-    /// (RFC 6749 section 3.3's `scope-token`).
-    #[error("the scope {given:?} is not an OAuth 2.0 scope token")]
-    NotAScopeToken { given: String },
-}
-
-/// The scopes a client-credentials grant asks for, space-joined. Empty asks for none, and the
-/// identity provider's default applies.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Scopes(String);
-
-impl Scopes {
-    /// # Errors
-    ///
-    /// [`InvalidScope`], naming the first entry that is not a scope token.
-    pub fn parse<'a>(scopes: impl IntoIterator<Item = &'a str>) -> Result<Self, InvalidScope> {
-        let mut joined = String::new();
-        for scope in scopes {
-            let token = !scope.is_empty()
-                && scope
-                    .bytes()
-                    .all(|byte| byte.is_ascii_graphic() && byte != b'"' && byte != b'\\');
-            if !token {
-                return Err(InvalidScope::NotAScopeToken {
-                    given: String::from(scope),
-                });
-            }
-            if !joined.is_empty() {
-                joined.push(' ');
-            }
-            joined.push_str(scope);
-        }
-        Ok(Self(joined))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+pub use sutura_domain::oauth::{InvalidScope, Scopes};
 
 /// Why a declared client-credentials grant cannot be built. Carries no secret.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UnusableGrant {
     #[error("the client identifier is not usable")]
     ClientId(#[source] crate::delegation::UnusableClientId),
-    #[error("a scope is not usable")]
-    Scope(#[source] InvalidScope),
     #[error("the token path does not make a usable token endpoint")]
     TokenEndpoint(#[source] crate::InvalidEndpoint),
     #[error("the token endpoint is off the declared endpoint")]
@@ -114,6 +69,9 @@ pub enum TokenUnavailable {
     /// The read's own deadline was spent before a token was asked for.
     #[error("the read's deadline was spent before a token was minted")]
     DeadlineSpent,
+    /// Another request was minting, and the read's deadline ran out waiting for its answer.
+    #[error("the read's deadline was spent waiting for another request's mint")]
+    WaitedOut,
     #[error("the token endpoint was not reached")]
     Unreachable(#[source] Box<ureq::Error>),
     #[error("the token endpoint's answer is over the {cap}-byte cap")]
@@ -138,13 +96,45 @@ impl Bearer {
         clippy::disallowed_methods,
         reason = "a bearer has to reach the wire as text; this is the one header value a reader sends"
     )]
-    pub fn header(&self) -> String {
+    pub fn header(self) -> String {
         format!("Bearer {}", self.0.expose_secret())
     }
     /// The token itself, for a client that builds its own header.
     #[must_use]
     pub const fn secret(&self) -> &Secret {
         &self.0
+    }
+}
+
+/// A token this process did not mint and does not keep - a caller's own, or one a question is
+/// about to send - presented as it is, borrowed for one request.
+///
+/// **Its own type, not a [`TokenSource`]**, so a function that must send a caller's token cannot be
+/// handed the deployment's identity instead, and nothing clones the secret to present it.
+#[derive(Debug, Clone, Copy)]
+pub struct BorrowedBearer<'a>(&'a Secret);
+
+impl<'a> BorrowedBearer<'a> {
+    /// # Errors
+    ///
+    /// [`UnusableToken`] for a token no header can carry.
+    pub fn of(token: &'a Secret) -> Result<Self, UnusableToken> {
+        #[expect(clippy::disallowed_methods, reason = "only the shape is read")]
+        let usable = bearer_value(token.expose_secret());
+        if !usable {
+            return Err(UnusableToken::NotABearerValue);
+        }
+        Ok(Self(token))
+    }
+
+    /// The header value, built per request so the token lives as text only as long as the request.
+    #[must_use]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a bearer has to reach the wire as text; this is the one header value a reader sends"
+    )]
+    pub fn header(self) -> String {
+        format!("Bearer {}", self.0.expose_secret())
     }
 }
 
@@ -236,32 +226,37 @@ impl ClientCredentials {
     /// # Errors
     ///
     /// [`UnusableGrant`], naming which declared value is unusable.
-    pub fn declared<'scope>(
+    pub fn declared(
         origin: &Endpoint,
         token_path: &str,
         client_id: &str,
         secret: Secret,
-        scopes: impl IntoIterator<Item = &'scope str>,
+        scopes: Scopes,
         agent: RotatingAgent,
     ) -> Result<Self, UnusableGrant> {
         let client = ExchangeClient::new(client_id, secret).map_err(UnusableGrant::ClientId)?;
-        let scopes = Scopes::parse(scopes).map_err(UnusableGrant::Scope)?;
         let endpoint = TokenEndpoint::parse(&format!("{}{token_path}", origin.as_str())).map_err(UnusableGrant::TokenEndpoint)?;
         Self::new(origin, endpoint, client, scopes, agent).map_err(UnusableGrant::OffOrigin)
     }
 
     /// The held token while it is fresh, else a new one. The lock is held across the mint, so
-    /// concurrent reads wait for one answer rather than each asking.
+    /// concurrent reads wait for one answer rather than each asking - and each waits no longer than
+    /// its own budget: [`TokenUnavailable::WaitedOut`] past it.
+    ///
+    /// A minted token is fresh until its `expires_in`, less [`REFRESH_MARGIN`], counted from the
+    /// instant the request was SENT, so the time the mint took counts against it.
     fn bearer(&self, budget: Budget) -> Result<Bearer, TokenUnavailable> {
-        let mut held = self.minted.lock();
+        let waiting = budget.remaining().ok_or(TokenUnavailable::DeadlineSpent)?;
+        let mut held = self.minted.try_lock_for(waiting).ok_or(TokenUnavailable::WaitedOut)?;
         if let Some(minted) = held.as_ref().filter(|minted| Instant::now() < minted.fresh_until) {
             return Ok(minted.bearer.clone());
         }
+        let asked_at = Instant::now();
         let granted = budget
             .remaining()
             .ok_or(TokenUnavailable::DeadlineSpent)
             .and_then(|left| self.mint(left));
-        *held = granted.as_ref().ok().and_then(Granted::held);
+        *held = granted.as_ref().ok().and_then(|granted| granted.held(asked_at));
         drop(held);
         granted.map(|granted| granted.bearer)
     }
@@ -298,13 +293,13 @@ struct Granted {
 }
 
 impl Granted {
-    /// What to hold for the next read: nothing for a token without a lifetime, or one inside
-    /// [`REFRESH_MARGIN`] of it.
-    fn held(&self) -> Option<Minted> {
+    /// What to hold for the next read, counting from `asked_at`, the instant its request was sent:
+    /// nothing for a token without a lifetime, or one inside [`REFRESH_MARGIN`] of it.
+    fn held(&self, asked_at: Instant) -> Option<Minted> {
         let fresh_for = self.lifetime?.checked_sub(REFRESH_MARGIN)?;
         Some(Minted {
             bearer: self.bearer.clone(),
-            fresh_until: Instant::now().checked_add(fresh_for)?,
+            fresh_until: asked_at.checked_add(fresh_for)?,
         })
     }
 }
@@ -381,6 +376,33 @@ mod tests {
         TokenSource::ClientCredentials(
             ClientCredentials::new(&origin, endpoint, client, scopes, crate::fixed(bounds, None)).expect("one origin"),
         )
+    }
+
+    #[test]
+    fn a_read_waits_for_another_mint_no_longer_than_its_own_budget() {
+        let server = FakeServer::start(Vec::new());
+        let TokenSource::ClientCredentials(grant) = grant_at(&server) else {
+            panic!("a grant");
+        };
+        let minting = grant.minted.lock();
+        let started = std::time::Instant::now();
+        let waited = grant.bearer(Budget::opened(Duration::from_millis(50)));
+        assert!(matches!(waited, Err(TokenUnavailable::WaitedOut)), "{waited:?}");
+        assert!(started.elapsed() < Duration::from_secs(2), "the wait outlived the budget");
+        drop(minting);
+        drop(server.finish());
+    }
+
+    #[test]
+    fn a_minted_token_is_fresh_from_when_its_request_was_sent() {
+        let granted = answered(200, r#"{"access_token":"t","token_type":"bearer","expires_in":100}"#).expect("a usable answer");
+        let asked_at = std::time::Instant::now();
+        let held = granted.held(asked_at).expect("a lifetime over the margin is held");
+        assert_eq!(
+            held.fresh_until,
+            asked_at + (Duration::from_secs(100).saturating_sub(super::REFRESH_MARGIN)),
+            "the time the mint took counts against freshness"
+        );
     }
 
     #[test]

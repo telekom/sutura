@@ -289,8 +289,8 @@ const COMMANDS: &[Cmd] = &[
     },
     Cmd {
         name: "foundry-check",
-        args: "[caller-token-file]",
-        description: "check the configured Foundry catalogs and sources a step at a time, one line each, with no token, host or identifier in it",
+        args: "[--names] [caller-token-file]",
+        description: "check the configured Foundry catalogs and sources a step at a time, one line each, with no token, host, identifier or - unless --names - tenant name in it",
         run: foundry_check,
     },
 ];
@@ -756,7 +756,7 @@ mod tests {
             .find(|c| c.name == "foundry-check")
             .expect("foundry-check is listed in every build");
         assert_eq!(
-            check.args, "[caller-token-file]",
+            check.args, "[--names] [caller-token-file]",
             "the caller's token arrives in a file or a variable, never as a literal argument"
         );
     }

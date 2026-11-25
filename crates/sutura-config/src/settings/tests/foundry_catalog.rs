@@ -92,7 +92,7 @@ fn a_token_path_that_could_name_another_host_is_refused() {
 fn an_empty_scope_is_refused() {
     let grant = GRANT.replace("[\"api:ontologies-read\"]", "[\"api:ontologies-read\", \" \"]");
     let shown = refused(&overlay(&format!("{ONTOLOGY}{grant}")));
-    assert!(shown.contains("EmptyScope"), "{shown}");
+    assert!(shown.contains("NotAScopeToken"), "{shown}");
 }
 
 #[test]

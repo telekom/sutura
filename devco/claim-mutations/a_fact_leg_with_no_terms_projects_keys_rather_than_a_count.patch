@@ -1,12 +1,13 @@
 diff --git a/crates/sutura-sql/src/generate/leg.rs b/crates/sutura-sql/src/generate/leg.rs
 --- a/crates/sutura-sql/src/generate/leg.rs
 +++ b/crates/sutura-sql/src/generate/leg.rs
-@@ -76,7 +76,7 @@
+@@ -86,8 +86,8 @@
      // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
      // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
-     super::named_objects(
+     super::named_objects_with(
 -        statement.group_by(grouping).order_by(tiebreak).build(),
 +        statement.order_by(tiebreak).build(),
          std::iter::once(leg.table()).chain(joins.iter().map(PlanJoin::table)),
          dialect,
+         references,
      )

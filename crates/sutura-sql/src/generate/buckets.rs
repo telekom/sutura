@@ -147,7 +147,7 @@ pub fn generate_leg_buckets(
             return Err(BucketsRefused::Unsupported { dialect });
         }
     };
-    leg_within(leg, dialect, Some(within)).map_err(BucketsRefused::Generate)
+    leg_within(leg, dialect, Some(within), &super::ObjectReferences::NONE).map_err(BucketsRefused::Generate)
 }
 
 /// Whether `field`, as its source described it, is an integer in the source's own type.

@@ -184,3 +184,48 @@ fn a_foundry_key_probe_names_a_dotted_object_as_one_quoted_identifier() {
         "{sql}"
     );
 }
+
+#[test]
+fn foundry_names_each_object_type_by_the_resource_identifier_it_resolved_to() {
+    use sutura_domain::model::{QualifiedTable, ResourceId};
+
+    let rid =
+        |locator: &str| ResourceId::parse(&format!("ri.ontology.main.object-type.{locator}")).expect("a resource identifier");
+    let local = |name: &str| TableName::parse(name).expect("a local name");
+    let mut references = super::super::ObjectReferences::default();
+    references.insert(local("com_palantir_system_Evolution"), rid("1111-aaaa"));
+    references.insert(local("com_palantir_system_EvolutionProposal"), rid("2222-bbbb"));
+    let sql = super::super::generate_with(&dotted_object_plan(), Dialect::Foundry, &references)
+        .expect("a resolved plan renders")
+        .sql()
+        .to_owned();
+    for fragment in [
+        "FROM `ri.ontology.main.object-type.1111-aaaa` AS `com_palantir_system_Evolution`",
+        "JOIN `ri.ontology.main.object-type.2222-bbbb` AS `com_palantir_system_EvolutionProposal`",
+    ] {
+        assert!(sql.contains(fragment), "missing {fragment:?} in:\n{sql}");
+    }
+    assert!(!sql.contains("com.palantir"), "an API name reached the statement:\n{sql}");
+    assert!(
+        polyglot_sql::parse(&sql, super::super::dialect_type(Dialect::Foundry)).is_ok(),
+        "{sql}"
+    );
+
+    let table = QualifiedTable::resource(rid("3333-cccc"));
+    let ontology = SourceName::parse("ontology").expect("a source");
+    let probe = super::super::generate_object_probe(&ontology, &table, Dialect::Foundry)
+        .expect("a resource table renders")
+        .sql()
+        .to_owned();
+    assert!(
+        probe.contains(&format!(
+            "FROM `ri.ontology.main.object-type.3333-cccc` AS `{}`",
+            table.name()
+        )),
+        "{probe}"
+    );
+    assert!(
+        super::super::generate_object_probe(&ontology, &table, Dialect::Postgres).is_err(),
+        "every other dialect refuses a resource identifier"
+    );
+}

@@ -270,32 +270,37 @@ pub enum InvalidQualifiedTable {
         #[source]
         cause: InvalidIdentifier,
     },
-    /// The object name's segments joined with `_` are not a name - longer than a name may be.
+    /// The object name's segments joined with `_`, shortened, are still not a name.
     #[error("the object name {value:?} has no local name: its segments joined with `_` are not a name")]
     ObjectLocalName {
         value: String,
         #[source]
         cause: InvalidIdentifier,
     },
+    /// Not `ri.<service>.<instance>.<type>.<locator>` - see [`ResourceId`].
+    #[error("{value:?} is not a resource identifier `ri.<service>.<instance>.<type>.<locator>`")]
+    ResourceId { value: String },
 }
 
-/// One object a data system names with dots inside a single name: `com.palantir.system.Evolution`.
+/// One object a data system names as a single name that is not a [`TableName`]: dotted -
+/// `com.palantir.system.Evolution` - or longer than a name may be.
 ///
-/// At least two segments, each a parsed [`TableName`], so no segment holds a quote, a slash or a
-/// dot of its own, and the dotted text is reconstructed exactly. See the module header for why this
-/// is not a [`TableQualifier`]: nothing above the object is named.
+/// Each segment is in the identifier grammar but for its length, so no segment holds a quote, a
+/// slash or a dot of its own, and the text is reconstructed exactly. A name with no dot is one only
+/// when it is too long to be a [`TableName`]. See the module header for why this is not a
+/// [`TableQualifier`]: nothing above the object is named.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ObjectPath(Vec<TableName>);
+pub struct ObjectPath(Vec<String>);
 
 impl ObjectPath {
-    /// Parses a dotted name of at least two segments. `None` for a name with no dot, which is a
-    /// [`TableName`]'s to parse.
+    /// Parses a dotted name, or a name with no dot that is too long to be a [`TableName`]. `None`
+    /// for a name with no dot that fits, which is a [`TableName`]'s to parse.
     ///
     /// # Errors
     ///
     /// [`InvalidQualifiedTable::ObjectSegment`] for an empty segment or one outside the grammar.
     pub fn parse(raw: &str) -> Result<Option<Self>, InvalidQualifiedTable> {
-        if !raw.contains('.') {
+        if !raw.contains('.') && raw.len() <= super::MAX_IDENTIFIER_LEN {
             return Ok(None);
         }
         raw.split('.')
@@ -304,9 +309,13 @@ impl ObjectPath {
                 if segment.trim() != segment {
                     return Err(InvalidIdentifier::IllegalCharacter { offending: ' ' });
                 }
-                TableName::parse(segment)
+                // The grammar, but not the length: the local name is fitted to the limit instead.
+                match super::parse_identifier(segment) {
+                    Ok(_) | Err(InvalidIdentifier::TooLong { .. }) => Ok(String::from(segment)),
+                    Err(cause) => Err(cause),
+                }
             })
-            .collect::<Result<Vec<TableName>, InvalidIdentifier>>()
+            .collect::<Result<Vec<String>, InvalidIdentifier>>()
             .map(|segments| Some(Self(segments)))
             .map_err(|cause| InvalidQualifiedTable::ObjectSegment {
                 value: String::from(raw),
@@ -317,20 +326,123 @@ impl ObjectPath {
     /// The name inside the dialect's quotes: the segments joined with `.`.
     #[must_use]
     pub fn dotted(&self) -> String {
-        self.0.iter().map(TableName::as_str).collect::<Vec<&str>>().join(".")
+        self.0.join(".")
     }
 
     /// The name everything inside sutura knows the object by: the segments joined with `_`.
     ///
+    /// **Shortened by [`fitted`] when that is longer than a name may be**, digesting the whole
+    /// dotted name. A name that fits is never shortened, and the same dotted name always gives the
+    /// same local name. The local name need not be reversible: the dotted name stays the object's
+    /// identity.
+    ///
     /// # Errors
     ///
-    /// [`InvalidQualifiedTable::ObjectLocalName`] when the joined name is longer than a name may be.
+    /// [`InvalidQualifiedTable::ObjectLocalName`] for a joined name that is still not a name.
     pub fn local_name(&self) -> Result<TableName, InvalidQualifiedTable> {
-        let joined = self.0.iter().map(TableName::as_str).collect::<Vec<&str>>().join("_");
-        TableName::parse(joined).map_err(|cause| InvalidQualifiedTable::ObjectLocalName {
+        TableName::parse(fitted(self.0.join("_"), &self.dotted())).map_err(|cause| InvalidQualifiedTable::ObjectLocalName {
             value: self.dotted(),
             cause,
         })
+    }
+}
+
+/// `readable` when it fits a name's limit of 63 bytes, else shortened to fit.
+///
+/// Shortened is its longest prefix of at most [`SHORTENED_PREFIX`] bytes that ends on a character
+/// boundary, `_`, and the first [`DIGEST_HEX`] hex digits of the SHA-256 of `identity` - at most 63
+/// bytes in all, and exactly 63 for ASCII.
+///
+/// **The one shortening** every derived name takes - an object's local name, a model name, a
+/// composed relationship name - so a long name maps the same way wherever it is derived. `identity`
+/// is the whole unshortened source the name stands for: two sources that share a readable prefix
+/// still differ in the digest. A name that fits is returned unchanged.
+#[must_use]
+pub fn fitted(readable: String, identity: &str) -> String {
+    if readable.len() <= super::MAX_IDENTIFIER_LEN {
+        return readable;
+    }
+    let cut = (0..=SHORTENED_PREFIX)
+        .rev()
+        .find(|&at| readable.is_char_boundary(at))
+        .unwrap_or(0);
+    let prefix = readable.get(..cut).unwrap_or_default();
+    format!("{prefix}_{}", hex_digest(identity, DIGEST_HEX))
+}
+
+/// How many hex digits of a SHA-256 a shortened or derived local name ends in.
+pub(crate) const DIGEST_HEX: usize = 16;
+
+/// How much of a joined object name a shortened local name keeps: what leaves room for `_` and
+/// [`DIGEST_HEX`] digits inside a name's limit.
+pub(crate) const SHORTENED_PREFIX: usize = super::MAX_IDENTIFIER_LEN - 1 - DIGEST_HEX;
+
+/// The first `digits` lowercase hex digits of the SHA-256 of `text`.
+fn hex_digest(text: &str, digits: usize) -> String {
+    use core::fmt::Write as _;
+    use sha2::Digest as _;
+
+    let hash = sha2::Sha256::digest(text.as_bytes());
+    let mut hex = String::with_capacity(digits);
+    for byte in hash.iter().take(digits.div_ceil(2)) {
+        // Writing to a `String` cannot fail.
+        let _written = write!(hex, "{byte:02x}");
+    }
+    hex.truncate(digits);
+    hex
+}
+
+/// A resource identifier a data system names one object by: `ri.<service>.<instance>.<type>.<locator>`.
+///
+/// Foundry's Ontology SQL resolves an object type by this, not by its API name. Five dot-separated
+/// segments, the first `ri`, each non-empty and made of ASCII letters, digits, `-` and `_` - so it
+/// holds no quote, slash, space or dot of its own, and renders as one quoted identifier. At most 255
+/// bytes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ResourceId(String);
+
+impl ResourceId {
+    /// The most bytes a resource identifier may hold.
+    pub const MAX_LEN: usize = 255;
+
+    /// Parses `ri.<service>.<instance>.<type>.<locator>`.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidQualifiedTable::ResourceId`] for anything else.
+    pub fn parse(raw: &str) -> Result<Self, InvalidQualifiedTable> {
+        let segments: Vec<&str> = raw.split('.').collect();
+        let usable = raw.len() <= Self::MAX_LEN
+            && segments.len() == 5
+            && segments.first() == Some(&"ri")
+            && segments.iter().all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            });
+        if !usable {
+            return Err(InvalidQualifiedTable::ResourceId {
+                value: raw.chars().filter(|c| !c.is_control()).take(80).collect(),
+            });
+        }
+        Ok(Self(String::from(raw)))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// The name everything inside sutura knows the object by: `object_` and the first
+    /// [`DIGEST_HEX`] hex digits of the SHA-256 of the identifier. Derived, so the text form needs
+    /// only the identifier.
+    #[must_use]
+    pub fn local_name(&self) -> TableName {
+        let derived = format!("object_{}", hex_digest(&self.0, DIGEST_HEX));
+        #[expect(clippy::unreachable, reason = "`object_` and hex digits are a name by construction")]
+        TableName::parse(derived).unwrap_or_else(|_| unreachable!("a derived local name is a name"))
     }
 }
 
@@ -369,6 +481,7 @@ enum Above {
     Nothing,
     Path(TableQualifier),
     Object(Box<ObjectPath>),
+    Resource(Box<ResourceId>),
 }
 
 impl QualifiedTable {
@@ -398,13 +511,44 @@ impl QualifiedTable {
         })
     }
 
+    /// One object named by its resource identifier: its local name is [`ResourceId::local_name`],
+    /// and nothing sits above it.
+    #[must_use]
+    pub fn resource(id: ResourceId) -> Self {
+        Self {
+            table: id.local_name(),
+            above: Above::Resource(Box::new(id)),
+        }
+    }
+
+    /// The resource identifier a dialect that resolves it renders in place of [`Self::name`].
+    #[inline]
+    #[must_use]
+    pub const fn resource_id(&self) -> Option<&ResourceId> {
+        match self.above {
+            Above::Resource(ref id) => Some(id),
+            Above::Nothing | Above::Path(_) | Above::Object(_) => None,
+        }
+    }
+
+    /// The one quoted name a dialect that resolves objects renders in place of [`Self::name`]: the
+    /// dotted name, or the resource identifier. `None` for a table or a path.
+    #[must_use]
+    pub fn object_reference(&self) -> Option<String> {
+        match self.above {
+            Above::Object(ref path) => Some(path.dotted()),
+            Above::Resource(ref id) => Some(String::from(id.as_str())),
+            Above::Nothing | Above::Path(_) => None,
+        }
+    }
+
     /// The dotted name a dialect that resolves it renders in place of [`Self::name`].
     #[inline]
     #[must_use]
     pub const fn object_path(&self) -> Option<&ObjectPath> {
         match self.above {
             Above::Object(ref path) => Some(path),
-            Above::Nothing | Above::Path(_) => None,
+            Above::Nothing | Above::Path(_) | Above::Resource(_) => None,
         }
     }
 
@@ -421,6 +565,9 @@ impl QualifiedTable {
         let trimmed = raw.trim();
         // An object's own text form: a dotted name in backticks, which no other path can be.
         if let Some(inner) = trimmed.strip_prefix('`').and_then(|rest| rest.strip_suffix('`')) {
+            if inner.starts_with("ri.") {
+                return ResourceId::parse(inner).map(Self::resource);
+            }
             return match ObjectPath::parse(inner)? {
                 Some(path) => Self::object(path),
                 None => Ok(Self::new(
@@ -433,6 +580,11 @@ impl QualifiedTable {
             };
         }
         let parts: Vec<&str> = trimmed.split('.').collect();
+        // A resource identifier is five segments starting `ri`, deeper than any path, so a
+        // document may write it bare: `table: ri.ontology.main.object-type.<locator>`.
+        if parts.len() == 5 && parts.first() == Some(&"ri") {
+            return ResourceId::parse(trimmed).map(Self::resource);
+        }
         let value = || String::from(trimmed);
         // Longest first, so the two-part and three-part arms read in the order a path is written.
         match *parts.as_slice() {
@@ -482,7 +634,7 @@ impl QualifiedTable {
     pub const fn qualifier(&self) -> Option<&TableQualifier> {
         match self.above {
             Above::Path(ref qualifier) => Some(qualifier),
-            Above::Nothing | Above::Object(_) => None,
+            Above::Nothing | Above::Object(_) | Above::Resource(_) => None,
         }
     }
 
@@ -496,7 +648,7 @@ impl QualifiedTable {
         match self.above {
             Above::Nothing => Qualification::TableOnly,
             Above::Path(ref qualifier) => qualifier.qualification(),
-            Above::Object(_) => Qualification::Object,
+            Above::Object(_) | Above::Resource(_) => Qualification::Object,
         }
     }
 }
@@ -525,6 +677,7 @@ impl core::fmt::Display for QualifiedTable {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.above {
             Above::Object(ref object) => return write!(f, "`{}`", object.dotted()),
+            Above::Resource(ref id) => return write!(f, "`{}`", id.as_str()),
             Above::Path(ref qualifier) => {
                 if let Some(project) = qualifier.project.as_ref() {
                     write!(f, "{project}.")?;

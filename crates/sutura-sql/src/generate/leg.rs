@@ -13,13 +13,23 @@ use crate::GeneratedQuery;
 use crate::dialect::Dialect;
 
 /// [`super::generate_leg`], with `also` joined by `AND` after the leg's own filters, so their parameter order holds.
-pub(super) fn leg_within(leg: &LegPlan, dialect: Dialect, also: Option<Expr>) -> Result<GeneratedQuery, GenerateError> {
-    let ast = leg_statement(leg, dialect, also)?;
+pub(super) fn leg_within(
+    leg: &LegPlan,
+    dialect: Dialect,
+    also: Option<Expr>,
+    references: &super::ObjectReferences,
+) -> Result<GeneratedQuery, GenerateError> {
+    let ast = leg_statement(leg, dialect, also, references)?;
     finish(leg, dialect, &ast)
 }
 
 /// [`leg_within`]'s statement, before it is rendered.
-pub(super) fn leg_statement(leg: &LegPlan, dialect: Dialect, also: Option<Expr>) -> Result<Expression, GenerateError> {
+pub(super) fn leg_statement(
+    leg: &LegPlan,
+    dialect: Dialect,
+    also: Option<Expr>,
+    references: &super::ObjectReferences,
+) -> Result<Expression, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.
     let mut projection = Vec::with_capacity(leg.keys().len().saturating_add(1));
@@ -75,10 +85,11 @@ pub(super) fn leg_statement(leg: &LegPlan, dialect: Dialect, also: Option<Expr>)
     let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
     // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
     // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
-    super::named_objects(
+    super::named_objects_with(
         statement.group_by(grouping).order_by(tiebreak).build(),
         std::iter::once(leg.table()).chain(joins.iter().map(PlanJoin::table)),
         dialect,
+        references,
     )
 }
 

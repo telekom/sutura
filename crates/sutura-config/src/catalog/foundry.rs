@@ -8,6 +8,8 @@
 
 use std::path::PathBuf;
 
+use sutura_domain::model::ObjectTypeExclusions;
+
 pub use crate::client_credentials::DEFAULT_TOKEN_PATH;
 use crate::client_credentials::{ClientCredentialsSettings, InvalidClientCredentials, RawClientCredentials};
 
@@ -20,6 +22,9 @@ pub(crate) struct RawFoundry {
     pub(crate) ontology: Option<String>,
     #[serde(default)]
     pub(crate) client_credentials: Option<RawClientCredentials>,
+    /// The object types left out, by pattern. Absent is the default; `[]` leaves nothing out.
+    #[serde(default)]
+    pub(crate) exclude_object_types: Option<Vec<String>>,
 }
 
 /// How a Foundry reader authenticates. Either is the deployment's own identity.
@@ -36,6 +41,7 @@ pub enum FoundryAuth {
 pub struct FoundrySettings {
     ontology: String,
     auth: FoundryAuth,
+    exclusions: ObjectTypeExclusions,
 }
 
 impl FoundrySettings {
@@ -55,9 +61,18 @@ impl FoundrySettings {
                     .map_err(InvalidFoundryCatalog::ClientCredentials)?,
             ),
         };
+        let exclusions = match raw.exclude_object_types.as_deref() {
+            None => ObjectTypeExclusions::default(),
+            Some(patterns) => ObjectTypeExclusions::parse(patterns.iter().map(String::as_str)).map_err(|cause| {
+                InvalidFoundryCatalog::ExcludeObjectTypes {
+                    value: String::from(cause.value()),
+                }
+            })?,
+        };
         Ok(Self {
             ontology: String::from(ontology),
             auth,
+            exclusions,
         })
     }
 
@@ -69,6 +84,12 @@ impl FoundrySettings {
     #[inline]
     pub const fn auth(&self) -> &FoundryAuth {
         &self.auth
+    }
+
+    /// The object types this catalog, and the source of the same alias, leave out.
+    #[inline]
+    pub const fn exclusions(&self) -> &ObjectTypeExclusions {
+        &self.exclusions
     }
 }
 
@@ -83,6 +104,8 @@ pub enum InvalidFoundryCatalog {
     TwoAuths,
     #[error("`foundry.client_credentials` is not usable")]
     ClientCredentials(#[source] InvalidClientCredentials),
+    #[error("`foundry.exclude_object_types` holds {value:?}, which is neither an exact API name nor a prefix ending in `.*`")]
+    ExcludeObjectTypes { value: String },
 }
 
 fn written(raw: Option<&str>) -> Option<&str> {

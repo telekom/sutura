@@ -98,6 +98,7 @@ pub mod knowledge;
 pub mod measure;
 pub mod model;
 pub mod nonempty;
+pub mod oauth;
 pub mod pinned;
 pub mod plan;
 pub mod query;

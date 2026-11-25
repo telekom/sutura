@@ -30,7 +30,8 @@ use std::collections::BTreeMap;
 
 use serde::de::DeserializeOwned;
 use sutura_domain::model::InvalidQualifiedTable;
-pub use sutura_http_client::token::{TokenSource, TokenUnavailable};
+use sutura_domain::model::ObjectTypeExclusions;
+pub use sutura_http_client::token::{BorrowedBearer, TokenSource, TokenUnavailable};
 use sutura_http_client::{Budget, PageReport, Pager};
 pub use sutura_http_client::{
     DEFAULT_MAX_ENTITIES, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, Endpoint, EndpointMessage, ErrorName,
@@ -156,6 +157,14 @@ pub enum HttpReaderError {
 const OBJECT_TYPES: &str = "object types";
 const LINK_TYPES: &str = "outgoing link types";
 
+/// Whose bearer one ontology request carries: the deployment's own [`TokenSource`], or a token
+/// borrowed for this request alone - a caller's, or the one a question is about to send.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Credential<'a> {
+    Deployment(&'a TokenSource),
+    Borrowed(BorrowedBearer<'a>),
+}
+
 /// Where and how the ontology API is dialled, without a bearer: [`HttpOntologyReader`] adds the
 /// deployment's, [`crate::caller::CallerObjectTypes`] each caller's.
 #[derive(Debug)]
@@ -172,6 +181,7 @@ pub(crate) struct OntologyApi {
 pub struct HttpOntologyReader {
     api: OntologyApi,
     token: TokenSource,
+    exclusions: ObjectTypeExclusions,
 }
 
 impl HttpOntologyReader {
@@ -188,7 +198,21 @@ impl HttpOntologyReader {
         Self {
             api: OntologyApi::new(endpoint, ontology, bounds, agent),
             token,
+            exclusions: ObjectTypeExclusions::none(),
         }
+    }
+
+    /// Leaves out the object types `exclusions` matches, before their links are read.
+    #[must_use]
+    pub fn excluding(mut self, exclusions: ObjectTypeExclusions) -> Self {
+        self.exclusions = exclusions;
+        self
+    }
+
+    /// What this reader leaves out.
+    #[must_use]
+    pub const fn exclusions(&self) -> &ObjectTypeExclusions {
+        &self.exclusions
     }
 
     #[must_use]
@@ -229,7 +253,8 @@ impl HttpOntologyReader {
     ///
     /// [`HttpReaderError`].
     pub fn object_types(&self) -> Result<Vec<ObjectType>, HttpReaderError> {
-        self.api.object_types(&self.token, Budget::opened(self.timeout()))
+        self.api
+            .object_types(Credential::Deployment(&self.token), Budget::opened(self.timeout()))
     }
 
     /// One object type's outgoing link types; its API name is parsed before it reaches a path.
@@ -238,7 +263,8 @@ impl HttpOntologyReader {
     ///
     /// [`HttpReaderError::ObjectTypeName`] for a name that is not one, else [`HttpReaderError`].
     pub fn outgoing_link_types(&self, api_name: &str) -> Result<Vec<LinkTypeSide>, HttpReaderError> {
-        self.api.outgoing(&self.token, Budget::opened(self.timeout()), api_name)
+        self.api
+            .outgoing(Credential::Deployment(&self.token), Budget::opened(self.timeout()), api_name)
     }
 }
 
@@ -263,12 +289,12 @@ impl OntologyApi {
     }
 
     /// Every object type, page after page, each request carrying `token`'s bearer.
-    pub(crate) fn object_types(&self, token: &TokenSource, budget: Budget) -> Result<Vec<ObjectType>, HttpReaderError> {
+    pub(crate) fn object_types(&self, token: Credential<'_>, budget: Budget) -> Result<Vec<ObjectType>, HttpReaderError> {
         self.list(token, budget, OBJECT_TYPES, &self.object_types_path())
     }
 
     /// Every entry of one list, page after page.
-    fn list<T>(&self, token: &TokenSource, budget: Budget, what: &'static str, path: &str) -> Result<Vec<T>, HttpReaderError>
+    fn list<T>(&self, token: Credential<'_>, budget: Budget, what: &'static str, path: &str) -> Result<Vec<T>, HttpReaderError>
     where
         T: DeserializeOwned,
     {
@@ -295,7 +321,7 @@ impl OntologyApi {
 
     fn fetch<T>(
         &self,
-        token: &TokenSource,
+        token: Credential<'_>,
         budget: Budget,
         what: &'static str,
         path: &str,
@@ -308,7 +334,13 @@ impl OntologyApi {
             what,
             budget_seconds: self.bounds.timeout().as_secs(),
         })?;
-        let bearer = token.bearer(budget).map_err(|cause| HttpReaderError::Token { what, cause })?;
+        let header = match token {
+            Credential::Deployment(source) => source
+                .bearer(budget)
+                .map_err(|cause| HttpReaderError::Token { what, cause })?
+                .header(),
+            Credential::Borrowed(bearer) => bearer.header(),
+        };
         let url = format!("{}{path}", self.endpoint.as_str());
         let mut request = self
             .agent
@@ -322,7 +354,7 @@ impl OntologyApi {
             .config()
             .timeout_global(Some(Budget::socket(left)))
             .build()
-            .header("authorization", bearer.header())
+            .header("authorization", header)
             .call()
             .map_err(|cause| HttpReaderError::Unreachable {
                 what,
@@ -362,7 +394,7 @@ impl OntologyApi {
     /// is parsed before it reaches a path.
     pub(crate) fn outgoing(
         &self,
-        token: &TokenSource,
+        token: Credential<'_>,
         budget: Budget,
         api_name: &str,
     ) -> Result<Vec<LinkTypeSide>, HttpReaderError> {
@@ -384,12 +416,17 @@ impl OntologyReader for HttpOntologyReader {
 
     fn read(&self) -> Result<Ontology, Self::Error> {
         let budget = Budget::opened(self.timeout());
-        let object_types = self.api.object_types(&self.token, budget)?;
+        let (object_types, excluded) = crate::kept(
+            self.api.object_types(Credential::Deployment(&self.token), budget)?,
+            &self.exclusions,
+        );
         let mut outgoing = BTreeMap::new();
         for object_type in &object_types {
-            let sides = self.api.outgoing(&self.token, budget, object_type.api_name())?;
+            let sides = self
+                .api
+                .outgoing(Credential::Deployment(&self.token), budget, object_type.api_name())?;
             outgoing.insert(String::from(object_type.api_name()), sides);
         }
-        Ok(Ontology::new(object_types, outgoing))
+        Ok(Ontology::new(object_types, outgoing).with_excluded(excluded))
     }
 }

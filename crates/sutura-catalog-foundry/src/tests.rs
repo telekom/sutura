@@ -338,6 +338,156 @@ fn a_link_to_an_object_type_the_read_never_listed_is_still_refused() {
 }
 
 #[test]
+fn a_composed_relationship_name_too_long_for_a_name_is_shortened_stably() {
+    let link = "aircraftAssignedForTheScheduledDepartureUnderTheLongTermOperationalPlanningAgreement";
+    let composed = format!("Flight_{link}");
+    assert!(composed.len() > 63, "{}", composed.len());
+    let load = || {
+        load_edited(|answers| {
+            answers.links.get_mut("Flight").expect("recorded")[0]["apiName"] = link.into();
+        })
+        .expect("a long link name loads")
+    };
+    let names = |pinned: &PinnedDefinitions| {
+        pinned
+            .definitions()
+            .relationships()
+            .keys()
+            .map(|name| String::from(name.as_str()))
+            .collect::<Vec<_>>()
+    };
+    let first = names(&load());
+    assert_eq!(first, names(&load()), "the mapping is not stable across loads");
+    let long = first
+        .iter()
+        .find(|name| name.starts_with("Flight_aircraftAssigned"))
+        .expect("the long link is carried");
+    assert_eq!(long.len(), 63, "{long}");
+    assert_eq!(
+        *long,
+        sutura_domain::model::fitted(composed, &format!("Flight\u{1f}{link}")),
+        "not the shortening a model name takes"
+    );
+    assert!(
+        first.iter().any(|name| name == "Flight_arrivalAirport"),
+        "a short composition was changed: {first:?}"
+    );
+}
+
+#[test]
+fn two_links_whose_composed_names_meet_are_refused_naming_both() {
+    let refused = load_edited(|answers| {
+        let mut shadow = object_type(&mut answers.types, "Flight").clone();
+        shadow["apiName"] = "Flight_x".into();
+        answers.types.push(shadow);
+        let flight = answers.links.get_mut("Flight").expect("recorded");
+        flight[0]["apiName"] = "x_y".into();
+        let mut shadow_links = flight.clone();
+        shadow_links[0]["apiName"] = "y".into();
+        answers.links.insert(String::from("Flight_x"), shadow_links);
+    });
+    let Err(FoundryError::RelationshipNameCollision {
+        first_on,
+        first_link,
+        second_on,
+        second_link,
+        name,
+    }) = &refused
+    else {
+        panic!("a shadowing relationship loaded: {refused:?}");
+    };
+    assert_eq!(
+        (
+            first_on.as_str(),
+            first_link.as_str(),
+            second_on.as_str(),
+            second_link.as_str()
+        ),
+        ("Flight", "x_y", "Flight_x", "y")
+    );
+    assert_eq!(name.as_str(), "Flight_x_y");
+}
+
+#[test]
+fn the_platform_types_are_left_out_by_default_and_a_link_into_them_is_omitted() {
+    let ontology = || {
+        let mut answers = Answers::recorded();
+        with_platform_types(&mut answers);
+        answers.decoded()
+    };
+    let pinned = catalog(Recorded(ontology()))
+        .excluding(sutura_domain::model::ObjectTypeExclusions::default())
+        .load()
+        .expect("the platform types are left out, not refused");
+    let definitions = pinned.definitions();
+    assert_eq!(
+        definitions.models().keys().map(ModelName::as_str).collect::<Vec<_>>(),
+        ["Aircraft", "Airport", "Employee", "Flight"]
+    );
+    assert!(
+        !definitions
+            .relationships()
+            .keys()
+            .any(|name| name.as_str() == "Flight_evolution"),
+        "a link into an excluded type was carried"
+    );
+
+    let kept = catalog(Recorded(ontology()))
+        .excluding(sutura_domain::model::ObjectTypeExclusions::none())
+        .load()
+        .expect("an empty list keeps them");
+    assert_eq!(kept.definitions().models().len(), 6);
+
+    let custom = sutura_domain::model::ObjectTypeExclusions::parse(["Employee"]).expect("an exact name");
+    let pinned = catalog(Recorded(ontology())).excluding(custom).load().expect("loads");
+    assert!(!pinned.definitions().models().contains_key(&name("Employee")));
+    assert!(
+        pinned
+            .definitions()
+            .models()
+            .contains_key(&name("com_palantir_system_Evolution"))
+    );
+}
+
+#[test]
+fn a_long_dotted_name_kept_by_the_exclusions_is_shortened_and_one_left_out_is_not_read() {
+    use sutura_domain::model::ObjectTypeExclusions;
+    let load = |api_name: &str, exclusions: ObjectTypeExclusions| {
+        let mut answers = Answers::recorded();
+        with_platform_types(&mut answers);
+        answers.types[1]["apiName"] = api_name.into();
+        catalog(Recorded(answers.decoded())).excluding(exclusions).load()
+    };
+    for (api_name, exclusions, prefix) in [
+        (
+            "com.example.system.EvolutionModelStudioUnslothFineTuningExperiment",
+            ObjectTypeExclusions::default(),
+            "com_example_system_",
+        ),
+        (
+            "com.palantir.system.EvolutionModelStudioUnslothFineTuningExperiment",
+            ObjectTypeExclusions::none(),
+            "com_palantir_system_EvolutionModel",
+        ),
+    ] {
+        let pinned = load(api_name, exclusions).expect("a long dotted name is shortened, not refused");
+        let model = pinned
+            .definitions()
+            .models()
+            .keys()
+            .find(|model| model.as_str().starts_with(prefix))
+            .expect("the long-named type is kept");
+        assert_eq!(model.as_str().len(), 63, "{model}");
+    }
+    let pinned = load(
+        "com.palantir.system.EvolutionModelStudioUnslothFineTuningExperiment",
+        ObjectTypeExclusions::default(),
+    )
+    .expect("the default leaves it out");
+    assert_eq!(pinned.definitions().models().len(), 4);
+}
+
+#[test]
 fn it_declares_what_object_type_metadata_carries_and_nothing_more() {
     type Catalog = FoundryCatalog<fixture::FixtureReader>;
     assert_eq!(Catalog::KIND, CatalogKind::Declaring);

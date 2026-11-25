@@ -55,6 +55,10 @@ pub struct ObjectType {
     description: Option<String>,
     primary_key: String,
     properties: BTreeMap<String, Property>,
+    /// The object type's resource identifier, the one name Ontology SQL resolves it by. Optional
+    /// here so a list without it still decodes; whoever needs it refuses its absence by name.
+    #[serde(default)]
+    rid: Option<String>,
 }
 
 impl ObjectType {
@@ -76,6 +80,12 @@ impl ObjectType {
     #[must_use]
     pub fn primary_key(&self) -> &str {
         &self.primary_key
+    }
+
+    /// The object type's resource identifier, as the answer wrote it.
+    #[must_use]
+    pub fn rid(&self) -> Option<&str> {
+        self.rid.as_deref()
     }
 
     /// Every property, keyed by its API name, in name order.
@@ -163,12 +173,31 @@ impl LinkTypeSide {
 pub struct Ontology {
     object_types: Vec<ObjectType>,
     outgoing: BTreeMap<String, Vec<LinkTypeSide>>,
+    /// The API names the reader left out before reading their links.
+    excluded: Vec<String>,
 }
 
 impl Ontology {
     #[must_use]
     pub const fn new(object_types: Vec<ObjectType>, outgoing: BTreeMap<String, Vec<LinkTypeSide>>) -> Self {
-        Self { object_types, outgoing }
+        Self {
+            object_types,
+            outgoing,
+            excluded: Vec::new(),
+        }
+    }
+
+    /// The same read, recording the API names left out of it.
+    #[must_use]
+    pub fn with_excluded(mut self, excluded: Vec<String>) -> Self {
+        self.excluded = excluded;
+        self
+    }
+
+    /// The API names the reader left out.
+    #[must_use]
+    pub fn excluded(&self) -> &[String] {
+        &self.excluded
     }
 
     #[must_use]

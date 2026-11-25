@@ -24,6 +24,19 @@ const STACKED: &str = "stacked";
 ///
 /// [`GenerateError`] as [`super::generate()`] returns it for any arm, or for the whole statement.
 pub fn generate_stacked(plan: &StackedPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    generate_stacked_with(plan, dialect, &super::ObjectReferences::NONE)
+}
+
+/// [`generate_stacked`], each table in `references` rendered as its resource identifier.
+///
+/// # Errors
+///
+/// [`GenerateError`], as [`generate_stacked`].
+pub fn generate_stacked_with(
+    plan: &StackedPlan,
+    dialect: Dialect,
+    references: &super::ObjectReferences,
+) -> Result<GeneratedQuery, GenerateError> {
     let labels: Vec<&str> = plan
         .arms()
         .iter()
@@ -48,10 +61,11 @@ pub fn generate_stacked(plan: &StackedPlan, dialect: Dialect) -> Result<Generate
                 });
             projection.push(aliased(expr, label)?);
         }
-        let grouped = super::named_objects(
+        let grouped = super::named_objects_with(
             super::grouped(arm, dialect, projection, grouping, &mut emitted)?.build(),
             std::iter::once(arm.table()).chain(arm.joins().iter().map(sutura_domain::plan::PlanJoin::table)),
             dialect,
+            references,
         )?;
         let moved = shifted(grouped, shift, dialect)?;
         shift += arm.params().len();

@@ -4557,6 +4557,7 @@ dependencies = [
  "sutura-http-client",
  "sutura-tls",
  "thiserror 2.0.21",
+ "tracing",
  "ureq",
 ]
 
@@ -4875,6 +4876,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-ipc",
  "arrow-schema",
+ "parking_lot 0.13.0",
  "serde",
  "serde_json",
  "sutura-domain",

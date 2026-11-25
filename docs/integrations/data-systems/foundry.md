@@ -48,9 +48,36 @@ Both blocks take the keys of the catalog's `foundry.client_credentials`, read by
 | `scopes`             | list          | none                          | The scopes to ask for, for example `api:sql-queries-execute`          |
 | `token_path`         | string        | `/multipass/api/oauth2/token` | The path of the token endpoint on `endpoint`. A host is refused.      |
 
-A minted token is held until 60 seconds before its `expires_in`, then minted again; a mint happens
-inside the question's own deadline, and a token answer without `expires_in` is used for one request
-only. A failed mint refuses the question and sends nothing to Foundry.
+A minted token is held until 60 seconds before its `expires_in`, counted from when the token request
+was sent, then minted again. A mint happens inside the question's own deadline, and a question that
+finds another mint in progress waits for it no longer than its own deadline. A token answer without
+`expires_in` is used for one request only. A failed mint refuses the question and sends nothing to
+Foundry.
+
+The source queries each object type by its resource identifier (RID). A catalog names an object type
+by its API name; the source reads the object-type list and names the RID that list gives for it.
+It keeps two maps of API name to RID:
+
+- **Questions.** Filled only by reads under the token a question sends. Each entry lasts five
+  minutes from the read that last returned it. A read adds and refreshes entries and never replaces
+  the map, so one caller's narrower list does not evict another's entries. A name the map lacks, or
+  holds stale, is read again at once under the asking caller's token.
+- **Anchors.** Filled only by reads under the startup identity, and never read by a question.
+
+An entry another caller's read added is used for a caller who cannot see that object type: the
+statement names its RID, and Foundry decides under the caller's own token. Every way an object
+type does not resolve is the same `source_refused` answer, naming no object type: not in any read,
+listed with no usable RID (only a question needing that type is refused; the read logs how many at
+`DEBUG`), left out by the exclusions, or not found by Foundry behind its RID. In the last case the
+entries the statement used are dropped, so the next question reads them again - a recreated type
+is picked up without waiting five minutes. **Unverified:** which status Foundry answers for a RID
+the token may not see. A `401`/`403` is `source_refused`; a `404`, or an `errorName` ending
+`NotFound`, is read as not found; any other answer is the data system failing.
+
+The source leaves out the object types its catalog's `foundry.exclude_object_types` leaves out. A
+model naming one by API name stops startup, and a refreshed bundle naming one is not adopted. A
+model naming one by RID cannot be checked then; a question on it is refused once a read has listed
+that RID as excluded.
 
 The source's token settings are separate from the catalog's. Catalog OAuth client credentials do not
 provide a query credential, even though both blocks are read the same way. The source uses `security.outbound` for its
@@ -79,14 +106,16 @@ sources:
 each `foundry` catalog and each `foundry` source one step at a time and prints one line per step:
 
 1. The catalog credential: the token file, or one client-credentials mint.
-2. The object-type list: the count, and the model name each dotted API name maps to.
+2. The object-type list: how many are listed and how many `exclude_object_types` leaves out, and
+   the model name each dotted API name maps to.
 3. Each object type's outgoing link types, and the joins the catalog keeps from them.
 4. For a shared source, its own token: the token file, or one client-credentials mint. For a
-   `foundry_login` source, the broker answer for one caller: whether it has
-   `accessTokenExpiration`, and its `scope` if it has one. A `verification_client_credentials`
-   startup identity is not checked; only anchor verification uses it.
-5. One parse-only request per source, against the first plain object type and the first dotted
-   one, under the token that `serve` would send.
+   `foundry_login` source, one mint of its `verification_client_credentials` startup identity when
+   it declares one, then the broker answer for one caller: whether it has `accessTokenExpiration`,
+   and its `scope` if it has one.
+5. Two parse-only requests per probed object type - the first plain and the first dotted one -
+   under the token that `serve` would send: by resource identifier, the form a question takes, then
+   by API name, so the output says which reference form the tenant resolves.
 
 For a `foundry_login` source, give the caller's own access token in a file or in
 `SUTURA_CALLER_TOKEN`, never on the command line:
@@ -97,23 +126,35 @@ SUTURA_CONFIG_DIR=/etc/sutura sutura foundry-check /run/sutura/caller-token
 
 ```text
 catalog ontology credential: ok - the token file was read
-catalog ontology object types: ok - 6 listed, 2 dotted API name(s) mapped
-catalog ontology mapped com.palantir.system.Evolution: ok - model com_palantir_system_Evolution
-catalog ontology mapped com.palantir.system.EvolutionProposal: ok - model com_palantir_system_EvolutionProposal
-catalog ontology links Flight: ok - 4 link side(s) read, 3 join(s) carried, 1 omitted
+catalog ontology object types: ok - 6 listed, 0 excluded by `foundry.exclude_object_types`, 2 dotted API name(s) mapped
+catalog ontology mapped object type #1: ok - maps to model of object type #1
+catalog ontology links object type #6: ok - 4 link side(s) read, 3 join(s) carried, 1 omitted
 catalog ontology load: ok - 6 model(s), 3 join(s)
 source ontology broker: ok - a linked Foundry token was returned; accessTokenExpiration present, 3540 s left; scope api:sql-queries-execute api:ontologies-read
-source ontology parse-only Flight: ok - Foundry parsed the statement
-source ontology parse-only com.palantir.system.Evolution (dotted, one quoted identifier): refused - Foundry refused the SQL request with 400, errorName <name>
+source ontology parse-only object type #3 by resource identifier: ok - Foundry resolved the reference and parsed the statement
+source ontology parse-only object type #1 (dotted) by API name: refused - Foundry refused the SQL request with 400, errorName <name>
 ```
 
 Each line ends in `ok`, `refused` (Foundry, the identity provider or the catalog's own rules said
 no) or `failed` (no answer). The exit code is non-zero unless every line is `ok`. A line has no
-token, host, ontology identifier, request or answer text, or row value. It can have counts, HTTP
-statuses, Foundry's `errorName`, OAuth 2.0 error codes, scopes, object-type API names and the
-configured aliases, so it can be pasted into a public issue. When a setting cannot be read, the
-line says only that; `sutura serve` prints the full message. The redaction is tested with the fakes
-for the cases those tests trigger. A new error field is not checked until a test triggers it.
+token, host, ontology identifier, request or answer text, or row value. By default it has no object
+type API name or model name either: those are your tenant's own data, and each is printed as
+`object type #n` in the order the list served them. A refusal that would name an object type, a
+property or a link type - a load the catalog refuses, an object type that did not resolve - says
+only what kind of refusal it is, and that `--names` prints which. It can have counts, HTTP statuses, Foundry's
+`errorName`, OAuth 2.0 error codes, scopes and the configured aliases, so the default output can be
+pasted into a public issue. `--names` prints the names, for you alone - never paste that output into
+a public issue:
+
+```sh
+SUTURA_CONFIG_DIR=/etc/sutura sutura foundry-check --names /run/sutura/caller-token
+```
+
+Any other argument, or a second value, is refused rather than ignored: a token goes in a file or in
+`SUTURA_CALLER_TOKEN`, never on the command line. When a setting cannot be read, the line says only
+that; `sutura serve` prints the full message. The redaction is tested with the fakes for the cases
+those tests trigger. A new error field is not checked until a test triggers it, and a name is
+replaced as text, so a tenant name that is also a common word is replaced wherever it appears.
 
 ## Execution and limits
 
@@ -191,7 +232,8 @@ What is refused, and where:
   is held apart from the question path - the adapter's request path reads only the caller's token,
   and only anchor verification reads the startup grant - so no question presents it. Without one, an
   anchor on the source stops startup and names the metric. The adapter has no table-existence
-  check, so startup checks nothing else.
+  check; startup checks only that no model names an object type `exclude_object_types` leaves
+  out.
 - **Per question.** A request with no verified caller is refused before any broker request. A caller
   who has not linked a Foundry account gets `403 identity_not_linked`. Any other broker failure, and
   a brokered token whose `accessTokenExpiration` has already passed, is `503 identity_unavailable`

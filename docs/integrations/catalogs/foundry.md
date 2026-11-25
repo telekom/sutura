@@ -39,11 +39,19 @@ and these keys. It does not read `dir` or `data_dir`.
 | `foundry.client_credentials.client_secret_file` | path    | required with `client_id`     | A file that holds the client secret. sutura reads it once at startup.                                        |
 | `foundry.client_credentials.scopes`             | list    | none                          | The scopes to ask for, for example `api:ontologies-read`                                                     |
 | `foundry.client_credentials.token_path`         | string  | `/multipass/api/oauth2/token` | The path of the token endpoint on `endpoint`. A host is refused.                                             |
+| `foundry.exclude_object_types`                  | list    | `["com.palantir.system.*"]`   | Object types to leave out: an exact API name, or a prefix ending in `.*`. `[]` leaves nothing out.           |
 | `deadline_seconds`                              | integer | `30`                          | One budget for all requests and token mints; `0` is refused.                                                 |
 | `max_response_bytes`                            | integer | `8388608`                     | The size limit for one response. `0` is refused.                                                             |
 
 Write `token_file` or `foundry.client_credentials`, not both. With client credentials, sutura gets
 a new token before the old one expires, so a catalog refresh does not fail after one hour.
+
+`foundry.exclude_object_types` takes nothing beyond an exact API name or `<prefix>.*` - no other
+wildcard and no regular expression; any other pattern is refused at load, naming it. The
+`kind: foundry` source of the same alias leaves out the same object types, when it resolves an API
+name and when it narrows a caller's view, so all three agree. An excluded object type is dropped
+before any name check and before its links are read. Each load logs how many were left out at
+`INFO`, and their API names at `DEBUG`.
 
 For TLS, the reader uses `security.outbound`: `transport_anchors` and an optional
 `client_certificate` and `client_key`.
@@ -74,31 +82,44 @@ sources:
 sutura reads `/api/v2/ontologies/{ontology}/objectTypes` and, for each object type,
 `.../objectTypes/{objectType}/outgoingLinkTypes`.
 
-| Foundry                                              | In sutura                                          |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| An object type                                       | A model. Its description, or else its display name |
-| A dotted object type API name                        | A model named with `_` for each `.`                |
-| Its properties                                       | The columns, with type and description             |
-| Its primary key                                      | The primary key of the model                       |
-| A link side with cardinality `ONE` and a foreign key | A many-to-one join, `<objectType>_<linkType>`      |
-| A `MANY` side, or a many-to-many link                | Not a join                                         |
+| Foundry                                              | In sutura                                                        |
+| ---------------------------------------------------- | ---------------------------------------------------------------- |
+| An object type                                       | A model. Its description, or else its display name               |
+| An object type `exclude_object_types` matches        | Nothing; a link into it is not a join                            |
+| A dotted object type API name                        | A model named with `_` for each `.`                              |
+| A model name longer than 63 characters               | Its first 46 characters, `_`, and 16 hex digits of a digest      |
+| Its properties                                       | The columns, with type and description                           |
+| Its primary key                                      | The primary key of the model                                     |
+| A link side with cardinality `ONE` and a foreign key | A many-to-one join, `<model>_<linkType>`, shortened the same way |
+| A `MANY` side, or a many-to-many link                | Not a join                                                       |
 
 sutura binds every model to the source whose alias is the catalog `name`.
 
 Foundry lists platform-provided object types with dotted API names, such as
-`com.palantir.system.Evolution`, beside your own; the ontology editor does not show them. They load
-too. The model name is the API name with each `.` replaced by `_`, so
+`com.palantir.system.Evolution`, beside your own; the ontology editor does not show them. By
+default `exclude_object_types` leaves every `com.palantir.system.*` type out. With `[]`, or for a
+dotted type of your own, the model name is the API name with each `.` replaced by `_`, so
 `com.palantir.system.Evolution` is the model `com_palantir_system_Evolution`, and a link from it is
-`com_palantir_system_Evolution_<linkType>`. A `kind: foundry` data source still queries the
-object by its dotted API name, written as one backtick-quoted identifier. That form follows how
-Foundry's public Ontology SQL documentation quotes an object type's RID; whether a tenant accepts it
-for a dotted API name is not verified.
+`com_palantir_system_Evolution_<linkType>`.
+
+A model or join name longer than 63 characters is shortened, the same way for both: its first 46
+characters, `_`, and the first 16 hex digits of the SHA-256 of the whole source it stands for - the
+whole API name for a model, dotted or not, the object type's and the link type's API names for a
+join. That covers a plain API name over 63 characters and a dotted one with a segment over 63
+characters too. A name that fits is never shortened, and the same source always gives the same
+name. Two names that still meet are refused, naming both.
+
+A `kind: foundry` data source queries an object type by its resource identifier (RID), which it
+reads from the object-type list - not by the model name, and not by the API name - so a shortened
+name never reaches Foundry. A tester's tenant refused a statement naming a dotted API name with
+`400` and accepted the same statement naming the RID; sutura's own tests run against fakes only.
 
 sutura refuses the whole load, and names the object type, when:
 
 - two API names map to the same model name - both are named, because one would hide the other
+- two link types map to the same join name - both are named
 - a dotted API name has an empty segment or a segment that is not a name (letters, digits and
-  underscore, not starting with a digit), or its model name is longer than 63 characters
+  underscore, not starting with a digit)
 - a property, primary key, foreign key or link type name is not a name - the property or link type
   is named too; these are not mapped
 

@@ -37,6 +37,7 @@ pub(super) fn declared(settings: &Settings) -> Result<Option<CatalogVisibility>,
         let sutura_config::SourcePlacement::Foundry {
             ref endpoint,
             ref ontology,
+            ref exclude_object_types,
             ..
         } = *source.placement()
         else {
@@ -52,7 +53,10 @@ pub(super) fn declared(settings: &Settings) -> Result<Option<CatalogVisibility>,
         let (agent, rotator) = sutura_http_client::rotating_agent(bounds, outbound.clone())
             .map_err(|cause| format!("`security.outbound.transport_anchors` could not be loaded: {cause}"))?;
         crate::rotation::drive_rotation("security.outbound.transport_anchors (foundry catalog visibility)", rotator);
-        visibility = visibility.listing(alias.clone(), CallerObjectTypes::new(endpoint, ontology, bounds, agent));
+        visibility = visibility.listing(
+            alias.clone(),
+            CallerObjectTypes::new(endpoint, ontology, bounds, agent).excluding(exclude_object_types.clone()),
+        );
     }
     Ok(Some(visibility))
 }

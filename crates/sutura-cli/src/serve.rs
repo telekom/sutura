@@ -383,7 +383,19 @@ pub(crate) fn run() -> Result<(), String> {
             (shared_identity_service(&catalogs, engines, combiner, None, &settings)?, None)
         }
         #[cfg(feature = "foundry")]
-        OpenedSources::Foundry(engines) => foundry::served(&catalogs, engines, combiner, &settings, outbound.as_ref())?,
+        OpenedSources::Foundry(engines) => {
+            // A Foundry source answers the pre-flight with the tables its `exclude_object_types`
+            // leaves out, so a model naming one by API name is refused here and on every refresh.
+            boot::refuse_absent_tables(&pinned, &engines)?;
+            foundry::served(
+                &catalogs,
+                engines,
+                combiner,
+                adoption_gate(None, true),
+                &settings,
+                outbound.as_ref(),
+            )?
+        }
         OpenedSources::Mixed(mixed) => {
             // One registry, so one pre-flight - generic in the adapter, so it runs the same way
             // over whichever kinds this mix opened. A `files` entry answers `NotReported` here for

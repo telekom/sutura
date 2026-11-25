@@ -139,6 +139,22 @@ impl FoundryTransport for HttpFoundry {
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         matches!(error, HttpFoundryError::TooLarge { .. })
     }
+
+    /// A `404`, or an `errorName` ending `NotFound`. **Unverified:** no tenant has answered a
+    /// statement naming a RID its token may not see, or a recreated type's old RID, here.
+    fn object_not_found(&self, error: &Self::Error) -> bool {
+        match error {
+            HttpFoundryError::Refused { status: 404, .. } => true,
+            HttpFoundryError::Refused { error_name, .. } => {
+                error_name.as_ref().is_some_and(|name| name.as_str().ends_with("NotFound"))
+            }
+            HttpFoundryError::Unreachable(_)
+            | HttpFoundryError::Unreadable(_)
+            | HttpFoundryError::TooLarge { .. }
+            | HttpFoundryError::DeadlineSpent
+            | HttpFoundryError::Unencodable(_) => false,
+        }
+    }
 }
 
 /// The deployment's bearer from the one client-credentials implementation (or a fixed token),
@@ -147,9 +163,9 @@ impl crate::DeploymentToken for sutura_http_client::token::TokenSource {
     fn bearer(&self, deadline: Deadline) -> Result<Secret, crate::TokenFailed> {
         let left = deadline
             .remaining_at(Instant::now())
-            .ok_or_else(|| crate::TokenFailed(Box::new(HttpFoundryError::DeadlineSpent)))?;
+            .ok_or(crate::TokenFailed::DeadlineSpent)?;
         Self::bearer(self, sutura_http_client::Budget::opened(left))
             .map(|bearer| bearer.secret().clone())
-            .map_err(|cause| crate::TokenFailed(Box::new(cause)))
+            .map_err(crate::TokenFailed::Mint)
     }
 }

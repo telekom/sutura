@@ -32,18 +32,30 @@
 use std::time::Instant;
 
 use arrow_buffer::Buffer;
-use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
-use sutura_domain::model::{QualifiedTable, SourceName};
+use sutura_domain::identity::{Presented, Secret};
+use sutura_domain::model::{ObjectTypeExclusions, QualifiedTable, SourceName};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::arrow::{Accumulating, ResultBudget, UnannouncedBatch};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::preflight::{AbsentTables, TablesPresent};
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, Warehouse};
-use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
+use sutura_sql::{Dialect, GeneratedQuery};
 
+mod bearer;
+mod directory;
+mod error;
 #[cfg(feature = "http")]
 pub mod http;
+mod resolve;
+
+pub use error::FoundryError;
+
+use bearer::Bearer;
+pub use bearer::{BootIdentity, DeploymentToken, TokenFailed};
+pub use directory::{DIRECTORY_TTL, DirectoryFailed, Listed, ObjectTypeDirectory, ResourceIds};
+use directory::{Directory, Whose};
 
 /// The JSON request sent to Foundry's ontology SQL endpoint.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -151,67 +163,20 @@ pub trait FoundryTransport {
     fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
         false
     }
+
+    /// Whether Foundry found no object type behind a name the statement gave it. Defaulted to
+    /// `false`, the answer for a transport that cannot tell.
+    fn object_not_found(&self, _error: &Self::Error) -> bool {
+        false
+    }
 }
 
 type TransportResponse<E> = Result<Vec<u8>, E>;
-/// A request and the statement it carries.
-type Prepared = (SqlRequest, GeneratedQuery);
+/// A request, the statement it carries, and the API names resolved for it.
+type Prepared = (SqlRequest, GeneratedQuery, Vec<String>);
 type WarehouseResult<E, T> = Result<T, FoundryError<E>>;
-
-/// Why Foundry did not answer a plan.
-#[derive(Debug, thiserror::Error)]
-pub enum FoundryError<E>
-where
-    E: std::error::Error + 'static,
-{
-    #[error("the Foundry endpoint did not answer")]
-    Endpoint {
-        #[source]
-        cause: E,
-    },
-    #[error("the plan could not be rendered as Foundry Ontology SQL")]
-    Render {
-        #[source]
-        cause: GenerateError,
-    },
-    #[error("the source credential does not agree with the declared posture")]
-    PresentedDisagreesWithPosture {
-        #[source]
-        cause: PresentedDisagreesWithPosture,
-    },
-    #[error("the Foundry Arrow result could not be decoded")]
-    Arrow {
-        #[source]
-        cause: arrow_schema::ArrowError,
-    },
-    #[error("the Foundry answer deadline was spent while decoding Arrow")]
-    DeadlineSpent,
-    #[error("the Foundry Arrow result did not match its announced schema")]
-    Unannounced {
-        #[source]
-        cause: UnannouncedBatch,
-    },
-    #[error("a Foundry result cell could not be read as a domain value")]
-    Unreadable {
-        #[source]
-        cause: sutura_domain::warehouse::UnreadableCell,
-    },
-    #[error("the Foundry source identifier is not the source selected by this plan")]
-    WrongSource,
-    #[error("the credential broker presented {presented}, which this Foundry source cannot send")]
-    Undeliverable { presented: &'static str },
-    /// An `impersonation-at-source` source has no identity of its own, so nothing at boot can run
-    /// as anybody here: an anchor on it cannot be verified.
-    #[error("this Foundry source runs each question as its caller and holds no identity to verify an anchor with")]
-    NoBootIdentity,
-    #[error("the deployment's Foundry token could not be obtained")]
-    Token {
-        #[source]
-        cause: TokenFailed,
-    },
-    #[error("the Foundry endpoint does not support this plan shape")]
-    UnsupportedPlan,
-}
+/// Foundry's answer bytes, or why there are none.
+type Answered<E> = Result<Vec<u8>, FoundryError<E>>;
 
 /// A connection to one Foundry ontology.
 #[derive(Debug)]
@@ -222,47 +187,9 @@ pub struct FoundryWarehouse<T> {
     bearer: Bearer,
     transport: T,
     result_budget: ResultBudget,
+    directory: Option<Directory>,
+    exclusions: ObjectTypeExclusions,
 }
-
-/// Whose token a request carries. No variant holds both a caller's and a deployment's for a
-/// question, so a per-caller source has no deployment token to fall back to.
-#[derive(Debug)]
-enum Bearer {
-    /// The deployment's own token, for a shared source: every question and every anchor.
-    Deployment(Box<dyn DeploymentToken>),
-    /// Each caller's own token, as the broker presented it; `boot` runs anchors only.
-    EachCaller { boot: Option<BootIdentity> },
-}
-
-/// The deployment's own Foundry bearer, per request: a fixed token, or a grant minted and
-/// refreshed inside the request's deadline.
-pub trait DeploymentToken: core::fmt::Debug + Send + Sync {
-    /// The bearer for one request.
-    ///
-    /// # Errors
-    ///
-    /// [`TokenFailed`] when none could be minted inside `deadline`.
-    fn bearer(&self, deadline: Deadline) -> Result<Secret, TokenFailed>;
-}
-
-/// A fixed token, read once at boot.
-impl DeploymentToken for Secret {
-    fn bearer(&self, _deadline: Deadline) -> Result<Secret, TokenFailed> {
-        Ok(self.clone())
-    }
-}
-
-/// Why no deployment token could be presented. Carries no token.
-#[derive(Debug, thiserror::Error)]
-#[error("no deployment token could be minted")]
-pub struct TokenFailed(#[source] pub Box<dyn std::error::Error + Send + Sync + 'static>);
-
-/// An impersonating source's startup-only identity: what its anchors run as.
-///
-/// **Only [`Warehouse::verify_anchor`] reads it.** It is held inside [`Bearer::EachCaller`], whose
-/// per-question arm matches the caller's token alone, and it has no accessor a question could reach.
-#[derive(Debug)]
-pub struct BootIdentity(Box<dyn DeploymentToken>);
 
 impl<T> FoundryWarehouse<T> {
     /// Builds a connection over a fixed deployment token and the process's result budget.
@@ -282,6 +209,8 @@ impl<T> FoundryWarehouse<T> {
             bearer: Bearer::Deployment(Box::new(token)),
             transport,
             result_budget,
+            directory: None,
+            exclusions: ObjectTypeExclusions::none(),
         }
     }
 
@@ -301,7 +230,28 @@ impl<T> FoundryWarehouse<T> {
             bearer: Bearer::EachCaller { boot: None },
             transport,
             result_budget,
+            directory: None,
+            exclusions: ObjectTypeExclusions::none(),
         }
+    }
+
+    /// Resolves every model a catalog names by API name to its object type's RID through
+    /// `directory`: a question's under its own token, an anchor's under the startup identity, into
+    /// two separate maps (`directory` module header). Without one, a statement names the object as
+    /// written.
+    #[must_use]
+    pub fn with_directory(mut self, directory: impl ObjectTypeDirectory + 'static) -> Self {
+        self.directory = Some(Directory::new(Box::new(directory)));
+        self
+    }
+
+    /// Leaves out the object types `exclusions` matches: a model naming one by API name is refused at
+    /// boot ([`Warehouse::preflight`]) and at query time, and one naming it by a RID a read listed as
+    /// excluded is refused at query time.
+    #[must_use]
+    pub fn with_exclusions(mut self, exclusions: ObjectTypeExclusions) -> Self {
+        self.exclusions = exclusions;
+        self
     }
 
     /// Gives an impersonating source its startup-only identity, so its anchors can be verified. A
@@ -309,7 +259,7 @@ impl<T> FoundryWarehouse<T> {
     #[must_use]
     pub fn with_boot_identity(mut self, boot: impl DeploymentToken + 'static) -> Self {
         if let Bearer::EachCaller { boot: ref mut held } = self.bearer {
-            *held = Some(BootIdentity(Box::new(boot)));
+            *held = Some(BootIdentity::new(Box::new(boot)));
         }
         self
     }
@@ -359,15 +309,31 @@ where
         }
     }
 
-    /// The request for `executable`, and the statement it carries for the answer's execution record.
-    fn request(&self, executable: Executable<'_>, dry_run: bool) -> WarehouseResult<T::Error, Prepared> {
+    /// The request for `executable`, under `token`, the statement it carries for the answer's
+    /// execution record, and the API names resolved for it through `whose` map.
+    fn request(
+        &self,
+        executable: Executable<'_>,
+        dry_run: bool,
+        token: &Secret,
+        deadline: Deadline,
+        whose: Whose,
+    ) -> WarehouseResult<T::Error, Prepared> {
         let row_limit = executable
             .row_limit()
             .map_or(FOUNDRY_MAX_ROW_LIMIT, |rows| rows.min(FOUNDRY_MAX_ROW_LIMIT));
+        let (references, resolved) = resolve::references(
+            self.directory.as_ref(),
+            &self.exclusions,
+            whose,
+            &resolve::tables_of(executable),
+            token,
+            deadline,
+        )?;
         let generated = match executable {
-            Executable::Query(plan) => sutura_sql::generate(plan, Dialect::Foundry),
-            Executable::Leg(plan) => sutura_sql::generate_leg(plan, Dialect::Foundry),
-            Executable::Stacked(plan) => sutura_sql::generate_stacked(plan, Dialect::Foundry),
+            Executable::Query(plan) => sutura_sql::generate_with(plan, Dialect::Foundry, &references),
+            Executable::Leg(plan) => sutura_sql::generate_leg_with(plan, Dialect::Foundry, &references),
+            Executable::Stacked(plan) => sutura_sql::generate_stacked_with(plan, Dialect::Foundry, &references),
         }
         .map_err(|cause| FoundryError::Render { cause })?;
         if generated.source() != &self.source {
@@ -376,7 +342,30 @@ where
         Ok((
             SqlRequest::from_query(&generated, &self.ontology, row_limit, dry_run),
             generated,
+            resolved,
         ))
+    }
+
+    /// Sends `request` under `token`. Foundry not finding an object type behind a statement that
+    /// named a resolved RID drops the `resolved` names from `whose` map and is
+    /// [`FoundryError::StaleObjectType`].
+    fn sent(
+        &self,
+        request: &SqlRequest,
+        token: &Secret,
+        deadline: Deadline,
+        resolved: &[String],
+        whose: Whose,
+    ) -> Answered<T::Error> {
+        self.transport
+            .execute(request, token, deadline)
+            .map_err(|cause| match self.directory.as_ref() {
+                Some(directory) if !resolved.is_empty() && self.transport.object_not_found(&cause) => {
+                    directory.forget(whose, resolved);
+                    FoundryError::StaleObjectType { cause }
+                }
+                Some(_) | None => FoundryError::Endpoint { cause },
+            })
     }
 
     /// Asks Foundry to parse, in the endpoint's parse-only mode, a row count over `table` as the
@@ -391,16 +380,34 @@ where
     pub fn parse_object(
         &self,
         table: &QualifiedTable,
+        reference: Reference,
         presented: &Presented,
         deadline: Deadline,
     ) -> WarehouseResult<T::Error, ()> {
         let token = self.delivered(presented, deadline)?;
+        let by_rid;
+        let (table, resolved) = match reference {
+            Reference::AsWritten => (table, Vec::new()),
+            Reference::Resolved => {
+                let (references, resolved) = resolve::references(
+                    self.directory.as_ref(),
+                    &self.exclusions,
+                    Whose::Question,
+                    &[table],
+                    &token,
+                    deadline,
+                )?;
+                by_rid = references
+                    .get(table.name())
+                    .cloned()
+                    .map_or_else(|| table.clone(), QualifiedTable::resource);
+                (&by_rid, resolved)
+            }
+        };
         let generated = sutura_sql::generate_object_probe(&self.source, table, Dialect::Foundry)
             .map_err(|cause| FoundryError::Render { cause })?;
         let request = SqlRequest::from_query(&generated, &self.ontology, 1, true);
-        self.transport
-            .execute(&request, &token, deadline)
-            .map_err(|cause| FoundryError::Endpoint { cause })?;
+        self.sent(&request, &token, deadline, &resolved, Whose::Question)?;
         Ok(())
     }
 
@@ -415,6 +422,20 @@ where
         match self.bearer {
             Bearer::Deployment(ref token) => Some(token.bearer(deadline).map(drop)),
             Bearer::EachCaller { .. } => None,
+        }
+    }
+
+    /// Obtains, and drops, an impersonating source's startup identity - one mint of its grant - for
+    /// an operator's check. `None` where there is none: a shared source, or one declaring no
+    /// `verification_client_credentials`.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenFailed`] inside the `Some` when no bearer could be obtained within `deadline`.
+    pub fn boot_token(&self, deadline: Deadline) -> Option<Result<(), TokenFailed>> {
+        match self.bearer {
+            Bearer::EachCaller { boot: Some(ref boot) } => Some(boot.token().bearer(deadline).map(drop)),
+            Bearer::Deployment(_) | Bearer::EachCaller { boot: None } => None,
         }
     }
 
@@ -471,10 +492,8 @@ where
 
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         let token = self.delivered(presented, deadline)?;
-        let (request, _) = self.request(executable, true)?;
-        self.transport
-            .execute(&request, &token, deadline)
-            .map_err(|cause| FoundryError::Endpoint { cause })?;
+        let (request, _, resolved) = self.request(executable, true, &token, deadline, Whose::Question)?;
+        self.sent(&request, &token, deadline, &resolved, Whose::Question)?;
         Ok(PreFlight::Accepted { estimated_bytes: None })
     }
 
@@ -485,11 +504,8 @@ where
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let token = self.delivered(presented, deadline)?;
-        let (request, generated) = self.request(executable, false)?;
-        let bytes = self
-            .transport
-            .execute(&request, &token, deadline)
-            .map_err(|cause| FoundryError::Endpoint { cause })?;
+        let (request, generated, resolved) = self.request(executable, false, &token, deadline, Whose::Question)?;
+        let bytes = self.sent(&request, &token, deadline, &resolved, Whose::Question)?;
         // The record every answer carries of what ran: without it the service refuses the answer.
         Ok(self.decode(bytes, accepted_rows(executable), deadline)?.with_execution(
             sutura_domain::warehouse::execution::Execution::sql(
@@ -505,19 +521,14 @@ where
         // The one reader of the startup identity: the deployment's own on a shared source, the
         // declared boot identity on an impersonating one, and never a caller's.
         let minter: &dyn DeploymentToken = match self.bearer {
-            Bearer::Deployment(ref token)
-            | Bearer::EachCaller {
-                boot: Some(BootIdentity(ref token)),
-            } => token.as_ref(),
+            Bearer::Deployment(ref token) => token.as_ref(),
+            Bearer::EachCaller { boot: Some(ref boot) } => boot.token(),
             Bearer::EachCaller { boot: None } => return Err(FoundryError::NoBootIdentity),
         };
-        let (request, _) = self.request(Executable::Query(plan.plan()), false)?;
         let deadline = boot_deadline();
         let token = minter.bearer(deadline).map_err(|cause| FoundryError::Token { cause })?;
-        let bytes = self
-            .transport
-            .execute(&request, &token, deadline)
-            .map_err(|cause| FoundryError::Endpoint { cause })?;
+        let (request, _, resolved) = self.request(Executable::Query(plan.plan()), false, &token, deadline, Whose::Boot)?;
+        let bytes = self.sent(&request, &token, deadline, &resolved, Whose::Boot)?;
         self.decode(bytes, accepted_rows(Executable::Query(plan.plan())), deadline)?
             .to_rows()
             .map(AnchorRows::of)
@@ -528,8 +539,31 @@ where
         Some(TypeDialect::Foundry)
     }
 
+    /// The tables named by an API name `exclude_object_types` leaves out, as tables this source
+    /// does not hold. Nothing else is asked: a table's existence is Foundry's to answer at query
+    /// time, and one written as a RID is checked then.
+    fn preflight(&self, tables: &std::collections::BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
+        Ok(AbsentTables::parse(resolve::excluded(tables, &self.exclusions))
+            .map_or(TablesPresent::NotAsked, TablesPresent::AllBut))
+    }
+
+    /// Foundry's `401`/`403`, an object-type list it refused to this token, and every way an object
+    /// type a statement needs did not resolve - not listed, listed without a RID, left out, or not
+    /// found behind its RID. **One refusal for all of them, deliberately:** a caller cannot tell a
+    /// type that does not exist from one they may not see, or from one another caller's read put in
+    /// the shared map (`directory` module header). The typed cause stays in the log.
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(error, FoundryError::Endpoint { cause } if self.transport.source_refused(cause))
+            || matches!(
+                error,
+                FoundryError::UnknownObjectType { .. }
+                    | FoundryError::NoResourceId { .. }
+                    | FoundryError::ExcludedObjectType { .. }
+                    | FoundryError::StaleObjectType { .. }
+                    | FoundryError::Directory {
+                        cause: DirectoryFailed::Refused { status: 401 | 403 }
+                    }
+            )
     }
 
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
@@ -551,6 +585,11 @@ where
             | FoundryError::Undeliverable { .. }
             | FoundryError::NoBootIdentity
             | FoundryError::Token { .. }
+            | FoundryError::UnknownObjectType { .. }
+            | FoundryError::NoResourceId { .. }
+            | FoundryError::ExcludedObjectType { .. }
+            | FoundryError::StaleObjectType { .. }
+            | FoundryError::Directory { .. }
             | FoundryError::UnsupportedPlan => false,
         }
     }
@@ -559,6 +598,14 @@ where
         matches!(error, FoundryError::DeadlineSpent)
             || matches!(error, FoundryError::Endpoint { cause } if self.transport.deadline_exceeded(cause))
     }
+}
+
+/// How a probed object type is named: as the model writes it, or by the RID the object-type list
+/// resolves it to - the form a question is sent with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reference {
+    AsWritten,
+    Resolved,
 }
 
 fn boot_deadline() -> Deadline {
@@ -876,3 +923,6 @@ mod execution_tests;
 
 #[cfg(test)]
 mod each_caller_tests;
+
+#[cfg(test)]
+mod directory_tests;

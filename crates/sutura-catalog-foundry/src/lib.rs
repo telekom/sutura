@@ -18,16 +18,28 @@
 //! `_` (`com_palantir_system_Evolution`); the table keeps the dotted name as an
 //! [`ObjectPath`](sutura_domain::model::ObjectPath), which the Foundry dialect renders as one quoted
 //! identifier and every other dialect refuses. A dotted name with an empty segment or a segment
-//! outside the identifier grammar, or whose mapped name is too long, is refused naming the API name.
+//! outside the identifier grammar is refused naming the API name. A name too long to be a model name -
+//! dotted or not, or with one segment longer than a name may be - is mapped by
+//! [`sutura_domain::model::fitted`], the one shortening every derived name takes.
 //! Two API names that map to one model name are refused naming both: one would shadow the other. A description is required, as
 //! `Descriptions` is a provided kind: the object type's own, or else its display name. A column's
 //! description is the property's own, or else its display name.
+//!
+//! # What is left out
+//!
+//! An object type whose API name an [`ObjectTypeExclusions`] pattern matches - by default
+//! `com.palantir.system.*` - is dropped before any naming check and before its links are read. A
+//! link from a kept type to an excluded one is omitted, not carried; a link to a type the read did
+//! not list at all is still refused.
 //!
 //! # What a link type becomes
 //!
 //! A link side with cardinality `ONE` that names a foreign-key property is a many-to-one
 //! [`Relationship`] from that property to the target's primary key, named
-//! `<objectType>_<linkType>`. Nothing else is carried, and nothing else is lost: the `MANY` side of
+//! `<model>_<linkType>` - shortened, when that is too long, by the one shortening a model name takes
+//! ([`sutura_domain::model::fitted`]), digesting the object type's and the link type's full API
+//! names, so two links never share a digest input. Two links whose names still meet are refused
+//! naming both. Nothing else is carried, and nothing else is lost: the `MANY` side of
 //! the same link is its reverse, a `ONE` side without a foreign key has it on the other side, and a
 //! many-to-many link exposes no join table to join through. A foreign key on a `MANY` side, a
 //! cardinality word other than `ONE` or `MANY`, and a link to an object type the read did not list
@@ -59,8 +71,8 @@ use sutura_domain::catalog::{
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{
-    ColumnName, InvalidIdentifier, InvalidQualifiedTable, JoinType, ModelName, ObjectPath, QualifiedTable, RelationshipName,
-    SourceName, TableName,
+    ColumnName, InvalidIdentifier, InvalidQualifiedTable, JoinType, ModelName, ObjectPath, ObjectTypeExclusions, QualifiedTable,
+    RelationshipName, SourceName, TableName, fitted,
 };
 use sutura_domain::pinned::{
     CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
@@ -71,6 +83,25 @@ type Content = (Definitions, Knowledge);
 
 /// The model name an object type becomes, and the table it names.
 pub type Named = (ModelName, QualifiedTable);
+
+/// The object types kept, and the API names left out.
+pub type Kept = (Vec<document::ObjectType>, Vec<String>);
+
+/// Splits a listed page into the object types `exclusions` keeps and the API names it leaves out -
+/// the one split the catalog read, the source's directory and each caller's listing take.
+#[must_use]
+pub fn kept(object_types: Vec<document::ObjectType>, exclusions: &ObjectTypeExclusions) -> Kept {
+    let (excluded, kept): (Vec<_>, Vec<_>) = object_types
+        .into_iter()
+        .partition(|object_type| exclusions.excludes(object_type.api_name()));
+    (
+        kept,
+        excluded
+            .iter()
+            .map(|object_type| String::from(object_type.api_name()))
+            .collect(),
+    )
+}
 
 /// The longest piece of an answer a refusal quotes.
 const SHOWN_CHARS: usize = 80;
@@ -113,6 +144,16 @@ pub enum FoundryError {
         second: String,
         model: ModelName,
     },
+    #[error(
+        "the link types {first_link} on {first_on} and {second_link} on {second_on} both map to the relationship name {name}, so one would shadow the other"
+    )]
+    RelationshipNameCollision {
+        first_on: String,
+        first_link: String,
+        second_on: String,
+        second_link: String,
+        name: RelationshipName,
+    },
     #[error("the object type {on} has neither a description nor a display name")]
     MissingDescription { on: String },
     #[error("the description of {on} is not usable")]
@@ -151,6 +192,30 @@ pub enum FoundryError {
     },
 }
 
+impl FoundryError {
+    /// What went wrong, naming no object type, property or link type - for output that may be
+    /// shared beyond the tenant.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match *self {
+            Self::Read(_) => "the reader could not produce the ontology",
+            Self::Identifier { .. } => "a property, key or link type name is not a name",
+            Self::ObjectTypeName { .. } => "an object type API name cannot be mapped to a model name",
+            Self::ModelNameCollision { .. } => "two object types map to one model name",
+            Self::RelationshipNameCollision { .. } => "two link types map to one relationship name",
+            Self::MissingDescription { .. } => "an object type has neither a description nor a display name",
+            Self::Description { .. } => "an object type's description is not usable",
+            Self::ColumnDescription { .. } => "a property's description is not usable",
+            Self::UnknownCardinality { .. } => "a link type has a cardinality that is neither ONE nor MANY",
+            Self::ForeignKeyOnManySide { .. } => "a link type names a foreign key on its MANY side",
+            Self::UnlistedTarget { .. } => "a link type points at an object type the read did not list",
+            Self::Inconsistent { .. } => "the catalog does not hold together",
+            Self::Knowledge { .. } => "the catalog's knowledge does not hold together",
+            Self::Digest { .. } => "the definitions could not be hashed",
+        }
+    }
+}
+
 /// A catalog read from one Foundry ontology.
 ///
 /// `source` is the `sources.<alias>` every object type's model is on.
@@ -160,22 +225,50 @@ pub struct FoundryCatalog<R> {
     version: DefinitionVersion,
     source: SourceName,
     reader: R,
+    exclusions: ObjectTypeExclusions,
 }
 
 impl<R: OntologyReader> FoundryCatalog<R> {
+    /// A catalog that leaves nothing out; [`Self::excluding`] declares what it does.
     pub const fn new(name: SourceName, version: DefinitionVersion, source: SourceName, reader: R) -> Self {
         Self {
             name,
             version,
             source,
             reader,
+            exclusions: ObjectTypeExclusions::none(),
         }
     }
 
+    /// Leaves out the object types `exclusions` matches - see the crate header.
+    #[must_use]
+    pub fn excluding(mut self, exclusions: ObjectTypeExclusions) -> Self {
+        self.exclusions = exclusions;
+        self
+    }
+
     fn assemble(&self, ontology: &document::Ontology) -> Result<Content, FoundryError> {
+        let excluded: Vec<&str> = ontology
+            .excluded()
+            .iter()
+            .map(String::as_str)
+            .chain(
+                ontology
+                    .object_types()
+                    .iter()
+                    .map(document::ObjectType::api_name)
+                    .filter(|api_name| self.exclusions.excludes(api_name)),
+            )
+            .collect();
+        tracing::info!(catalog = %self.name, excluded = excluded.len(), "foundry object types left out by `foundry.exclude_object_types`");
+        tracing::debug!(catalog = %self.name, api_names = ?excluded, "foundry object types left out");
         let mut named: Vec<(&document::ObjectType, Named)> = Vec::with_capacity(ontology.object_types().len());
         let mut owners: BTreeMap<ModelName, &str> = BTreeMap::new();
-        for object_type in ontology.object_types() {
+        for object_type in ontology
+            .object_types()
+            .iter()
+            .filter(|object_type| !self.exclusions.excludes(object_type.api_name()))
+        {
             let (model, table) = model_name(object_type.api_name())?;
             if let Some(first) = owners.insert(model.clone(), object_type.api_name()) {
                 return Err(FoundryError::ModelNameCollision {
@@ -200,10 +293,22 @@ impl<R: OntologyReader> FoundryCatalog<R> {
             .collect();
         let mut models = Vec::with_capacity(named.len());
         let mut relationships = Vec::new();
+        // Each relationship name, and the object type and link type that took it first.
+        let mut links: BTreeMap<RelationshipName, [&str; 2]> = BTreeMap::new();
         for (object_type, (model, table)) in &named {
             let model = self.convert_model(object_type, model.clone(), table.clone())?;
-            for side in ontology.outgoing(object_type.api_name()) {
-                if let Some(relationship) = relationship(&model, object_type.api_name(), side, &targets)? {
+            let on = object_type.api_name();
+            for side in ontology.outgoing(on) {
+                if let Some(relationship) = relationship(&model, on, side, &targets, &excluded)? {
+                    if let Some([first_on, first_link]) = links.insert(relationship.name().clone(), [on, side.api_name()]) {
+                        return Err(FoundryError::RelationshipNameCollision {
+                            first_on: shown(first_on),
+                            first_link: shown(first_link),
+                            second_on: shown(on),
+                            second_link: shown(side.api_name()),
+                            name: relationship.name().clone(),
+                        });
+                    }
                     relationships.push(relationship);
                 }
             }
@@ -308,6 +413,7 @@ fn relationship(
     on: &str,
     side: &document::LinkTypeSide,
     targets: &BTreeMap<&str, Target<'_>>,
+    excluded: &[&str],
 ) -> Result<Option<Relationship>, FoundryError> {
     let link = side.api_name();
     let foreign_key = match (side.cardinality(), side.foreign_key()) {
@@ -327,14 +433,19 @@ fn relationship(
             });
         }
     };
+    if excluded.contains(&side.target()) {
+        return Ok(None);
+    }
     let target = targets.get(side.target()).ok_or_else(|| FoundryError::UnlistedTarget {
         on: shown(on),
         link: shown(link),
         target: shown(side.target()),
     })?;
     let via = Some(link);
+    // The unit separator cannot occur in an API name, so no two (object type, link type) pairs
+    // share a digest input.
     let name = identifier(
-        &format!("{}_{link}", origin.name()),
+        &fitted(format!("{}_{link}", origin.name()), &format!("{on}\u{1f}{link}")),
         |raw| RelationshipName::parse(raw),
         "link type",
         on,

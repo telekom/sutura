@@ -18,6 +18,8 @@ sutura-domain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# One line per load: how many object types `foundry.exclude_object_types` left out (INFO), and which (DEBUG).
+tracing = { workspace = true }
 ureq = { workspace = true, optional = true }
 sutura-tls = { workspace = true, optional = true }
 sutura-http-client = { workspace = true, optional = true }

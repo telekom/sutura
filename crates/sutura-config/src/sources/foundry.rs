@@ -60,6 +60,7 @@ pub(super) fn parse_placement(
         token_file,
         client_credentials: None,
         verification_client_credentials: None,
+        exclude_object_types: sutura_domain::model::ObjectTypeExclusions::default(),
     })
 }
 
@@ -356,8 +357,14 @@ mod tests {
             panic!("the grant is carried in place of a token file: {:?}", source.placement());
         };
         assert_eq!(declared_grant.client_id(), "sutura-source");
-        assert_eq!(declared_grant.token_path(), crate::client_credentials::DEFAULT_TOKEN_PATH);
-        assert_eq!(declared_grant.scopes(), ["api:sql-queries-execute", "api:ontologies-read"]);
+        assert_eq!(
+            declared_grant.token_path().as_str(),
+            crate::client_credentials::DEFAULT_TOKEN_PATH
+        );
+        assert_eq!(
+            declared_grant.scopes().as_str(),
+            "api:sql-queries-execute api:ontologies-read"
+        );
         for (extra, cause) in [
             (String::new(), InvalidFoundrySource::NoDeploymentIdentity),
             (
