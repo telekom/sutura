@@ -6,10 +6,29 @@
 use rmcp::ServiceError;
 use rmcp::model::{CallToolRequestParams, ErrorCode};
 use sutura_app::Capability;
+use sutura_app::surface::LocalService;
+
+use crate::testing;
 
 /// The catalog tool, narrowed to one named metric.
 fn describe_metric(name: &str) -> CallToolRequestParams {
     super::call(Capability::DescribeCatalog.id(), &serde_json::json!({ "metric": name }))
+}
+
+/// A service over [`testing::TwoMetricOwningModelsCatalog`] - the metric-pool twin of
+/// [`super::describe_model::two_metric_owning_models_service`]. `metric` narrowing needs a SECOND
+/// metric to actually filter out, over a model this caller can see either way, or the absence this
+/// test asserts is restated rather than proven.
+fn two_metric_owning_models_service() -> super::CertifiedService {
+    LocalService::start(
+        &testing::TwoMetricOwningModelsCatalog,
+        testing::fake_warehouse(),
+        std::sync::Arc::new(testing::CountingSink::default()),
+        testing::broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the two-metric-owning-model fixture bundle validates")
 }
 
 /// The catalog tool, naming both a model and a metric at once - refused, never one silently
@@ -26,7 +45,7 @@ fn describe_model_and_metric(model: &str, metric: &str) -> CallToolRequestParams
 /// restated because it never had anything to filter in the first place.
 #[tokio::test]
 async fn describe_catalog_with_a_metric_argument_answers_only_that_metric() {
-    let client = super::connected(super::certified_service()).await;
+    let client = super::connected(two_metric_owning_models_service()).await;
     let result = client
         .call_tool(describe_metric("revenue"))
         .await
@@ -34,6 +53,7 @@ async fn describe_catalog_with_a_metric_argument_answers_only_that_metric() {
     assert_ne!(result.is_error, Some(true), "{result:?}");
     let text = super::text_of(&result);
     assert!(text.contains("revenue"), "{text}");
+    assert!(!text.contains("customer_count"), "{text}");
     drop(client.cancel().await);
 }
 

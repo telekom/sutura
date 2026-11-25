@@ -241,14 +241,14 @@ fn is_zero(count: &usize) -> bool {
 /// the identical call for the identical reason, as its own ad hoc `ErrorData` outside both
 /// `ToolOutcome` and this crate's audited refusal path.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct UnknownModelBody {
+pub struct UnknownCatalogNameBody {
     /// A stable code, the same shape as [`crate::problem::ProblemBody::code`] so a client already
     /// branching on one field keeps doing so here.
     code: &'static str,
     detail: String,
 }
 
-impl UnknownModelBody {
+impl UnknownCatalogNameBody {
     pub(crate) fn of(name: &ModelName) -> Self {
         Self {
             code: "model_unknown",
@@ -259,20 +259,30 @@ impl UnknownModelBody {
     /// The identical non-disclosing fold as [`Self::of`], for a `metric` query parameter instead of
     /// `model` - still this type, rather than a second one, since the two carry the same shape and
     /// the same status.
+    ///
+    /// **`catalog_metric_unknown`, not `metric_unknown`.** `sutura_domain::query::RefusalReason::MetricUnknown`
+    /// already renders as `metric_unknown` for a QUESTION naming a metric the catalog does not
+    /// define - a different surface, reached through `/v1/query`, audited through
+    /// `ToolOutcome::Refusal`. This 404 is a LISTING lookup with no such refusal behind it; the two
+    /// codes must stay distinct so a client branching on `code` cannot be handed the same string for
+    /// two different doors. `model_unknown` has no such collision - no `RefusalReason` variant names
+    /// a model - so it keeps its plain name.
     pub(crate) fn of_metric(name: &MetricName) -> Self {
         Self {
-            code: "metric_unknown",
+            code: "catalog_metric_unknown",
             detail: format!("this catalog defines no metric called `{name}`"),
         }
     }
 }
 
-impl IntoResponse for UnknownModelBody {
+impl IntoResponse for UnknownCatalogNameBody {
     fn into_response(self) -> Response {
-        // `private, no-store`: this body's wording already differs for a caller who sent a
-        // restricted name versus an absent one would, were it not for the non-disclosing fold above
-        // - a shared cache must never be the thing that lets one caller's probe read back what
-        // another caller's request produced.
+        // `private, no-store` is DEFENCE IN DEPTH, not the control that keeps the two cases
+        // indistinguishable - the fold two callers above is what does that, by sending the same
+        // code and the same detail shape for "does not exist" and "exists outside your grant"
+        // alike. The header exists on top of that fold so a shared proxy between this deployment
+        // and its callers is never the thing that lets one caller's probe read back what another
+        // caller's request produced, should the fold ever regress.
         (
             StatusCode::NOT_FOUND,
             [(axum::http::header::CACHE_CONTROL, "private, no-store")],

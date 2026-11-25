@@ -20,7 +20,7 @@ use sutura_domain::model::{MetricName, ModelName};
 
 use crate::problem::{Detail, Failure};
 use crate::state::ServiceState;
-use crate::wire::{CatalogBody, UnknownModelBody};
+use crate::wire::{CatalogBody, UnknownCatalogNameBody};
 
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "catalog";
@@ -97,8 +97,8 @@ pub(crate) struct CatalogQuery {
             description = "`model` or `metric` parses but names nothing this caller may see. Its \
                            own shape, not `ProblemBody`: reading a catalog produces no outcome a \
                            `ProblemBody` could carry, and a well-formed name the caller may not see \
-                           is not a system failure - see `UnknownModelBody`'s own documentation.",
-            body = UnknownModelBody
+                           is not a system failure - see `UnknownCatalogNameBody`'s own documentation.",
+            body = UnknownCatalogNameBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
         (
@@ -138,7 +138,7 @@ pub(crate) async fn catalog(
     let view = sutura_app::scoped_for(&definitions, asked.context());
     // Parsed into the same newtype every other identifier on this surface goes through. A malformed
     // `model` is `Failure::NotAQuestion` - the request itself could not be read - never confused with
-    // `UnknownModelBody` below, which is a well-formed name this caller may not see.
+    // `UnknownCatalogNameBody` below, which is a well-formed name this caller may not see.
     if query.model.is_some() && query.metric.is_some() {
         return Failure::NotAQuestion {
             detail: Detail::of(&ModelAndMetricTogether),
@@ -182,14 +182,14 @@ pub(crate) async fn catalog(
         && view.model(name).is_none()
         && view.metrics().all(|metric| metric.model() != name)
     {
-        return UnknownModelBody::of(name).into_response();
+        return UnknownCatalogNameBody::of(name).into_response();
     }
     // `metric` mirrors `model`: `ScopedView::metric` already applies the same visibility rule, so a
     // metric that exists but is outside this caller's grant is refused exactly as an absent one is.
     if let Some(name) = &metric
         && view.metric(name).is_none()
     {
-        return UnknownModelBody::of_metric(name).into_response();
+        return UnknownCatalogNameBody::of_metric(name).into_response();
     }
     (
         [(header::CACHE_CONTROL, "private, no-store")],

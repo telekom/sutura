@@ -532,24 +532,24 @@ async fn catalog_prose_omitted_omits_it_from_the_tool_answers() {
 
 /// The catalog tool's arguments are PARSED, so a caller cannot believe it narrowed a listing.
 ///
-/// Without the parse this call deserializes cleanly, `metric` is dropped on the floor, and a model
-/// that asked about one metric is handed every one of them while believing it filtered.
+/// `columns` names neither of the tool's two declared fields (`model`, `metric`) - `deny_unknown_fields`
+/// makes sending it a named parse error, not a silently dropped key that answered unfiltered.
 #[tokio::test]
 async fn an_argument_the_catalog_tool_does_not_declare_answers_the_fixed_sentence_without_the_callers_key() {
     let client = connected(certified_service()).await;
     let error = client
         .call_tool(call(
             Capability::DescribeCatalog.id(),
-            &serde_json::json!({ "metric": "revenue" }),
+            &serde_json::json!({ "columns": ["amount_cents"] }),
         ))
         .await
-        .expect_err("the catalog tool declares no arguments");
+        .expect_err("the catalog tool declares no `columns` argument");
     let ServiceError::McpError(data) = error else {
         panic!("expected a protocol error, got {error:?}");
     };
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
     // The fixed sentence, never the serde cause that repeats the caller's own key.
-    assert!(!data.message.contains("metric"), "{}", data.message);
+    assert!(!data.message.contains("columns"), "{}", data.message);
     drop(client.cancel().await);
 }
 

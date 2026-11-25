@@ -66,7 +66,7 @@ pub use raw::{MalformedStatement as RawMalformedStatement, RawOutcomeBody, RunSq
               doc paragraph is long - the paragraph itself is fine, see wire/catalog.rs"
 )]
 pub mod catalog;
-pub use catalog::{CatalogBody, DimensionBody, MetricBody, UnknownModelBody};
+pub use catalog::{CatalogBody, DimensionBody, MetricBody, UnknownCatalogNameBody};
 
 /// A question, as it arrives.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]

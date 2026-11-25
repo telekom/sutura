@@ -102,9 +102,10 @@ impl DescribeCatalogArgs {
 /// nothing that WIDENS it.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context
 /// and cannot be given one, so the caller's mapped audiences (which `describe` reads and this
 /// constructor takes as a [`ScopedView`]) decide which metrics and which of their knowledge the
-/// listing may ever hold; `model`, the one argument this tool takes, only ever narrows within that -
-/// one named model's own slice of what the view already permits, never a wider one. Invisible means
-/// absent, and it is the transport's job to build the view, never this type's.
+/// listing may ever hold; `model`/`metric`, the two mutually exclusive arguments this tool takes,
+/// only ever narrow within that - one named model's own slice, or one named metric alone, of what
+/// the view already permits, never a wider one. Invisible means absent, and it is the transport's
+/// job to build the view, never this type's.
 #[derive(Debug, serde::Serialize)]
 pub struct CatalogContent {
     /// Which snapshot this listing describes. The same version and digest an answer carries, so a

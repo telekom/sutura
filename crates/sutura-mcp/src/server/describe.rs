@@ -13,7 +13,7 @@ use sutura_app::surface::Surface;
 use super::{MalformedQuestion, RenderedCause, invalid};
 use crate::wire::{CatalogContent, DescribeCatalogArgs};
 
-/// The catalog tool's arguments: at most one field, `model`.
+/// The catalog tool's arguments: at most one of `model` or `metric`, never both.
 ///
 /// **Parsed rather than ignored**, and the parse IS the check: `DescribeCatalogArgs` carries
 /// `deny_unknown_fields`, so an arguments object naming `metric`, `sql` or anything else is a named
