@@ -8,8 +8,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use sutura_domain::capabilities::MetadataCapabilities;
+use sutura_domain::catalog::{Column, ColumnType, Definitions, Description, Model};
 use sutura_domain::identity::Presented;
-use sutura_domain::model::SourceName;
+use sutura_domain::knowledge::Knowledge;
+use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
+use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 use sutura_domain::plan::{
     AnchorPlan, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, Executable, FederatedAnswerRefusal, FederatedPlan,
     FederationCombiner, Legs, NothingCombined, PolicyRead, StatementAnswer, StatementLegs, StatementQuestion, StatementStopped,
@@ -20,7 +24,7 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, RawExecution, RawRows, ResultBatches, RowSet, Value, Warehouse};
 
-use super::{ConnectionRefused, HELD_AT_MOST, StatementRejected, canned, shared_posture};
+use super::{ConnectionRefused, HELD_AT_MOST, StatementRejected, canned, shared_posture, source};
 
 /// What this fake's own stand-in for "the deadline fired" says. Never actually timed - nothing here
 /// reads a clock while executing - because what is under test is the MAPPING from
@@ -214,18 +218,70 @@ pub(crate) struct WarehouseThatOutrunsAPolicyLeg {
     source: SourceName,
     posture: SourcePosture,
     result: RowSet,
+    handed: Arc<HandedBudget>,
+}
+
+/// What [`WarehouseThatOutrunsAPolicyLeg::execute_raw`] was actually handed - the same `Arc` a test
+/// reads, so a failed narrowing reads as the unnarrowed budget it recorded rather than only as
+/// which side of `enforce_timeout`'s backstop the response landed on.
+#[derive(Default)]
+pub(crate) struct HandedBudget(OnceLock<Duration>);
+
+impl HandedBudget {
+    /// The remaining budget `execute_raw` was handed, `None` if it never ran.
+    pub(crate) fn remaining(&self) -> Option<Duration> {
+        self.0.get().copied()
+    }
 }
 
 impl WarehouseThatOutrunsAPolicyLeg {
-    pub(crate) fn new(source: SourceName) -> sutura_app::Warehouses<Self> {
+    /// One warehouse reporting into `handed` - the same `Arc` the test reads.
+    pub(crate) fn new(source: SourceName, handed: &Arc<HandedBudget>) -> sutura_app::Warehouses<Self> {
         let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
             .expect("a one-cell result is a result set");
         sutura_app::Warehouses::of(Self {
             source,
             posture: shared_posture(),
             result,
+            handed: Arc::clone(handed),
         })
     }
+}
+
+/// A one-model, one-column, no-metric bundle for [`WarehouseThatOutrunsAPolicyLeg`] - `testing.rs`'s
+/// own [`super::bundle`] cannot stand in: its "orders" model declares every column as a bare
+/// [`ColumnName`], which [`From<ColumnName>`](Column) turns into a [`Column`] with `data_type: None`,
+/// which never maps to an Arrow type, which `sutura_domain::warehouse::schema::PinnedSchemas` records
+/// in `fell_back` for every such column - and `sutura_app::raw::tables` drops a model with ANY
+/// fallen-back column from `StatementQuestion::tables` entirely. [`ForcesAPolicySearchLeg`] reads
+/// `question.tables().first()` to pick the one source to force through the policy-leg path; against
+/// `bundle()` that call is `None` before it ever runs, and the statement falls through to the
+/// unnarrowed pass-through instead - the bug this fixture exists to not reproduce. One column with an
+/// explicit `"text"` type (mapped by every [`TypeDialect`]) keeps the model in `tables()`.
+pub(crate) fn policy_leg_bundle() -> PinnedDefinitions {
+    let model = Model::new(
+        ModelName::parse("orders").expect("a test model name is a model name"),
+        source(),
+        TableName::parse("orders").expect("a test table name is a table name"),
+        [Column::new(
+            ColumnName::parse("region").expect("a test column name is a column name"),
+            Some(ColumnType::parse("text").expect("\"text\" is a column type")),
+            Description::default(),
+            None,
+        )],
+        Description::default(),
+    );
+    let definitions = Definitions::assemble(vec![model], vec![], vec![]).expect("one typed model is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-policy-leg-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            source(),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
 }
 
 impl Warehouse for WarehouseThatOutrunsAPolicyLeg {
@@ -262,6 +318,7 @@ impl Warehouse for WarehouseThatOutrunsAPolicyLeg {
         deadline: Deadline,
     ) -> RawExecution<Self::Error> {
         let remaining = deadline.remaining_at(Instant::now()).unwrap_or_default();
+        self.handed.0.get_or_init(|| remaining);
         std::thread::sleep(remaining + PAST_DEADLINE);
         Some(Err(DeadlineFired))
     }

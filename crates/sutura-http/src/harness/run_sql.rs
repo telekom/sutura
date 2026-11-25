@@ -15,9 +15,9 @@ use sutura_dev::issuer::{PublishedKeySet, Token};
 use super::{over, settings};
 use crate::constants::OPENAPI_JSON_PATH;
 use crate::testing::{
-    ForcesAPolicySearchLeg, Probed, RawDeadlineProbe, WarehouseThatOutrunsAPolicyLeg, an_issuer, broker, bundle, call,
-    declared_inbound, direct_overlay, fake_warehouse, request, serving, serving_with_combiner, settings_with, source,
-    unanchored_bundle,
+    ForcesAPolicySearchLeg, HandedBudget, Probed, RawDeadlineProbe, WarehouseThatOutrunsAPolicyLeg, an_issuer, broker, bundle,
+    call, declared_inbound, direct_overlay, fake_warehouse, policy_leg_bundle, request, serving, serving_with_combiner,
+    settings_with, source, unanchored_bundle,
 };
 
 fn run_sql_body(statement: &str) -> String {
@@ -292,9 +292,10 @@ async fn a_raw_statements_deadline_opens_before_it_waits_for_a_slot() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_policy_search_leg_past_its_deadline_reaches_the_caller_by_name_ahead_of_the_408() {
     let overlay = "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\nserver:\n  request_timeout_seconds: 5\n";
+    let handed = std::sync::Arc::new(HandedBudget::default());
     let app = serving_with_combiner(
-        bundle(),
-        WarehouseThatOutrunsAPolicyLeg::new(source()),
+        policy_leg_bundle(),
+        WarehouseThatOutrunsAPolicyLeg::new(source(), &handed),
         broker(),
         settings(Environment::Development, overlay),
         None,
@@ -312,6 +313,15 @@ async fn a_policy_search_leg_past_its_deadline_reaches_the_caller_by_name_ahead_
     // ever had to disclose.
     assert!(body.contains("add a filter on a column without a policy"), "{body}");
     assert!(!body.contains("redaction"), "{body}");
+
+    // Self-explaining on failure: if the narrowing never fired, this reads the unnarrowed ~4s
+    // budget (5s request minus `RequestTimeout::REPLY_MARGIN`) instead of the ~2s
+    // `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` narrows a policy-read leg to.
+    let handed = handed.remaining().expect("execute_raw ran, so it recorded its handed budget");
+    assert!(
+        handed < std::time::Duration::from_secs(3),
+        "the policy leg's own deadline should be narrowed to ~2s, not the unnarrowed ~4s request budget: got {handed:?}"
+    );
 }
 
 #[tokio::test]
