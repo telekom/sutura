@@ -4054,6 +4054,32 @@ one note body is. Choosing the two together is the whole point of bounding eithe
 <p>Counted in characters rather than bytes, for the reason
 <code>crate::knowledge</code>'s phrase limit gives: a value may be German or Greek text, and a limit in
 bytes would make one value legal in one language and not in another.</p>
+<h3 id="use-default_definitions_bytes"><code>use DEFAULT_DEFINITIONS_BYTES</code><a class="headerlink" href="#use-default_definitions_bytes" title="Permanent link">&para;</a></h3>
+<p>What <code>super::Definitions::assemble</code> checks a bundle against unless a catalog declares
+<code>max_definitions_bytes</code> - <code>github.com/telekom/sutura#2071</code>.</p>
+<p>A dictionary catalog over a schema of real width carries authored bytes no example catalog
+does: every column typed and described, across tens of models, routinely sums past the former
+fixed bound - the issue's own case measured 240538 bytes for about fifty views. 1 MiB is not
+argued from a reference corpus the way the old fixed bound was; it is sized to clear that real
+case with headroom (over four times it) while staying an order of magnitude under
+<code>DEFINITIONS_BYTES_CEILING</code>, so the default still refuses a catalog an order of magnitude
+larger than one that already needed raising.</p>
+<h3 id="use-definitions_bytes_ceiling"><code>use DEFINITIONS_BYTES_CEILING</code><a class="headerlink" href="#use-definitions_bytes_ceiling" title="Permanent link">&para;</a></h3>
+<p>The most an operator may raise a catalog's bound to - refused above this at config parse.</p>
+<p>The former fixed bound argued its purpose "the way <code>crate::query::MAX_RANGE_DAYS</code> is: what it
+bounds is the size of the document, not whether what is in it is worth reading" - the document
+being what an agent's prompt and <code>describe_catalog</code> tool result carry. That purpose survives
+making the bound per-catalog: until a paged <code>describe_catalog</code> exists
+(<code>github.com/telekom/sutura#2071</code>'s own second ask, not done
+here), this is still the only thing keeping that document bounded, so letting a deployment
+declare it away entirely would make the bound configurable in name while reintroducing the
+unbounded document the issue reports, only larger. 16 MiB is sixteen times
+<code>DEFAULT_DEFINITIONS_BYTES</code> - room for a dictionary far wider than the one the issue measured,
+without admitting a value an operator raised by habit rather than by measurement.</p>
+<h3 id="use-definitionsbytebound"><code>use DefinitionsByteBound</code><a class="headerlink" href="#use-definitionsbytebound" title="Permanent link">&para;</a></h3>
+<p>A declared <code>catalogs[].max_definitions_bytes</code>, parsed once so every later read is infallible.</p>
+<h3 id="use-invaliddefinitionsbytebound"><code>use InvalidDefinitionsByteBound</code><a class="headerlink" href="#use-invaliddefinitionsbytebound" title="Permanent link">&para;</a></h3>
+<p>Why a declared <code>max_definitions_bytes</code> is not usable.</p>
 <h3 id="use-invalidsharedcalendars"><code>use InvalidSharedCalendars</code><a class="headerlink" href="#use-invalidsharedcalendars" title="Permanent link">&para;</a></h3>
 <p>Why a list of shared calendars could not be built.</p>
 <h3 id="use-sharedcalendars"><code>use SharedCalendars</code><a class="headerlink" href="#use-sharedcalendars" title="Permanent link">&para;</a></h3>
@@ -4151,36 +4177,10 @@ agent reads: 64 values of 64 characters is 4 KiB, the same order as
 one note body is. Per-value caps alone let N conforming values do what one oversized value cannot,
 which is the same argument <code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code> makes for notes.</p>
 <p>What it does not bound, said plainly. It bounds ONE dimension: nothing here caps how many
-dimensions a metric declares or how many metrics a catalog holds. <code>MAX_DEFINITIONS_BYTES</code> is
+dimensions a metric declares or how many metrics a catalog holds. <code>DefinitionsByteBound</code> is
 the fix for that other half.</p>
 <h3 id="constant-max_definitions_bytes"><code>constant MAX_DEFINITIONS_BYTES</code><a class="headerlink" href="#constant-max_definitions_bytes" title="Permanent link">&para;</a></h3>
-<p>The most bytes a whole <code>Definitions</code> may carry of authored content and physical model identifiers.</p>
-<p>Every model and table name, every column a model declares, every required filter and dimension
-value a metric declares, and every model's and metric's description count toward it.</p>
-<p><strong>The count <code>MAX_VALUES_PER_DIMENSION</code>'s own note names as missing</strong>: that bound is one
-dimension's, and nothing capped how many dimensions a metric declares, how many required filters
-a metric declares, how many columns a model declares, or how many models and metrics a catalog
-holds. Per-item caps alone let N conforming declarations do what one oversized declaration
-cannot, the same argument <code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code> makes for a bundle of notes,
-applied to the catalog that bundle is checked against.</p>
-<p><strong>Measured before it was chosen, and re-measured for issue #966's column type and column
-description, which this bound did not cover before either existed, and again once every column
-in the shipped corpus carried both.</strong> This repository's shipped <code>single-player</code> catalog - the
-larger of the two example catalogs - is the reference: its widest model (<code>subscriptions</code>)
-declares 8 columns, no metric declares more than one required filter, and all 21 of its columns
-carry a declared type and a description. Its column names and types, relationship keys, required
-filters and dimension values together sum to 1127 bytes (~1.1 KiB), and the five model names and
-table paths add 120. Descriptions are the rest of it, at 26056 bytes (~25.4 KiB) across eleven
-metrics, five models and their columns - each individually inside <code>MAX_DESCRIPTION_BYTES</code>, and
-it is their COUNT that was uncapped. <code>Definitions::authored_bytes</code> over the loaded corpus reads
-27303 bytes, ~26.7 KiB in total.</p>
-<p><code>MAX_DEFINITIONS_BYTES</code> is 128 KiB: about 4.8 times that reference catalog's ~26.7 KiB, less
-headroom than the ~6.5 times an earlier, column-blind measurement claimed - restated here rather
-than left to say a smaller bundle than the corpus now is. Still more than
-<code>crate::knowledge::MAX_KNOWLEDGE_BYTES</code>'s five times its own reference, because a definitions
-bundle also carries the identifiers a knowledge bundle does not. Argued the way
-<code>crate::query::MAX_RANGE_DAYS</code> is: what it bounds is the size of the document, not whether what
-is in it is worth reading.</p>
+<p>Retired name for <code>DEFAULT_DEFINITIONS_BYTES</code>, kept so base-pinned tests still resolve it.</p>
 <h2 id="module-definitions">Module <code>definitions</code><a class="headerlink" href="#module-definitions" title="Permanent link">&para;</a></h2>
 <p>The identifiers of a pinned definition set, and the one operation that computes one.</p>
 <p>Definitions are authored upstream and arrive as an immutable, hashed snapshot. The digest
