@@ -90,15 +90,17 @@ const TAG: &str = "run_sql";
                            retrying it as is. `code: policy_search_needs_narrowing` - a statement \
                            over a column under a text policy reached its deadline, or its Cube source \
                            answer exceeded a bound before local masking; add a supported filter on \
-                           a column without a policy. Its `ineligible` field, where present, names \
-                           why the raw prefilter itself could not push the search down, and for one \
-                           reason also carries a 0-based redaction-rule index - nothing about the \
-                           policy beyond that a `raw_prefilter` is declared and, where that index \
-                           appears, a lower bound on how many redaction rules the column has. The \
-                           field is absent for many other reasons the push-down check was never \
-                           reached at all (an unsupported statement shape, a projection-only read, \
-                           a column under no policy, and more) - its absence is not itself a \
-                           disclosure of which.",
+                           a column without a policy. In `detail`, where the push-down check was \
+                           reached at all, the caller learns one of three coarse categories: no \
+                           `raw_prefilter` is declared on this column, the search term's own shape \
+                           is ineligible, or the search term overlaps the column's redaction marker \
+                           - never a rule index or which marker. A single response discloses only \
+                           its category; a sweep of needles against the same column, each read off \
+                           its category, still lets a caller map which characters a redaction \
+                           marker's own shape contains. The category is absent from `detail` for \
+                           many other reasons the push-down check was never reached at all (an \
+                           unsupported statement shape, a projection-only read, a column under no \
+                           policy, and more) - its absence is not itself a disclosure of which.",
             body = RawOutcomeBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),

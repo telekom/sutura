@@ -12,9 +12,10 @@ use super::text::TextPolicy;
 /// Why `needle` may not be pushed down against a column's [`TextPolicy`].
 ///
 /// Closed, and carries nothing from a row or a clock: every variant is decidable from the needle's
-/// own bytes and the policy's own configured rules, so it is safe to show a caller or log without
-/// disclosing anything beyond what their own query and the column's already-public policy shape
-/// already say.
+/// own bytes and the policy's own configured rules. **Full detail (this type's own [`fmt::Display`]
+/// and the [`Self::AgreesWithReplacement`] index) is for a server-side log, never a caller.**
+/// [`Self::caller_category`] is the coarse, three-way grouping a caller's own refusal may carry -
+/// see that method for what a sweep of needles can still learn from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum PrefilterIneligible {
     /// The column's policy declares no `raw_prefilter`, or no redaction rule at all - `raw_prefilter`
@@ -49,6 +50,28 @@ impl fmt::Display for PrefilterIneligible {
                 )
             }
             Self::AgreesWithTruncationMarker => write!(f, "the needle agrees with the truncation marker"),
+        }
+    }
+}
+
+impl PrefilterIneligible {
+    /// The coarse, three-way category a caller's own refusal may carry - the only detail that
+    /// reaches outside this process. [`Self::AgreesWithReplacement`]'s rule index and
+    /// [`Self::AgreesWithTruncationMarker`] collapse into one category here: a caller still learns
+    /// that the needle overlapped SOME redaction marker, never which rule or its index, but a sweep
+    /// of needles against the same column still reveals, needle by needle, which characters a
+    /// marker's own shape contains.
+    #[must_use]
+    pub const fn caller_category(&self) -> &'static str {
+        match self {
+            Self::NotDeclared => "no raw prefilter is declared for this column",
+            Self::NeedleShape => {
+                "the search term's shape is not eligible (e.g. a leading/trailing `_` or a character \
+                 outside letters, digits or `_`)"
+            }
+            Self::AgreesWithReplacement { .. } | Self::AgreesWithTruncationMarker => {
+                "the search term overlaps the column's redaction marker"
+            }
         }
     }
 }

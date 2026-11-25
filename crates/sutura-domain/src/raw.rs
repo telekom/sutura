@@ -214,20 +214,28 @@ pub enum RawRefusalReason {
     /// answer exceeded a size or row bound before local masking and filtering.
     ///
     /// A supported filter on a column without a policy narrows the rows needing masking. This is a
-    /// backstop, not acceleration: it preserves the request's deadline and source bounds. Cube only
-    /// accepts the policy-free comparison shapes in `docs/raw-text-search.md`; other predicates
-    /// stay local. A projection over a policy column is classified the same way as a search.
-    /// Planning, pre-leg and local-part deadlines retain [`Self::DeadlineExceeded`].
+    /// backstop, not acceleration. A policy-column search leg's OWN deadline is narrower than the
+    /// rest of the request's: `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` carves two seconds off
+    /// the remaining budget so this leg's local masking and the carry back to the transport finish
+    /// before the per-request deadline fires, UNLESS doing so would leave less than
+    /// `sutura_app::raw::POLICY_LEG_MIN_BUDGET` (one second) left, in which case the leg keeps the
+    /// full, unnarrowed remaining budget instead. Neither narrowing is a hard stop: nothing here
+    /// `tokio::time::timeout`-aborts the adapter call mid-flight, so a leg that is already past its
+    /// (possibly narrowed) deadline when the data system's own round trip returns still has to run
+    /// local masking on whatever rows came back before this refusal is minted. Cube only accepts
+    /// the policy-free comparison shapes in `docs/raw-text-search.md`; other predicates stay local.
+    /// A projection over a policy column is classified the same way as a search.
     ///
-    /// **What it discloses:** whether the column the caller can already read declares a
-    /// `raw_prefilter` at all -
-    /// [`NotDeclared`](catalog::PrefilterIneligible::NotDeclared) names exactly that, for no
-    /// `raw_prefilter` or an empty `redact` list - and, only where `ineligible` is
-    /// [`AgreesWithReplacement`](catalog::PrefilterIneligible::AgreesWithReplacement), the 0-based
-    /// index of the first redaction rule the needle's own replacement agreed with - which tells the
-    /// caller the column's `redact` list holds at least that many entries (index N implies N + 1),
-    /// never what any of them matches or replaces. Nothing further about the policy's shape leaks
-    /// through any other variant, or through `None`.
+    /// **What it discloses, stated plainly rather than claimed safe:** per probe, the caller learns
+    /// which of three coarse categories applied -
+    /// [`PrefilterIneligible::caller_category`](catalog::PrefilterIneligible::caller_category): no
+    /// `raw_prefilter` is declared on this column, the search term's own shape is ineligible, or the
+    /// search term overlaps the column's redaction marker. A single probe says only that much. A
+    /// SWEEP of needles against the same column, each one read off this category, still lets a
+    /// caller map which characters a redaction marker's own shape contains, needle by needle - the
+    /// same way any membership oracle leaks its predicate's shape under repetition. `ineligible`
+    /// carries no replacement-rule index or other server-side detail outside this process; that
+    /// stays in the log line this refusal is built from.
     ///
     /// `ineligible` names WHY [`catalog::eligible`] could not admit pushing the search down, over
     /// the same needle and the column's own policy, computed once before the leg is dispatched -
@@ -303,7 +311,8 @@ impl fmt::Display for RawRefusalReason {
             } => write!(
                 f,
                 "a statement over a column under a text policy reached a time or source result bound \
-                 ({reason}); add a filter on a column without a policy"
+                 ({category}); add a filter on a column without a policy",
+                category = reason.caller_category()
             ),
             Self::PolicySearchNeedsNarrowing { ineligible: None } => write!(
                 f,

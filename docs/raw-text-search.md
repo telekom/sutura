@@ -255,20 +255,22 @@ What this does not do:
   (2s, `crates/sutura-app/src/raw.rs`) is carved out of such a leg's own deadline on top of the
   one-second margin already reserved for transport reply overhead, so the adapter's own teardown and this leg's local
   masking have room to finish and carry the named refusal back before the transport's generic `408`
-  backstop fires. Where narrowing would leave too little budget to run at all (a low
-  `request_timeout_seconds` deployment), the leg keeps the unnarrowed remaining budget instead and
-  the race is open again. **Limit:** there is no tokio-level abort of the adapter's own call - an
-  adapter that ignores its handed deadline can still lose this race and surface as the transport's
-  `408` rather than this named refusal, same as before the margin existed.
+  backstop fires. The narrowing only applies where it leaves at least `POLICY_LEG_MIN_BUDGET` (1s)
+  of budget; below that floor (a low `request_timeout_seconds` deployment, or a leg reached late in
+  a longer statement) the leg keeps the full unnarrowed remaining budget instead and the race is
+  open again. **Limit:** there is no tokio-level abort of the adapter's own call - an adapter that
+  ignores its handed deadline can still lose this race and surface as the transport's `408` rather
+  than this named refusal, same as before the margin existed.
 
-The reason shows whether a column the caller can already read declares a `raw_prefilter` at all
-(`NotDeclared`, for no `raw_prefilter` or an empty `redact` list), and carries an `ineligible`
-field naming why the raw prefilter itself could not push the search down - `catalog::eligible`'s
-own answer over the needle and the column's policy, computed once before the leg runs. Where that
-reason is the needle agreeing with a configured replacement, it also carries the 0-based index of
-the first redaction rule it agreed with, which tells the caller the column's `redact` list holds
-at least that many entries (index N implies N + 1) and nothing about what any of them matches or
-replaces.
+The reason carries an `ineligible` field grouped into one of three coarse categories a caller can
+read: no `raw_prefilter` is declared on this column at all, the search term's own shape is
+ineligible (a byte outside letters, digits or `_`, or a leading/trailing `_`), or the search term
+overlaps the column's redaction marker. The last category covers both a configured replacement and
+the truncation marker alike - neither a rule index nor which marker is ever named. **Stated
+plainly: a single probe discloses only its category, but a sweep of needles against the same
+column, each read off its category, lets a caller map which characters a redaction marker's own
+shape contains, needle by needle** - the structural cost any such coarse signal carries under
+repetition.
 
 `ineligible` is absent (`None`) wherever that check was never reached at all - not an exhaustively
 enumerable list, but including: no dialect capability admits the column, an unsupported collation,
@@ -277,8 +279,7 @@ text policy locally - plus every statement shape the search-recognition pass doe
 isolated, row-preserving `LIKE '%needle%'` comparison over the column at all: a projection-only
 read with no comparison to recognize, a sibling conjunct that could raise on an unredacted row, a
 join, subquery or CTE, a renaming or shadowing alias, and any other shape that pass's own
-structural checks decline. No variant, and no absence of one, names a column, pattern or
-replacement, and nothing about the policy leaks beyond what is stated here.
+structural checks decline. No variant, and no absence of one, names a column or a pattern.
 
 ## Narrowing a Cube search
 

@@ -4738,7 +4738,6 @@ dependencies = [
  "arrow-ord",
  "arrow-schema",
  "arrow-select",
- "regex",
  "secrecy",
  "serde",
  "serde_json",

@@ -276,17 +276,21 @@ async fn a_raw_statements_deadline_opens_before_it_waits_for_a_slot() {
 /// `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` narrowing a policy leg's own deadline ahead of an
 /// unread leg's, a caller loses the named refusal to the transport's generic `408` on exactly the
 /// adapter this fixture models: one that answers only after its handed deadline, later than this
-/// margin but not later than the request's own backstop.
+/// margin but not later than the request's own backstop. At a `request_timeout_seconds` this low,
+/// the margin alone is not narrowed unless `sutura_app::raw::POLICY_LEG_MIN_BUDGET` - a floor lower
+/// than the margin itself, not the margin again - still admits it; this HTTP cell is also this
+/// floor's own regression cell, over the real transport rather than the unit-level
+/// `handed_remaining` fixtures in `sutura_app::raw::policy_search`.
 ///
 /// [`ForcesAPolicySearchLeg`] stands in for `text_prefilter::discover` recognising a `LIKE` shape
 /// over a declared policy column, forcing `PolicyRead::AtSource` on the statement's one leg without
-/// needing a statement `DataFusion`'s planner would itself read that way.
+/// needing a statement `` `DataFusion` ``'s planner would itself read that way.
 /// `WarehouseThatOutrunsAPolicyLeg::execute_raw` reads whatever [`sutura_domain::warehouse::deadline::Deadline`]
 /// it is actually handed rather than assuming one, so the same fixture proves both directions: handed
 /// the full, unnarrowed request budget it answers after `enforce_timeout`'s own `408` fires; handed
 /// the leg this margin narrows it answers first.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_policy_search_leg_loses_the_named_refusal_to_the_generic_408_without_its_own_margin() {
+async fn a_policy_search_leg_past_its_deadline_reaches_the_caller_by_name_ahead_of_the_408() {
     let overlay = "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\nserver:\n  request_timeout_seconds: 5\n";
     let app = serving_with_combiner(
         bundle(),

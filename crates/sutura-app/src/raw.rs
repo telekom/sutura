@@ -45,13 +45,20 @@ use sutura_domain::warehouse::{RawRows, Value, Warehouse};
 /// leg gets to answer with its own name, it does not close it, and nothing here changes the margin
 /// every other leg still runs under.
 ///
-/// **Only applied when it leaves a usable budget.** A deployment configuring a low
-/// `request_timeout_seconds` (2-3s total) can reach a leg with little more than this margin already
-/// remaining; subtracting it there would refuse every policy-column read before the data system is
-/// ever asked, which is worse than the race this margin exists to narrow. Below that floor (checked
-/// against this same constant) the leg keeps the unnarrowed remaining budget instead - the behaviour
-/// before this margin existed, and the same open race `docs/adr/0029` names.
+/// **Only applied when it leaves a usable budget**, checked against [`POLICY_LEG_MIN_BUDGET`], a
+/// separate and smaller floor - not this margin itself. A deployment configuring a low
+/// `request_timeout_seconds` can reach a leg with only a few seconds remaining; narrowing by the
+/// full margin there would leave too little for the adapter to do anything useful with, or refuse
+/// the read before the data system is ever asked. Below that floor the leg keeps the unnarrowed
+/// remaining budget instead - the behaviour before this margin existed, and the same open race
+/// `docs/adr/0029` names.
 const POLICY_LEG_TEARDOWN_MARGIN: Duration = Duration::from_secs(2);
+
+/// The least a policy-column search leg's narrowed budget may be and still have the margin above
+/// applied. Below this, narrowing would leave the adapter so little room that keeping the full,
+/// unnarrowed remaining budget serves the read better than a margin meant to help it answer by
+/// name - see [`POLICY_LEG_TEARDOWN_MARGIN`].
+const POLICY_LEG_MIN_BUDGET: Duration = Duration::from_secs(1);
 
 use crate::warehouses::Warehouses;
 use crate::{Validated, exceeds_row_cap, now_in_unix_seconds, scoped_for};
@@ -472,7 +479,6 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         // is refused before the data system is asked at all. A policy-column search that spent the
         // whole budget getting here is still that search running out of room, not a bare timeout -
         // the same split the port-level `deadline_exceeded` branch below draws.
-        //
         let leg_budget = self
             .deadline
             .remaining_at(now)
@@ -490,19 +496,18 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         // deadline passed, and a wider margin here is what keeps the named refusal ahead of
         // `enforce_timeout`'s backstop `408`.
         //
-        // **Only when the narrowed budget is itself still usable.** A deployment configuring a low
-        // `request_timeout_seconds` (2-3s total) can have little more than the margin left by the
-        // time a leg runs at all; subtracting it then would leave a near-zero or negative budget and
-        // refuse every policy-column read before the data system is ever asked - worse than the race
-        // this margin exists to narrow. Below that floor this leg keeps the UNNARROWED remaining
-        // budget instead (the behaviour before this margin existed), which still runs the risk of
-        // losing the race to `enforce_timeout`'s `408` that `docs/adr/0029` already names as open.
+        // **Only when the narrowed budget is itself still usable**, checked against
+        // `POLICY_LEG_MIN_BUDGET` - a lower floor than the margin itself, not the margin again. A
+        // deployment configuring a low `request_timeout_seconds` can have only a few seconds left
+        // by the time a leg runs at all; subtracting the full margin then would leave too little
+        // for the adapter to do anything useful with, or refuse every policy-column read before the
+        // data system is ever asked - worse than the race this margin exists to narrow. Below that
+        // floor this leg keeps the UNNARROWED remaining budget instead (the behaviour before this
+        // margin existed), which still runs the risk of losing the race to `enforce_timeout`'s `408`
+        // that `docs/adr/0029` already names as open.
         let leg_deadline = if is_policy_read {
             let narrowed = leg_budget.duration().saturating_sub(POLICY_LEG_TEARDOWN_MARGIN);
-            // `narrowed` is at least `POLICY_LEG_TEARDOWN_MARGIN` here, so always non-zero and
-            // `Budget::parse` never fails - but the fallback below is the pre-margin behaviour
-            // regardless, not an assumption resting on an `expect`.
-            if narrowed >= POLICY_LEG_TEARDOWN_MARGIN {
+            if narrowed >= POLICY_LEG_MIN_BUDGET {
                 Budget::parse(narrowed).map_or(self.deadline, |budget| Deadline::opened_at(now, budget))
             } else {
                 self.deadline

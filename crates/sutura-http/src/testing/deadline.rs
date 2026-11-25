@@ -18,9 +18,9 @@ use sutura_domain::plan::{
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
-use sutura_domain::warehouse::{AnchorRows, RawExecution, RawRows, ResultBatches, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, RawExecution, RawRows, ResultBatches, RowSet, Value, Warehouse};
 
-use super::{ConnectionRefused, HELD_AT_MOST, StatementRejected, shared_posture};
+use super::{ConnectionRefused, HELD_AT_MOST, StatementRejected, canned, shared_posture};
 
 /// What this fake's own stand-in for "the deadline fired" says. Never actually timed - nothing here
 /// reads a clock while executing - because what is under test is the MAPPING from
@@ -190,23 +190,40 @@ impl Warehouse for RawDeadlineProbe {
 /// when the leg has already been narrowed by `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN`.
 const PAST_DEADLINE: Duration = Duration::from_millis(1500);
 
-/// A data system whose raw path sleeps past WHATEVER [`Deadline`] it is actually handed, then
-/// fails with the error [`Warehouse::deadline_exceeded`] recognises.
+/// A data system that answers its PLANNED path normally - [`Warehouse::execute`] and
+/// [`Warehouse::verify_anchor`] hand back the one prepared result, exactly like `FakeWarehouse` in
+/// the parent module - so an anchored bundle validates at startup. Only the RAW path is slow:
+/// `execute_raw` sleeps past
+/// WHATEVER [`Deadline`] it is actually handed, then fails with the error
+/// [`Warehouse::deadline_exceeded`] recognises.
+///
+/// **Why the planned path must succeed.** This fake used to fail every method, including the two
+/// `LocalService::start` calls to certify the bundle's own anchor - so an anchored bundle never
+/// finished booting (`NotValidated { cause: AnchorNotExecuted { .. } }`) and no test built on it
+/// ever reached the request path it exists to exercise. Nothing here reads a statement's text to
+/// decide which leg it is: `execute`/`verify_anchor` are the startup-and-planned surface, and
+/// `execute_raw` is the only raw-statement surface - which is also the only path
+/// [`ForcesAPolicySearchLeg`] ever drives, so slowing `execute_raw` alone already reaches exactly
+/// the policy-column search leg and nothing else.
 ///
 /// Reads the deadline rather than assuming one, so the same fake proves `docs/adr/0029`'s seventh
-/// amendment either way: run under [`ForcesAPolicySearchLeg`], this leg's own deadline is
-/// `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` narrower than an unread leg's - and ONLY the
-/// narrowed one returns before the transport's generic `408` fires.
+/// amendment either way: run under [`ForcesAPolicySearchLeg`], this leg's own deadline is narrowed by
+/// `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` once it clears `sutura_app::raw::POLICY_LEG_MIN_BUDGET`
+/// - and ONLY the narrowed one returns before the transport's generic `408` fires.
 pub(crate) struct WarehouseThatOutrunsAPolicyLeg {
     source: SourceName,
     posture: SourcePosture,
+    result: RowSet,
 }
 
 impl WarehouseThatOutrunsAPolicyLeg {
     pub(crate) fn new(source: SourceName) -> sutura_app::Warehouses<Self> {
+        let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
+            .expect("a one-cell result is a result set");
         sutura_app::Warehouses::of(Self {
             source,
             posture: shared_posture(),
+            result,
         })
     }
 }
@@ -231,11 +248,11 @@ impl Warehouse for WarehouseThatOutrunsAPolicyLeg {
         _presented: &Presented,
         _deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
-        Err(DeadlineFired)
+        Ok(canned(&self.result))
     }
 
     fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        Err(DeadlineFired)
+        Ok(AnchorRows::of(self.result.clone()))
     }
 
     fn execute_raw(

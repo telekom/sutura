@@ -17,7 +17,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::{AnchorRows, RawExecution, RawRows, ResultBatches, Value, Warehouse};
 
-use super::{POLICY_LEG_TEARDOWN_MARGIN, RunSqlScope, answer_sql};
+use super::{POLICY_LEG_MIN_BUDGET, POLICY_LEG_TEARDOWN_MARGIN, RunSqlScope, answer_sql};
 use crate::tests::{asked_by_a_person, shared, source, test_deadline};
 use crate::tests_support::{AdapterFailure, CountingBroker, RawCapableWarehouse, bundle_over, run_sql_sources};
 use crate::{Warehouses, verify_and_validate};
@@ -364,6 +364,49 @@ fn a_policy_leg_keeps_the_full_budget_when_narrowing_would_leave_too_little() {
         handed > Duration::from_millis(1000),
         "narrowing a sub-margin budget must fall back to the full remaining budget, not refuse \
          pre-dispatch or leave almost nothing: got {handed:?}"
+    );
+}
+
+/// Opus round-3 review on `#2079`: a budget that is below the full `POLICY_LEG_TEARDOWN_MARGIN` but
+/// still above `POLICY_LEG_MIN_BUDGET` after subtracting it must still narrow - the floor checked
+/// is `POLICY_LEG_MIN_BUDGET`, a smaller number than the margin itself, never the margin again. A
+/// `request_timeout_seconds` of 3-4s is exactly the band the HTTP cell
+/// `a_policy_search_leg_past_its_deadline_reaches_the_caller_by_name_ahead_of_the_408` exercises.
+#[test]
+fn a_policy_leg_in_the_low_timeout_band_narrows_once_the_floor_still_allows_it() {
+    for budget in [Duration::from_secs(3), Duration::from_secs(4)] {
+        let narrowed_to = budget
+            .checked_sub(POLICY_LEG_TEARDOWN_MARGIN)
+            .expect("each fixture budget here exceeds the margin");
+        assert!(
+            narrowed_to >= POLICY_LEG_MIN_BUDGET,
+            "the fixture must land on or above the floor: {budget:?}"
+        );
+        let handed = handed_remaining(PolicyRead::AtSource, budget);
+        assert!(
+            handed <= narrowed_to && handed > narrowed_to.checked_sub(Duration::from_millis(500)).unwrap_or_default(),
+            "a {budget:?} budget must narrow to ~{narrowed_to:?} left, got {handed:?}"
+        );
+    }
+}
+
+/// The floor itself: a budget whose narrowed value would fall below `POLICY_LEG_MIN_BUDGET` (but
+/// above zero, unlike the sub-margin fixture above) keeps the full remaining budget rather than the
+/// too-thin narrowed one.
+#[test]
+fn a_policy_leg_below_the_floor_keeps_the_full_budget_rather_than_a_too_thin_one() {
+    let budget = Duration::from_millis(2500);
+    let narrowed_to = budget
+        .checked_sub(POLICY_LEG_TEARDOWN_MARGIN)
+        .expect("the fixture's budget exceeds the margin");
+    assert!(
+        narrowed_to < POLICY_LEG_MIN_BUDGET && narrowed_to > Duration::ZERO,
+        "the fixture must land strictly below the floor and above zero: {narrowed_to:?}"
+    );
+    let handed = handed_remaining(PolicyRead::AtSource, budget);
+    assert!(
+        handed > budget.checked_sub(Duration::from_millis(500)).unwrap_or_default(),
+        "below the floor the leg must keep the full budget, not the too-thin narrowed one: got {handed:?}"
     );
 }
 

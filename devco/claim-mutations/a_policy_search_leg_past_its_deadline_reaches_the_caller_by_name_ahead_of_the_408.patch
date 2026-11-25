@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
+index a89674f1a..332ef8c1b 100644
+--- a/crates/sutura-app/src/raw.rs
++++ b/crates/sutura-app/src/raw.rs
+@@ -505,16 +505,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
+         // floor this leg keeps the UNNARROWED remaining budget instead (the behaviour before this
+         // margin existed), which still runs the risk of losing the race to `enforce_timeout`'s `408`
+         // that `docs/adr/0029` already names as open.
+-        let leg_deadline = if is_policy_read {
+-            let narrowed = leg_budget.duration().saturating_sub(POLICY_LEG_TEARDOWN_MARGIN);
+-            if narrowed >= POLICY_LEG_MIN_BUDGET {
+-                Budget::parse(narrowed).map_or(self.deadline, |budget| Deadline::opened_at(now, budget))
+-            } else {
+-                self.deadline
+-            }
+-        } else {
+-            self.deadline
+-        };
++        let leg_deadline = self.deadline;
+         let execution = tables.map_or_else(
+             || warehouse.execute_raw(statement, presented, leg_deadline),
+             |tables| warehouse.execute_planned_statement(statement, tables, presented, leg_deadline),

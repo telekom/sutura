@@ -78,10 +78,6 @@ thiserror = { workspace = true }
 # `i256` for the wide-decimal rows of `warehouse::arrow`'s mapping table; the root manifest says why
 # it cannot come through `arrow-array`.
 arrow-buffer = { workspace = true }
-# `catalog::prefilter_eligibility`'s property test applies each redaction's own regex, in sequence,
-# to emulate the data system's `regexp_replace`. Already resolved transitively (root manifest says
-# where), so this is a new edge, not a new crate.
-regex = { workspace = true }
 
 # Three features, all default-off and adding no dependency: `agreement`, which holds
 # `warehouse::agreement`, the typed comparison the differential legs make, `fixtures`, which holds
