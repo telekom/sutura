@@ -56,6 +56,8 @@ pub mod split;
 use split::{SourceSplit, SplitRefused};
 
 pub mod admission;
+/// Whether a source narrows each caller's catalog view.
+pub mod catalog_visibility;
 /// The per-entry reader - see its header for why it is its own file.
 mod entry;
 use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
@@ -218,6 +220,7 @@ pub struct ConfiguredSource {
     inbound_token_at_pool: Option<InboundTokenAtPool>,
     hash_buckets: Option<HashBucketsDeclared>,
     split: Option<SourceSplit>,
+    catalog_visibility: Option<catalog_visibility::CatalogVisibility>,
 }
 
 impl ConfiguredSource {
@@ -956,42 +959,8 @@ fn parse_entry(
         inbound_token_at_pool: None,
         hash_buckets: None,
         split: None,
+        catalog_visibility: None,
     })
-}
-
-/// Reads a `workload_identity` block and its delegation hops.
-fn parse_workload_identity(
-    alias: &SourceName,
-    raw: &crate::raw::RawWorkloadIdentity,
-) -> Result<WorkloadIdentityConfig, InvalidSourceRegistry> {
-    let config = WorkloadIdentityConfig::parse_with_expectations(
-        &raw.audience,
-        raw.expected_issuer.as_deref(),
-        raw.expected_audience.as_deref(),
-    )
-    .map_err(|cause| InvalidSourceRegistry::WorkloadIdentity {
-        alias: alias.clone(),
-        cause,
-    })?;
-    let hops = match raw.delegation.as_deref() {
-        None => Vec::new(),
-        Some([]) => {
-            return Err(InvalidSourceRegistry::WorkloadIdentity {
-                alias: alias.clone(),
-                cause: InvalidWorkloadIdentity::Empty {
-                    what: "`delegation` list",
-                },
-            });
-        }
-        Some(declared) => declared
-            .iter()
-            .enumerate()
-            .map(|(position, hop)| {
-                workload_identity::DelegationDeclared::of(alias, hop, "workload_identity.delegation", position)
-            })
-            .collect::<Result<_, _>>()?,
-    };
-    Ok(config.with_delegation(hops))
 }
 
 #[cfg(test)]

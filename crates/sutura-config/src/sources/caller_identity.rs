@@ -250,7 +250,7 @@ pub(super) fn declared(
         });
     }
     Ok(Some(match first {
-        Written::WorkloadIdentity(raw) => CallerIdentity::WorkloadIdentity(super::parse_workload_identity(alias, raw)?),
+        Written::WorkloadIdentity(raw) => CallerIdentity::WorkloadIdentity(super::workload_identity::parse_block(alias, raw)?),
         Written::CallerGoogleToken(raw) => CallerIdentity::CallerGoogleToken(
             sutura_domain::source::AcknowledgementReason::parse(raw.acknowledged_because.as_deref().unwrap_or("")).map_err(
                 |cause| InvalidSourceRegistry::CallerGoogleTokenReason {

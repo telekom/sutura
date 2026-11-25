@@ -154,6 +154,10 @@ pub(crate) struct RawSource {
     /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
     #[serde(default)]
     pub(crate) split: Option<String>,
+    /// Whether each caller's catalog view is narrowed by this source - see
+    /// `crate::sources::catalog_visibility::CatalogVisibility`.
+    #[serde(default)]
+    pub(crate) catalog_visibility: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]

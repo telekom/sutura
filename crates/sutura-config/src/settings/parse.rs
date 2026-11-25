@@ -220,6 +220,12 @@ pub(super) fn parse_sources(
         if let Some(value) = source.split.as_deref() {
             crate::sources::split::declare(&mut registry, written, value).map_err(|cause| SettingsError::Sources { cause })?;
         }
+        if let Some(value) = source.catalog_visibility.as_deref()
+            && let Ok(alias) = sutura_domain::model::SourceName::parse(written)
+        {
+            crate::sources::catalog_visibility::declare(&mut registry, &alias, value)
+                .map_err(|cause| SettingsError::CatalogVisibility { cause })?;
+        }
     }
     let endpoints = crate::google_endpoints::GoogleEndpoints::parse(&raw.google_endpoints)
         .map_err(|cause| SettingsError::GoogleEndpoint { cause })?;
