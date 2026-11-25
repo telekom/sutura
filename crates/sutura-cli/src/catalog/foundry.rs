@@ -3,8 +3,8 @@
 //!
 //! The ontology, the client identifier and the scopes are parsed here by the adapter's own types,
 //! the single-owner split every HTTP catalog's endpoint already takes. The token endpoint is the
-//! entry's own `endpoint` plus the declared path, so it is on that host by construction, and
-//! `ClientCredentials::new` refuses it otherwise.
+//! entry's own `endpoint` plus the declared path, through the one grant builder every Foundry entry
+//! uses (`crate::foundry::client_credentials`).
 
 use super::OpenedCatalogs;
 
@@ -72,7 +72,12 @@ fn open_one(
                 .map_err(|cause| format!("`catalogs.{name}.token_file` does not hold a usable token: {cause}"))?
         }
         sutura_config::FoundryAuth::ClientCredentials(grant) => {
-            TokenSource::ClientCredentials(client_credentials(name, &endpoint, grant, agent.clone())?)
+            TokenSource::ClientCredentials(crate::foundry::client_credentials(
+                &format!("catalogs.{name}.foundry.client_credentials"),
+                &endpoint,
+                grant,
+                agent.clone(),
+            )?)
         }
     };
     Ok(sutura_catalog_foundry::FoundryCatalog::new(
@@ -81,25 +86,4 @@ fn open_one(
         name.clone(),
         HttpOntologyReader::new(endpoint, ontology, token, bounds, agent),
     ))
-}
-
-/// The declared client-credentials grant, its secret read at boot.
-#[cfg(feature = "foundry")]
-fn client_credentials(
-    name: &sutura_domain::model::SourceName,
-    endpoint: &sutura_catalog_foundry::http::Endpoint,
-    grant: &sutura_config::ClientCredentialsSettings,
-    agent: sutura_catalog_foundry::http::RotatingAgent,
-) -> Result<sutura_http_client::token::ClientCredentials, String> {
-    use sutura_http_client::delegation::{ExchangeClient, TokenEndpoint};
-    use sutura_http_client::token::{ClientCredentials, Scopes};
-
-    let key = format!("catalogs.{name}.foundry.client_credentials");
-    let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), grant.client_secret_file())?;
-    let client = ExchangeClient::new(grant.client_id(), secret).map_err(|cause| format!("`{key}.client_id`: {cause}"))?;
-    let scopes = Scopes::parse(grant.scopes().iter().map(String::as_str)).map_err(|cause| format!("`{key}.scopes`: {cause}"))?;
-    let token_endpoint = TokenEndpoint::parse(&format!("{}{}", endpoint.as_str(), grant.token_path()))
-        .map_err(|cause| format!("`{key}.token_path` is not a usable token endpoint: {cause}"))?;
-    ClientCredentials::new(endpoint, token_endpoint, client, scopes, agent)
-        .map_err(|cause| format!("`{key}.token_path`: {cause}"))
 }

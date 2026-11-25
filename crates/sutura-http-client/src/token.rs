@@ -1,7 +1,12 @@
-//! The bearer a catalog reader presents: a fixed token, or one minted by OAuth 2.0 client
-//! credentials (RFC 6749 section 4.4) and re-minted before it expires.
+//! The deployment's own bearer: a fixed token, or one minted by OAuth 2.0 client credentials
+//! (RFC 6749 section 4.4) and re-minted before it expires.
 //!
-//! **Either way the reader acts as the deployment.** The token is this process's own, not a
+//! **The one client-credentials implementation in the workspace.** A Foundry catalog reader, a
+//! shared Foundry source and an impersonating Foundry source's startup identity all build theirs
+//! with [`ClientCredentials::declared`] from one declared block, and mint through
+//! [`TokenSource::bearer`].
+//!
+//! **Either way the holder acts as the deployment.** The token is this process's own, not a
 //! caller's, so every caller sees what it sees.
 //!
 //! What a minted answer is held to: a success status, JSON, `token_type` `Bearer`, and an
@@ -80,6 +85,19 @@ impl Scopes {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Why a declared client-credentials grant cannot be built. Carries no secret.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UnusableGrant {
+    #[error("the client identifier is not usable")]
+    ClientId(#[source] crate::delegation::UnusableClientId),
+    #[error("a scope is not usable")]
+    Scope(#[source] InvalidScope),
+    #[error("the token path does not make a usable token endpoint")]
+    TokenEndpoint(#[source] crate::InvalidEndpoint),
+    #[error("the token endpoint is off the declared endpoint")]
+    OffOrigin(#[source] OffOrigin),
 }
 
 /// A token endpoint that is not on the origin the reader was declared over.
@@ -205,6 +223,26 @@ impl ClientCredentials {
             agent,
             minted: parking_lot::Mutex::new(None),
         })
+    }
+
+    /// A grant from one declared block: the token endpoint is `origin` plus `token_path`, so it is on
+    /// `origin` by construction, and checked to be anyway.
+    ///
+    /// # Errors
+    ///
+    /// [`UnusableGrant`], naming which declared value is unusable.
+    pub fn declared<'scope>(
+        origin: &Endpoint,
+        token_path: &str,
+        client_id: &str,
+        secret: Secret,
+        scopes: impl IntoIterator<Item = &'scope str>,
+        agent: RotatingAgent,
+    ) -> Result<Self, UnusableGrant> {
+        let client = ExchangeClient::new(client_id, secret).map_err(UnusableGrant::ClientId)?;
+        let scopes = Scopes::parse(scopes).map_err(UnusableGrant::Scope)?;
+        let endpoint = TokenEndpoint::parse(&format!("{}{token_path}", origin.as_str())).map_err(UnusableGrant::TokenEndpoint)?;
+        Self::new(origin, endpoint, client, scopes, agent).map_err(UnusableGrant::OffOrigin)
     }
 
     /// The held token while it is fresh, else a new one. The lock is held across the mint, so

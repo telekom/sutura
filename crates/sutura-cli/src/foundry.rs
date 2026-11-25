@@ -74,3 +74,25 @@ pub(crate) fn build(
         )),
     }
 }
+
+/// The one client-credentials grant a Foundry entry declares, composed: its secret read once from
+/// its file, its token endpoint the entry's own `endpoint` plus the declared path. `key` is the
+/// block's settings key, which every refusal names. The catalog reader, a shared source and an
+/// impersonating source's startup identity all build theirs here.
+pub(crate) fn client_credentials(
+    key: &str,
+    endpoint: &sutura_http_client::Endpoint,
+    grant: &sutura_config::ClientCredentialsSettings,
+    agent: sutura_http_client::RotatingAgent,
+) -> Result<sutura_http_client::token::ClientCredentials, String> {
+    let secret = crate::password_file::read_key(&format!("{key}.client_secret_file"), grant.client_secret_file())?;
+    sutura_http_client::token::ClientCredentials::declared(
+        endpoint,
+        grant.token_path(),
+        grant.client_id(),
+        secret,
+        grant.scopes().iter().map(String::as_str),
+        agent,
+    )
+    .map_err(|cause| format!("`{key}` is not a usable client-credentials grant: {}", render(&cause)))
+}

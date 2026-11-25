@@ -16,13 +16,14 @@ use sutura_domain::pinned::DefinitionVersion;
 pub mod foundry;
 pub mod platform;
 pub mod rdbms;
-pub use crate::catalog::foundry::{ClientCredentialsSettings, FoundryAuth, FoundrySettings, InvalidFoundryCatalog};
+pub use crate::catalog::foundry::{FoundryAuth, FoundrySettings, InvalidFoundryCatalog};
 pub use crate::catalog::platform::{DataHubPlatform, InvalidDataHubPlatform};
 pub use crate::catalog::rdbms::{
     CatalogConnection, CatalogEnvironment, Dialect, DictionarySource, DocumentationSchema, InvalidConnection,
     InvalidDocumentationSchema, InvalidRdbmsCatalog, LiveRowPredicate, MissingEndpointPolicy, OracleCatalogConnection,
     PostgresCatalogConnection, PredicateOperator, RdbmsSettings,
 };
+pub use crate::client_credentials::ClientCredentialsSettings;
 pub(crate) use rdbms::RawColumnRule;
 
 /// Which adapter the catalog configuration names, and therefore which one opens it.

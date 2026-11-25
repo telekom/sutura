@@ -104,6 +104,7 @@
 pub mod api;
 pub mod audience;
 pub mod catalog;
+pub mod client_credentials;
 pub mod credentials;
 pub mod environment;
 pub mod google_endpoints;
