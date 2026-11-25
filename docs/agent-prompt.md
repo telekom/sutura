@@ -90,7 +90,7 @@ refused the same way.
 
 **One shared byte budget per whole agent-facing result, not one per section.** The agent tool's
 result, `GET /v1/catalog`'s body, and this rendered system prompt all hold their WHOLE output - not
-only a physical-schema listing - to `MAX_CATALOG_LISTING_BYTES` (64 KiB), spent once, in sequence:
+only a physical-schema listing - to `MAX_CATALOG_LISTING_BYTES` (128 KiB), spent once, in sequence:
 the fixed parts first (the notice, the catalog's own knowledge - counted once per half of the agent
 tool's result, since its structured and its text half both carry that knowledge independently -
 the operator's instructions, and the provenance trailer), then whatever remains goes to the metrics

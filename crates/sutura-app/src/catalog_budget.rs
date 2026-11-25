@@ -47,11 +47,18 @@ pub fn fill_to_budget<T>(
 /// The byte budget a catalog listing - the system prompt's physical schema section, or either
 /// transport's `describe_catalog`/`CatalogBody` metrics and physical models - holds its items to.
 ///
-/// `github.com/telekom/sutura#2071`'s second ask measured 240538 bytes of authored model
-/// definitions as small enough for the planner and not small enough for an agent reading it as one
-/// prompt section or one tool result. 64 KiB is comfortably under that measured case (about 3.7x)
-/// without being so tight that an ordinarily authored catalog ever brushes it - a listing that size
-/// is itself the signal to read it one item at a time rather than in full.
+/// **Measured, not guessed.** The shipped `examples/single-player` catalog (11 metrics, two models,
+/// the glossary/caveat/example knowledge the README ships) renders to 67253 bytes through this same
+/// code path with no cap in effect, measured directly against `crates/sutura-app/src/prompt.rs`'s
+/// `render` at `github.com/telekom/sutura#2071`. An earlier version of this bound was 64 KiB,
+/// borrowed by analogy from an unrelated 240538-byte planner measurement
+/// (`github.com/telekom/sutura#2071`'s second ask) rather than from this document's own fixed cost;
+/// at 64 KiB the example's own system prompt silently dropped one metric's whole section (keeping
+/// only its name in the omission list), which is exactly the failure this bound exists to prevent
+/// for an ordinarily authored catalog. 128 KiB is roughly 1.9x the measured 67253 bytes - enough
+/// headroom that a normal catalog growing by a few more metrics still reaches the agent complete -
+/// while staying far short of the 1 MiB planner bound, so a listing that still crosses this one is
+/// the deployment-scale case this budget is for, not an ordinarily sized one.
 ///
 /// **One shared budget per whole agent-facing result, spent in sequence - never one per pool.**
 /// Each call site first measures its FIXED parts (the notice, the knowledge section, the operator's
@@ -60,7 +67,7 @@ pub fn fill_to_budget<T>(
 /// `MAX_CATALOG_LISTING_BYTES`, then hands what remains to the metrics pool's own `fill_to_budget`
 /// call, then hands what metrics did not spend to the physical-models pool's call. No interleaving
 /// is needed for this: the pools are still walked one after another, only the budget each is handed
-/// is `remaining_after_the_previous_pool` rather than a fresh 64 KiB every time, so the whole result
+/// is `remaining_after_the_previous_pool` rather than a fresh budget every time, so the whole result
 /// - fixed parts plus every pool - never exceeds this one bound.
 ///
 /// **The limit:** the spend order is fixed (metrics always get first claim on what is left after
@@ -68,7 +75,7 @@ pub fn fill_to_budget<T>(
 /// vocabulary and a small physical schema can still omit models it would have carried whole had the
 /// pools been budgeted the other way around. `model`/`metric` narrows the metrics pool to what one
 /// name needs and sidesteps this ordering entirely.
-pub const MAX_CATALOG_LISTING_BYTES: usize = 64 * 1024;
+pub const MAX_CATALOG_LISTING_BYTES: usize = 128 * 1024;
 
 /// How many omitted names a listing keeps before it stops naming them and states the count instead.
 pub const MAX_OMITTED_NAMES: usize = 200;
