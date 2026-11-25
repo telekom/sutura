@@ -13,7 +13,7 @@ use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_t
 
 /// The metric vocabulary, read off the caller's view of the pinned bundle.
 ///
-/// Held to [`MAX_CATALOG_LISTING_BYTES`] the same way [`physical::physical_schema`] is: a metric's
+/// Held to [`MAX_CATALOG_LISTING_BYTES`] the same way [`super::physical::physical_schema`] is: a metric's
 /// whole section (grains, dimensions, caveats) is included or not at all, and one left out is still
 /// named, so an agent always knows `describe_catalog(model: <its model>)` can still read it.
 pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogProse) -> String {
