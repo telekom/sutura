@@ -219,23 +219,30 @@ pub enum RawRefusalReason {
     /// stay local. A projection over a policy column is classified the same way as a search.
     /// Planning, pre-leg and local-part deadlines retain [`Self::DeadlineExceeded`].
     ///
-    /// **What it discloses:** that the column the caller can already read declares a `raw_prefilter`
-    /// at all, and, only where `ineligible` is
+    /// **What it discloses:** whether the column the caller can already read declares a
+    /// `raw_prefilter` at all -
+    /// [`NotDeclared`](catalog::PrefilterIneligible::NotDeclared) names exactly that, for no
+    /// `raw_prefilter` or an empty `redact` list - and, only where `ineligible` is
     /// [`AgreesWithReplacement`](catalog::PrefilterIneligible::AgreesWithReplacement), the 0-based
     /// index of the first redaction rule the needle's own replacement agreed with - which tells the
     /// caller the column's `redact` list holds at least that many entries (index N implies N + 1),
     /// never what any of them matches or replaces. Nothing further about the policy's shape leaks
     /// through any other variant, or through `None`.
     ///
-    /// `ineligible` names WHY [`catalog::eligible`] could not admit pushing the search down in the
-    /// first place, over the same needle and the column's own policy, computed once before the leg
-    /// is dispatched - never derived from how long the search ran or what it returned. `None` covers
-    /// six cases, every one of them a point this leg never reached that check at all: the statement's
-    /// dialect has no raw-prefilter capability, the column's own collation is one that capability
-    /// does not admit, an Oracle column that is declared but is not a LOB, a sibling conjunct in the
-    /// same statement that could raise on an unredacted row and so holds the whole prefilter back
-    /// regardless of the chosen conjunct's own eligibility, a column that declares no text policy at
-    /// all, and Cube running its text policy locally rather than through this prefilter.
+    /// `ineligible` names WHY [`catalog::eligible`] could not admit pushing the search down, over
+    /// the same needle and the column's own policy, computed once before the leg is dispatched -
+    /// never derived from how long the search ran or what it returned. **`None` is not an
+    /// exhaustive, enumerable set** - it is every point where that check was never reached at all,
+    /// which includes but is not limited to: the statement's dialect has no raw-prefilter
+    /// capability, the column's own collation is one that capability does not admit, an Oracle
+    /// column that is declared but is not a LOB, a column that declares no text policy at all, and
+    /// Cube running its text policy locally rather than through this prefilter - plus every shape
+    /// the search-recognition pass (`sutura_exec_datafusion::combine::statement::text_prefilter::discover`)
+    /// does not parse as one isolated, row-preserving `LIKE '%needle%'` comparison over the column
+    /// at all: a projection-only read with no comparison to recognize, a sibling conjunct in the
+    /// same statement that could raise on an unredacted row, a join, subquery or CTE, an alias that
+    /// renames or shadows the column, and any other statement shape that pass's own structural
+    /// checks decline. The reason carries no signal distinguishing any of these from one another.
     PolicySearchNeedsNarrowing {
         ineligible: Option<catalog::PrefilterIneligible>,
     },

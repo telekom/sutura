@@ -378,6 +378,7 @@ impl Warehouse for FailingWarehouse {
 pub(crate) struct WouldNotReturnAtOnce;
 /// `docs/adr/0029`'s own mapping fake, in its own file for this file's `max-lines` reason.
 mod deadline;
+pub(crate) use deadline::{ForcesAPolicySearchLeg, WarehouseThatOutrunsAPolicyLeg, serving_with_combiner};
 pub(crate) use deadline::{Probed, RawDeadlineProbe, WarehouseThatOutranItsDeadline};
 mod held; // The hold switch, split out: this file is at the `max-lines` cap.
 pub(crate) use held::Held;

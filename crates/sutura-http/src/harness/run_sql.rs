@@ -15,8 +15,9 @@ use sutura_dev::issuer::{PublishedKeySet, Token};
 use super::{over, settings};
 use crate::constants::OPENAPI_JSON_PATH;
 use crate::testing::{
-    Probed, RawDeadlineProbe, an_issuer, broker, bundle, call, declared_inbound, direct_overlay, fake_warehouse, request,
-    serving, settings_with, source, unanchored_bundle,
+    ForcesAPolicySearchLeg, Probed, RawDeadlineProbe, WarehouseThatOutrunsAPolicyLeg, an_issuer, broker, bundle, call,
+    declared_inbound, direct_overlay, fake_warehouse, request, serving, serving_with_combiner, settings_with, source,
+    unanchored_bundle,
 };
 
 fn run_sql_body(statement: &str) -> String {
@@ -267,6 +268,41 @@ async fn a_raw_statements_deadline_opens_before_it_waits_for_a_slot() {
         left < budget.saturating_sub(MARGIN),
         "the queued statement arrived with {left:?} of {budget:?} after queueing for {QUEUED:?}, so its deadline opened after admission"
     );
+}
+
+/// **Regression for `docs/adr/0029`'s seventh amendment.** A policy-column search leg pays for local
+/// masking and this leg's own classification of the adapter's failure AFTER the port call returns -
+/// both inside the margin a plain leg's deadline already accounts for - so without
+/// `sutura_app::raw::POLICY_LEG_TEARDOWN_MARGIN` narrowing a policy leg's own deadline ahead of an
+/// unread leg's, a caller loses the named refusal to the transport's generic `408` on exactly the
+/// adapter this fixture models: one that answers only after its handed deadline, later than this
+/// margin but not later than the request's own backstop.
+///
+/// [`ForcesAPolicySearchLeg`] stands in for `text_prefilter::discover` recognising a `LIKE` shape
+/// over a declared policy column, forcing `PolicyRead::AtSource` on the statement's one leg without
+/// needing a statement `DataFusion`'s planner would itself read that way.
+/// `WarehouseThatOutrunsAPolicyLeg::execute_raw` reads whatever [`sutura_domain::warehouse::deadline::Deadline`]
+/// it is actually handed rather than assuming one, so the same fixture proves both directions: handed
+/// the full, unnarrowed request budget it answers after `enforce_timeout`'s own `408` fires; handed
+/// the leg this margin narrows it answers first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_policy_search_leg_loses_the_named_refusal_to_the_generic_408_without_its_own_margin() {
+    let overlay = "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\nserver:\n  request_timeout_seconds: 5\n";
+    let app = serving_with_combiner(
+        bundle(),
+        WarehouseThatOutrunsAPolicyLeg::new(source()),
+        broker(),
+        settings(Environment::Development, overlay),
+        None,
+        ForcesAPolicySearchLeg,
+    );
+    let (status, body) = call(
+        &app,
+        request("POST", "/v1/sql/run", None, Body::from(run_sql_body("select 1"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.contains(r#""code":"policy_search_needs_narrowing""#), "{body}");
 }
 
 #[tokio::test]

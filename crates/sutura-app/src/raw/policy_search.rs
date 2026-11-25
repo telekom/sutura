@@ -17,7 +17,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::{AnchorRows, RawExecution, RawRows, ResultBatches, Value, Warehouse};
 
-use super::{RunSqlScope, answer_sql};
+use super::{POLICY_LEG_TEARDOWN_MARGIN, RunSqlScope, answer_sql};
 use crate::tests::{asked_by_a_person, shared, source, test_deadline};
 use crate::tests_support::{AdapterFailure, CountingBroker, RawCapableWarehouse, bundle_over, run_sql_sources};
 use crate::{Warehouses, verify_and_validate};
@@ -33,6 +33,9 @@ enum Ends {
 struct Planned {
     inner: RawCapableWarehouse,
     ends: Ends,
+    /// What the leg's own deadline left, as the port saw it - for the margin-narrowing tests below,
+    /// which read this rather than time anything.
+    handed: std::cell::RefCell<Option<Deadline>>,
 }
 
 impl Warehouse for Planned {
@@ -69,8 +72,9 @@ impl Warehouse for Planned {
         _statement: &RawStatement,
         _tables: &BTreeSet<QualifiedTable>,
         _presented: &Presented,
-        _deadline: Deadline,
+        deadline: Deadline,
     ) -> RawExecution<Self::Error> {
+        *self.handed.borrow_mut() = Some(deadline);
         Some(match self.ends {
             Ends::Rows(rows) => Ok(RawRows::of(vec![String::from("n")], vec![vec![Value::Integer(0)]; rows])),
             Ends::TooMuchData => Err(AdapterFailure::TooMuchData),
@@ -143,6 +147,7 @@ fn refused_with(combiner: &Combiner, ends: Ends) -> RawRefusalReason {
     let warehouses = Warehouses::of(Planned {
         inner: RawCapableWarehouse::answering_rows(source(), shared(), 0),
         ends,
+        handed: std::cell::RefCell::new(None),
     });
     let pinned = verify_and_validate(bundle_over(&[]), &warehouses).expect("a bundle with no models validates");
     let scope = RunSqlScope::new(run_sql_sources(vec![source()]), false);
@@ -233,6 +238,7 @@ fn refused_already_out_of_time(read: PolicyRead) -> RawRefusalReason {
     let warehouses = Warehouses::of(Planned {
         inner: RawCapableWarehouse::answering_rows(source(), shared(), 0),
         ends: Ends::Rows(0),
+        handed: std::cell::RefCell::new(None),
     });
     let pinned = verify_and_validate(bundle_over(&[]), &warehouses).expect("a bundle with no models validates");
     let scope = RunSqlScope::new(run_sql_sources(vec![source()]), false);
@@ -276,6 +282,88 @@ fn a_leg_already_out_of_time_before_it_runs_is_named_wherever_it_reads_a_policy_
     assert_eq!(
         refused_already_out_of_time(PolicyRead::Unread),
         RawRefusalReason::DeadlineExceeded { budget_seconds: 1 }
+    );
+}
+
+/// `run_at`'s leg under `read`, with `budget` as the total deadline's own budget - returning the
+/// remaining duration the port actually handed `Planned::execute_planned_statement`, so the margin
+/// in `POLICY_LEG_TEARDOWN_MARGIN` is checked on what the leg SAW, not timed.
+fn handed_remaining(read: PolicyRead, budget: Duration) -> Duration {
+    let planned = Planned {
+        inner: RawCapableWarehouse::answering_rows(source(), shared(), 0),
+        ends: Ends::Rows(0),
+        handed: std::cell::RefCell::new(None),
+    };
+    let warehouses = Warehouses::of(planned);
+    let pinned = verify_and_validate(bundle_over(&[]), &warehouses).expect("a bundle with no models validates");
+    let scope = RunSqlScope::new(run_sql_sources(vec![source()]), false);
+    let statement = RawStatement::parse("select n from t").expect("a test statement is a statement");
+    let opened = Instant::now();
+    let deadline = Deadline::opened_at(opened, Budget::parse(budget).expect("a nonzero test budget"));
+    let ran = answer_sql(
+        &pinned,
+        &asked_by_a_person(),
+        &statement,
+        &CountingBroker::default(),
+        &warehouses,
+        &Combiner::new(read),
+        &scope,
+        1 << 20,
+        deadline,
+    )
+    .expect("an answered row is still an answer");
+    assert!(
+        matches!(ran.into_outcome(), RawOutcome::Rows { .. }),
+        "this fixture's leg always succeeds; a refusal means the deadline computation panicked or \
+         was itself exhausted before the fixture could record it"
+    );
+    let handed = warehouses
+        .get(&source())
+        .expect("the one fixture source is registered")
+        .handed
+        .borrow()
+        .expect("execute_planned_statement must have run and recorded the deadline it was handed");
+    handed.remaining_at(opened).unwrap_or_default()
+}
+
+/// Review item 2 on `#2079`: with a generous total budget, a policy-read leg gets the deadline
+/// narrowed by the full `POLICY_LEG_TEARDOWN_MARGIN` - leaving the adapter's own teardown and local
+/// masking room inside `docs/adr/0029`'s `REPLY_MARGIN`, the whole point of the narrowing.
+#[test]
+fn a_policy_leg_is_narrowed_by_the_full_margin_when_the_remaining_budget_affords_it() {
+    let budget = Duration::from_secs(10);
+    let narrowed_to = budget
+        .checked_sub(POLICY_LEG_TEARDOWN_MARGIN)
+        .expect("the fixture's budget exceeds the margin");
+    let handed = handed_remaining(PolicyRead::AtSource, budget);
+    assert!(
+        handed <= narrowed_to && handed > narrowed_to.checked_sub(Duration::from_millis(500)).unwrap_or_default(),
+        "a 10s budget must narrow to ~8s left, got {handed:?}"
+    );
+    // A leg that does not read a policy column is never narrowed.
+    let unread = handed_remaining(PolicyRead::Unread, budget);
+    assert!(
+        unread > budget.checked_sub(Duration::from_millis(500)).unwrap_or_default(),
+        "an unread leg keeps the full budget, got {unread:?}"
+    );
+}
+
+/// Review item 2 on `#2079`: a deployment configuring a low total `request_timeout_seconds` (here,
+/// less than the margin itself) must not have the narrowing refuse every policy-column read before
+/// the data system is ever asked - the leg keeps the full remaining budget instead, the behaviour
+/// before this margin existed.
+#[test]
+fn a_policy_leg_keeps_the_full_budget_when_narrowing_would_leave_too_little() {
+    let budget = Duration::from_millis(1500);
+    assert!(
+        budget < POLICY_LEG_TEARDOWN_MARGIN,
+        "the fixture must exercise the low-budget fallback"
+    );
+    let handed = handed_remaining(PolicyRead::AtSource, budget);
+    assert!(
+        handed > Duration::from_millis(1000),
+        "narrowing a sub-margin budget must fall back to the full remaining budget, not refuse \
+         pre-dispatch or leave almost nothing: got {handed:?}"
     );
 }
 

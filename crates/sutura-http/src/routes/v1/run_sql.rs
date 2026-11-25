@@ -94,7 +94,11 @@ const TAG: &str = "run_sql";
                            why the raw prefilter itself could not push the search down, and for one \
                            reason also carries a 0-based redaction-rule index - nothing about the \
                            policy beyond that a `raw_prefilter` is declared and, where that index \
-                           appears, a lower bound on how many redaction rules the column has.",
+                           appears, a lower bound on how many redaction rules the column has. The \
+                           field is absent for many other reasons the push-down check was never \
+                           reached at all (an unsupported statement shape, a projection-only read, \
+                           a column under no policy, and more) - its absence is not itself a \
+                           disclosure of which.",
             body = RawOutcomeBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),

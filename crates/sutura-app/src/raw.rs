@@ -44,6 +44,13 @@ use sutura_domain::warehouse::{RawRows, Value, Warehouse};
 /// same race `docs/adr/0029` already names as open - this narrows the window a policy-column search
 /// leg gets to answer with its own name, it does not close it, and nothing here changes the margin
 /// every other leg still runs under.
+///
+/// **Only applied when it leaves a usable budget.** A deployment configuring a low
+/// `request_timeout_seconds` (2-3s total) can reach a leg with little more than this margin already
+/// remaining; subtracting it there would refuse every policy-column read before the data system is
+/// ever asked, which is worse than the race this margin exists to narrow. Below that floor (checked
+/// against this same constant) the leg keeps the unnarrowed remaining budget instead - the behaviour
+/// before this margin existed, and the same open race `docs/adr/0029` names.
 const POLICY_LEG_TEARDOWN_MARGIN: Duration = Duration::from_secs(2);
 
 use crate::warehouses::Warehouses;
@@ -466,21 +473,9 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         // whole budget getting here is still that search running out of room, not a bare timeout -
         // the same split the port-level `deadline_exceeded` branch below draws.
         //
-        // A policy-column search leg is handed a deadline narrowed by `POLICY_LEG_TEARDOWN_MARGIN`
-        // on top of the remaining budget - see that constant's own doc for why: this leg still has
-        // local masking and the carry back to the transport ahead of it once the port notices its own
-        // deadline passed, and a wider margin here is what keeps the named refusal ahead of
-        // `enforce_timeout`'s backstop `408`.
         let leg_budget = self
             .deadline
             .remaining_at(now)
-            .and_then(|remaining| {
-                if is_policy_read {
-                    remaining.checked_sub(POLICY_LEG_TEARDOWN_MARGIN)
-                } else {
-                    Some(remaining)
-                }
-            })
             .and_then(|remaining| Budget::parse(remaining).ok());
         let Some(leg_budget) = leg_budget else {
             return Err(LegStop::Refused(if is_policy_read {
@@ -489,8 +484,29 @@ impl<'a, W, B> RawLegs<'a, W, B> {
                 RawRefusalReason::DeadlineExceeded { budget_seconds }
             }));
         };
+        // A policy-column search leg is handed a deadline narrowed by `POLICY_LEG_TEARDOWN_MARGIN`
+        // on top of the remaining budget - see that constant's own doc for why: this leg still has
+        // local masking and the carry back to the transport ahead of it once the port notices its own
+        // deadline passed, and a wider margin here is what keeps the named refusal ahead of
+        // `enforce_timeout`'s backstop `408`.
+        //
+        // **Only when the narrowed budget is itself still usable.** A deployment configuring a low
+        // `request_timeout_seconds` (2-3s total) can have little more than the margin left by the
+        // time a leg runs at all; subtracting it then would leave a near-zero or negative budget and
+        // refuse every policy-column read before the data system is ever asked - worse than the race
+        // this margin exists to narrow. Below that floor this leg keeps the UNNARROWED remaining
+        // budget instead (the behaviour before this margin existed), which still runs the risk of
+        // losing the race to `enforce_timeout`'s `408` that `docs/adr/0029` already names as open.
         let leg_deadline = if is_policy_read {
-            Deadline::opened_at(now, leg_budget)
+            let narrowed = leg_budget.duration().saturating_sub(POLICY_LEG_TEARDOWN_MARGIN);
+            // `narrowed` is at least `POLICY_LEG_TEARDOWN_MARGIN` here, so always non-zero and
+            // `Budget::parse` never fails - but the fallback below is the pre-margin behaviour
+            // regardless, not an assumption resting on an `expect`.
+            if narrowed >= POLICY_LEG_TEARDOWN_MARGIN {
+                Budget::parse(narrowed).map_or(self.deadline, |budget| Deadline::opened_at(now, budget))
+            } else {
+                self.deadline
+            }
         } else {
             self.deadline
         };
