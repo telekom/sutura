@@ -24,7 +24,9 @@
 
 /// `describe_catalog(model: ...)`'s own fixtures - split off, the 1000-line `max-lines` cap.
 mod catalog_fixtures;
-pub(crate) use catalog_fixtures::{bundle_with_a_restricted_metric, bundle_with_many_models, bundle_with_two_models};
+pub(crate) use catalog_fixtures::{
+    bundle_with_a_restricted_metric, bundle_with_many_models, bundle_with_two_metric_owning_models, bundle_with_two_models,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -332,12 +334,12 @@ impl SemanticCatalog for FixedCatalog {
     }
 }
 
-/// A catalog port that hands back [`bundle_with_two_models`] - `describe_catalog(model: ...)`'s own
-/// over-the-wire test needs a second model with no metric of its own to assert IS excluded, which
-/// [`FixedCatalog`]'s single-model bundle cannot provide.
-pub(crate) struct TwoModelCatalog;
+/// A catalog port that hands back [`bundle_with_two_metric_owning_models`] - `describe_catalog(model:
+/// ...)`'s own narrowing test needs the excluded model to own a metric, so its absence is actually
+/// proven rather than restated.
+pub(crate) struct TwoMetricOwningModelsCatalog;
 
-impl SemanticCatalog for TwoModelCatalog {
+impl SemanticCatalog for TwoMetricOwningModelsCatalog {
     type Error = Unreachable;
 
     const KIND: CatalogKind = CatalogKind::Golden;
@@ -347,7 +349,7 @@ impl SemanticCatalog for TwoModelCatalog {
     }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        Ok(bundle_with_two_models())
+        Ok(bundle_with_two_metric_owning_models())
     }
 }
 

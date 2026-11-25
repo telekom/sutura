@@ -15,25 +15,27 @@ fn describe_model(name: &str) -> CallToolRequestParams {
     super::call(Capability::DescribeCatalog.id(), &serde_json::json!({ "model": name }))
 }
 
-/// A service over [`testing::TwoModelCatalog`] - this file's own discriminating test needs a second
-/// model with no metric of its own, to assert `describe_catalog(model: "orders")` excludes it.
-fn two_model_service() -> super::CertifiedService {
+/// A service over [`testing::TwoMetricOwningModelsCatalog`] - this file's own discriminating test
+/// needs the EXCLUDED model to own a metric of its own, so asserting its absence proves the filter
+/// ran rather than restating that the excluded model had nothing to filter in the first place.
+fn two_metric_owning_models_service() -> super::CertifiedService {
     LocalService::start(
-        &testing::TwoModelCatalog,
+        &testing::TwoMetricOwningModelsCatalog,
         testing::fake_warehouse(),
         std::sync::Arc::new(testing::CountingSink::default()),
         testing::broker(),
         sutura_domain::plan::RefusingCombiner,
         1 << 30,
     )
-    .expect("the two-model fixture bundle validates")
+    .expect("the two-metric-owning-model fixture bundle validates")
 }
 
 /// `model` narrows `describe_catalog` to one named model's own metrics, never the whole catalog's -
-/// over a two-model bundle, so the OTHER model's absence is actually proven, not merely unasserted.
+/// over a bundle where the OTHER model owns its own metric too, so its absence is actually proven,
+/// not merely restated because it never had anything to filter in the first place.
 #[tokio::test]
 async fn describe_catalog_with_a_model_argument_answers_only_that_models_metrics() {
-    let client = super::connected(two_model_service()).await;
+    let client = super::connected(two_metric_owning_models_service()).await;
     let result = client
         .call_tool(describe_model("orders"))
         .await
@@ -41,6 +43,7 @@ async fn describe_catalog_with_a_model_argument_answers_only_that_models_metrics
     assert_ne!(result.is_error, Some(true), "{result:?}");
     let text = super::text_of(&result);
     assert!(text.contains("revenue"), "{text}");
+    assert!(!text.contains("customer_count"), "{text}");
     assert!(!text.contains("customers"), "{text}");
     drop(client.cancel().await);
 }

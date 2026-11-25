@@ -60,6 +60,68 @@ pub(crate) fn bundle_with_two_models() -> PinnedDefinitions {
     .expect("the test definitions hash")
 }
 
+/// Two physical models, EACH owning its own metric - unlike [`bundle_with_two_models`], where
+/// `customers` owns none. `describe_catalog(model: ...)`'s own narrowing test needs a metric that
+/// an excluded model actually owns, so that asserting its absence proves the filter ran rather than
+/// merely restating that the excluded model had nothing to filter in the first place.
+pub(crate) fn bundle_with_two_metric_owning_models() -> PinnedDefinitions {
+    let orders = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([column("amount_cents"), column("order_date")]),
+        description("Orders, one row per order."),
+    );
+    let customers = Model::new(
+        ModelName::parse("customers").expect("a test model is a model"),
+        source(),
+        TableName::parse("customers").expect("a test table is a table"),
+        BTreeSet::from([column("customer_id")]),
+        description("Customers, one row per customer."),
+    );
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a test metric is a metric"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        Vec::new(),
+        None,
+        description("Revenue, in minor units."),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let customer_count = Metric::new(
+        MetricName::parse("customer_count").expect("a test metric is a metric"),
+        ModelName::parse("customers").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::Count,
+            column("customer_id"),
+        ))),
+        Vec::new(),
+        column("customer_id"),
+        BTreeSet::from([Grain::Day]),
+        Vec::new(),
+        None,
+        description("How many customers, counted once each."),
+        Audience::Open,
+    )
+    .expect("no dimensions to duplicate");
+    let definitions = Definitions::assemble(vec![orders, customers], vec![], vec![revenue, customer_count])
+        .expect("the test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
 /// Enough physical models, each sized under [`sutura_domain::catalog::MAX_DESCRIPTION_BYTES`]'s own
 /// cap on one [`sutura_domain::catalog::Description`] (4 KiB), that an unfiltered, physical-schema
 /// `describe_catalog` crosses [`sutura_app::catalog_budget::MAX_CATALOG_LISTING_BYTES`]'s 64 KiB
