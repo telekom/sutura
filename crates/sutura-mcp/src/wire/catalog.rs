@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget};
+use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget, omission_reserve};
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::{Grain, MetricName, ModelName};
 use sutura_domain::pinned::view::ScopedView;
@@ -128,12 +128,13 @@ pub struct CatalogContent {
     /// still should not unbound this listing.
     metrics: Vec<MetricContent>,
     /// Metrics that exist and are visible, but were left out of [`Self::metrics`] to hold this
-    /// result under its shared budget. Each entry names the metric AND its model (`"<metric> (model
-    /// <model>)"`), so it is reachable with `describe_catalog(metric: <name>)` without first
-    /// discovering which model it belongs to. Capped at [`MAX_OMITTED_NAMES`] entries;
-    /// [`Self::omitted_metrics_more`] carries the true count past that cap.
+    /// result under its shared budget. Each entry carries both the metric AND its model, as a
+    /// structured [`OmittedMetric`] rather than a joined string, so it is reachable with
+    /// `describe_catalog(metric: <name>)` without a client having to parse which part of one string
+    /// is the model. Capped at [`MAX_OMITTED_NAMES`] entries; [`Self::omitted_metrics_more`] carries
+    /// the true count past that cap.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    omitted_metrics: Vec<String>,
+    omitted_metrics: Vec<OmittedMetric>,
     /// How many more metrics were left out of [`Self::omitted_metrics`] than that list names, once
     /// the [`MAX_OMITTED_NAMES`] cap on names is reached. A separate field rather than a trailing
     /// `"...and N more"` string in the name list, so a client reading names does not have to
@@ -172,6 +173,16 @@ pub struct CatalogContent {
     /// repeated in full on every call. This wire type does not check that cap itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
+}
+
+/// One metric left out of [`CatalogContent::metrics`] to hold the result under its shared budget.
+///
+/// Both names together, so `describe_catalog(metric: <name>)` is reachable without a client first
+/// discovering, by some other means, which model this metric belongs to.
+#[derive(Debug, serde::Serialize)]
+pub struct OmittedMetric {
+    metric: String,
+    model: String,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -328,7 +339,15 @@ impl CatalogContent {
                 + instructions.as_deref().map_or(0, str::len)
                 + provenance.definition_version.len()
                 + provenance.definition_digest.len());
-        let remaining = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost);
+        // Held back BEFORE either pool is filled, doubled like `fixed_cost` above: the text half and
+        // the structured half each carry their own omission note, so each pays its own worst-case
+        // share of it. Metrics entries carry a model alongside the metric (`omission_reserve(2)`),
+        // model entries carry only their own name (`omission_reserve(1)`). See `omission_reserve`'s
+        // own doc for why this is subtracted here rather than after `fill_to_budget` runs.
+        let omission_cost = 2 * (omission_reserve(2) + omission_reserve(1));
+        let remaining = MAX_CATALOG_LISTING_BYTES
+            .saturating_sub(fixed_cost)
+            .saturating_sub(omission_cost);
 
         let metric_cost =
             |content: &MetricContent| serde_json::to_vec(content).map_or(0, |bytes| bytes.len()) + metric_text(content).len();
@@ -370,7 +389,10 @@ impl CatalogContent {
         } else {
             let (included, omitted_names, omitted_count) =
                 fill_to_budget(selected_metrics, remaining, MAX_OMITTED_NAMES, metric_cost, |content| {
-                    format!("{} (model {})", content.name, content.model)
+                    OmittedMetric {
+                        metric: content.name.clone(),
+                        model: content.model.clone(),
+                    }
                 });
             let spent = included.iter().map(metric_cost).sum();
             let more = omitted_count.saturating_sub(omitted_names.len());
@@ -490,7 +512,12 @@ impl CatalogContent {
             out.push_str("\n\nomitted metrics (over this result's shared ");
             out.push_str(&MAX_CATALOG_LISTING_BYTES.to_string());
             out.push_str("-byte limit, each named with its own model): ");
-            out.push_str(&self.omitted_metrics.join(", "));
+            let names: Vec<String> = self
+                .omitted_metrics
+                .iter()
+                .map(|omitted| format!("{} (model {})", omitted.metric, omitted.model))
+                .collect();
+            out.push_str(&names.join(", "));
             if self.omitted_metrics_more > 0 {
                 out.push_str(" (+");
                 out.push_str(&self.omitted_metrics_more.to_string());
@@ -652,7 +679,7 @@ fn push_prose(out: &mut String, prose: &str, heading: &str) {
 
 #[cfg(test)]
 mod tests {
-    use sutura_app::catalog_budget::MAX_OMITTED_NAMES;
+    use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES};
     use sutura_app::prompt::CatalogProse;
     use sutura_domain::pinned::view::ScopedView;
 
@@ -790,18 +817,70 @@ mod tests {
         assert_eq!(included.len() + omitted.len(), METRIC_COUNT, "{json}");
         // Under the 200-name omission cap, so the count field stays at zero and unserialized.
         assert!(json.get("omitted_metrics_more").is_none(), "{json}");
-        for name in omitted {
-            let name = name.as_str().expect("an omitted metric's name is a string");
-            assert!(
-                name.contains("(model orders)"),
-                "an omitted metric is named without its model: {name}"
+        for entry in omitted {
+            assert_eq!(
+                entry["model"], "orders",
+                "an omitted metric's structured entry must carry its model: {entry}"
             );
         }
         let text = content.as_text();
-        for name in omitted {
-            let name = name.as_str().expect("an omitted metric's name is a string");
-            assert!(text.contains(name), "{text}");
+        for entry in omitted {
+            let metric = entry["metric"]
+                .as_str()
+                .expect("an omitted metric's structured entry names it");
+            assert!(text.contains(metric), "{text}");
         }
+    }
+
+    /// Both halves this type renders - the text `as_text()` reaches over MCP's text content, and the
+    /// structured JSON `serde_json::to_value` reaches over MCP's structured content - stay under the
+    /// shared bound even once their metrics cross it, because each half's own omission note is
+    /// reserved for up front rather than charged after the fact. `fixed_cost` and the omission
+    /// reserve are both doubled for exactly this reason - see `of_with_physical_schema`'s own doc.
+    #[test]
+    fn an_over_bound_catalog_stays_under_the_shared_bound_for_both_its_text_and_structured_halves() {
+        const METRIC_COUNT: usize = 40;
+        let bundle = crate::testing::bundle_with_many_metrics(METRIC_COUNT, 4000);
+        let view = ScopedView::everything(&bundle);
+        let content = CatalogContent::of(&view, CatalogProse::Quoted, None);
+        let json = serde_json::to_value(&content).expect("the catalog serializes");
+        let omitted = json["omitted_metrics"].as_array().expect("some metric was omitted");
+        assert!(!omitted.is_empty(), "every metric fit - make the fixture bigger: {json}");
+
+        let structured_bytes = serde_json::to_vec(&content).expect("the catalog serializes").len();
+        assert!(
+            structured_bytes <= MAX_CATALOG_LISTING_BYTES,
+            "the structured half overshot the shared bound ({structured_bytes} bytes)"
+        );
+        let text_bytes = content.as_text().len();
+        assert!(
+            text_bytes <= MAX_CATALOG_LISTING_BYTES,
+            "the text half overshot the shared bound ({text_bytes} bytes)"
+        );
+    }
+
+    /// The model pool's own version of the halves check above - models, not metrics, cross the
+    /// bound this time.
+    #[test]
+    fn an_over_bound_physical_schema_stays_under_the_shared_bound_for_both_its_text_and_structured_halves() {
+        const MODEL_COUNT: usize = 20;
+        let bundle = crate::testing::bundle_with_many_models(MODEL_COUNT);
+        let view = ScopedView::everything(&bundle);
+        let content = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None, None);
+        let json = serde_json::to_value(&content).expect("the catalog serializes");
+        let omitted = json["omitted_models"].as_array().expect("some model was omitted");
+        assert!(!omitted.is_empty(), "every model fit - make the fixture bigger: {json}");
+
+        let structured_bytes = serde_json::to_vec(&content).expect("the catalog serializes").len();
+        assert!(
+            structured_bytes <= MAX_CATALOG_LISTING_BYTES,
+            "the structured half overshot the shared bound ({structured_bytes} bytes)"
+        );
+        let text_bytes = content.as_text().len();
+        assert!(
+            text_bytes <= MAX_CATALOG_LISTING_BYTES,
+            "the text half overshot the shared bound ({text_bytes} bytes)"
+        );
     }
 
     /// Enough metrics that the number omitted crosses

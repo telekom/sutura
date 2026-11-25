@@ -102,13 +102,31 @@ authored catalog can make large, so leaving them uncounted would defeat the boun
 
 Under the budget nothing changes. Over it, whole items are included up to the bound - never one
 truncated mid-metric or mid-model - and the rest are named in an explicit `omitted_metrics` or
-`omitted_models` list; each omitted metric is named together with its model
-(`"<metric> (model <model>)"`), so every omission is reachable by `model` or by `metric` with no
-need to discover which model it belongs to first. A sentence points back at
-`describe_catalog(metric: <name>)` or `describe_catalog(model: <name>)`. **A single metric whose
-own `allowed_values` is itself large still reaches the caller in full through
-`describe_catalog(metric: <name>)`**, because that argument's answer bypasses the budget entirely
-rather than being cut down to fit it - the one case this document's byte bound does not apply to.
+`omitted_models` list, so every omission is reachable by `model` or by `metric` with no need to
+discover which model it belongs to first. Each omitted metric carries its model alongside it: the
+agent tool's structured half and `GET /v1/catalog`'s body give this as a `{"metric": ..., "model":
+...}` object per entry, and the two text renderings (the agent tool's text half, this prompt) give
+the same pair as `"<metric> (model <model>)"`. A sentence points back at `describe_catalog(metric:
+<name>)` or `describe_catalog(model: <name>)`. **A single metric whose own `allowed_values` is
+itself large still reaches the caller in full through `describe_catalog(metric: <name>)`**, because
+that argument's answer bypasses the budget entirely rather than being cut down to fit it - the one
+case this document's byte bound does not apply to.
+
+**The bound a result can actually reach is not exactly `MAX_CATALOG_LISTING_BYTES`, in two
+directions.** It can land under it: before either pool is filled, the budget has `MAX_OMITTED_NAMES`
+entries' worth of worst-case omission-list bytes held back from it (per pool, so twice over on the
+agent tool's result, once for its metrics and once for its physical schema), so a result that never
+actually omits anything still never spent that reserve - it is unused headroom, not unused budget,
+and it is what keeps a result's own omission note from being the thing that pushes it over the
+bound. It can also land over it, in the one place the budget is deliberately not enforced: the
+**first** item handed to each pool is always included even if it alone is larger than the pool's
+whole remaining budget - an empty listing would read as "this deployment defines nothing" rather
+than "ask for one by name", which is worse. That one item's own size has no cap this document's
+budget imposes (a metric's `allowed_values` or a model's column count can make it arbitrarily
+large), so the true worst case for one pool is `remaining budget for that pool + that one item's own
+size`, and the true worst case for a whole result is every pool's own worst case added together.
+Narrowing with `model` or `metric` does not change this, since a narrowed request still fills the
+same pools, only ever with fewer candidates - at most one, for `model` and `metric` together.
 
 The document carries four sections for which the catalog
 body has no field at all, listed in the table above: the glossary, the terms recorded as not

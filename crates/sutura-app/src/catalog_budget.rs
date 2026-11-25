@@ -5,9 +5,12 @@
 //! `describe_catalog` result (both its metrics and its physical models), and `sutura-http`'s
 //! `CatalogBody`. One definition here, rather than four hand-rolled loops that drift apart.
 
-/// `fill_to_budget`'s result: the items it kept whole, the names of the first `max_omitted` it left
-/// out, and the true count left out (which may exceed the name list's length).
-pub type Budgeted<T> = (Vec<T>, Vec<String>, usize);
+/// `fill_to_budget`'s result.
+///
+/// The items it kept whole, a descriptor of the first `max_omitted` it left out (a plain name, or -
+/// where a caller needs more than a name to read an item back - a small struct of its own), and the
+/// true count left out (which may exceed that list's length).
+pub type Budgeted<T, N = String> = (Vec<T>, Vec<N>, usize);
 
 /// Packs `items` into `budget` bytes of `cost`, in iteration order.
 ///
@@ -15,16 +18,23 @@ pub type Budgeted<T> = (Vec<T>, Vec<String>, usize);
 /// must never yield an empty result, which would read as "this deployment defines nothing" rather
 /// than "ask for one by name". Every item after that is included only while the running total still
 /// fits; an item that does not fit is never truncated - it is named, by `name`, in the second
-/// returned list. Only the first `max_omitted` such names are kept, so the omission list is itself
-/// bounded; the third return value is the TRUE number omitted, which can exceed the name list's
+/// returned list. Only the first `max_omitted` such descriptors are kept, so the omission list is
+/// itself bounded; the third return value is the TRUE number omitted, which can exceed that list's
 /// length once that cap is reached.
-pub fn fill_to_budget<T>(
+///
+/// `name` is generic in its return type rather than fixed to `String`: a metric's own omission entry
+/// needs its model riding along to stay reachable by `describe_catalog(metric: ...)` without a
+/// second lookup, so a caller filling a metrics pool returns a small `{metric, model}` struct here
+/// instead of a pre-formatted string. Whatever `name` returns, [`omission_reserve`] must be told how
+/// many identifiers worth of bytes that shape costs, so the budget handed in already set enough
+/// aside for a full omission list of that shape - this function itself does not know or check that.
+pub fn fill_to_budget<T, N>(
     items: impl IntoIterator<Item = T>,
     budget: usize,
     max_omitted: usize,
     mut cost: impl FnMut(&T) -> usize,
-    mut name: impl FnMut(&T) -> String,
-) -> Budgeted<T> {
+    mut name: impl FnMut(&T) -> N,
+) -> Budgeted<T, N> {
     let mut included = Vec::new();
     let mut omitted_names = Vec::new();
     let mut omitted_count = 0_usize;
@@ -79,6 +89,36 @@ pub const MAX_CATALOG_LISTING_BYTES: usize = 128 * 1024;
 
 /// How many omitted names a listing keeps before it stops naming them and states the count instead.
 pub const MAX_OMITTED_NAMES: usize = 200;
+
+/// Fixed bytes an omission list's own scaffolding costs, independent of how many entries end up in
+/// it - the lead-in sentence, the byte bound quoted back into it, the trailing remedy sentence, or
+/// (structured) the `omitted_*_more` field's own key and digits. One generous constant rather than a
+/// measurement of each call site's own wording: that wording is free to change without this reserve
+/// drifting out from under it, and every call site's actual header is comfortably under it, which
+/// the over-budget total-size tests in each call site's module hold to directly.
+const OMISSION_HEADER_RESERVE: usize = 512;
+
+/// Fixed bytes one omitted entry costs beyond its name(s): a separator in a text list (`", "`), or -
+/// structured - the braces, quotes and field-name keys around an object's identifiers.
+const OMISSION_ENTRY_OVERHEAD: usize = 32;
+
+/// Worst-case total bytes a full omission list can cost.
+///
+/// [`MAX_OMITTED_NAMES`] entries, each up to `names_per_entry` identifiers of
+/// [`sutura_domain::model::MAX_IDENTIFIER_LEN`] bytes - 2 for a metric entry that also carries its
+/// model, 1 for a model named alone - plus the list's own fixed scaffolding.
+///
+/// **Reserved from a pool's budget BEFORE `fill_to_budget` is called, never after.**
+/// `fill_to_budget` only learns an omission list's real size once it has decided what did not fit,
+/// so a budget that did not set this aside up front could let included content plus the note
+/// describing what got left out cross [`MAX_CATALOG_LISTING_BYTES`] together, even with the
+/// included content alone safely under it - which is exactly how a result could overshoot this
+/// bound by tens of kilobytes before this reserve existed (`github.com/telekom/sutura#2071`).
+#[must_use]
+pub const fn omission_reserve(names_per_entry: usize) -> usize {
+    OMISSION_HEADER_RESERVE
+        + MAX_OMITTED_NAMES * (names_per_entry * sutura_domain::model::MAX_IDENTIFIER_LEN + OMISSION_ENTRY_OVERHEAD)
+}
 
 #[cfg(test)]
 mod tests {

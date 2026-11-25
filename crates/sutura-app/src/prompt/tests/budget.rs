@@ -112,4 +112,50 @@ fn an_over_bound_system_prompt_carries_whole_metrics_and_names_the_rest() {
             "metric_{index:03} is omitted but not named: {text}"
         );
     }
+    // The reserve `metrics` holds back for its own omission note - see `omission_reserve` - is what
+    // keeps THIS section's spend from running past what `render` handed it. None of this fixture's
+    // metrics are large enough on their own to trip the first-item-always-included exception
+    // `MAX_CATALOG_LISTING_BYTES`'s own doc names, so the whole prompt staying under the bound here
+    // is the reserve actually working, not that exception masking a miss.
+    assert!(
+        text.len() <= MAX_CATALOG_LISTING_BYTES,
+        "an over-budget prompt still overshot the shared bound ({} bytes): {text}",
+        text.len()
+    );
+}
+
+/// Operator instructions large enough to eat deeply into the shared budget leave less for the
+/// metrics pool - and the physical-schema pool, handed only what metrics did not spend, shrinks in
+/// turn. Pins the SPEND ORDER `render`'s own doc states: fixed sections first, then metrics, then
+/// whatever metrics left over to physical schema - never one fresh budget per section.
+#[test]
+fn large_fixed_parts_shrink_the_metrics_pool_and_models_only_get_what_metrics_leave() {
+    const METRIC_COUNT: usize = 10;
+    let bundle = bundle_with_many_metrics(METRIC_COUNT);
+
+    let small_instructions = render(
+        &ScopedView::everything(&bundle),
+        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
+    );
+    let huge = "x".repeat(96 * 1024);
+    let large_instructions = render(
+        &ScopedView::everything(&bundle),
+        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, Some(&huge)),
+    );
+
+    let included_small = (0..METRIC_COUNT)
+        .filter(|index| small_instructions.contains(&format!("### metric_{index:03}")))
+        .count();
+    let included_large = (0..METRIC_COUNT)
+        .filter(|index| large_instructions.contains(&format!("### metric_{index:03}")))
+        .count();
+    assert!(
+        included_large < included_small,
+        "a huge fixed section did not shrink the metrics pool: {included_large} vs {included_small}"
+    );
+    assert!(
+        large_instructions.len() <= MAX_CATALOG_LISTING_BYTES,
+        "a huge fixed section pushed the whole prompt over the shared bound ({} bytes)",
+        large_instructions.len()
+    );
 }

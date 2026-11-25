@@ -9,7 +9,7 @@ use sutura_domain::model::Grain;
 use sutura_domain::pinned::view::ScopedView;
 
 use super::{CatalogProse, knowledge, quote, wrap};
-use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget};
+use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget, omission_reserve};
 
 /// The metric vocabulary, read off the caller's view of the pinned bundle.
 ///
@@ -20,6 +20,10 @@ use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_t
 /// named - with its model - so an agent always knows `describe_catalog(metric: <its name>)` (or
 /// `model: <its model>`) can still read it.
 pub(super) fn metrics(view: &ScopedView<'_>, notes: &Knowledge, prose: CatalogProse, budget: usize) -> String {
+    // Held back BEFORE `fill_to_budget` runs: the omission note's own worst-case size (a metric name
+    // plus its model, per entry), so that note can never be what pushes this section's spend past
+    // what `budget` allows. See `omission_reserve`'s own doc.
+    let budget = budget.saturating_sub(omission_reserve(2));
     let pinned = view.pinned();
     // The version and the digest read straight off the bundle rather than through a `Provenance`.
     // Provenance is what travels with an ANSWER and now carries the posture each leg executed as;

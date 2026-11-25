@@ -3,7 +3,7 @@
 use sutura_domain::pinned::view::ScopedView;
 
 use super::{CatalogProse, quote};
-use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget};
+use crate::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget, omission_reserve};
 
 /// The model and column names this view may list. Never selects a query plan.
 ///
@@ -44,7 +44,12 @@ pub fn physical_schema(view: &ScopedView<'_>, prose: CatalogProse, budget: usize
         }
     }
     let relationships_text = relationship_lines.join("\n");
-    let model_budget = budget.saturating_sub(relationships_text.len());
+    // Held back BEFORE `fill_to_budget` runs, same as the metrics pool's own reserve - see
+    // `omission_reserve`'s doc - so the model-omission note's own worst-case size cannot be what
+    // pushes this section's spend past `budget`.
+    let model_budget = budget
+        .saturating_sub(relationships_text.len())
+        .saturating_sub(omission_reserve(1));
     let fragments: Vec<(String, String)> = models
         .into_iter()
         .map(|model| (model.name().to_string(), model_fragment(model, prose)))
