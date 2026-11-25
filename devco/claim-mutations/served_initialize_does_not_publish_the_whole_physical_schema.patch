@@ -1,20 +1,11 @@
 diff --git a/crates/sutura-domain/src/pinned/view.rs b/crates/sutura-domain/src/pinned/view.rs
 --- a/crates/sutura-domain/src/pinned/view.rs
 +++ b/crates/sutura-domain/src/pinned/view.rs
-@@ -141,16 +141,7 @@
+@@ -127,7 +127,7 @@
      fn visible_model(&self, model: &Model) -> bool {
          match &self.scope {
              Scope::Everything => true,
--            // A model with no explicit audience is not thereby restricted - most are
--            // dictionary-inferred and declare none - so an audience grant is one way in, never the
--            // only one. The other is a metric this caller can already see tied to it: that metric's
--            // own presence in this view already discloses the model, so accepting the name here
--            // discloses nothing a visible metric had not already. A model that is neither granted
--            // nor backs any visible metric stays refused without saying which of the two it failed.
--            Scope::Granted(granted) => {
--                model.audience().is_some_and(|audience| audience.visible_to(granted.as_set()))
--                    || self.metrics().any(|metric| metric.model() == model.name())
--            }
+-            Scope::Granted(granted) => model.audience().is_some_and(|audience| audience.visible_to(granted.as_set())),
 +            Scope::Granted(_) => true,
          }
      }

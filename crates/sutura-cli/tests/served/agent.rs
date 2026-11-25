@@ -266,11 +266,6 @@ fn a_multi_user_agent_route_does_not_offer_or_run_sql_the_deployment_left_off() 
     assert!(message.contains("`tools.run_sql.enabled`"), "{}", called.body);
 }
 
-/// `subscriptions` backs several `audience: open` metrics the reader may see, so its own presence
-/// is already disclosed by those metrics and `ScopedView::visible_model` admits the model too - the
-/// example's `regions` model backs no metric at all, declares no audience of its own, and stays
-/// absent from both halves: the one thing a visible metric does NOT do is publish every
-/// dictionary-inferred model this deployment happens to define.
 #[cfg(feature = "agent")]
 #[test]
 fn served_initialize_does_not_publish_the_whole_physical_schema() {
@@ -286,22 +281,14 @@ fn served_initialize_does_not_publish_the_whole_physical_schema() {
         .expect("the issuer mints a reader token");
     let initialized = served.mcp(Some(&token), &initialize(1)).json();
     let instructions = initialized["result"]["instructions"].as_str().expect("the prompt is text");
-    assert!(instructions.contains("fct_subscription_monthly"), "{instructions}");
-    assert!(!instructions.contains("dim_region"), "{instructions}");
+    assert!(!instructions.contains("fct_subscription_monthly"), "{instructions}");
 
     let call = serde_json::json!({
         "jsonrpc": "2.0", "id": 2, "method": "tools/call",
         "params": {"name": "describe_catalog", "arguments": {}}
     });
     let listing = served.mcp(Some(&token), &call.to_string()).json();
-    let names: Vec<&str> = listing["result"]["structuredContent"]["models"]
-        .as_array()
-        .expect("models is an array")
-        .iter()
-        .filter_map(|model| model["name"].as_str())
-        .collect();
-    assert!(names.contains(&"subscriptions"), "{names:?}");
-    assert!(!names.contains(&"regions"), "{names:?}");
+    assert_eq!(listing["result"]["structuredContent"]["models"], serde_json::json!([]));
 }
 
 /// One caller, one deployment, two transports: `GET /v1/catalog` and `/mcp`'s `describe_catalog`

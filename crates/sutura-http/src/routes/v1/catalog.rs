@@ -72,7 +72,10 @@ pub(crate) struct CatalogQuery {
         ),
         (
             status = 404,
-            description = "`model` parses but names no model this caller may see.",
+            description = "`model` parses but names no model this caller may see. Its own shape, \
+                           not `ProblemBody`: reading a catalog produces no outcome a `ProblemBody` \
+                           could carry, and a well-formed name the caller may not see is not a \
+                           system failure - see `UnknownModelBody`'s own documentation.",
             body = UnknownModelBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
@@ -124,8 +127,16 @@ pub(crate) async fn catalog(
     };
     // Checked against THIS caller's own view - never the bare bundle - so a `model` naming something
     // real but invisible to this caller is refused exactly as absent would be, per `docs/adr/0028`.
+    //
+    // **Accepting the name is not granting the model.** `view.model(name)` alone would refuse a
+    // caller a dictionary-inferred model's own name even though a metric the view already carries
+    // discloses it; the second arm widens only WHICH NAMES this door answers to, never what
+    // `CatalogBody::of` goes on to render for that name - its `metrics` filter and, when physical
+    // schema is on, its columns still come from this same unwidened `view`, so a model with no
+    // audience of its own still yields no columns here even though its name is accepted.
     if let Some(name) = &model
         && view.model(name).is_none()
+        && view.metrics().all(|metric| metric.model() != name)
     {
         return UnknownModelBody::of(name).into_response();
     }

@@ -1,6 +1,7 @@
 //! The catalog tool's handler, split off `server.rs` for the 1000-line cap `cargo xtask max-lines`
 //! enforces - the same reason `crate::wire::catalog` is its own file. Everything here is reached
-//! from exactly one match arm, `Capability::DescribeCatalog` in [`super::AgentSurface::call_tool`].
+//! from exactly one match arm, `Capability::DescribeCatalog` in [`super::AgentSurface`]'s
+//! `ServerHandler::call_tool`.
 
 use std::sync::Arc;
 
@@ -80,8 +81,16 @@ where
         .map(|raw| sutura_domain::model::ModelName::parse(&raw))
         .transpose()
         .map_err(|error| RenderedCause::of(&error).into_error_data())?;
+    // **Accepting the name is not granting the model.** `view.model(name)` alone would refuse this
+    // caller a dictionary-inferred model's own name even though a metric already in `view` discloses
+    // it; the second arm widens only WHICH NAMES this call answers to, never what
+    // `CatalogContent::of_with_physical_schema` goes on to render for that name below - its
+    // `metrics` filter and, with `list_physical_schema`, its columns still come from this same
+    // unwidened `view`, so a model with no audience of its own still yields no columns here even
+    // though its name is accepted.
     if let Some(name) = &model
         && view.model(name).is_none()
+        && view.metrics().all(|metric| metric.model() != name)
     {
         return Err(unknown_model(name));
     }

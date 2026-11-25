@@ -141,16 +141,7 @@ impl<'a> ScopedView<'a> {
     fn visible_model(&self, model: &Model) -> bool {
         match &self.scope {
             Scope::Everything => true,
-            // A model with no explicit audience is not thereby restricted - most are
-            // dictionary-inferred and declare none - so an audience grant is one way in, never the
-            // only one. The other is a metric this caller can already see tied to it: that metric's
-            // own presence in this view already discloses the model, so accepting the name here
-            // discloses nothing a visible metric had not already. A model that is neither granted
-            // nor backs any visible metric stays refused without saying which of the two it failed.
-            Scope::Granted(granted) => {
-                model.audience().is_some_and(|audience| audience.visible_to(granted.as_set()))
-                    || self.metrics().any(|metric| metric.model() == model.name())
-            }
+            Scope::Granted(granted) => model.audience().is_some_and(|audience| audience.visible_to(granted.as_set())),
         }
     }
 }
@@ -267,33 +258,5 @@ mod tests {
             GrantedAudiences::of(BTreeSet::from([audience_id("engineering"), audience_id("finance")])),
         );
         assert_eq!(view.metrics().count(), 1);
-    }
-
-    /// `model()` in this test's fixture declares no audience at all - the ordinary, dictionary-inferred
-    /// case - and a caller who may see a metric tied to it may see the model too: the metric's own
-    /// presence in the view already names it, so refusing the model discloses nothing new by admitting
-    /// it.
-    #[test]
-    fn a_model_with_no_declared_audience_is_visible_through_a_metric_the_caller_may_see() {
-        let pinned = bundle(vec![metric("open_metric", Audience::Open)]);
-        let view = ScopedView::granted_by(&pinned, GrantedAudiences::none());
-        assert!(
-            view.model(&ModelName::parse("orders").expect("a test model is a model"))
-                .is_some()
-        );
-        assert_eq!(view.models().count(), 1);
-    }
-
-    /// A caller with no grant on the one metric this fixture's model backs sees neither - the model
-    /// stays refused exactly as an absent one would, never disclosed by its bare name.
-    #[test]
-    fn a_model_backing_only_a_restricted_metric_stays_refused_without_that_grant() {
-        let pinned = bundle(vec![metric("finance_metric", restricted("finance"))]);
-        let view = ScopedView::granted_by(&pinned, GrantedAudiences::none());
-        assert!(
-            view.model(&ModelName::parse("orders").expect("a test model is a model"))
-                .is_none()
-        );
-        assert_eq!(view.models().count(), 0);
     }
 }
