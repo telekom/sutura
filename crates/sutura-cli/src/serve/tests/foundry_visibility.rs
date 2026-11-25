@@ -164,6 +164,18 @@ struct Served {
 /// The served router over one `foundry_login` source whose broker is `idp` and whose endpoint is
 /// `foundry`, declaring `catalog_visibility: per-caller` when `narrowed`.
 fn served(case: &str, idp: &FakeServer, foundry: &FakeServer, narrowed: bool) -> Served {
+    served_under(case, idp, foundry, narrowed, "").0
+}
+
+/// [`served`] under the `runtime` overlay, with the agent surface mounted where this build links
+/// it, and the permit set both surfaces share.
+fn served_under(
+    case: &str,
+    idp: &FakeServer,
+    foundry: &FakeServer,
+    narrowed: bool,
+    runtime: &str,
+) -> (Served, sutura_runtime::Admission) {
     let issuer = MockIssuer::generating("https://issuer.example.com", "https://sutura.example.com", "the-current-key")
         .expect("a mock issuer generates a key pair");
     let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
@@ -175,7 +187,7 @@ fn served(case: &str, idp: &FakeServer, foundry: &FakeServer, narrowed: bool) ->
         ""
     };
     let overlay = format!(
-        "{}  identity: \"multi-user\"\nsources:\n  warehouse:\n    kind: \"foundry\"\n    endpoint: \"{}\"\n    \
+        "{runtime}{}  identity: \"multi-user\"\nsources:\n  warehouse:\n    kind: \"foundry\"\n    endpoint: \"{}\"\n    \
          ontology: \"sales_ontology\"\n    posture: \"impersonation-at-source\"\n{visibility}    foundry_login:\n      \
          token_endpoint: \"{}/realms/example/broker/foundry/token\"\n      client_id: \"sutura\"\n      \
          client_secret_file: \"{}\"\n",
@@ -219,13 +231,45 @@ fn served(case: &str, idp: &FakeServer, foundry: &FakeServer, narrowed: bool) ->
     )
     .expect("a published key set builds a gate");
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
-    let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission).with_inbound_identity(Arc::new(gate));
-    Served {
+    let state =
+        sutura_http::ServiceState::new(service, Arc::new(settings), admission.clone()).with_inbound_identity(Arc::new(gate));
+    #[cfg(feature = "agent")]
+    let state = {
+        let push = sutura_http::SpendHeadroomPush::of(&state);
+        let mount = super::super::agent::mount(state.surface(), state.settings(), admission.clone(), push)
+            .expect("the agent mount builds");
+        state.with_agent_surface(mount)
+    };
+    let served = Served {
         app: sutura_http::router(&state).expect("the test router assembles"),
         issuer,
         _published: published,
         _secret: secret,
-    }
+    };
+    (served, admission)
+}
+
+/// One JSON-RPC `initialize` to `/mcp` carrying `token`: the JSON-RPC answer.
+#[cfg(feature = "agent")]
+async fn initialized(app: axum::Router, token: &str) -> serde_json::Value {
+    use axum::body::{Body, to_bytes};
+    use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HOST};
+    use tower::ServiceExt as _;
+
+    let call = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": { "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": { "name": "visibility", "version": "0" } }
+    });
+    let request = axum::http::Request::post("/mcp")
+        .header(HOST, "localhost")
+        .header(ACCEPT, "application/json, text/event-stream")
+        .header(CONTENT_TYPE, "application/json")
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::from(call.to_string()))
+        .expect("a well-formed request builds");
+    let response = app.oneshot(request).await.expect("a tower service's Error is Infallible");
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.expect("the body reads");
+    serde_json::from_slice(&bytes).unwrap_or_else(|cause| panic!("the answer is JSON: {cause}"))
 }
 
 /// One `GET /v1/catalog` carrying `token`: the status and the body.
@@ -396,6 +440,77 @@ async fn a_caller_with_no_linked_foundry_account_is_refused_the_catalog() {
     assert!(metrics_in(&body).is_empty(), "{body}");
     assert_eq!(foundry.finish().len(), 0);
     assert_eq!(idp.finish().len(), 1);
+}
+
+#[tokio::test]
+async fn a_not_linked_caller_is_answered_from_the_held_refusal_without_asking_again() {
+    let idp = FakeServer::start(vec![Scripted::status(
+        400,
+        r#"{"error":"invalid_request","error_description":"User not associated to identity provider"}"#,
+    )]);
+    let foundry = FakeServer::start(Vec::new());
+    let Served { app, issuer, .. } = served("foundry-visibility-not-linked-held", &idp, &foundry, true);
+    let token = issuer.mint(&accepted_by(CALLERS[0])).expect("the issuer signs a token");
+
+    for attempt in 0..2 {
+        let (status, body) = catalog(app.clone(), &token).await;
+        assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "attempt {attempt}: {body}");
+        assert!(body.contains("identity_not_linked"), "attempt {attempt}: {body}");
+    }
+    assert_eq!(foundry.finish().len(), 0);
+    assert_eq!(idp.finish().len(), 1, "the second refusal is the held one");
+}
+
+#[tokio::test]
+async fn concurrent_first_requests_for_one_caller_share_one_listing() {
+    let idp = FakeServer::start(vec![Scripted::delayed(
+        &stored(&stored_for(CALLERS[0])),
+        std::time::Duration::from_millis(400),
+    )]);
+    let foundry = FakeServer::start(vec![Scripted::ok(&listed(&["Customer"]))]);
+    let Served { app, issuer, .. } = served("foundry-visibility-one-flight", &idp, &foundry, true);
+    let token = issuer.mint(&accepted_by(CALLERS[0])).expect("the issuer signs a token");
+
+    let answers = tokio::join!(catalog(app.clone(), &token), catalog(app.clone(), &token));
+
+    for (status, body) in <[_; 2]>::from(answers) {
+        assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+        assert_eq!(metrics_in(&body), ["recurring_revenue"], "{body}");
+    }
+    assert_eq!(
+        idp.finish().len(),
+        1,
+        "two concurrent misses each asked the identity provider"
+    );
+    assert_eq!(foundry.finish().len(), 1, "two concurrent misses each listed");
+}
+
+#[cfg(feature = "agent")]
+#[tokio::test]
+async fn the_agent_surface_takes_a_slot_before_narrowing_dials_and_none_on_a_held_listing() {
+    let idp = FakeServer::start(vec![Scripted::ok(&stored(&stored_for(CALLERS[0])))]);
+    let foundry = FakeServer::start(vec![Scripted::ok(&listed(&["Customer"]))]);
+    let one_slot = "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n";
+    let (Served { app, issuer, .. }, admission) = served_under("foundry-visibility-agent-slot", &idp, &foundry, true, one_slot);
+    let token = issuer.mint(&accepted_by(CALLERS[0])).expect("the issuer signs a token");
+
+    let held = admission.admit().await.expect("the only slot is free");
+    let shed = initialized(app.clone(), &token).await;
+    drop(held);
+    assert_eq!(
+        shed["error"]["code"], -32_014,
+        "a miss with no slot is shed, not dialled: {shed}"
+    );
+
+    let opened = initialized(app.clone(), &token).await;
+    assert!(opened["result"]["instructions"].is_string(), "{opened}");
+
+    let held = admission.admit().await.expect("the slot is free again");
+    let hit = initialized(app, &token).await;
+    drop(held);
+    assert!(hit["result"].is_object(), "a held listing needs no slot: {hit}");
+    assert_eq!(idp.finish().len(), 1, "the shed call asked the identity provider");
+    assert_eq!(foundry.finish().len(), 1, "the shed call listed");
 }
 
 #[tokio::test]

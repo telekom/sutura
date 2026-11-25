@@ -83,7 +83,6 @@ use std::sync::{Arc, PoisonError};
 
 use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::catalog::DefinitionsByteBound;
-use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::{Ceilings, DrillAcrossCombiner, WorkerSlotsWanted};
@@ -92,6 +91,8 @@ use sutura_domain::visibility::HiddenModels;
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::labels::JobLabels;
+
+pub use adoption::{Adopted, NotAdopted};
 
 use crate::noting::NotingBroker;
 use crate::proof::{pin_schemas, validate_with};
@@ -283,6 +284,15 @@ pub trait Surface: Send + Sync + 'static {
         pinned: &PinnedDefinitions,
         deadline: Deadline,
     ) -> Result<HiddenModels, SurfaceFailure>;
+
+    /// Whether [`Self::hidden_models`] would dial a broker or a source for `context`'s caller now -
+    /// a narrowing declared and no fresh listing held for that caller - so a transport takes an
+    /// admission slot before calling it, as it does before a question, and takes none on a hit.
+    ///
+    /// Required, with no default, for [`Self::hidden_models`]'s reason: a forwarding wrapper that
+    /// forgot it would let every miss dial with no bound. **The limit:** it is asked before the
+    /// call, so a listing that expires between the two dials without a slot.
+    fn catalog_dials(&self, context: &RequestContext) -> bool;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -402,39 +412,6 @@ impl SurfaceFailure {
             Self::Miswired { .. } => "miswired",
         }
     }
-}
-
-/// What a refresh did to the served bundle.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Adopted {
-    /// The bundle read and its schema set have the digests already served; nothing changed.
-    Unchanged,
-    /// A different bundle, or the same one over a different schema set, passed every check and is
-    /// what the next question reads. The two digests are equal where only the schema set changed.
-    Rotated {
-        /// The digest that was served until now.
-        previous: DefinitionDigest,
-        /// The digest served from now on.
-        digest: DefinitionDigest,
-    },
-}
-
-/// Why a refreshed bundle was not stored. The bundle already served is still the one served.
-#[derive(Debug, thiserror::Error)]
-pub enum NotAdopted {
-    /// The deployment's own pre-flight refused it: a model names a table this process does not hold.
-    #[error("the refreshed bundle names tables this deployment cannot serve")]
-    Preflight {
-        /// The deployment's own refusal, whatever type it is.
-        #[source]
-        cause: ErasedCause,
-    },
-    /// A declared key or an anchor did not hold, or could not be run.
-    #[error("the refreshed bundle is not fit to serve")]
-    NotValidated {
-        #[source]
-        cause: NotValidated,
-    },
 }
 
 /// The deployment's pre-flight over a refreshed bundle: what boot ran over the first one, run again
@@ -967,6 +944,12 @@ where
         )
     }
 
+    fn catalog_dials(&self, context: &RequestContext) -> bool {
+        self.visibility
+            .as_ref()
+            .is_some_and(|visibility| visibility.dials_for(context.chain()))
+    }
+
     fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
         self.combiner.worker_slots_wanted()
     }
@@ -995,6 +978,8 @@ impl<W, S, B, C> core::fmt::Debug for LocalService<W, S, B, C> {
             .finish_non_exhaustive()
     }
 }
+
+mod adoption;
 
 #[cfg(test)]
 mod tests;

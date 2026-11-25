@@ -465,6 +465,10 @@ mod tests {
             None
         }
 
+        fn catalog_dials(&self, _context: &sutura_domain::identity::RequestContext) -> bool {
+            false
+        }
+
         fn hidden_models(
             &self,
             _context: &sutura_domain::identity::RequestContext,

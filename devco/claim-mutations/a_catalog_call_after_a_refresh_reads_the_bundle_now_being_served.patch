@@ -2,13 +2,14 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
 diff --git a/crates/sutura-mcp/src/server/catalog.rs b/crates/sutura-mcp/src/server/catalog.rs
 --- a/crates/sutura-mcp/src/server/catalog.rs
 +++ b/crates/sutura-mcp/src/server/catalog.rs
-@@ -55,7 +55,8 @@
+@@ -59,8 +59,9 @@
      //
      // And the view is built here, from the caller this request's own verification resolved - see the
      // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
 -    let definitions = service.definitions();
 +    static BOOT: std::sync::OnceLock<Arc<sutura_domain::pinned::PinnedDefinitions>> = std::sync::OnceLock::new();
 +    let definitions = Arc::clone(BOOT.get_or_init(|| service.definitions()));
-     let hidden = match hidden_for(service, context, &definitions, reply).await {
+     let hidden = match hidden_for(service, turn, context, &definitions, reply).await {
          Ok(hidden) => hidden,
-         Err(ref failure) => return super::outcome::could_not_answer(failure),
+         Err(Narrowing::Shed(ref shed)) => return super::outcome::at_capacity(shed),
+         Err(Narrowing::Failed(ref failure)) => return super::outcome::could_not_answer(failure),

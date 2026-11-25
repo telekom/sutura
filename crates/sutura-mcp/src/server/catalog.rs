@@ -5,6 +5,9 @@ use std::time::Instant;
 
 use rmcp::model::{CallToolResult, ContentBlock};
 use sutura_app::surface::{Surface, SurfaceFailure};
+use sutura_runtime::AtCapacity;
+
+use super::metered::Turn;
 use sutura_config::RequestTimeout;
 use sutura_domain::warehouse::deadline::Deadline;
 
@@ -38,6 +41,7 @@ use crate::wire::CatalogContent;
 /// to one.
 pub(super) async fn describe<S>(
     service: &Arc<S>,
+    turn: Turn<'_>,
     context: &sutura_domain::identity::RequestContext,
     reply: RequestTimeout,
     prose: sutura_app::prompt::CatalogProse,
@@ -56,9 +60,10 @@ where
     // And the view is built here, from the caller this request's own verification resolved - see the
     // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
     let definitions = service.definitions();
-    let hidden = match hidden_for(service, context, &definitions, reply).await {
+    let hidden = match hidden_for(service, turn, context, &definitions, reply).await {
         Ok(hidden) => hidden,
-        Err(ref failure) => return super::outcome::could_not_answer(failure),
+        Err(Narrowing::Shed(ref shed)) => return super::outcome::at_capacity(shed),
+        Err(Narrowing::Failed(ref failure)) => return super::outcome::could_not_answer(failure),
     };
     let view = sutura_app::scoped_for(&definitions, context).hiding(hidden);
     // The operator's own text - the raw value, before it was folded into the rendered prompt - rides
@@ -77,22 +82,82 @@ where
 /// the catalog per caller is dialled under the caller's own credential -
 /// `docs/adr/20261125083027-catalog-visibility-per-caller.md`. Fails closed: a failure is returned,
 /// never an empty set standing in for one. A panic on the pool is a [`SurfaceFailure::Miswired`].
+///
+/// Where narrowing would dial out ([`Surface::catalog_dials`]) it first takes an admission slot from
+/// `turn`, the one a question takes, and holds it until the listing returns.
 pub(super) async fn hidden_for<S>(
     service: &Arc<S>,
+    turn: Turn<'_>,
     context: &sutura_domain::identity::RequestContext,
     definitions: &Arc<sutura_domain::pinned::PinnedDefinitions>,
     reply: RequestTimeout,
-) -> Result<sutura_domain::visibility::HiddenModels, SurfaceFailure>
+) -> Result<sutura_domain::visibility::HiddenModels, Narrowing>
 where
     S: Surface,
 {
     let deadline = Deadline::opened_at(Instant::now(), reply.budget());
+    let slot = if service.catalog_dials(context) {
+        Some(turn.admit().await.map_err(Narrowing::Shed)?)
+    } else {
+        None
+    };
     let (service, context, pinned) = (Arc::clone(service), context.clone(), Arc::clone(definitions));
-    sutura_runtime::spawn_carrying_span(move || service.hidden_models(&context, &pinned, deadline))
-        .await
-        .unwrap_or_else(|panicked| {
-            Err(SurfaceFailure::Miswired {
-                cause: Box::new(panicked),
-            })
+    sutura_runtime::spawn_carrying_span(move || {
+        let hidden = service.hidden_models(&context, &pinned, deadline);
+        drop(slot);
+        hidden
+    })
+    .await
+    .unwrap_or_else(|panicked| {
+        Err(SurfaceFailure::Miswired {
+            cause: Box::new(panicked),
         })
+    })
+    .map_err(Narrowing::Failed)
 }
+
+/// Why a caller's view could not be narrowed.
+#[derive(Debug)]
+pub(super) enum Narrowing {
+    /// Every slot was taken for the whole admission window.
+    Shed(AtCapacity),
+    Failed(SurfaceFailure),
+}
+
+/// The JSON-RPC error `initialize` answers when the caller's view could not be narrowed, fail
+/// closed: never the whole bundle. One code per thing a client can act on, in the server range -
+/// `docs/adr/20261125083027-catalog-visibility-per-caller.md` lists them.
+pub(super) fn initialize_error(narrowing: &Narrowing) -> rmcp::ErrorData {
+    use rmcp::model::ErrorCode;
+    let (code, message) = match *narrowing {
+        Narrowing::Failed(SurfaceFailure::NotLinked { .. }) => (
+            NOT_LINKED,
+            "identity_not_linked: link your account at the identity provider, then reconnect",
+        ),
+        Narrowing::Failed(SurfaceFailure::Broker { .. }) => (
+            IDENTITY_UNAVAILABLE,
+            "identity_unavailable: the identity provider did not answer; reconnect later",
+        ),
+        Narrowing::Failed(SurfaceFailure::Warehouse { .. }) => (
+            UNAVAILABLE,
+            "unavailable: a source did not list what you may see; reconnect later",
+        ),
+        Narrowing::Shed(_) => (AT_CAPACITY, "at_capacity: every slot is taken; reconnect later"),
+        Narrowing::Failed(SurfaceFailure::Compile { .. } | SurfaceFailure::Miswired { .. }) => {
+            return rmcp::ErrorData::internal_error("internal: this deployment could not narrow the catalog", None);
+        }
+    };
+    rmcp::ErrorData::new(ErrorCode(code), message, None)
+}
+
+/// `initialize`'s code for a caller with no linked account at the identity provider.
+pub(super) const NOT_LINKED: i32 = -32_011;
+/// `initialize`'s code for an identity provider that did not answer.
+pub(super) const IDENTITY_UNAVAILABLE: i32 = -32_012;
+/// `initialize`'s code for a source that did not list.
+pub(super) const UNAVAILABLE: i32 = -32_013;
+/// `initialize`'s code for a shed narrowing.
+pub(super) const AT_CAPACITY: i32 = -32_014;
+
+#[cfg(test)]
+mod tests;

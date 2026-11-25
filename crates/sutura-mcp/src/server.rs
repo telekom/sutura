@@ -431,9 +431,10 @@ where
         async move {
             let asked = self.asked(&context)?;
             let definitions = self.service.definitions();
-            let hidden = hidden_for(&self.service, asked.context(), &definitions, self.reply)
+            let turn = Turn::of(&self.admission, &context);
+            let hidden = hidden_for(&self.service, turn, asked.context(), &definitions, self.reply)
                 .await
-                .map_err(|failure| ErrorData::internal_error(outcome::sentence(&failure), None))?;
+                .map_err(|narrowing| catalog::initialize_error(&narrowing))?;
             let view = sutura_app::scoped_for(&definitions, asked.context()).hiding(hidden);
             self.negotiate_initialize(&request)
                 .map(|negotiated| negotiated.with_instructions(sutura_app::prompt::render(&view, &inputs)))
@@ -504,6 +505,7 @@ where
                 // operator who names a restricted metric in them discloses it to every caller.
                 describe(
                     &self.service,
+                    Turn::of(&self.admission, &context),
                     asked.context(),
                     self.reply,
                     self.prose,

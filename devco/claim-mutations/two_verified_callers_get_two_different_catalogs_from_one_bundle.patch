@@ -2,10 +2,11 @@ Claim-Cell-File: crates/sutura-http/src/identity_e2e.rs
 diff --git a/crates/sutura-http/src/routes/v1/catalog.rs b/crates/sutura-http/src/routes/v1/catalog.rs
 --- a/crates/sutura-http/src/routes/v1/catalog.rs
 +++ b/crates/sutura-http/src/routes/v1/catalog.rs
-@@ -105,7 +105,7 @@
-             Failure::Internal
-         })?
-         .map_err(|ref failure| super::query::failed(failure))?;
+@@ -122,7 +122,7 @@
+         tracing::error!(error = %cause, "narrowing the catalog panicked");
+         Failure::Internal
+     })?
+     .map_err(|ref failure| super::query::failed(failure))?;
 -    let view = sutura_app::scoped_for(&definitions, asked.context()).hiding(hidden);
 +    let view = sutura_domain::pinned::view::ScopedView::everything(&definitions).hiding(hidden);
      Ok((

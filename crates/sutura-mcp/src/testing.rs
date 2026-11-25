@@ -522,6 +522,10 @@ impl Surface for FailingSurface {
         None
     }
 
+    fn catalog_dials(&self, _context: &sutura_domain::identity::RequestContext) -> bool {
+        false
+    }
+
     fn hidden_models(
         &self,
         _context: &sutura_domain::identity::RequestContext,
@@ -583,6 +587,10 @@ impl Surface for RestrictedSurface {
         None
     }
 
+    fn catalog_dials(&self, _context: &sutura_domain::identity::RequestContext) -> bool {
+        false
+    }
+
     fn hidden_models(
         &self,
         _context: &sutura_domain::identity::RequestContext,
@@ -642,6 +650,10 @@ impl Surface for RestrictedKnowledgeSurface {
         // This fixture carries no `SpendLedger` at all; `#993` added the trait method and this
         // metadata-visibility fixture must satisfy it like its sibling surfaces do.
         None
+    }
+
+    fn catalog_dials(&self, _context: &sutura_domain::identity::RequestContext) -> bool {
+        false
     }
 
     fn hidden_models(
@@ -736,6 +748,10 @@ impl Surface for RecordingSurface {
     fn spent_bytes_total(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
         None
+    }
+
+    fn catalog_dials(&self, _context: &sutura_domain::identity::RequestContext) -> bool {
+        false
     }
 
     fn hidden_models(
@@ -871,6 +887,10 @@ impl Surface for HoldingSurface {
     fn spent_bytes_total(&self) -> Option<u64> {
         // The admission bound is this fixture's own concern; it carries no `SpendLedger`.
         None
+    }
+
+    fn catalog_dials(&self, _context: &sutura_domain::identity::RequestContext) -> bool {
+        false
     }
 
     fn hidden_models(

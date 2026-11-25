@@ -16,6 +16,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::header;
 use axum::response::IntoResponse;
+use sutura_app::question::QuestionMeter as _;
 use sutura_domain::warehouse::deadline::Deadline;
 
 use crate::problem::Failure;
@@ -97,14 +98,31 @@ pub(crate) async fn catalog(
     // The one call here that may leave this process: a source that narrows the catalog per caller
     // is asked under the caller's own credential, so it runs on the blocking pool. Fails closed - a
     // failure is the response, never the unnarrowed view.
+    // A slot first, the one a question takes, when narrowing may dial out: a burst of first requests
+    // would otherwise dial the identity provider and every source with no bound.
+    let slot = if state.surface().catalog_dials(asked.context()) {
+        let admission_wait = sutura_app::question::AdmissionWait::start(state.metrics());
+        let slot = state.admission().admit().await.map_err(|shed| {
+            state.metrics().shed();
+            super::query::refused(&shed)
+        })?;
+        drop(admission_wait);
+        Some(slot)
+    } else {
+        None
+    };
     let (surface, context, pinned) = (state.surface(), asked.context().clone(), std::sync::Arc::clone(&definitions));
-    let hidden = sutura_runtime::spawn_carrying_span(move || surface.hidden_models(&context, &pinned, deadline))
-        .await
-        .map_err(|cause| {
-            tracing::error!(error = %cause, "narrowing the catalog panicked");
-            Failure::Internal
-        })?
-        .map_err(|ref failure| super::query::failed(failure))?;
+    let hidden = sutura_runtime::spawn_carrying_span(move || {
+        let hidden = surface.hidden_models(&context, &pinned, deadline);
+        drop(slot);
+        hidden
+    })
+    .await
+    .map_err(|cause| {
+        tracing::error!(error = %cause, "narrowing the catalog panicked");
+        Failure::Internal
+    })?
+    .map_err(|ref failure| super::query::failed(failure))?;
     let view = sutura_app::scoped_for(&definitions, asked.context()).hiding(hidden);
     Ok((
         [(header::CACHE_CONTROL, "private, no-store")],

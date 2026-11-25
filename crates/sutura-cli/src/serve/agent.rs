@@ -82,6 +82,10 @@ impl Surface for Serving {
         self.surface.spent_bytes_total()
     }
 
+    fn catalog_dials(&self, context: &RequestContext) -> bool {
+        self.surface.catalog_dials(context)
+    }
+
     fn hidden_models(
         &self,
         context: &RequestContext,

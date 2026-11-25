@@ -145,12 +145,24 @@ The definitions do not change: the bundle, its digest and its provenance stay th
 | `"per-caller"` | Narrowed as above. Refused at load on a source without `foundry_login`.       |
 
 One caller's list is reused for 60 seconds, for up to 1024 callers, and never for another caller.
+A caller the identity provider answered *not linked* is answered so again for 10 seconds without
+asking it. Concurrent first requests for one caller share one listing; the others wait for it inside
+their own deadline. Narrowing that has to dial takes an execution slot, the one a question takes,
+before it dials anyone, and is shed like a question when every slot is taken; a caller whose list
+is held takes no slot. Which case applies is read just before the call, so a list that expires in
+between is read without a slot.
 
 What a failure answers - never the unnarrowed catalog:
 
 - A caller with no linked Foundry account: `403 identity_not_linked`.
 - Any other identity provider failure: `503 identity_unavailable`.
 - Foundry did not list, or refused the caller's token: `503 unavailable`.
+- Every execution slot taken, when the list has to be read: the at-capacity answer a question
+  gets.
+
+On the agent surface, `initialize` answers a JSON-RPC error instead of a prompt over the whole
+catalog: `-32011` (`identity_not_linked`), `-32012` (`identity_unavailable`), `-32013`
+(`unavailable`), `-32014` (`at_capacity`), or `-32603` for a wiring defect on this side.
 
 **It narrows what a caller sees. It is not a data control.** Foundry evaluating each question under
 the caller's own token is the data control. A caller who names a hidden metric can still ask it;

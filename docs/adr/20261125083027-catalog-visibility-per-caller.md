@@ -41,10 +41,23 @@ a second catalog per caller?
   `docs/adr/0031`'s second amendment's reason), reused for 60 seconds, at most 1024 callers; a full
   cache drops expired entries, then the oldest. Only a listing every declared source granted is
   stored. Nothing from one caller's entry is read for another.
+- **A miss is bounded.** A transport takes an execution slot - the one a question takes - before
+  narrowing that would dial out for this caller (`Surface::catalog_dials`, required on every
+  surface so no wrapper can drop it), and sheds it like a question; a cached listing or a held
+  refusal takes no slot. `catalog_dials` is read just before the call, so a listing that expires in
+  between dials without a slot. Concurrent
+  misses for one chain share one listing: the first lists, the others wait inside their own deadline
+  and read what it stored. A chain the broker answered *not linked* is answered so again for 10
+  seconds without asking, keyed by the same whole chain. **The limit:** only *not linked* is held;
+  a source refusing the listing, or an outage, is asked again on the next miss.
 - **Fail closed.** A caller with no linked account gets `403 identity_not_linked`, as on a
   question. Any other broker failure is `503 identity_unavailable`; a source that did not list is
   `503 unavailable`; a credential that does not fit the source is `500`. None of them returns the
   unnarrowed view. A broker that answers *no credential at this source* hides every model on it.
+  The agent surface's `initialize` answers the same cases as JSON-RPC errors in the server range,
+  one code per thing a client can act on: `-32011` not linked, `-32012` identity provider
+  unavailable, `-32013` source did not list, `-32014` shed; a wiring defect is `-32603`. It never
+  renders the prompt over the unnarrowed bundle.
 
 ## What this is not
 
