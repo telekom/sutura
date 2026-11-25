@@ -5,11 +5,11 @@
 //! HTTP status, Foundry's `errorName`, an OAuth 2.0 error code, a scope, a configured alias.
 //! **What it never carries**: a token, a host, an ontology identifier, request or answer text, a
 //! row value - and, by default, no object type's API name or the model name it maps to: those are
-//! the tenant's own data, replaced at render by `object type #n` ([`Report`]). `--names` prints
+//! the tenant's own data, replaced at render by `object type #n` ([`Report`](crate::foundry_check::Report)). `--names` prints
 //! them, for the operator alone - never for a public issue.
 //!
 //! Held by construction - a reason is the top-level `Display` of this workspace's own error, whose
-//! fields are those kinds, plus a [`TransportFault`] in place of a transport error's own text,
+//! fields are those kinds, plus a [`TransportFault`](sutura_http_client::TransportFault) in place of a transport error's own text,
 //! which can name the host; every name read off the object-type list is registered and replaced -
 //! and by `tests`, which look for a token, the host and the names in the output. **The limit:** a
 //! new field on one of those errors reaches the output unreviewed, and only a field the tests
