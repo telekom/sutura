@@ -7,33 +7,24 @@
 //! answer of `ask`; everything here belongs to the other tool a caller can reach, and the two share
 //! nothing but `prose`, which is where the `Option` behind a description stays private.
 //!
-//! Why the arguments type has braces and no fields, and why the reasoning about a wire type is a
-//! plain comment rather than a doc comment, are both stated at `DescribeCatalogArgs` - `schemars`
-//! puts a root doc comment into the schema's `description`, which is text a MODEL reads.
-
-#![expect(
-    clippy::empty_enums,
-    reason = "serde::Deserialize lowers the brace-form unit struct DescribeCatalogArgs to an empty \
-              internal enum; that enum is a deserialization artifact of the derive, never constructed \
-              by this crate. It cannot be suppressed on the struct itself (a derive artifact sits \
-              outside the item's attributes), so it is scoped to the one module that derives it"
-)]
+//! Why the reasoning about a wire type is a plain comment rather than a doc comment is stated at
+//! `DescribeCatalogArgs` - `schemars` puts a root doc comment into the schema's `description`, which
+//! is text a MODEL reads.
 
 use std::collections::BTreeMap;
 
 use sutura_app::prompt::CatalogProse;
-use sutura_domain::model::Grain;
+use sutura_domain::model::{Grain, ModelName};
 use sutura_domain::pinned::view::ScopedView;
 
 use super::prose::{self, Carried};
 use super::{ProvenanceContent, bundle_content};
 
-// **A type with no fields rather than no type at all**, and the reason is `deny_unknown_fields`.
-// `schemars` reads the same attribute serde does, so the advertised schema says
-// `additionalProperties: false` and an arguments object carrying `metric`, `sql` or anything else is
-// a named parse error rather than a key dropped on the floor. A tool that accepted any object would
-// be a tool whose surface a caller could guess at, and a caller that sent `metric` would believe it
-// had narrowed a listing it did not.
+// `deny_unknown_fields` is why this type exists rather than accepting any object: `schemars` reads
+// the same attribute serde does, so the advertised schema says `additionalProperties: false` and an
+// arguments object carrying `metric`, `sql` or anything else is a named parse error rather than a key
+// dropped on the floor. A tool that accepted any object would be a tool whose surface a caller could
+// guess at, and a caller that sent `metric` would believe it had narrowed a listing it did not.
 //
 // It is also what keeps this half of the surface under the same drift guard as the other: the
 // generated schema is snapshotted in `crate::tool`, so a field added here lands in a reviewer's diff.
@@ -42,21 +33,40 @@ use super::{ProvenanceContent, bundle_content};
 // the schema's `description`, which is text a MODEL reads before it calls the tool - so the doc
 // comment on a wire type is caller-facing prose and the reasoning about the type goes here. The one
 // below is written for that reader.
-/// This tool takes no arguments. It returns the catalog of what this deployment measures, narrowed
-/// to what the calling principal may see - the metrics, grains, dimensions and permitted values.
+//
+// **`model` is parsed, never matched against anything here.** `server::describe` resolves it to a
+// `ModelName` and then to a `&Model` through the caller's own `ScopedView`, exactly as the catalog
+// itself narrows by caller identity - a name that does not parse, or one that parses but names no
+// model this caller may see, is refused rather than answered with an empty listing
+// (`github.com/telekom/sutura#2071`'s second ask).
+/// This tool returns the catalog of what this deployment measures, narrowed to what the calling
+/// principal may see - the metrics, grains, dimensions and permitted values.
 ///
-/// It also returns the catalog's own knowledge (the glossary, caveats, worked examples and terms
-/// recorded as undefined it carries) and the deployment operator's instructions. There is nothing to
-/// filter or select, so send an empty object.
+/// `model` is optional and narrows the answer to one named model: only the metrics tied to it, and -
+/// where the operator exposes physical schema - only that model's own columns and relationships.
+/// Omit it for the whole catalog. An unfiltered catalog whose physical schema would be large is
+/// itself capped at a byte bound; where it is, the models left out are named explicitly, and this
+/// field is how to read each of them in turn - call this tool again with `model` set to one of those
+/// names.
+///
+/// This tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and
+/// terms recorded as undefined it carries) and the deployment operator's instructions - neither is
+/// scoped to one model, so `model` does not narrow them.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[expect(
-    clippy::empty_structs_with_brackets,
-    reason = "the braces are the behaviour, not the formatting: a UNIT struct's Deserialize accepts \
-              `null` and REFUSES `{}` - measured, `invalid type: map, expected unit struct` - and `{}` \
-              is what a client with no arguments sends. The lint's suggestion breaks the tool"
-)]
-pub struct DescribeCatalogArgs {}
+pub struct DescribeCatalogArgs {
+    /// The model's own name - the same identifier its physical schema prints as `model <name>`.
+    /// Omit it for the whole catalog.
+    model: Option<String>,
+}
+
+impl DescribeCatalogArgs {
+    /// The raw `model` string, taken rather than borrowed - `server::describe` is the only caller
+    /// and it is the last read this value gets, so there is nothing left to hand a borrow to.
+    pub(crate) fn into_model(self) -> Option<String> {
+        self.model
+    }
+}
 
 // **Why this half reads the prose setting, and a plain comment for the reason `DescribeCatalogArgs`
 // states**: reasoning about a wire type is not caller-facing prose. Not to escape anything - `serde`
@@ -76,13 +86,13 @@ pub struct DescribeCatalogArgs {}
 /// instructions and, where the operator enabled them, the physical models, which the HTTP
 /// `/v1/catalog` surface does not.
 ///
-/// **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and nothing the caller
-/// SENDS.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context and cannot be
-/// given one, so no argument selects, widens or parameterizes what this returns: the caller's mapped
-/// audiences (which `describe` reads and this constructor takes as a [`ScopedView`]) decide which
-/// metrics and which of their knowledge the listing holds, while the bundle underneath is the same
-/// one every answer is computed from. Invisible means absent, and it is the transport's job to build
-/// the view, never this type's.
+/// **What narrows this listing is the CALLER's identity - `docs/adr/0028` - and the caller sends
+/// nothing that WIDENS it.** `sutura_domain::pinned::SemanticCatalog::load` takes no request context
+/// and cannot be given one, so the caller's mapped audiences (which `describe` reads and this
+/// constructor takes as a [`ScopedView`]) decide which metrics and which of their knowledge the
+/// listing may ever hold; `model`, the one argument this tool takes, only ever narrows within that -
+/// one named model's own slice of what the view already permits, never a wider one. Invisible means
+/// absent, and it is the transport's job to build the view, never this type's.
 #[derive(Debug, serde::Serialize)]
 pub struct CatalogContent {
     /// Which snapshot this listing describes. The same version and digest an answer carries, so a
@@ -100,6 +110,12 @@ pub struct CatalogContent {
     metrics: Vec<MetricContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     models: Option<Vec<ModelContent>>,
+    /// Physical models that exist and are visible, but were left out of [`Self::models`] to hold the
+    /// unfiltered listing under [`MAX_UNFILTERED_MODELS_BYTES`] - always empty when a `model` filter
+    /// was given, since a targeted request is never bounded this way. Read each one back with
+    /// `describe_catalog(model: <name>)`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    omitted_models: Vec<String>,
     /// The knowledge sections - glossary, caveats, terms recorded as undefined, worked examples -
     /// audience-scoped through the same [`ScopedView`] that narrowed the metrics, descriptive only,
     /// bounded by the bundle's own knowledge cap (`MAX_KNOWLEDGE_BYTES`). `catalog_prose` decides
@@ -182,6 +198,19 @@ pub struct DimensionContent {
     allowed_values: Option<Vec<String>>,
 }
 
+/// What an unfiltered `describe_catalog` call's physical models are allowed to cost, in serialized
+/// JSON bytes of [`ModelContent`] (never counted against [`CatalogContent::metrics`] or
+/// [`CatalogContent::knowledge`], which a native-dictionary catalog with no declared models already
+/// keeps small - `docs/integrations/catalogs/rdbms.md`).
+///
+/// The issue this answers (`github.com/telekom/sutura#2071`'s second ask) measured a 240538-byte
+/// `describe_catalog` result as small for the planner and not small for an agent reading it as one
+/// tool result. 64 KiB is an order of magnitude under that measured case - a model list that size is
+/// itself the signal to read it one model at a time through `describe_catalog(model: <name>)` rather
+/// than in full - while comfortably holding the models of any catalog authored at ordinary width; a
+/// deployment whose physical schema never approaches this never notices the bound exists.
+pub(crate) const MAX_UNFILTERED_MODELS_BYTES: usize = 64 * 1024;
+
 impl CatalogContent {
     /// The reader's view of one pinned bundle, under the prose setting this deployment was started
     /// with and under the caller this read is for.
@@ -198,18 +227,26 @@ impl CatalogContent {
     /// this builder cannot reach `SemanticCatalog::load` - the knowledge sections and the metrics
     /// are filtered by the caller's own grant, never by a call the renderer omits.
     pub fn of(view: &ScopedView<'_>, prose: CatalogProse, instructions: Option<&str>) -> Self {
-        Self::of_with_physical_schema(view, prose, instructions, false)
+        Self::of_with_physical_schema(view, prose, instructions, false, None)
     }
 
-    /// Include physical models only when the operator enabled them for this caller view.
+    /// Include physical models only when the operator enabled them for this caller view, and narrow
+    /// to one model when `model` names one.
+    ///
+    /// **`model` is already resolved to an existing, visible [`sutura_domain::catalog::Model`] by the
+    /// caller** - `server::describe` is the one place that turns a raw argument into this, refusing
+    /// an unknown or invisible name before this constructor is ever reached. This function cannot
+    /// fail: every input it takes already named something real.
     pub fn of_with_physical_schema(
         view: &ScopedView<'_>,
         prose: CatalogProse,
         instructions: Option<&str>,
         list_physical_schema: bool,
+        model: Option<&ModelName>,
     ) -> Self {
         let metrics = view
             .metrics()
+            .filter(|metric| model.is_none_or(|name| metric.model() == name))
             .map(|metric| MetricContent {
                 name: String::from(metric.name().as_str()),
                 description: Carried::under(prose, metric.description()),
@@ -238,9 +275,31 @@ impl CatalogContent {
         // see a metric does not see that metric's glossary entry, caveat or worked example either.
         // `catalog_knowledge` quotes note bodies under the same `prose` the descriptions follow, so
         // a deployment that withholds catalog prose withholds it from the knowledge tool too.
+        //
+        // NOT narrowed by `model`: the glossary, caveats and worked examples are catalog-wide prose,
+        // not one model's own description, so a per-model request still needs the terms it uses.
         let knowledge = sutura_app::prompt::catalog_knowledge(view, prose);
-        let models = list_physical_schema.then(|| {
-            let mut relationships = BTreeMap::<_, Vec<_>>::new();
+        let (models, omitted_models) = if list_physical_schema {
+            fn content_of(
+                model: &sutura_domain::catalog::Model,
+                relationships: &mut BTreeMap<&ModelName, Vec<RelationshipContent>>,
+                prose: CatalogProse,
+            ) -> ModelContent {
+                ModelContent {
+                    name: String::from(model.name().as_str()),
+                    table: model.table().to_string(),
+                    relationships: relationships.remove(model.name()).unwrap_or_default(),
+                    description: Carried::under(prose, model.description()),
+                    columns: model
+                        .columns()
+                        .map(|column| ColumnContent {
+                            name: String::from(column.name().as_str()),
+                            description: Carried::under(prose, column.description()),
+                        })
+                        .collect(),
+                }
+            }
+            let mut relationships = BTreeMap::<&ModelName, Vec<RelationshipContent>>::new();
             for relationship in view.relationships() {
                 relationships
                     .entry(relationship.origin_model())
@@ -262,22 +321,40 @@ impl CatalogContent {
                         comparison: relationship.comparison().map(sutura_domain::plan::LinkKind::word),
                     });
             }
-            view.models()
-                .map(|model| ModelContent {
-                    name: String::from(model.name().as_str()),
-                    table: model.table().to_string(),
-                    relationships: relationships.remove(model.name()).unwrap_or_default(),
-                    description: Carried::under(prose, model.description()),
-                    columns: model
-                        .columns()
-                        .map(|column| ColumnContent {
-                            name: String::from(column.name().as_str()),
-                            description: Carried::under(prose, column.description()),
-                        })
-                        .collect(),
-                })
-                .collect()
-        });
+            if let Some(name) = model {
+                // A targeted request is assumed intentionally small and never bounded: the caller
+                // already named exactly what it wants, which is the one case the bound exists to
+                // steer a caller TOWARD.
+                (
+                    view.model(name)
+                        .map_or_default(|model| vec![content_of(model, &mut relationships, prose)]),
+                    Vec::new(),
+                )
+            } else {
+                let mut included = Vec::new();
+                let mut omitted = Vec::new();
+                let mut used = 0usize;
+                for model in view.models() {
+                    let content = content_of(model, &mut relationships, prose);
+                    // Never truncated mid-model: a model is either whole in `included` or named whole
+                    // in `omitted`, so a client can read either list and get a complete model's worth
+                    // of columns and relationships or none of them. The first model is admitted
+                    // unconditionally, so a caller never reads an empty list over a bound no single
+                    // model could ever fit under.
+                    let size = serde_json::to_vec(&content).map_or(0, |bytes| bytes.len());
+                    if !included.is_empty() && used.saturating_add(size) > MAX_UNFILTERED_MODELS_BYTES {
+                        omitted.push(content.name);
+                        continue;
+                    }
+                    used = used.saturating_add(size);
+                    included.push(content);
+                }
+                (included, omitted)
+            }
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let models = list_physical_schema.then_some(models);
         // The operator's own text is DEPLOYMENT-WIDE - the same for every caller - so it gets its
         // own section and heading, outside the untrusted-catalog notice, and a preamble written for
         // a tool that returns no refusal rules. Rendered here rather than by `catalog_knowledge`
@@ -292,6 +369,7 @@ impl CatalogContent {
             notice: prose::notice(prose),
             metrics,
             models,
+            omitted_models,
             knowledge,
             instructions,
         }
@@ -391,6 +469,13 @@ impl CatalogContent {
                     }
                 }
             }
+            if !self.omitted_models.is_empty() {
+                out.push_str("\n\nomitted models (over the ");
+                out.push_str(&MAX_UNFILTERED_MODELS_BYTES.to_string());
+                out.push_str("-byte limit on this unfiltered listing): ");
+                out.push_str(&self.omitted_models.join(", "));
+                out.push_str("\ncall describe_catalog(model: <name>) with one of the names above to read that model.");
+            }
         }
         if !self.knowledge.is_empty() {
             out.push_str("\n\n");
@@ -480,6 +565,78 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// `model` narrows the physical schema to that model's own columns, and the metrics to that
+    /// model's own - never the whole catalog's, and never an empty listing for a model that is real
+    /// and visible but owns no metric (`github.com/telekom/sutura#2071`'s second ask).
+    #[test]
+    fn describe_catalog_model_narrows_physical_schema_and_metrics_to_one_model() {
+        use sutura_domain::model::ModelName;
+
+        let bundle = crate::testing::bundle_with_two_models();
+        let view = ScopedView::everything(&bundle);
+        let orders = ModelName::parse("orders").expect("a test model is a model");
+        let customers = ModelName::parse("customers").expect("a test model is a model");
+
+        let for_orders = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, Some(&orders));
+        let json = serde_json::to_value(&for_orders).expect("the catalog serializes");
+        assert_eq!(json["models"].as_array().expect("models is a list").len(), 1);
+        assert_eq!(json["models"][0]["name"], "orders");
+        assert_eq!(json["metrics"][0]["name"], "revenue");
+
+        let for_customers = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, Some(&customers));
+        let json = serde_json::to_value(&for_customers).expect("the catalog serializes");
+        assert_eq!(json["models"].as_array().expect("models is a list").len(), 1);
+        assert_eq!(json["models"][0]["name"], "customers");
+        assert_eq!(
+            json["metrics"].as_array().expect("metrics is a list").len(),
+            0,
+            "customers owns no metric: {json}"
+        );
+    }
+
+    /// An unfiltered, physical-schema listing under [`super::MAX_UNFILTERED_MODELS_BYTES`] carries
+    /// every model and omits none - the bound's absence is the ordinary case, not a special one.
+    #[test]
+    fn an_under_bound_catalog_lists_every_model_with_nothing_omitted() {
+        let bundle = crate::testing::bundle();
+        let view = ScopedView::everything(&bundle);
+        let content = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None);
+        let json = serde_json::to_value(&content).expect("the catalog serializes");
+        assert_eq!(json["models"].as_array().expect("models is a list").len(), 1);
+        assert!(json.get("omitted_models").is_none(), "{json}");
+        assert!(!content.as_text().contains("omitted models"), "{}", content.as_text());
+    }
+
+    /// An unfiltered, physical-schema listing whose models exceed [`super::MAX_UNFILTERED_MODELS_BYTES`]
+    /// carries whole models up to the bound plus an explicit, machine-readable list of the rest -
+    /// never a model truncated mid-way.
+    #[test]
+    fn an_over_bound_catalog_carries_whole_models_and_names_the_rest() {
+        const MODEL_COUNT: usize = 20;
+        let bundle = crate::testing::bundle_with_many_models(MODEL_COUNT);
+        let view = ScopedView::everything(&bundle);
+        let content = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None);
+        let json = serde_json::to_value(&content).expect("the catalog serializes");
+        let included = json["models"].as_array().expect("models is a list");
+        let omitted = json["omitted_models"].as_array().expect("some model was omitted");
+        assert!(!included.is_empty(), "{json}");
+        assert!(!omitted.is_empty(), "{json}");
+        assert_eq!(included.len() + omitted.len(), MODEL_COUNT, "{json}");
+        // Every included model is whole: its own description and column survived serialization, not
+        // a partial object.
+        for model in included {
+            assert!(model["description"].is_string(), "{model}");
+            assert!(!model["columns"].as_array().expect("columns is a list").is_empty(), "{model}");
+        }
+        let text = content.as_text();
+        assert!(text.contains("omitted models"), "{text}");
+        assert!(text.contains("describe_catalog(model: <name>)"), "{text}");
+        for name in omitted {
+            let name = name.as_str().expect("an omitted model's name is a string");
+            assert!(text.contains(name), "{text}");
         }
     }
 }

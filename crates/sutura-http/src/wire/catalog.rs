@@ -6,8 +6,11 @@
 //! rather than a share of lines - the same split `sutura-mcp`'s own `wire::catalog` already made
 //! for the mirror-image reason.
 
+use axum::Json;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use sutura_app::prompt::CatalogProse;
-use sutura_domain::model::Grain;
+use sutura_domain::model::{Grain, ModelName};
 use sutura_domain::pinned::view::ScopedView;
 
 use super::{ProvenanceBody, bundle_body};
@@ -99,8 +102,15 @@ impl CatalogBody {
     /// `CatalogProse::default()` is `Quoted`, so a conversion reachable without the setting fails
     /// OPEN: it ships the prose of a deployment that asked for none, which is the defect this
     /// function exists to close. A second argument cannot be left out.
+    ///
+    /// **`model` narrows `metrics` to the ones tied to that model, nothing else.** Absent, the
+    /// whole view's metrics are rendered - unbounded, unlike `sutura-mcp`'s physical-schema listing:
+    /// this body carries no model's own columns or relationships, only the metric descriptions a
+    /// caller already needs to ask a question, so the byte bound that caps that listing has no
+    /// analogue here. `model` naming nothing this caller may see is this function's caller's own
+    /// job to refuse before reaching it - see `crate::routes::v1::catalog::catalog`.
     #[must_use]
-    pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse) -> Self {
+    pub fn of(view: &ScopedView<'_>, prose: sutura_config::CatalogProse, model: Option<&ModelName>) -> Self {
         // Exhaustive rather than `is_quoted()` in an `if`: a question asked of one variant reads every
         // future spelling as the `else`, and on this setting the `else` withholds prose nobody asked
         // to withhold. The app crate's own type is what `catalog_knowledge` takes, so one mapping
@@ -112,6 +122,7 @@ impl CatalogBody {
         let quoted = shared.is_quoted();
         let metrics = view
             .metrics()
+            .filter(|metric| model.is_none_or(|name| metric.model() == name))
             .map(|metric| MetricBody {
                 name: String::from(metric.name().as_str()),
                 description: quoted.then(|| String::from(metric.description())),
@@ -140,5 +151,41 @@ impl CatalogBody {
             metrics,
             knowledge: sutura_app::prompt::catalog_knowledge(view, shared),
         }
+    }
+}
+
+/// A `model` query parameter that parses but names no model this caller may see - whether it does
+/// not exist at all or exists outside this caller's granted audiences is not distinguished, for the
+/// same reason [`ScopedView::model`] folds both into one `None`: a message that told the two apart
+/// would disclose a restricted model's existence to a caller who was never granted it.
+///
+/// **Neither [`crate::problem::Failure`] nor [`crate::problem::ProblemBody`], and not
+/// [`super::RefusalBody`] either.** This is not a system failure - the request was fine and nothing
+/// upstream is unwell - and it is not a governance refusal of a *question*: reading the catalog
+/// produces no [`sutura_domain::query::ToolOutcome`], so there is no [`sutura_domain::query::RefusalReason`]
+/// variant to carry it, and manufacturing one would put a listing's absence into the enum that a
+/// query's own refusals are audited through. `sutura-mcp`'s `server::describe::unknown_model` makes
+/// the identical call for the identical reason, as its own ad hoc `ErrorData` outside both
+/// `ToolOutcome` and this crate's audited refusal path.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct UnknownModelBody {
+    /// A stable code, the same shape as [`crate::problem::ProblemBody::code`] so a client already
+    /// branching on one field keeps doing so here.
+    code: &'static str,
+    detail: String,
+}
+
+impl UnknownModelBody {
+    pub(crate) fn of(name: &ModelName) -> Self {
+        Self {
+            code: "model_unknown",
+            detail: format!("this catalog defines no model called `{name}`"),
+        }
+    }
+}
+
+impl IntoResponse for UnknownModelBody {
+    fn into_response(self) -> Response {
+        (StatusCode::NOT_FOUND, Json(self)).into_response()
     }
 }

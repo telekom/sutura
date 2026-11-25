@@ -1,8 +1,11 @@
-diff --git a/crates/sutura-mcp/src/wire/catalog.rs b/crates/sutura-mcp/src/wire/catalog.rs
-index 8417bd38..0f4dfe8e 100644
 --- a/crates/sutura-mcp/src/wire/catalog.rs
 +++ b/crates/sutura-mcp/src/wire/catalog.rs
-@@ -210,2 +210,3 @@ impl CatalogContent {
-             view.models()
-+                .take(0)
-                 .map(|model| ModelContent {
+@@ -334,7 +334,7 @@
+                 let mut included = Vec::new();
+                 let mut omitted = Vec::new();
+                 let mut used = 0usize;
+-                for model in view.models() {
++                for model in view.models().take(0) {
+                     let content = content_of(model, &mut relationships, prose);
+                     // Never truncated mid-model: a model is either whole in `included` or named whole
+                     // in `omitted`, so a client can read either list and get a complete model's worth

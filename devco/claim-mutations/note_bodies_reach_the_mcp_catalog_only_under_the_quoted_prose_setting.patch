@@ -1,12 +1,11 @@
-diff --git a/crates/sutura-mcp/src/wire/catalog.rs b/crates/sutura-mcp/src/wire/catalog.rs
 --- a/crates/sutura-mcp/src/wire/catalog.rs
 +++ b/crates/sutura-mcp/src/wire/catalog.rs
-@@ -238,7 +238,7 @@
-         // see a metric does not see that metric's glossary entry, caveat or worked example either.
-         // `catalog_knowledge` quotes note bodies under the same `prose` the descriptions follow, so
-         // a deployment that withholds catalog prose withholds it from the knowledge tool too.
+@@ -278,7 +278,7 @@
+         //
+         // NOT narrowed by `model`: the glossary, caveats and worked examples are catalog-wide prose,
+         // not one model's own description, so a per-model request still needs the terms it uses.
 -        let knowledge = sutura_app::prompt::catalog_knowledge(view, prose);
 +        let knowledge = sutura_app::prompt::catalog_knowledge(view, CatalogProse::Quoted);
-         let models = list_physical_schema.then(|| {
-             let mut relationships = BTreeMap::<_, Vec<_>>::new();
-             for relationship in view.relationships() {
+         let (models, omitted_models) = if list_physical_schema {
+             fn content_of(
+                 model: &sutura_domain::catalog::Model,

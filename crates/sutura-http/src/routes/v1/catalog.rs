@@ -13,18 +13,32 @@
 //! what this deployment measures, which is business information even when no row of data is in it.
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::header;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse as _, Response};
+use sutura_domain::model::ModelName;
 
+use crate::problem::{Detail, Failure};
 use crate::state::ServiceState;
-use crate::wire::CatalogBody;
+use crate::wire::{CatalogBody, UnknownModelBody};
 
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "catalog";
 
+/// The query string `GET /catalog` takes: at most one field, `model`.
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub(crate) struct CatalogQuery {
+    /// The model's own name - the same identifier its physical schema prints as `model <name>`, on
+    /// the one transport that prints physical schema. Omit it for the whole catalog.
+    model: Option<String>,
+}
+
 /// The metrics this catalog defines, and its knowledge as this caller may see it, with the version
 /// and digest that identify the snapshot.
+///
+/// `model` narrows the answer to one named model's own metrics - mirroring `sutura-mcp`'s
+/// `describe_catalog(model: ...)`, `crate::openapi::tests::both_transports_describe_the_same_tools`'s
+/// reason to exist. Omit it for the whole catalog.
 #[utoipa::path(
     get,
     path = "/catalog",
@@ -34,8 +48,14 @@ const TAG: &str = "catalog";
     // `crate::openapi::tests::both_transports_describe_the_same_tools` is what asserts the two agree.
     operation_id = "describe_catalog",
     tag = TAG,
+    params(CatalogQuery),
     responses(
         (status = 200, description = "The pinned bundle, as a reader's view.", body = CatalogBody),
+        (
+            status = 400,
+            description = "`model` does not parse as a model name.",
+            body = crate::problem::ProblemBody
+        ),
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
         (
             status = 403,
@@ -49,6 +69,11 @@ const TAG: &str = "catalog";
                            Nothing in your credential or your question changes it; the operator \
                            lists the name in `server.allowed_hosts`.",
             body = crate::problem::ProblemBody
+        ),
+        (
+            status = 404,
+            description = "`model` parses but names no model this caller may see.",
+            body = UnknownModelBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
         (
@@ -67,7 +92,8 @@ pub(crate) async fn catalog(
     // bundle to every token holder regardless of what `Asked::context` named. It reads that context
     // now, the same value `crate::routes::v1::query::ask` reads through `sutura_app::Asked`.
     axum::Extension(asked): axum::Extension<sutura_app::Asked>,
-) -> impl IntoResponse {
+    Query(query): Query<CatalogQuery>,
+) -> Response {
     // No blocking pool and no data system: this reads the bundle being served, taken once for this
     // request. A refresh that lands while it renders does not change what it renders.
     //
@@ -81,8 +107,35 @@ pub(crate) async fn catalog(
     // of date about what the operator wrote.
     let definitions = state.definitions();
     let view = sutura_app::scoped_for(&definitions, asked.context());
+    // Parsed into the same newtype every other identifier on this surface goes through. A malformed
+    // `model` is `Failure::NotAQuestion` - the request itself could not be read - never confused with
+    // `UnknownModelBody` below, which is a well-formed name this caller may not see.
+    let model = match query.model {
+        Some(raw) => match ModelName::parse(&raw) {
+            Ok(name) => Some(name),
+            Err(error) => {
+                return Failure::NotAQuestion {
+                    detail: Detail::of(&error),
+                }
+                .into_response();
+            }
+        },
+        None => None,
+    };
+    // Checked against THIS caller's own view - never the bare bundle - so a `model` naming something
+    // real but invisible to this caller is refused exactly as absent would be, per `docs/adr/0028`.
+    if let Some(name) = &model
+        && view.model(name).is_none()
+    {
+        return UnknownModelBody::of(name).into_response();
+    }
     (
         [(header::CACHE_CONTROL, "private, no-store")],
-        Json(CatalogBody::of(&view, state.settings().prompt().catalog_prose())),
+        Json(CatalogBody::of(
+            &view,
+            state.settings().prompt().catalog_prose(),
+            model.as_ref(),
+        )),
     )
+        .into_response()
 }

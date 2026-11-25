@@ -30,6 +30,11 @@ use fixtures::*;
 /// through `super`.
 mod catalog_prose;
 
+/// Whether the catalog route's `model` query parameter narrows and refuses correctly.
+///
+/// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
+mod catalog_model;
+
 /// Whether the catalog route reads the bundle being served after a refresh swaps it.
 ///
 /// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's, and this one is

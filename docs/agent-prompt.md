@@ -78,6 +78,19 @@ table or column name reaches the output. An operator can enable
 `prompt.list_physical_schema` to list descriptive model, table and column metadata. That listing
 does not make a physical name queryable, and it does not certify a metric.
 
+**`describe_catalog` takes an optional `model` argument**, on the agent tool and on
+`GET /v1/catalog` alike: the same identifier the physical schema prints as `model <name>`. Given
+one, the answer narrows to that model's own metrics (and, where physical schema is on, that
+model's own columns and relationships) and nothing else; a name that parses but names no model
+the caller may see is refused rather than answered with an empty listing. **The agent tool's own
+unfiltered physical-schema listing is additionally capped at 64 KiB of serialized model content** -
+`GET /v1/catalog` carries no physical schema at all, so it has no analogous cap. Under the cap
+nothing changes. Over it, whole models are included up to the cap - never one truncated mid-model -
+and the rest are named in an explicit `omitted_models` list with a sentence pointing back at
+`describe_catalog(model: <name>)`. The cap bounds only the physical-schema listing, which is the
+part a widely authored catalog can make large; metric descriptions and the catalog's own knowledge
+are not counted against it.
+
 The document carries four sections for which the catalog
 body has no field at all, listed in the table above: the glossary, the terms recorded as not
 defined, what this deployment records about its own definitions, and the worked questions. It also

@@ -66,7 +66,7 @@ fn bundle() -> PinnedDefinitions {
 fn described_relationships_keep_composite_keys_and_hide_an_invisible_endpoint() {
     let bundle = bundle();
     let view = ScopedView::granted_by(&bundle, GrantedAudiences::none());
-    let content = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true);
+    let content = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true, None);
     let json = serde_json::to_value(&content).unwrap();
     assert_eq!(
         json["models"]
@@ -107,7 +107,7 @@ fn described_relationships_keep_composite_keys_and_hide_an_invisible_endpoint() 
             .flatten()
             .all(|model| model.get("relationships").is_none())
     );
-    let full = CatalogContent::of_with_physical_schema(&ScopedView::everything(&bundle), CatalogProse::Omitted, None, true);
+    let full = CatalogContent::of_with_physical_schema(&ScopedView::everything(&bundle), CatalogProse::Omitted, None, true, None);
     assert_eq!(
         serde_json::to_value(full).unwrap()["models"]
             .as_array()

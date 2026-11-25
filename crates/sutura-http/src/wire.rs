@@ -66,7 +66,7 @@ pub use raw::{MalformedStatement as RawMalformedStatement, RawOutcomeBody, RunSq
               doc paragraph is long - the paragraph itself is fine, see wire/catalog.rs"
 )]
 pub mod catalog;
-pub use catalog::{CatalogBody, DimensionBody, MetricBody};
+pub use catalog::{CatalogBody, DimensionBody, MetricBody, UnknownModelBody};
 
 /// A question, as it arrives.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
@@ -853,7 +853,7 @@ mod tests {
     #[test]
     fn the_catalog_view_lists_grains_coarsest_first_and_carries_the_digest() {
         let bundle = crate::testing::bundle();
-        let body = CatalogBody::of(&ScopedView::everything(&bundle), sutura_config::CatalogProse::Quoted);
+        let body = CatalogBody::of(&ScopedView::everything(&bundle), sutura_config::CatalogProse::Quoted, None);
         let rendered = serde_json::to_string(&body).expect("the catalog serializes");
         assert!(rendered.contains(r#""definition_version":"test-1""#), "{rendered}");
         // Month before day: the coarsest grain is the one an anchor is checked at, so listing it
@@ -890,6 +890,7 @@ mod tests {
         let omitted = serde_json::to_value(CatalogBody::of(
             &ScopedView::everything(&bundle),
             sutura_config::CatalogProse::Omitted,
+            None,
         ))
         .expect("the catalog serializes");
         let rendered = omitted.to_string();
@@ -927,6 +928,7 @@ mod tests {
             let quoted = serde_json::to_value(CatalogBody::of(
                 &ScopedView::everything(&bundle),
                 sutura_config::CatalogProse::Quoted,
+                None,
             ))
             .expect("the catalog serializes");
             let seen = quoted["metrics"][0]["description"]
@@ -936,6 +938,7 @@ mod tests {
             let omitted = serde_json::to_value(CatalogBody::of(
                 &ScopedView::everything(&bundle),
                 sutura_config::CatalogProse::Omitted,
+                None,
             ))
             .expect("the catalog serializes");
             assert!(
