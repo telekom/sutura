@@ -45,8 +45,6 @@ use datafusion::common::{DataFusionError, ExprSchema as _, plan_datafusion_err, 
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
-/// `T`, planned, alongside why a raw prefilter could not push it down - never both at once.
-type UnparsedWith<T> = Planned<(T, Option<sutura_domain::catalog::PrefilterIneligible>)>;
 use datafusion::execution::{SessionStateBuilder, SessionStateDefaults};
 use datafusion::logical_expr::{Expr, Extension, Filter, LogicalPlan, Projection, ScalarUDF, TableSource};
 use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
@@ -74,6 +72,9 @@ use tokio::runtime::Runtime;
 
 use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
+
+/// `T`, planned, alongside why a raw prefilter could not push it down - never both at once.
+type UnparsedWith<T> = Planned<(T, Option<sutura_domain::catalog::PrefilterIneligible>)>;
 
 mod literal;
 mod oracle;

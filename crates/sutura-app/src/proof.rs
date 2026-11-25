@@ -231,8 +231,8 @@ where
 
 /// Per column that opted into the raw prefilter, the ASCII bytes any of its redactions' replacements
 /// contain - the bytes a raw prefilter needle cannot carry, per the barrier proof in
-/// `text_prefilter::preserves` (`sutura-exec-datafusion`), at a position that could overlap one of
-/// them, without risking ineligibility. Logged once, at load: `pin_schemas` also runs on every
+/// `catalog::prefilter_eligibility::preserves` (`sutura-domain`), at a position that could overlap
+/// one of them, without risking ineligibility. Logged once, at load: `pin_schemas` also runs on every
 /// refresh, and a replacement an operator is actively iterating on would otherwise log repeatedly for
 /// no new information. The replacement text itself is config, not a secret, so logging it (or its
 /// byte set) leaks nothing a definitions review would not already show.

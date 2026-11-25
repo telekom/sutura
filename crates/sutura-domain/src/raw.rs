@@ -218,14 +218,24 @@ pub enum RawRefusalReason {
     /// accepts the policy-free comparison shapes in `docs/raw-text-search.md`; other predicates
     /// stay local. A projection over a policy column is classified the same way as a search.
     /// Planning, pre-leg and local-part deadlines retain [`Self::DeadlineExceeded`].
-    /// **What it discloses:** a column the caller can already read carries a text policy, and
-    /// nothing about that policy.
     ///
-    /// `ineligible` names WHY the raw prefilter could not push the search down in the first place -
-    /// [`catalog::eligible`]'s own answer over the same needle and policy, computed before dispatch
-    /// and re-checked after one, never from how long the search ran or what it returned. `None` when
-    /// the pushdown was never attempted because the column resolution path that computes it did not
-    /// run (a projection-only read, or a planning-time refusal before any column is reached).
+    /// **What it discloses:** that the column the caller can already read declares a `raw_prefilter`
+    /// at all, and, only where `ineligible` is
+    /// [`AgreesWithReplacement`](catalog::PrefilterIneligible::AgreesWithReplacement), the 0-based
+    /// index of the first redaction rule the needle's own replacement agreed with - which tells the
+    /// caller the column's `redact` list holds at least that many entries (index N implies N + 1),
+    /// never what any of them matches or replaces. Nothing further about the policy's shape leaks
+    /// through any other variant, or through `None`.
+    ///
+    /// `ineligible` names WHY [`catalog::eligible`] could not admit pushing the search down in the
+    /// first place, over the same needle and the column's own policy, computed once before the leg
+    /// is dispatched - never derived from how long the search ran or what it returned. `None` covers
+    /// six cases, every one of them a point this leg never reached that check at all: the statement's
+    /// dialect has no raw-prefilter capability, the column's own collation is one that capability
+    /// does not admit, an Oracle column that is declared but is not a LOB, a sibling conjunct in the
+    /// same statement that could raise on an unredacted row and so holds the whole prefilter back
+    /// regardless of the chosen conjunct's own eligibility, a column that declares no text policy at
+    /// all, and Cube running its text policy locally rather than through this prefilter.
     PolicySearchNeedsNarrowing {
         ineligible: Option<catalog::PrefilterIneligible>,
     },

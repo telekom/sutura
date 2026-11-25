@@ -90,7 +90,11 @@ const TAG: &str = "run_sql";
                            retrying it as is. `code: policy_search_needs_narrowing` - a statement \
                            over a column under a text policy reached its deadline, or its Cube source \
                            answer exceeded a bound before local masking; add a supported filter on \
-                           a column without a policy.",
+                           a column without a policy. Its `ineligible` field, where present, names \
+                           why the raw prefilter itself could not push the search down, and for one \
+                           reason also carries a 0-based redaction-rule index - nothing about the \
+                           policy beyond that a `raw_prefilter` is declared and, where that index \
+                           appears, a lower bound on how many redaction rules the column has.",
             body = RawOutcomeBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),

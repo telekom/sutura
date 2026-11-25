@@ -31,7 +31,7 @@ mod prefilter_eligibility;
 mod raw_prefilter;
 mod text;
 mod unlinked;
-pub use prefilter_eligibility::{PrefilterIneligible, eligible};
+pub use prefilter_eligibility::{PrefilterIneligible, eligible, preserves};
 pub use raw_prefilter::{PrefilterCapability, RawPrefilter};
 pub use text::{InvalidTextPolicy, MaxTextBytes, Redaction, TextPolicy};
 

@@ -253,8 +253,17 @@ What this does not do:
 - No separate time budget is added. The refusal rides the request's existing deadline, so it
   arrives when that deadline does, not earlier.
 
-The reason shows that a column the caller can already read carries a text policy. It names no
-column, pattern or replacement, and nothing about the policy beyond its existence.
+The reason shows that a column the caller can already read declares a `raw_prefilter` at all, and
+carries an `ineligible` field naming why the raw prefilter itself could not push the search down -
+`catalog::eligible`'s own answer over the needle and the column's policy, computed once before the
+leg runs. Where that reason is the needle agreeing with a configured replacement, it also carries
+the 0-based index of the first redaction rule it agreed with, which tells the caller the column's
+`redact` list holds at least that many entries (index N implies N + 1) and nothing about what any
+of them matches or replaces. `ineligible` is absent wherever the prefilter was never reached in the
+first place: no dialect capability admits the column, an unsupported collation, a declared but
+non-LOB Oracle column, a sibling conjunct that could raise on an unredacted row, a column with no
+text policy at all, or Cube running its text policy locally. No variant names a column, pattern or
+replacement, and nothing about the policy leaks beyond what is stated here.
 
 ## Narrowing a Cube search
 

@@ -1,9 +1,9 @@
 //! Whether a raw-text needle may be pushed down as a necessary condition against a column's own
 //! [`TextPolicy`], decided from the needle and the policy alone - never a row, an adapter's SQL
 //! shape, or how long anything took. A pure function of query and config belongs in the hexagon's
-//! interior: an adapter calls it to decide whether to push a condition down, and the application
-//! calls the same function, over the same needle and policy, to name why a search it could not push
-//! down ran long or wide instead of leaving that unnamed.
+//! interior: an adapter calls [`eligible`] to decide whether to push a condition down, and the
+//! application calls it again, over the same needle and policy, to name why a search it could not
+//! push down ran long or wide instead of leaving that unnamed.
 
 use std::fmt;
 
@@ -42,7 +42,11 @@ impl fmt::Display for PrefilterIneligible {
             Self::NotDeclared => write!(f, "the column declares no raw prefilter"),
             Self::NeedleShape => write!(f, "the needle is outside the alphanumeric-or-underscore alphabet this allows"),
             Self::AgreesWithReplacement { replacement_index } => {
-                write!(f, "the needle agrees with replacement #{replacement_index}")
+                write!(
+                    f,
+                    "the needle could match redaction rule #{replacement_index}'s own replacement text, \
+                     which a raw search over the unredacted column would never have matched"
+                )
             }
             Self::AgreesWithTruncationMarker => write!(f, "the needle agrees with the truncation marker"),
         }
@@ -92,22 +96,30 @@ pub fn eligible(needle: &str, policy: &TextPolicy, upper: bool, folded: bool, lo
 ///
 /// **This widens eligibility beyond the pre-`_` rule even for a needle with no `_` in it.** The old
 /// rule refused whenever the needle contained the replacement's first or last byte, which is
-/// sufficient but not necessary: needle `ac` against replacement `ab` shares no substring with it and
-/// is refused by the old rule (`ac` contains `a`, the replacement's first byte) but admitted here,
-/// because the only overlaps - `ac`/`a` and `c`/`ab` - each still carry a disagreeing byte (`c` vs
-/// `a`, and `c` vs `a`). This is sound by the same argument as above; it was never implied by "this
+/// sufficient but not necessary: needle `ac` against replacement `ab` is refused by the old rule
+/// (`ac` contains `a`, the replacement's first byte) but admitted here, because the only overlaps -
+/// `ac`/`b`, `ac`/`ab`, and `c`/`ab` - each still carry a disagreeing byte (`a` vs `b`, `c` vs `b`,
+/// and `c` vs `a`). This is sound by the same argument as above; it was never implied by "this
 /// reduces to the old check," which does not hold.
 ///
 /// Not maximal: an alignment whose overlap is a lone `_` still refuses here even though the `_`
-/// itself cannot force a mismatch, because leaving it admitted would require checking that no
-/// *redaction rule* can itself produce a zero-width match that shifts the alignment - a replacement
-/// rule built from a regex that matches an empty string (`$`, `^`, `a*`, a lookaround) inserts its
-/// replacement without consuming any raw text, so the same needle can be unsound against such a rule
-/// even where every overlap carries only `_`. Refusing every lone-`_` overlap, rather than proving
-/// each redaction rule's pattern cannot match empty, is the cheaper and safe choice.
+/// itself cannot force a mismatch, because leaving it admitted would require checking that every
+/// *redaction rule* replaces exactly one raw character with exactly one character. A rule whose
+/// pattern matches an empty string (`$`, `^`, `a*`, a lookaround) inserts its replacement without
+/// consuming any raw text, and a rule whose pattern consumes more than one character (`b+` against
+/// `abba`, replaced with `x`: raw `abba` becomes `axa`, and `%a_a%` matches `axa` but not `abba`) is
+/// just as unsound - either shifts what the needle lines up against on either side of the overlap,
+/// so the same needle can be unsound against such a rule even where every overlap carries only `_`.
+/// Refusing every lone-`_` overlap, rather than proving each redaction rule's pattern always matches
+/// exactly one character, is the cheaper and safe choice.
 ///
 /// `folded` compares ASCII case-insensitively, so the proof also holds under a case-insensitive collation.
-fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
+///
+/// `pub`, not `pub(super)`: `combine::statement::tests::prefilter_property` in `sutura-exec-datafusion`
+/// is the only caller outside this crate, and it reaches in at this visibility rather than through
+/// the planner's SQL-rewrite surface, because what it checks is this function's own admission rule
+/// against an actual regex-driven redaction, not a statement rewrite.
+pub fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool {
     if replacement.is_empty() || !replacement.is_ascii() {
         return false;
     }
@@ -141,8 +153,6 @@ fn preserves(needle: &str, replacement: &str, upper: bool, folded: bool) -> bool
 
 #[cfg(test)]
 mod tests {
-    use regex::{NoExpand, Regex};
-
     use super::{PrefilterIneligible, eligible, preserves};
     use crate::catalog::TextPolicy;
 
@@ -194,160 +204,20 @@ mod tests {
         assert!(preserves("MXY", "MASKED", false, false));
     }
 
-    /// The concrete counterexample the admission rule must refuse: pattern `$` (zero-width) with
-    /// replacement `[m]` against raw `ab` redacts to `ab[m]`, which matches `%ab_%` where `ab` itself
-    /// does not - so `preserves` must not admit needle `ab_` against replacement `[m]`.
+    /// The widening counterexample's sibling: a needle naming the policy's own truncation marker is
+    /// refused the same way, only reachable where `max_text_bytes` is set and the column is not a LOB.
     #[test]
-    fn preserves_refuses_a_lone_underscore_overlap_against_a_zero_width_replacement() {
-        assert!(!preserves("ab_", "[m]", false, false));
-    }
-
-    /// `preserves` admits a needle against a redaction rule, or a sequence of them, only when no
-    /// alignment of the needle over any rule's replacement can be forced to match. This exhaustively
-    /// checks the property that admission claims: over every needle, every short sequence of
-    /// regex-driven redaction rules (applied in order, as a column's declared `redact` list would
-    /// be), and every raw text a small alphabet can spell, if `preserves` admits the needle against
-    /// each rule in the sequence, a LIKE match on the text the rules produce implies a LIKE match on
-    /// the raw text.
-    struct Rule {
-        pattern: &'static str,
-        replacement: &'static str,
-    }
-
-    /// Includes two zero-width patterns (`$`, `a*`) alongside ordinary substring-consuming ones, so a
-    /// sequence can reproduce the `$`/`[m]`/`ab` counterexample the admission rule must still refuse.
-    const RULES: &[Rule] = &[
-        Rule {
-            pattern: "a",
-            replacement: "b",
-        },
-        Rule {
-            pattern: "ab",
-            replacement: "cd",
-        },
-        Rule {
-            pattern: "b+",
-            replacement: "x",
-        },
-        Rule {
-            pattern: "$",
-            replacement: "m",
-        },
-        Rule {
-            pattern: "$",
-            replacement: "[m]",
-        },
-        Rule {
-            pattern: "a*",
-            replacement: "y",
-        },
-        Rule {
-            pattern: "^",
-            replacement: "[m]",
-        },
-        Rule {
-            pattern: "b",
-            replacement: "aab",
-        },
-    ];
-
-    /// Every nonempty string over `{a, b}` up to `max_len`, including the empty one.
-    fn raw_texts(max_len: usize) -> Vec<String> {
-        let mut texts = vec![String::new()];
-        for _ in 0..max_len {
-            texts = texts
-                .iter()
-                .flat_map(|text| [format!("{text}a"), format!("{text}b")])
-                .chain(texts.iter().cloned())
-                .collect();
-        }
-        texts.sort();
-        texts.dedup();
-        texts
-    }
-
-    /// Every nonempty needle over `{a, b, _}` up to `max_len`: the admitted alphabet, `_` included.
-    fn needles(max_len: usize) -> Vec<String> {
-        let mut needles = vec![String::new()];
-        for _ in 0..max_len {
-            needles = needles
-                .iter()
-                .flat_map(|needle| [format!("{needle}a"), format!("{needle}b"), format!("{needle}_")])
-                .collect();
-        }
-        needles.into_iter().filter(|needle| !needle.is_empty()).collect()
-    }
-
-    /// `%needle%` over `text`, with `_` standing for any one ASCII byte - LIKE's own wildcard, emulated
-    /// at the byte granularity `preserves` reasons about (every candidate here is single-byte ASCII).
-    fn like_contains(text: &str, needle: &str) -> bool {
-        let text = text.as_bytes();
-        let needle = needle.as_bytes();
-        if needle.len() > text.len() {
-            return false;
-        }
-        (0..=text.len() - needle.len()).any(|start| {
-            text[start..start + needle.len()]
-                .iter()
-                .zip(needle)
-                .all(|(&byte, &pattern)| pattern == b'_' || byte == pattern)
-        })
-    }
-
-    /// Every rule in `sequence`, applied in declared order, exactly as a column's redactions run.
-    fn redact(text: &str, sequence: &[&Rule]) -> String {
-        let mut text = String::from(text);
-        for rule in sequence {
-            let regex = Regex::new(rule.pattern).expect("a fixed test pattern compiles");
-            text = regex.replace_all(&text, NoExpand(rule.replacement)).into_owned();
-        }
-        text
-    }
-
-    #[test]
-    fn preserves_admitting_every_rule_in_a_sequence_implies_redacted_match_implies_raw_match() {
-        let raws = raw_texts(5);
-        let candidates = needles(3);
-        let mut sequences: Vec<Vec<&Rule>> = RULES.iter().map(|rule| vec![rule]).collect();
-        for first in RULES {
-            for second in RULES {
-                sequences.push(vec![first, second]);
-            }
-        }
-        let mut checked_zero_width = false;
-        let mut checked_two_rules = false;
-        for needle in &candidates {
-            for sequence in &sequences {
-                if !sequence.iter().all(|rule| preserves(needle, rule.replacement, false, false)) {
-                    continue;
-                }
-                checked_zero_width |= sequence
-                    .iter()
-                    .any(|rule| rule.pattern == "$" || rule.pattern == "^" || rule.pattern == "a*");
-                checked_two_rules |= sequence.len() == 2;
-                for raw in &raws {
-                    let redacted = redact(raw, sequence);
-                    if like_contains(&redacted, needle) {
-                        assert!(
-                            like_contains(raw, needle),
-                            "needle {needle:?} admitted against {:?} but matched only after redaction: \
-                             raw {raw:?} -> {redacted:?}",
-                            sequence
-                                .iter()
-                                .map(|rule| (rule.pattern, rule.replacement))
-                                .collect::<Vec<_>>(),
-                        );
-                    }
-                }
-            }
-        }
-        assert!(
-            checked_zero_width,
-            "the sweep must exercise at least one zero-width rule's admitted needles"
+    fn names_agreement_with_the_truncation_marker_only_where_truncation_applies() {
+        let policy: TextPolicy = serde_json::from_value(serde_json::json!({
+            "redact": [{"pattern": "x", "replace": "safe"}],
+            "raw_prefilter": {"acknowledged_because": "accepted secret-dependent timing"},
+            "max_text_bytes": 64,
+        }))
+        .expect("a valid policy");
+        assert_eq!(
+            eligible("truncated", &policy, false, false, false),
+            Err(PrefilterIneligible::AgreesWithTruncationMarker)
         );
-        assert!(
-            checked_two_rules,
-            "the sweep must exercise at least one two-rule sequence's admitted needles"
-        );
+        assert_eq!(eligible("truncated", &policy, false, false, true), Ok(()));
     }
 }

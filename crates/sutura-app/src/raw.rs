@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use sutura_domain::catalog::PrefilterIneligible;
 use sutura_domain::identity::{
@@ -22,8 +22,29 @@ use sutura_domain::plan::{
 };
 use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement, RunSqlSources};
 use sutura_domain::source::ExecutedAs;
-use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::{RawRows, Value, Warehouse};
+
+/// Carved out of a policy-column search leg's own deadline, on top of `docs/adr/0029`'s fixed
+/// one-second `RequestTimeout::REPLY_MARGIN`.
+///
+/// That margin is reserved so the transport's own backstop (`sutura_http::middleware::enforce_timeout`)
+/// has a second of slack after the port's deadline fires to carry the port's OWN refusal back to the
+/// caller. A policy-column search leg spends part of that slack before `enforce_timeout` ever gets a
+/// chance to race: the data system's own round trip has to notice its deadline passed (an idle or call
+/// timeout, not instant cancellation) and this leg still runs local masking on whatever rows came back
+/// before the refusal is even minted. Narrowing what this leg hands the port by this much moves the
+/// adapter's own deadline earlier, so that teardown-plus-masking work happens INSIDE the one second
+/// `REPLY_MARGIN` already reserves, rather than eating into it from a standing start.
+///
+/// **Not measured against a live Oracle adapter** - no served Oracle tier runs where this was written,
+/// and `AGENTS.md` asks to reproduce and paste an error rather than assert one, so this number is
+/// chosen only to exceed `REPLY_MARGIN` itself, not to match a measured teardown cost. **Limit:** an
+/// adapter whose own teardown and this leg's local masking together still exceed this margin loses the
+/// same race `docs/adr/0029` already names as open - this narrows the window a policy-column search
+/// leg gets to answer with its own name, it does not close it, and nothing here changes the margin
+/// every other leg still runs under.
+const POLICY_LEG_TEARDOWN_MARGIN: Duration = Duration::from_secs(2);
 
 use crate::warehouses::Warehouses;
 use crate::{Validated, exceeds_row_cap, now_in_unix_seconds, scoped_for};
@@ -437,22 +458,46 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             .agrees_with(warehouse.posture(), source)
             .map_err(|cause| LegStop::Failed(RunSqlError::Posture { cause }))?;
         let budget_seconds = self.deadline.budget().seconds();
+        let now = Instant::now();
+        let is_policy_read = policy.is_read();
         // Checked before each leg is run and never re-derived - the same shape `crate::answer`'s own
         // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the leg
         // is refused before the data system is asked at all. A policy-column search that spent the
         // whole budget getting here is still that search running out of room, not a bare timeout -
         // the same split the port-level `deadline_exceeded` branch below draws.
-        if self.deadline.remaining_at(Instant::now()).is_none() {
-            return Err(LegStop::Refused(if policy.is_read() {
+        //
+        // A policy-column search leg is handed a deadline narrowed by `POLICY_LEG_TEARDOWN_MARGIN`
+        // on top of the remaining budget - see that constant's own doc for why: this leg still has
+        // local masking and the carry back to the transport ahead of it once the port notices its own
+        // deadline passed, and a wider margin here is what keeps the named refusal ahead of
+        // `enforce_timeout`'s backstop `408`.
+        let leg_budget = self
+            .deadline
+            .remaining_at(now)
+            .and_then(|remaining| {
+                if is_policy_read {
+                    remaining.checked_sub(POLICY_LEG_TEARDOWN_MARGIN)
+                } else {
+                    Some(remaining)
+                }
+            })
+            .and_then(|remaining| Budget::parse(remaining).ok());
+        let Some(leg_budget) = leg_budget else {
+            return Err(LegStop::Refused(if is_policy_read {
                 RawRefusalReason::PolicySearchNeedsNarrowing { ineligible }
             } else {
                 RawRefusalReason::DeadlineExceeded { budget_seconds }
             }));
-        }
-        let execution = match tables {
-            Some(tables) => warehouse.execute_planned_statement(statement, tables, presented, self.deadline),
-            None => warehouse.execute_raw(statement, presented, self.deadline),
         };
+        let leg_deadline = if is_policy_read {
+            Deadline::opened_at(now, leg_budget)
+        } else {
+            self.deadline
+        };
+        let execution = tables.map_or_else(
+            || warehouse.execute_raw(statement, presented, leg_deadline),
+            |tables| warehouse.execute_planned_statement(statement, tables, presented, leg_deadline),
+        );
         let Some(executed) = execution else {
             return Err(LegStop::Failed(RunSqlError::NoAcceptingSource));
         };
