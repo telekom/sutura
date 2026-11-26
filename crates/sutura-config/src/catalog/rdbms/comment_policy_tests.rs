@@ -19,7 +19,7 @@ macro_rules! load_rdbms {
         let overlay = format!(
             "security:\n  identity: single-user\n  single_user_because: a test\nsources:\n  warehouse:\n    kind: files\n    data_dir: /srv/data\n    posture: shared-service-user\n\
              catalogs:\n  - name: dict\n    kind: rdbms\n    dir: /nowhere\n    data_dir: /nowhere\n    version: dict-1\n    \
-             dictionary_source: native_dictionary\n    source_alias: warehouse\n    {}\
+             dictionary_source: native_dictionary\n    include: [{{schema: '*', table: notes}}]\n    source_alias: warehouse\n    {}\
              connection:\n      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      user: reader\n      \
              password_file: /run/secrets/dictionary\n      transport_mode: plaintext\n",
             $extra
