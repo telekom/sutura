@@ -332,23 +332,23 @@ impl Transport {
             if let Some(protection) = self.protection.as_mut() {
                 let record_len = packet.buf.len();
                 let authenticated = self.authenticated;
-                // The decision is this session's own authentication state, not the record's
-                // shape: a record's bytes can be forged to look sealed or unsealed either way,
-                // but whether this session has completed authentication is this client's own
-                // fact. Before authentication, an unprotected DATA packet is the shape a
-                // server's login-failure error takes; after, the same bytes are an unexplained
-                // refusal (a mid-session injection, for instance) and must not be reported as a
-                // login problem.
+                // `open` fails the same way for plaintext, a tampered record, a replay or a
+                // lost sequence number - the wording below names only what was observed (an
+                // unprotected DATA packet failed to authenticate) plus the likely cause as a
+                // hint, never an asserted cause. The decision between the two wordings is this
+                // session's own authentication state, not the record's shape: a record's bytes
+                // can be forged to look sealed or unsealed either way, but whether this session
+                // has completed authentication is this client's own fact.
                 packet.buf = protection.open(&packet.buf).map_err(|_| {
                     if authenticated {
                         Error::native_encryption_refused(format!(
-                            "expected a protected DATA packet, got an unprotected DATA packet \
+                            "expected a protected DATA packet, got one that did not authenticate \
                              ({record_len} byte record) - refused, not read"
                         ))
                     } else {
                         Error::native_encryption_refused(format!(
-                            "the server refused the login (its error arrived unprotected in a {record_len} \
-                             byte DATA packet and was not read)"
+                            "a DATA packet during login did not authenticate (the shape a server \
+                             login refusal takes on native encryption) - refused, not read"
                         ))
                     }
                 })?;

@@ -30,8 +30,8 @@ fn corrupt_record_poisoning_prevents_any_later_plaintext_write() {
     let error = transport.receive_packet().err().unwrap();
     assert_eq!(
         error.to_string(),
-        "native encryption refused: expected a protected DATA packet, got an unprotected \
-         DATA packet (50 byte record) - refused, not read"
+        "native encryption refused: expected a protected DATA packet, got one that did not \
+         authenticate (50 byte record) - refused, not read"
     );
     assert!(transport.low_level_transport.is_none());
     assert!(transport.protection.is_none());
@@ -128,8 +128,8 @@ fn unprotected_marker_packet_is_admitted_then_the_next_data_packet_is_still_auth
     let error = transport.receive_packet().err().unwrap();
     assert_eq!(
         error.to_string(),
-        "native encryption refused: the server refused the login (its error arrived \
-         unprotected in a 39 byte DATA packet and was not read)"
+        "native encryption refused: a DATA packet during login did not authenticate (the \
+         shape a server login refusal takes on native encryption) - refused, not read"
     );
 }
 
@@ -142,7 +142,7 @@ fn an_unprotected_data_packet_after_authentication_is_named_neutrally_not_as_a_l
     let error = transport.receive_packet().err().unwrap();
     assert_eq!(
         error.to_string(),
-        "native encryption refused: expected a protected DATA packet, got an unprotected \
-         DATA packet (39 byte record) - refused, not read"
+        "native encryption refused: expected a protected DATA packet, got one that did not \
+         authenticate (39 byte record) - refused, not read"
     );
 }
