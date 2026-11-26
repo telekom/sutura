@@ -523,7 +523,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             return Err(LegStop::Failed(RunSqlError::NoAcceptingSource));
         };
         let rows = executed.map_err(|cause| {
-            LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
+            let reason = if warehouse.result_did_not_fit(&cause) {
                 if policy == PolicyRead::Locally {
                     RawRefusalReason::PolicySearchNeedsNarrowing { ineligible }
                 } else {
@@ -539,7 +539,14 @@ impl<'a, W, B> RawLegs<'a, W, B> {
                 RawRefusalReason::SourceRefused
             } else {
                 RawRefusalReason::StatementFailed
-            })
+            };
+            // `cause` carries the adapter's own words - an Oracle ORA code, a transport
+            // refusal, a driver timeout - and none of that reaches the caller, who is told
+            // only the closed `reason` above. Logged here, once, so an operator reading the
+            // leg's own log line can tell which it was, rather than only "a source part did
+            // not run" with no cause attached.
+            tracing::debug!(%source, %cause, ?reason, "run_sql: a leg did not run");
+            LegStop::Refused(reason)
         })?;
         if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
             return Err(LegStop::Refused(if policy == PolicyRead::Locally {

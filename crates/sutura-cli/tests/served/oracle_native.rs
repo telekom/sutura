@@ -197,10 +197,12 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             &[],
         )
         .join("\n");
+        // Every production path, including native encryption, now reads the server's
+        // own break-marker-delivered error record rather than refusing on the
+        // protocol's inherently unprotected marker packet - so the wrong password
+        // surfaces its ORA code here exactly as it does over TCPS or plaintext.
         assert!(
-            refused.contains("ORA-01017")
-                || (tier.channel.starts_with("transport_mode: native-encryption")
-                    && refused.contains("native encryption refused: unprotected native control packet")),
+            refused.contains("ORA-01017"),
             "the {path} must refuse the wrong password: {refused}"
         );
     }

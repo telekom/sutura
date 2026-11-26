@@ -210,6 +210,22 @@ const PEM_ENCRYPTED_PRIVATE_KEY_FOOTER: &str =
     "-----END ENCRYPTED PRIVATE KEY-----";
 const PEM_UNENCRYPTED_PRIVATE_KEY_HEADER: &str = "-----BEGIN PRIVATE KEY-----";
 
+/// Returns a human-readable name for a TNS packet type, for use in diagnostic
+/// messages. Unrecognised types are named by their numeric value.
+fn packet_type_label(packet_type: u8) -> String {
+    match packet_type {
+        constants::PACKET_TYPE_CONNECT => "CONNECT".to_string(),
+        constants::PACKET_TYPE_ACCEPT => "ACCEPT".to_string(),
+        constants::PACKET_TYPE_REFUSE => "REFUSE".to_string(),
+        constants::PACKET_TYPE_REDIRECT => "REDIRECT".to_string(),
+        constants::PACKET_TYPE_DATA => "DATA".to_string(),
+        constants::PACKET_TYPE_RESEND => "RESEND".to_string(),
+        constants::PACKET_TYPE_MARKER => "MARKER".to_string(),
+        constants::PACKET_TYPE_CONTROL => "CONTROL".to_string(),
+        other => format!("packet type {other}"),
+    }
+}
+
 /// Returns the character to use for the given byte when displaying packet
 /// data.
 fn display_char(byte: u8) -> char {
@@ -289,8 +305,23 @@ impl Transport {
             print_packet(&header, packet_buf);
         }
         let mut packet = Packet::new(packet_buf)?;
-        if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA {
-            return Err(Error::native_encryption_refused("unprotected native control packet"));
+        if self.protection.is_some()
+            && packet.packet_type != constants::PACKET_TYPE_DATA
+            && packet.packet_type != constants::PACKET_TYPE_MARKER
+        {
+            // The protocol's own marker/break packets (TNS break, interrupt and reset
+            // acknowledgements) are never encrypted even on a native-encrypted channel,
+            // including the break the server sends ahead of an encrypted error reply -
+            // so they, and only they, are admitted unprotected here. Anything else
+            // arriving without protection (a control packet, a bare ACCEPT, ...) is a
+            // genuine integrity gap: name what was expected and what arrived so an
+            // operator can tell a protocol gap from a downgrade attempt.
+            return Err(Error::native_encryption_refused(format!(
+                "expected a protected {} or an unprotected {}, got an unprotected {}",
+                packet_type_label(constants::PACKET_TYPE_DATA),
+                packet_type_label(constants::PACKET_TYPE_MARKER),
+                packet_type_label(packet.packet_type),
+            )));
         }
         if packet.packet_type == constants::PACKET_TYPE_DATA {
             if let Some(protection) = self.protection.as_mut() {

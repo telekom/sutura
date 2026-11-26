@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
 --- a/crates/sutura-app/src/raw.rs
 +++ b/crates/sutura-app/src/raw.rs
-@@ -499,7 +499,7 @@
+@@ -520,7 +520,7 @@
              |tables| warehouse.execute_planned_statement(statement, tables, presented, leg_deadline),
          );
          let Some(executed) = execution else {
@@ -9,4 +9,4 @@ diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
 +            return Err(LegStop::Refused(RawRefusalReason::StatementFailed));
          };
          let rows = executed.map_err(|cause| {
-             LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
+             let reason = if warehouse.result_did_not_fit(&cause) {

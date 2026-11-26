@@ -79,7 +79,7 @@ pub enum ErrorKind {
     LegacyVerifierRequiresEncryption(u32),
     LockPoisoned,
     MissingBindValue(String),
-    NativeEncryptionRefused(&'static str),
+    NativeEncryptionRefused(String),
     NativeAlgorithmRefused(&'static str, u8),
     NameHasEmbeddedQuotes,
     NoConfigDir,
@@ -576,8 +576,8 @@ impl Error {
         Self::new(ErrorKind::LegacyVerifierRequiresEncryption(verifier_type), None)
     }
 
-    pub(crate) fn native_encryption_refused(reason: &'static str) -> Self {
-        Self::new(ErrorKind::NativeEncryptionRefused(reason), None)
+    pub(crate) fn native_encryption_refused(reason: impl Into<String>) -> Self {
+        Self::new(ErrorKind::NativeEncryptionRefused(reason.into()), None)
     }
 
     pub(crate) fn native_algorithm_refused(service: &'static str, id: u8) -> Self {

@@ -267,11 +267,15 @@ impl Client {
     /// The packet received after the reset has completed is returned to the
     /// caller. Note that some databases return multiple reset markers so
     /// these are also accommodated.
+    ///
+    /// This is the same handshake on a native-encrypted transport as on any
+    /// other: the marker packets it exchanges are the protocol's own
+    /// unprotected marker/break packets (the transport admits exactly those
+    /// unprotected), and the packet it ultimately returns is read through the
+    /// ordinary protected-data path, so an error the server signals with a
+    /// break marker - e.g. a statement that fails with an ORA error - reaches
+    /// the caller as that error instead of a transport refusal.
     fn reset(&mut self, reset_received: bool) -> Result<Packet, Error> {
-        if self.transport.uses_native() {
-            let _ = self.transport.close();
-            return Err(Error::native_encryption_refused("native connection closed on reset"));
-        }
         self.send_marker(constants::MARKER_TYPE_RESET)?;
         let mut reset_received = reset_received;
         loop {
