@@ -8,9 +8,14 @@ use serde_json::json;
 use sutura_http::constants::base_paths::RUN_SQL;
 
 use super::{FixtureSource, Tier};
+#[cfg(not(feature = "sql"))]
+use crate::harness::start_configured_with_environment;
 #[cfg(feature = "sql")]
 use crate::harness::{LOOPBACK, SINGLE_USER};
 use crate::harness::{Reply, Served, TOKEN, start_configured, v1};
+
+#[cfg(not(feature = "sql"))]
+const DEBUG: [(&str, &str); 1] = [("RUST_LOG", "debug")];
 
 fn settings(tier: &Tier, case: &str, enabled: bool, federation: bool) -> String {
     format!(
@@ -89,9 +94,12 @@ fn oracle_raw_served_rows_and_overflow_are_ungoverned_and_never_a_prefix() {
 fn oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows() {
     let tier = Tier::here();
     let case = "oracle-raw-read-only";
-    let served = start_configured(case, &settings(&tier, case, true, false));
+    let served = start_configured_with_environment(case, &settings(&tier, case, true, false), None, &DEBUG, &[]);
     // Native encryption now reads the server's own read-only refusal after a break/reset the
-    // same way the verified channel does, rather than surfacing a generic channel refusal.
+    // same way the verified channel does, rather than surfacing a generic channel refusal. Run
+    // at RUST_LOG=debug and fold the deployment's own log into every assertion here: a failure
+    // then shows `run_sql`'s leg-failure line with the driver's own cause, not just the
+    // caller-visible outcome, so a CI run that disagrees with this expectation says why.
     for (statement, status, code) in [
         ("SELECT ID FROM EVENTS WHERE ID = 1 FOR UPDATE", 403, "source_refused"),
         (
@@ -101,9 +109,20 @@ fn oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows(
         ),
     ] {
         let reply = ran(&served, statement);
-        assert_eq!(reply.status, status, "{}", reply.body);
-        assert_eq!(reply.json()["code"], code, "{}", reply.body);
-        assert!(reply.json().get("rows").is_none(), "{}", reply.body);
+        assert_eq!(reply.status, status, "{}\nlog:\n{}", reply.body, served.log().join("\n"));
+        assert_eq!(
+            reply.json()["code"],
+            code,
+            "{}\nlog:\n{}",
+            reply.body,
+            served.log().join("\n")
+        );
+        assert!(
+            reply.json().get("rows").is_none(),
+            "{}\nlog:\n{}",
+            reply.body,
+            served.log().join("\n")
+        );
     }
     let healthy = ran(&served, "SELECT COUNT(*) FROM EVENTS");
     assert_eq!(healthy.status, 200, "{}", healthy.body);
