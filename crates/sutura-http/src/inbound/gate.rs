@@ -60,7 +60,9 @@ use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_config::{InboundIdentity, InboundVerifier, KeySetLocation, McpPath, ResourceIdentifier, TokenLocation};
+use sutura_config::{
+    InboundIdentity, InboundVerifier, KeySetLocation, McpPath, ResourceIdentifier, TokenAudience, TokenLocation,
+};
 
 use sutura_runtime::Shutdown;
 
@@ -346,10 +348,15 @@ impl InboundGate {
             TokenLocation::Header { name } => (name.as_str().to_ascii_lowercase(), false, false),
         };
         Self {
+            // No `request_path_prefix` fallback: it is a gateway's internal route, not a resource
+            // identifier this deployment should advertise to a caller, and the mode that sets it
+            // never challenges anyway - see `challenges` above.
             realm: String::from(
                 requirement
                     .resource()
-                    .map_or_else(|| requirement.audience().as_str(), ResourceIdentifier::as_str),
+                    .map(ResourceIdentifier::as_str)
+                    .or_else(|| requirement.audience().map(TokenAudience::as_str))
+                    .unwrap_or_else(|| requirement.issuer().as_str()),
             ),
             verification: Verification::Jwt {
                 validator: Box::new(TokenValidator::new(&requirement)),

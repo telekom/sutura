@@ -10,7 +10,11 @@ pub(super) fn verifier_refusals(inbound: &[InboundVerifier]) -> Vec<NotFitToServ
     for (index, later) in inbound.iter().enumerate() {
         let requirement = later;
         let direct = later.is_direct();
-        if direct && requirement.audience().as_str() == requirement.issuer().as_str() {
+        if direct
+            && requirement
+                .audience()
+                .is_some_and(|audience| audience.as_str() == requirement.issuer().as_str())
+        {
             refusals.push(NotFitToServe::InboundAudienceIsTheIssuer);
         }
         if let Some(path) = later.metadata_path()
@@ -56,11 +60,13 @@ pub(super) fn verifier_refusals(inbound: &[InboundVerifier]) -> Vec<NotFitToServ
                     issuer: requirement.issuer().as_str().to_owned(),
                 });
             }
-            if requirement.audience().as_str() == earlier_requirement.audience().as_str() {
+            if let (Some(audience), Some(earlier_audience)) = (requirement.audience(), earlier_requirement.audience())
+                && audience.as_str() == earlier_audience.as_str()
+            {
                 refusals.push(NotFitToServe::DuplicateVerifierAudience {
                     earlier: earlier.id().clone(),
                     later: later.id().clone(),
-                    audience: requirement.audience().as_str().to_owned(),
+                    audience: audience.as_str().to_owned(),
                 });
             }
             if later.path() == earlier.path() {

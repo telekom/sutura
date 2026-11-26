@@ -7,8 +7,8 @@
 
 use crate::inbound::{
     AddressClaim, ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, KeySetMaxStale,
-    KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType,
-    TransitProof,
+    KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequestPathPrefix, RequiredTokenType, ResourceIdentifier,
+    TokenAudience, TokenType, TransitBinding, TransitProof,
 };
 use crate::raw::{RawInbound, RawInboundDeclarations};
 use crate::settings::SettingsError;
@@ -68,12 +68,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     mode,
                 )?)
                 .map_err(|cause| SettingsError::InboundValue { cause })?,
-                ResourceIdentifier::parse_transit_audience(required(
-                    written.transit_audience.as_deref(),
-                    "security.inbound.transit_audience",
-                    mode,
-                )?)
-                .map_err(|cause| SettingsError::InboundValue { cause })?,
+                transit_binding(written)?,
                 key_set,
                 algorithms,
                 // REQUIRED here and defaulted in `direct`, and the asymmetry is the point: RFC 9068
@@ -202,6 +197,43 @@ fn key_set(written: &RawInbound, mode: &str) -> Result<KeySetLocation, SettingsE
     let mut location = parsed.map_err(value)?;
     location.set_max_stale(max_stale);
     Ok(location)
+}
+
+/// What binds a `behind-gateway` assertion to this provider: `transit_audience`, or the alternative
+/// for a gateway that binds the provider by request path - mutually exclusive, and the second needs
+/// the written acknowledgement that the first is absent deliberately.
+fn transit_binding(written: &RawInbound) -> Result<TransitBinding, SettingsError> {
+    let audience = written
+        .transit_audience
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let prefix = written
+        .transit_request_path_prefix
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let absent_because = written
+        .transit_audience_absent_because
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    match (audience, prefix, absent_because) {
+        (Some(_), Some(_), _) => Err(SettingsError::InboundTransitBindingBothGiven),
+        (None, None, _) => Err(SettingsError::InboundTransitBindingNeitherGiven),
+        (Some(_), None, Some(_)) => Err(SettingsError::InboundAudienceAbsentBecauseWithoutPrefix),
+        (None, Some(_), None) => Err(SettingsError::InboundRequestPathPrefixWithoutReason),
+        (Some(audience), None, None) => ResourceIdentifier::parse_transit_audience(audience)
+            .map(TransitBinding::Audience)
+            .map_err(|cause| SettingsError::InboundValue { cause }),
+        (None, Some(prefix), Some(reason)) => {
+            let prefix = RequestPathPrefix::parse(prefix).map_err(|cause| SettingsError::InboundValue { cause })?;
+            let absent_because =
+                sutura_domain::source::AcknowledgementReason::written_under(TransitBinding::AUDIENCE_ABSENT_BECAUSE_KEY, reason)
+                    .map_err(|cause| SettingsError::InboundTransitAudienceAbsentBecause { cause })?;
+            Ok(TransitBinding::RequestPath { prefix, absent_because })
+        }
+    }
 }
 
 /// Refuses a key written under a mode that does not read it, naming the mode that does.

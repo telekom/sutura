@@ -50,7 +50,13 @@ fn named_verifiers_keep_complete_policies_and_legacy_objects_normalize() {
     assert_eq!(verifiers[1].path().as_str(), "/partners");
     assert_eq!(verifiers[2].mode(), "behind-gateway");
     assert_eq!(verifiers[0].issuer().as_str(), "https://staff-issuer.example.com");
-    assert_eq!(verifiers[2].audience().as_str(), "/gateway");
+    assert_eq!(
+        verifiers[2]
+            .audience()
+            .expect("this fixture configures transit_audience")
+            .as_str(),
+        "/gateway"
+    );
     assert_eq!(verifiers[0].metadata_path(), Some(verifiers[0].path()));
 
     let legacy = Sources::defaults(Environment::Development).with_overlay("security:\n  inbound:\n    mode: direct\n    resource: https://resource.example.com\n    authorization_server: https://issuer.example.com\n    key_set_file: /keys.json\n    algorithms: [RS256]\n");

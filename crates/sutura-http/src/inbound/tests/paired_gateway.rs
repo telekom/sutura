@@ -42,7 +42,9 @@ fn paired_gate() -> (InboundGate, MockIssuer, MockIssuer) {
         transit: sutura_config::TransitProof::new(
             sutura_config::ProofHeader::parse("authorization").expect("a fixture header is a header"),
             sutura_config::IssuerUrl::parse_transit_issuer(gateway_issuer.issuer()).expect("a fixture issuer is an issuer"),
-            sutura_config::ResourceIdentifier::parse_transit_audience(gateway_issuer.audience()).expect("a fixture audience"),
+            sutura_config::TransitBinding::Audience(
+                sutura_config::ResourceIdentifier::parse_transit_audience(gateway_issuer.audience()).expect("a fixture audience"),
+            ),
             sutura_config::KeySetLocation::File(sutura_config::KeySetFile::parse("/unread/gateway.json").expect("a test path")),
             sutura_config::PinnedAlgorithms::of(sutura_config::SigningAlgorithm::Es256),
             sutura_config::RequiredTokenType::Any,

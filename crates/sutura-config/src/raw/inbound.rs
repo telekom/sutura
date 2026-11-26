@@ -49,6 +49,16 @@ pub(crate) struct RawInbound {
     /// `behind-gateway`: the audience the proof must carry - an `https` URI or an absolute path.
     #[serde(default)]
     pub(crate) transit_audience: Option<String>,
+    /// `behind-gateway`: the alternative to `transit_audience` for a gateway that binds the
+    /// provider by request path instead of an `aud` claim - the prefix a `requestPath` claim must
+    /// start with. Mutually exclusive with `transit_audience`, and requires
+    /// `transit_audience_absent_because` alongside it.
+    #[serde(default)]
+    pub(crate) transit_request_path_prefix: Option<String>,
+    /// `behind-gateway`: required alongside `transit_request_path_prefix`, the written reason
+    /// `transit_audience` is absent rather than merely missing.
+    #[serde(default)]
+    pub(crate) transit_audience_absent_because: Option<String>,
     /// `direct`: what `aud` must equal, where it is not `resource` - an Entra application id.
     #[serde(default)]
     pub(crate) audience: Option<String>,

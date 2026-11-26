@@ -942,7 +942,6 @@ where
 }
 
 /// What review found, as regressions, sharing every fixture above.
-///
 mod review;
 /// `Send + Sync` on the gate's own state, split out for `xtask max-lines`.
 #[cfg(test)]
@@ -973,6 +972,8 @@ mod refresh;
 /// A gateway assertion declared single use - `docs/adr/20261015094920`.
 #[cfg(test)]
 mod replay;
+#[cfg(test)]
+mod request_path;
 /// Leg 1 through the assembled router, which is what says the layer is installed at all.
 mod router;
 /// A failing key set source past the declared ceiling.

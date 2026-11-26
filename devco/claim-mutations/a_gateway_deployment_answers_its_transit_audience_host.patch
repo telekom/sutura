@@ -1,10 +1,13 @@
 diff --git a/crates/sutura-http/src/host.rs b/crates/sutura-http/src/host.rs
+index f4129bb22..961d04e90 100644
 --- a/crates/sutura-http/src/host.rs
 +++ b/crates/sutura-http/src/host.rs
-@@ -54,5 +54,5 @@
-             requirement
-                 .resource()
--                .map_or_else(|| requirement.audience().host(), ResourceIdentifier::host)
-+                .map_or_else(|| requirement.audience().host().filter(|_| false), ResourceIdentifier::host)
+@@ -52,7 +52,7 @@ impl HostAllowlist {
+         let resource = settings.security().inbound().iter().filter_map(|inbound| {
+             let requirement = inbound;
+             requirement.resource().map_or_else(
+-                || requirement.audience().and_then(TokenAudience::host),
++                || requirement.audience().and_then(TokenAudience::host).filter(|_| false),
+                 ResourceIdentifier::host,
+             )
          });
-         let resource = resource.collect::<Vec<_>>();

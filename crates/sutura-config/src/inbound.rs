@@ -78,6 +78,7 @@ pub mod google;
 mod key_set;
 mod lifetime;
 mod primitive;
+mod request_path;
 mod scope;
 mod token_bytes;
 
@@ -90,6 +91,7 @@ pub use crate::inbound::primitive::{
     InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ResourceIdentifier,
     SigningAlgorithm,
 };
+pub use crate::inbound::request_path::RequestPathPrefix;
 pub use crate::inbound::scope::{ExtraScopeClaims, GrantedScopes};
 pub use crate::inbound::token_bytes::MaxTokenBytes;
 
@@ -202,6 +204,33 @@ impl core::fmt::Display for TokenLocation<'_> {
     }
 }
 
+/// What binds a gateway-signed assertion to the provider it was minted for.
+///
+/// **Two variants because one gateway shape has no `aud` to check.** The ordinary case is
+/// [`Self::Audience`]: `aud` must equal a configured value, the same unconditional comparison
+/// [`InboundIdentity::Direct`] makes. Some gateways route every provider behind one issuer with one
+/// assertion shape and give a provider no way to ask for an `aud` of its own; what binds the
+/// assertion to a particular provider there is the route the gateway dispatched on, carried in a
+/// `requestPath` claim - [`Self::RequestPath`] is that alternative, and `absent_because` is the
+/// written acknowledgement that this deployment chose it deliberately rather than by omission.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransitBinding {
+    /// `aud` must equal this, byte for byte.
+    Audience(TokenAudience),
+    /// No `aud` claim exists to check: `requestPath` must start with `prefix` instead.
+    RequestPath {
+        prefix: RequestPathPrefix,
+        /// Why `transit_audience` is absent - `sutura_domain::source::AcknowledgementReason`'s
+        /// pattern, required rather than a flag because the reason is what a reviewer needs.
+        absent_because: sutura_domain::source::AcknowledgementReason,
+    },
+}
+
+impl TransitBinding {
+    /// The key this value is written under, where it is [`Self::Audience`] - the other spelling.
+    pub const AUDIENCE_ABSENT_BECAUSE_KEY: &'static str = "security.inbound.transit_audience_absent_because";
+}
+
 /// What a fronting component has to prove on every request.
 ///
 /// Every field is a validation input, and that is the point of the type: there is no field here that
@@ -211,7 +240,7 @@ pub struct TransitProof {
     max_token_bytes: MaxTokenBytes,
     header: ProofHeader,
     issuer: IssuerUrl,
-    audience: TokenAudience,
+    binding: TransitBinding,
     key_set: KeySetLocation,
     algorithms: PinnedAlgorithms,
     /// The class of token the component emits. See [`RequiredTokenType`].
@@ -244,7 +273,7 @@ impl TransitProof {
     pub const fn new(
         header: ProofHeader,
         issuer: IssuerUrl,
-        audience: TokenAudience,
+        binding: TransitBinding,
         key_set: KeySetLocation,
         algorithms: PinnedAlgorithms,
         token_type: RequiredTokenType,
@@ -254,7 +283,7 @@ impl TransitProof {
             max_token_bytes: MaxTokenBytes::DEFAULT,
             header,
             issuer,
-            audience,
+            binding,
             key_set,
             algorithms,
             token_type,
@@ -356,7 +385,12 @@ pub struct TokenRequirement<'inbound> {
     /// (`#2089`) and `behind-gateway` both read a token from one.
     mode: sutura_domain::identity::VerifierMode,
     issuer: &'inbound IssuerUrl,
-    audience: &'inbound TokenAudience,
+    /// `aud` must equal this. `None` only where [`TransitBinding::RequestPath`] binds the assertion
+    /// by its request path instead - see [`Self::request_path_prefix`].
+    audience: Option<&'inbound TokenAudience>,
+    /// `requestPath` must start with this. `Some` only where [`TransitBinding::RequestPath`] is
+    /// configured, which is the only shape with no [`Self::audience`].
+    request_path_prefix: Option<&'inbound RequestPathPrefix>,
     /// The identifier this deployment publishes. `Some` in `direct` only.
     resource: Option<&'inbound ResourceIdentifier>,
     /// What a token with no `scope` claim is granted. `Some` behind a gateway that declares one.
@@ -409,16 +443,28 @@ impl<'inbound> TokenRequirement<'inbound> {
         self.issuer
     }
 
-    /// The value the `aud` claim must contain, byte for byte.
+    /// The value the `aud` claim must contain, byte for byte - `None` only where
+    /// [`Self::request_path_prefix`] is `Some` instead.
     ///
-    /// **Unconditional, and that is the security decision in `docs/adr/0014`.** A client may send a
-    /// resource indicator asking its authorization server for a narrower token; that is welcome and
-    /// it is an optimisation. It is never what makes the token safe, and this check is not skippable
-    /// when the indicator is absent.
+    /// **Unconditional in every other shape, and that is the security decision in `docs/adr/0014`.**
+    /// A client may send a resource indicator asking its authorization server for a narrower token;
+    /// that is welcome and it is an optimisation. It is never what makes the token safe, and this
+    /// check is not skippable when the indicator is absent. The one declared exception is
+    /// [`TransitBinding::RequestPath`], where there is no `aud` claim an operator could configure one
+    /// of these against - see that variant's documentation.
     #[inline]
     #[must_use]
-    pub const fn audience(&self) -> &'inbound TokenAudience {
+    pub const fn audience(&self) -> Option<&'inbound TokenAudience> {
         self.audience
+    }
+
+    /// The prefix a `requestPath` claim must start with - `Some` only where [`Self::audience`] is
+    /// `None`, because [`TransitBinding::RequestPath`] is the only configuration with no `aud` to
+    /// check and this is what binds the assertion to this provider instead.
+    #[inline]
+    #[must_use]
+    pub const fn request_path_prefix(&self) -> Option<&'inbound RequestPathPrefix> {
+        self.request_path_prefix
     }
 
     /// The identifier RFC 9728's metadata and a challenge name, whatever `aud` is. `None` behind a
@@ -570,7 +616,8 @@ impl InboundIdentity {
                 },
                 mode: sutura_domain::identity::VerifierMode::Direct,
                 issuer: authorization_server,
-                audience: resource.audience(),
+                audience: Some(resource.audience()),
+                request_path_prefix: None,
                 resource: Some(resource),
                 grant: None,
                 extra_scope_claims: resource.extra_scope_claims(),
@@ -583,26 +630,33 @@ impl InboundIdentity {
                 // field on `TokenRequirement` for why the two modes differ here.
                 max_lifetime: None,
             },
-            Self::BehindGateway { ref transit } => TokenRequirement {
-                max_token_bytes: transit.max_token_bytes,
-                location: if transit.header.is_authorization() {
-                    TokenLocation::GatewayBearer
-                } else {
-                    TokenLocation::Header { name: &transit.header }
-                },
-                mode: sutura_domain::identity::VerifierMode::Gateway,
-                issuer: &transit.issuer,
-                audience: &transit.audience,
-                resource: None,
-                grant: transit.grant.as_ref(),
-                extra_scope_claims: ExtraScopeClaims::none(),
-                key_set: &transit.key_set,
-                algorithms: &transit.algorithms,
-                token_type: &transit.token_type,
-                max_lifetime: Some(transit.max_lifetime),
-                single_use: transit.single_use,
-                address_claim: &transit.address_claim,
-            },
+            Self::BehindGateway { ref transit } => {
+                let (audience, request_path_prefix) = match &transit.binding {
+                    TransitBinding::Audience(audience) => (Some(audience), None),
+                    TransitBinding::RequestPath { prefix, .. } => (None, Some(prefix)),
+                };
+                TokenRequirement {
+                    max_token_bytes: transit.max_token_bytes,
+                    location: if transit.header.is_authorization() {
+                        TokenLocation::GatewayBearer
+                    } else {
+                        TokenLocation::Header { name: &transit.header }
+                    },
+                    mode: sutura_domain::identity::VerifierMode::Gateway,
+                    issuer: &transit.issuer,
+                    audience,
+                    request_path_prefix,
+                    resource: None,
+                    grant: transit.grant.as_ref(),
+                    extra_scope_claims: ExtraScopeClaims::none(),
+                    key_set: &transit.key_set,
+                    algorithms: &transit.algorithms,
+                    token_type: &transit.token_type,
+                    max_lifetime: Some(transit.max_lifetime),
+                    single_use: transit.single_use,
+                    address_claim: &transit.address_claim,
+                }
+            }
         }
     }
 
