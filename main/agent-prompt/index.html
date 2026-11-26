@@ -2872,8 +2872,18 @@ on that last pool, but it IS held to the same budget on its metrics. <strong>Met
 authored catalog can make large, so leaving them uncounted would defeat the bound's own point.</p>
 <p>Under the budget nothing changes. Over it, whole items are included up to the bound - never one
 truncated mid-metric or mid-model - and the rest are named in an explicit <code>omitted_metrics</code> or
-<code>omitted_models</code> list, so every omission is reachable by <code>model</code> or by <code>metric</code> with no need to
-discover which model it belongs to first. Each omitted metric carries its model alongside it: the
+<code>omitted_models</code> list, up to <code>MAX_OMITTED_NAMES</code> entries each. A listing with more omissions than
+that cap leaves the rest of them unnamed in that list, but still reachable: <code>describe_catalog(names:
+true)</code> answers a names-only, paged index of every model AND every metric this caller may see, walked
+as one sequential stream (every model, in order, then every metric) - narrowed to one prefix with
+<code>model_prefix</code>, paged onward past <code>MAX_OMITTED_NAMES</code> with a single <code>after</code> cursor that each page
+returns, verbatim, to continue - so every visible model's and metric's name is reachable, eventually,
+with no cap on how many pages the whole walk takes (<code>github.com/telekom/sutura#2083</code>). <code>GET
+/v1/catalog?names=true</code> is the same index over HTTP, metric-only: it carries no model-names half
+(this transport carries no physical schema at all - see above), so <code>?after=</code> pages only the metric
+pool, as the one <code>metric:&lt;name&gt;</code> cursor form both transports' <code>next</code> returns and both transports'
+<code>after</code> accept verbatim; a malformed <code>after</code> - anything that is not a cursor this index itself
+returned - is refused as <code>400</code>, not read as "start from the beginning". Each omitted metric carries its model alongside it: the
 agent tool's structured half and <code>GET /v1/catalog</code>'s body give this as a <code>{"metric": ..., "model":
 ...}</code> object per entry, and the two text renderings (the agent tool's text half, this prompt) give
 the same pair as <code>"&lt;metric&gt; (model &lt;model&gt;)"</code>. A sentence points back at <code>describe_catalog(metric:

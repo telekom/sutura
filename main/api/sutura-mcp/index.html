@@ -3408,18 +3408,39 @@ principal may see - the metrics, grains, dimensions and permitted values.</p>
 where the operator exposes physical schema - only that model's own columns and relationships.
 <code>metric</code> is optional and narrows the answer to that one metric alone, naming nothing about its
 model's physical schema - the way to read back a single metric a previous, byte-bounded listing
-named but left out. Give at most one of the two; both together is refused. Omit both for the
-whole catalog. An unfiltered catalog whose metrics or physical schema would be large is itself
-capped at a byte bound shared across the whole result; where it is, every item left out is named
-explicitly along with how to read it back - call this tool again with <code>model</code> or <code>metric</code> set to
-one of those names.</p>
+named but left out. Give at most one of <code>model</code> and <code>metric</code>; both together is refused. Omit
+both for the whole catalog. An unfiltered catalog whose metrics or physical schema would be
+large is itself capped at a byte bound shared across the whole result; where it is, every item
+left out is named explicitly up to <code>sutura_app::catalog_budget::MAX_OMITTED_NAMES</code> names,
+along with how to read it back - call this tool again with <code>model</code> or <code>metric</code> set to one of
+those names.</p>
+<p><code>model_prefix</code> narrows the listing (or the names index below) to model names starting with that
+prefix, for when only part of a name is known. Mutually exclusive with <code>model</code> and <code>metric</code>.</p>
+<p><code>names: true</code> switches this tool to a names-only index of every visible model AND every visible
+metric - name and table for a model, name and owning model for a metric, nothing else - walked as
+one sequential stream (every model, in order, then every metric) under the same byte bound and
+NOT subject to the omission list's own cap on how many names it carries. Once a page does not
+cover every remaining name, the result carries a <code>next</code> cursor; call this tool again with
+<code>after</code> set to that cursor, verbatim, to continue. <code>next</code> is absent only once BOTH halves are
+exhausted. This is how every model or metric past that cap is reached, not only the first page
+of them. Mutually exclusive with <code>model</code> and <code>metric</code>; <code>after</code> is only meaningful alongside
+<code>names: true</code>, and a value this tool did not itself return is refused.</p>
 <p>This tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and
 terms recorded as undefined it carries) and the deployment operator's instructions - neither is
-scoped to one model or metric, so <code>model</code>/<code>metric</code> does not narrow them.</p>
+scoped to one model or metric, so none of these arguments narrow them.</p>
 <h3 id="use-dimensioncontent"><code>use DimensionContent</code><a class="headerlink" href="#use-dimensioncontent" title="Permanent link">&para;</a></h3>
 <p>One dimension of one metric.</p>
 <h3 id="use-metriccontent"><code>use MetricContent</code><a class="headerlink" href="#use-metriccontent" title="Permanent link">&para;</a></h3>
 <p>One metric, as much of it as a caller needs to ask a valid question.</p>
+<h3 id="use-namesindexcontent"><code>use NamesIndexContent</code><a class="headerlink" href="#use-namesindexcontent" title="Permanent link">&para;</a></h3>
+<p>A names-only, paged index of every model this caller may see - <code>describe_catalog(names: true)</code>'s
+answer, <code>github.com/telekom/sutura#2083</code>'s first ask.</p>
+<p><strong>Why this exists beside <code>CatalogContent::omitted_models</code></strong>: that field is itself capped at
+<code>MAX_OMITTED_NAMES</code>, so a catalog with more omissions than that cap left the rest of them with
+no argument that could ever name them. This index has no such cap on how many PAGES it takes to
+walk it - only <code>Self::next</code> decides whether another page remains, via <code>paged_names</code>, so every
+visible model is reachable, eventually, by repeating the call with <code>after</code> set to the cursor each
+page returns.</p>
 <h3 id="use-malformedstatement"><code>use MalformedStatement</code><a class="headerlink" href="#use-malformedstatement" title="Permanent link">&para;</a></h3>
 <p>Why a <code>run_sql</code> call's arguments were not a statement.</p>
 <h3 id="use-rawcontent"><code>use RawContent</code><a class="headerlink" href="#use-rawcontent" title="Permanent link">&para;</a></h3>
@@ -3492,14 +3513,26 @@ principal may see - the metrics, grains, dimensions and permitted values.</p>
 where the operator exposes physical schema - only that model's own columns and relationships.
 <code>metric</code> is optional and narrows the answer to that one metric alone, naming nothing about its
 model's physical schema - the way to read back a single metric a previous, byte-bounded listing
-named but left out. Give at most one of the two; both together is refused. Omit both for the
-whole catalog. An unfiltered catalog whose metrics or physical schema would be large is itself
-capped at a byte bound shared across the whole result; where it is, every item left out is named
-explicitly along with how to read it back - call this tool again with <code>model</code> or <code>metric</code> set to
-one of those names.</p>
+named but left out. Give at most one of <code>model</code> and <code>metric</code>; both together is refused. Omit
+both for the whole catalog. An unfiltered catalog whose metrics or physical schema would be
+large is itself capped at a byte bound shared across the whole result; where it is, every item
+left out is named explicitly up to <code>sutura_app::catalog_budget::MAX_OMITTED_NAMES</code> names,
+along with how to read it back - call this tool again with <code>model</code> or <code>metric</code> set to one of
+those names.</p>
+<p><code>model_prefix</code> narrows the listing (or the names index below) to model names starting with that
+prefix, for when only part of a name is known. Mutually exclusive with <code>model</code> and <code>metric</code>.</p>
+<p><code>names: true</code> switches this tool to a names-only index of every visible model AND every visible
+metric - name and table for a model, name and owning model for a metric, nothing else - walked as
+one sequential stream (every model, in order, then every metric) under the same byte bound and
+NOT subject to the omission list's own cap on how many names it carries. Once a page does not
+cover every remaining name, the result carries a <code>next</code> cursor; call this tool again with
+<code>after</code> set to that cursor, verbatim, to continue. <code>next</code> is absent only once BOTH halves are
+exhausted. This is how every model or metric past that cap is reached, not only the first page
+of them. Mutually exclusive with <code>model</code> and <code>metric</code>; <code>after</code> is only meaningful alongside
+<code>names: true</code>, and a value this tool did not itself return is refused.</p>
 <p>This tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and
 terms recorded as undefined it carries) and the deployment operator's instructions - neither is
-scoped to one model or metric, so <code>model</code>/<code>metric</code> does not narrow them.</p>
+scoped to one model or metric, so none of these arguments narrow them.</p>
 <h5 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
 <h4 id="struct-catalogcontent"><code>struct CatalogContent</code><a class="headerlink" href="#struct-catalogcontent" title="Permanent link">&para;</a></h4>
@@ -3538,10 +3571,12 @@ from a bare <code>&amp;PinnedDefinitions</code> would hand every caller the whol
 the defect this surface shipped until it took the view. <code>ScopedView</code> borrows the bundle, so
 this builder cannot reach <code>SemanticCatalog::load</code> - the knowledge sections and the metrics
 are filtered by the caller's own grant, never by a call the renderer omits.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_with_physical_schema</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">instructions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">list_physical_schema</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ModelName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">MetricName</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_with_physical_schema</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">,</span><span class="w"> </span><span class="n">instructions</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">list_physical_schema</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="n">model</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ModelName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">MetricName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">model_prefix</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Include physical models only when the operator enabled them for this caller view, narrow to
-one model when <code>model</code> names one, or narrow to one metric's own entry when <code>metric</code> names one.</p>
+one model when <code>model</code> names one, narrow to one metric's own entry when <code>metric</code> names one, or
+narrow to model names starting with <code>model_prefix</code> when given (mutually exclusive with
+<code>model</code>/<code>metric</code>, enforced by <code>server::describe</code> before this is reached).</p>
 <p><strong><code>model</code> and <code>metric</code> are already resolved to something existing and visible by the
 caller, and never both at once</strong> - <code>server::describe</code> is the one place that turns a raw
 argument into either, refusing an unknown or invisible name, and refusing the two together,
@@ -3597,6 +3632,15 @@ discovering, by some other means, which model this metric belongs to.</p>
 <p>One dimension of one metric.</p>
 <h5 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Serialize</code></p>
+<h4 id="use-namesindexcontent_1"><code>use NamesIndexContent</code><a class="headerlink" href="#use-namesindexcontent_1" title="Permanent link">&para;</a></h4>
+<p>A names-only, paged index of every model this caller may see - <code>describe_catalog(names: true)</code>'s
+answer, <code>github.com/telekom/sutura#2083</code>'s first ask.</p>
+<p><strong>Why this exists beside <code>CatalogContent::omitted_models</code></strong>: that field is itself capped at
+<code>MAX_OMITTED_NAMES</code>, so a catalog with more omissions than that cap left the rest of them with
+no argument that could ever name them. This index has no such cap on how many PAGES it takes to
+walk it - only <code>Self::next</code> decides whether another page remains, via <code>paged_names</code>, so every
+visible model is reachable, eventually, by repeating the call with <code>after</code> set to the cursor each
+page returns.</p>
 <h3 id="module-raw">Module <code>raw</code><a class="headerlink" href="#module-raw" title="Permanent link">&para;</a></h3>
 <p>The raw SQL tool's wire shape: what <code>run_sql</code> takes, and what it answers.</p>
 <p>Its own module for the reason <code>wire/catalog.rs</code> has one - one whole tool, sharing nothing with
