@@ -264,6 +264,14 @@ pub enum TokenRejected {
     /// `requestPath` does not start with the configured prefix. The value is never rendered.
     #[error("the `requestPath` in the presented proof does not start with this provider's configured prefix")]
     RequestPathNotBound,
+    /// An `aud` claim where this mode never compares one - refused rather than ignored, since
+    /// admitting it would be a second, unchecked binding.
+    #[error("the presented proof carries an `aud` claim, and this deployment binds the proof by `requestPath` instead")]
+    AudiencePresentInRequestPathMode,
+    /// A `requestPath` this deployment will not compare at all: a dot segment, a doubled `/`, a
+    /// backslash, a percent sign, a `?` or `#`, or a non-ASCII byte. Never rendered.
+    #[error("the `requestPath` in the presented proof is not in the plain shape this deployment compares")]
+    RequestPathNotPlain,
 }
 
 /// Why a presented token did not verify, when it did not.
@@ -395,6 +403,10 @@ struct Claims {
     /// request-path alternative to `transit_audience` - see [`TokenValidator::bound_by_request_path`].
     #[serde(default, rename = "requestPath")]
     request_path: Option<String>,
+    /// Read only to refuse it in request-path mode - see [`TokenValidator::bound_by_request_path`].
+    /// A `Value`, so an audience of any JSON shape is still seen as present.
+    #[serde(default)]
+    aud: Option<serde_json::Value>,
 }
 
 /// One deployment's whole token check, built once at startup.
@@ -438,6 +450,16 @@ const fn check_size(token: &str, limit: usize) -> Result<(), TokenRejected> {
     Ok(())
 }
 
+/// Whether a presented `requestPath` is plain enough to compare: no dot segment, no doubled `/`,
+/// no `\`, `%`, `?` or `#`, and no non-ASCII byte - `starts_with` is not safe against anything
+/// a gateway might still normalise differently first.
+fn request_path_is_plain(path: &str) -> bool {
+    if !path.is_ascii() || path.contains("//") || path.contains(['%', '\\', '?', '#']) {
+        return false;
+    }
+    path.split('/').all(|segment| segment != "." && segment != "..")
+}
+
 impl TokenValidator {
     /// Bounds unverified input before decoding its header or reading its key.
     pub(crate) const fn check_size(&self, token: &str) -> Result<(), TokenRejected> {
@@ -451,8 +473,10 @@ impl TokenValidator {
     /// Builds the validation from a declaration `sutura-config` already accepted or refused.
     ///
     /// Every line here is a control, so each one says what it is for. What is **not** here is equally
-    /// the point: no `insecure_disable_signature_validation`, no `validate_aud = false`, and no path
-    /// that reads the algorithm out of the token in order to pick one.
+    /// the point: no `insecure_disable_signature_validation`, and no path that reads the algorithm out
+    /// of the token in order to pick one. `validate_aud` is turned off only where
+    /// `request_path_prefix` binds the proof instead - the gateway's assertion carries no `aud` at
+    /// all there, and the `requestPath` check below is what decides the provider.
     #[must_use]
     pub fn new(requirement: &TokenRequirement<'_>) -> Self {
         Self::named(sutura_domain::identity::VerifierId::primary(), requirement)
@@ -472,6 +496,11 @@ impl TokenValidator {
         // `required_spec_claims` below, because the gateway's assertion carries none at all.
         if let Some(audience) = requirement.audience() {
             validation.set_audience(&[audience.as_str()]);
+        } else {
+            // No `aud` to compare: without this, the library's default `validate_aud = true` refuses
+            // every token here, because it has nothing to compare against an audience that is never
+            // set. The `requestPath` check is the actual binding to the provider in this mode.
+            validation.validate_aud = false;
         }
         validation.set_issuer(&[requirement.issuer().as_str()]);
         // `exp` and `iss` and `sub` all REQUIRED, and `aud` too except for the one declared shape
@@ -691,20 +720,26 @@ impl TokenValidator {
         })
     }
 
-    /// Binds the proof to this provider by `requestPath`, where that is how this deployment is
-    /// configured instead of `transit_audience`.
+    /// Binds the proof to this provider by `requestPath`, where that replaces `transit_audience`.
     ///
-    /// `Ok` immediately where no prefix is configured - the ordinary shape, checked by `aud` already.
-    /// Where one is, a `requestPath` claim is required and must [`RequestPathPrefix::matches`] it;
-    /// neither case renders the claim value, which is caller-adjacent text.
+    /// `Ok` immediately where no prefix is configured. Otherwise: an `aud` claim is refused outright
+    /// (fail-closed), a `requestPath` is required, must be [`request_path_is_plain`], and must
+    /// [`RequestPathPrefix::matches`] the configured prefix. The claim value is never rendered.
     fn bound_by_request_path(&self, claims: &Claims) -> Result<(), TokenRejected> {
         let Some(ref prefix) = self.request_path_prefix else {
             return Ok(());
         };
-        match claims.request_path.as_deref() {
-            Some(path) if prefix.matches(path) => Ok(()),
-            Some(_) => Err(TokenRejected::RequestPathNotBound),
-            None => Err(TokenRejected::NoRequestPath),
+        if claims.aud.is_some() {
+            return Err(TokenRejected::AudiencePresentInRequestPathMode);
+        }
+        let path = claims.request_path.as_deref().ok_or(TokenRejected::NoRequestPath)?;
+        if !request_path_is_plain(path) {
+            return Err(TokenRejected::RequestPathNotPlain);
+        }
+        if prefix.matches(path) {
+            Ok(())
+        } else {
+            Err(TokenRejected::RequestPathNotBound)
         }
     }
 

@@ -845,3 +845,74 @@ fn a_key_set_max_stale_outside_its_range_does_not_start() {
         drop(loads(overlay(declared, seconds)));
     }
 }
+
+/// `GATEWAY_INBOUND` with `transit_audience` replaced by the request-path alternative, both of its
+/// settings together.
+fn gateway_bound_by_path() -> String {
+    GATEWAY_INBOUND.replace(
+        "transit_audience: \"https://sutura.example.com\"",
+        "transit_request_path_prefix: \"/hub/app/v1/\"\n    transit_audience_absent_because: \"the gateway signs no aud claim\"",
+    )
+}
+
+#[test]
+fn a_request_path_prefix_with_its_reason_starts() {
+    let settings = loads(format!("security:\n{}", gateway_bound_by_path()));
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity()
+        .expect("a JWT verifier");
+    assert!(inbound.requirement().audience().is_none());
+}
+
+#[test]
+fn transit_audience_and_transit_request_path_prefix_together_do_not_start() {
+    let both = format!(
+        "security:\n{GATEWAY_INBOUND}    transit_request_path_prefix: \"/hub/app/v1/\"\n    transit_audience_absent_because: \"why\"\n"
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(both))
+        .expect_err("both bindings together are refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundTransitBindingBothGiven),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn neither_transit_audience_nor_transit_request_path_prefix_does_not_start() {
+    let neither = GATEWAY_INBOUND.replace("transit_audience: \"https://sutura.example.com\"\n    ", "");
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{neither}")))
+        .expect_err("no binding at all is refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundTransitBindingNeitherGiven),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_request_path_prefix_without_its_reason_does_not_start() {
+    let without_reason = gateway_bound_by_path().replace(
+        "    transit_audience_absent_because: \"the gateway signs no aud claim\"\n",
+        "",
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{without_reason}")))
+        .expect_err("the prefix with no acknowledgement is refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundRequestPathPrefixWithoutReason),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_absent_because_reason_without_a_request_path_prefix_does_not_start() {
+    let orphaned_reason = format!("security:\n{GATEWAY_INBOUND}    transit_audience_absent_because: \"why\"\n");
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(orphaned_reason))
+        .expect_err("a reason with no prefix to acknowledge is refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundAudienceAbsentBecauseWithoutPrefix),
+        "{error:?}"
+    );
+}

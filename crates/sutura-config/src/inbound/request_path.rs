@@ -10,9 +10,9 @@
 //! stored value's own trailing `/` is part of what must match.
 
 use crate::inbound::InvalidInboundValue;
-use crate::inbound::primitive::{MAX_LENGTH, percent_escapes_are_complete};
+use crate::inbound::primitive::MAX_LENGTH;
 
-const PATH_CHARACTERS: &str = "letters, digits, and any of - . _ ~ : / @ ! $ & ' ( ) * + , ; = %";
+const SEGMENT_CHARACTERS: &str = "letters, digits, and any of - . _ ~, with no `.` or `..` segment";
 
 /// An absolute path, stored with a leading and a trailing `/`, that a `requestPath` claim must start
 /// with.
@@ -44,49 +44,35 @@ impl RequestPathPrefix {
                 limit: MAX_LENGTH,
             });
         }
-        if !trimmed.starts_with('/') || !trimmed.ends_with('/') || trimmed.starts_with("//") {
+        if !trimmed.starts_with('/') || !trimmed.ends_with('/') || trimmed.len() < 2 {
             return Err(InvalidInboundValue::NotARequestPathPrefix { key });
         }
-        for (position, character) in trimmed.chars().enumerate() {
-            if character == '#' || character == '?' {
-                return Err(InvalidInboundValue::HasDelimiter {
-                    key,
-                    delimiter: character,
-                    position,
-                });
-            }
-            let permitted = character.is_ascii_alphanumeric()
-                || matches!(
-                    character,
-                    '-' | '.'
-                        | '_'
-                        | '~'
-                        | ':'
-                        | '/'
-                        | '@'
-                        | '!'
-                        | '$'
-                        | '&'
-                        | '\''
-                        | '('
-                        | ')'
-                        | '*'
-                        | '+'
-                        | ','
-                        | ';'
-                        | '='
-                        | '%'
-                );
-            if !permitted {
-                return Err(InvalidInboundValue::NotPermitted {
-                    key,
-                    position,
-                    accepted: PATH_CHARACTERS,
-                });
-            }
-        }
-        if !percent_escapes_are_complete(trimmed) {
+        // Between the leading and trailing `/`, every segment must be non-empty (so "//" and the
+        // bare "/" - zero segments - are refused), must not be a dot segment, and must hold only
+        // unreserved characters: no `%` and nothing else that a path normaliser could read two ways.
+        let Some(interior) = trimmed.strip_prefix('/').and_then(|rest| rest.strip_suffix('/')) else {
+            // Unreachable given the check above - both ends are `/` - but a typed refusal over a
+            // panic either way.
             return Err(InvalidInboundValue::NotARequestPathPrefix { key });
+        };
+        let segments: Vec<&str> = interior.split('/').collect();
+        if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
+            return Err(InvalidInboundValue::NotARequestPathPrefix { key });
+        }
+        for segment in &segments {
+            if *segment == "." || *segment == ".." {
+                return Err(InvalidInboundValue::NotARequestPathPrefix { key });
+            }
+            for (position, character) in segment.char_indices() {
+                let permitted = character.is_ascii_alphanumeric() || matches!(character, '-' | '.' | '_' | '~');
+                if !permitted {
+                    return Err(InvalidInboundValue::NotPermitted {
+                        key,
+                        position,
+                        accepted: SEGMENT_CHARACTERS,
+                    });
+                }
+            }
         }
         Ok(Self(String::from(trimmed)))
     }
@@ -137,5 +123,25 @@ mod tests {
     #[test]
     fn a_prefix_without_a_leading_slash_is_refused() {
         RequestPathPrefix::parse("hub/app/v1/").unwrap_err();
+    }
+
+    #[test]
+    fn the_bare_root_is_refused() {
+        RequestPathPrefix::parse("/").unwrap_err();
+    }
+
+    #[test]
+    fn a_dot_dot_segment_is_refused() {
+        RequestPathPrefix::parse("/hub/../v1/").unwrap_err();
+    }
+
+    #[test]
+    fn a_doubled_slash_is_refused() {
+        RequestPathPrefix::parse("/hub//v1/").unwrap_err();
+    }
+
+    #[test]
+    fn a_percent_sign_is_refused() {
+        RequestPathPrefix::parse("/hub/%2e/").unwrap_err();
     }
 }

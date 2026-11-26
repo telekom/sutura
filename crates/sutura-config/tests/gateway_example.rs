@@ -10,7 +10,7 @@ mod tests {
     const AUDIENCE: &str = "/sutura";
 
     #[test]
-    fn the_tardis_example_loads_once_its_placeholders_are_filled() {
+    fn the_gateway_example_loads_once_its_placeholders_are_filled() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/tardis/conf/base.yaml");
         let written = std::fs::read_to_string(&path).expect("the example's settings are readable");
         for placeholder in ["<gateway-issuer>", "<audience>"] {
@@ -59,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tardis_example_is_refused_while_its_placeholders_remain() {
+    fn the_gateway_example_is_refused_while_its_placeholders_remain() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/tardis/conf/base.yaml");
         let written = std::fs::read_to_string(path).expect("the example's settings are readable");
         let refused = Settings::load(&Sources::defaults(Environment::Development).with_overlay(written))

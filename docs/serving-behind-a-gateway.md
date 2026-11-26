@@ -22,7 +22,16 @@ claim that must start with the provider's own route prefix. For that gateway, se
 of `transit_audience`, and `transit_audience_absent_because` with the reason `transit_audience` is absent. sutura then
 refuses an assertion whose `requestPath` is missing or does not start with the configured prefix. The two settings are
 mutually exclusive: giving both, or neither with `security.inbound.mode: behind-gateway`, refuses the configuration at
-startup.
+startup. sutura refuses an assertion that carries an `aud` claim at all in this mode, rather than ignore one it never
+compares.
+
+**What this binding does not cover.** The `requestPath` claim is only as trustworthy as the gateway's own routing: this
+check never sees the request the caller made to the gateway, only what the gateway wrote into the assertion before
+forwarding it. Every provider that shares the same issuer can mint an assertion with any `requestPath` it chooses -
+there is no cryptographic separation between sibling providers behind one issuer, only the gateway's own
+path-dispatch logic deciding which assertion each provider receives. Rule 1 above still applies in full. Also,
+`transit_audience` is what [the host allowlist](integrations/identity.md#settings-for-behind-gateway) derives a host
+entry from; `transit_request_path_prefix` contributes none, so set `server.allowed_hosts` explicitly when using it.
 
 ## Who the caller is
 

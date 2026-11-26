@@ -93,6 +93,26 @@ pub(super) fn claims(subject: &str, audience: &str, issuer: &str, extra: &str) -
     object
 }
 
+/// A claim set with no `aud` at all, for the request-path alternative to `transit_audience` - a
+/// gateway bound by `requestPath` signs no audience, so this is the shape that mode actually sees.
+pub(super) fn claims_no_audience(subject: &str, issuer: &str, extra: &str) -> serde_json::Value {
+    let expiry = expiry_in(3600);
+    let mut object = serde_json::json!({
+        "sub": subject,
+        "iss": issuer,
+        "exp": expiry,
+        "nbf": expiry - 7200,
+    });
+    if !extra.is_empty() {
+        let more: serde_json::Value = serde_json::from_str(extra).expect("a test claim fragment is JSON");
+        let object = object.as_object_mut().expect("a claim set is an object");
+        for (key, value) in more.as_object().expect("a fragment is an object") {
+            drop(object.insert(key.clone(), value.clone()));
+        }
+    }
+    object
+}
+
 /// A unix timestamp `seconds` from now.
 pub(super) fn expiry_in(seconds: i64) -> i64 {
     let now = std::time::SystemTime::now()
