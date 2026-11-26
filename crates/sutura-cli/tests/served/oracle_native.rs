@@ -211,10 +211,15 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
     }
 }
 
-/// On the native-encryption path, a statement the server itself fails (a table that does not
-/// exist) must reach the operator's log as that server error, not as the generic native-encryption
-/// refusal the unprotected break-marker packet used to produce (#2084). The reply itself can never
-/// show this: `RawRefusalReason::StatementFailed` carries no driver text by design
+/// On the native-encryption path, a statement the server itself fails (casting the fixture's own
+/// non-numeric `PAYLOAD` text to a number) must reach the operator's log as that server error, not
+/// as the generic native-encryption refusal the unprotected break-marker packet used to produce
+/// (#2084). The statement has to name a table the catalog already knows - `EVENTS`, from the
+/// fixture catalog `local_catalog` builds - because `resolve.rs`'s `factor()` refuses any other
+/// table name locally as `Refused::UnknownTable` before a single Oracle leg runs, which would make
+/// the ORA code impossible to observe regardless of the fix under test; asserting the reply is not
+/// `unknown_table` pins that this is genuinely the server's own refusal. The reply itself can never
+/// carry the driver's text: `RawRefusalReason::StatementFailed` carries no driver text by design
 /// (`crates/sutura-domain/src/raw.rs`) - whoever controls the statement controls part of what a
 /// database says about it, so the closed reason is all a caller gets. `run_sql`'s own debug line
 /// (`crates/sutura-app/src/raw.rs`'s `run_at`) carries the driver's words verbatim instead, so this
@@ -237,7 +242,7 @@ fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
     let reply = deployment.post(
         &v1(sutura_http::constants::base_paths::RUN_SQL),
         Some(TOKEN),
-        &serde_json::json!({ "statement": "select 1 from sutura_2084_no_such_table" }).to_string(),
+        &serde_json::json!({ "statement": "select cast(PAYLOAD as number) from EVENTS" }).to_string(),
     );
     assert_eq!(
         reply.status, 200,
@@ -245,7 +250,13 @@ fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
         reply.body
     );
     assert_eq!(reply.json()["outcome"], "refusal", "{}", reply.body);
-    deployment.awaiting("ORA-00942");
+    assert_ne!(
+        reply.json()["reason"],
+        "unknown_table",
+        "EVENTS is a catalog table - the refusal must come from the server, not local resolution: {}",
+        reply.body
+    );
+    deployment.awaiting("ORA-01722");
 }
 
 #[test]
