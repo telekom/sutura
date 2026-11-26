@@ -3066,8 +3066,20 @@ authenticates the deployment, and every question runs with the access of the dep
 <tr>
 <td><code>transit_audience</code></td>
 <td>string</td>
-<td>required</td>
+<td>see below</td>
 <td>The <code>aud</code> of the assertion: an <code>https</code> URI or a path that starts with one <code>/</code></td>
+</tr>
+<tr>
+<td><code>transit_request_path_prefix</code></td>
+<td>string</td>
+<td>see below</td>
+<td>The alternative to <code>transit_audience</code>: the <code>requestPath</code> of the assertion must start with this</td>
+</tr>
+<tr>
+<td><code>transit_audience_absent_because</code></td>
+<td>string</td>
+<td>required with <code>transit_request_path_prefix</code></td>
+<td>The written reason <code>transit_audience</code> is absent</td>
 </tr>
 <tr>
 <td><code>granted_scopes</code></td>
@@ -3153,6 +3165,20 @@ request, so keep its lifetime short. With <code>transit_single_use: false</code>
 again and again until its <code>exp</code> plus 30 seconds: at most <code>transit_max_lifetime_seconds</code> plus 30
 seconds after its <code>iat</code>, 150 seconds at the default. See
 <a href="../../serving-behind-a-gateway/#single-use">Single use</a>.</p>
+<p>Exactly one of <code>transit_audience</code> or <code>transit_request_path_prefix</code> must be set; sutura refuses to
+start with both or with neither. A gateway that signs no <code>aud</code> claim and instead binds the
+assertion to the provider through a <code>requestPath</code> claim uses <code>transit_request_path_prefix</code> (a
+path that starts and ends with exactly one <code>/</code>) and must also give
+<code>transit_audience_absent_because</code>, the written reason <code>transit_audience</code> is absent. sutura then
+refuses an assertion whose <code>requestPath</code> is missing or does not start with the configured prefix,
+and refuses one that carries an <code>aud</code> claim at all - this mode never compares one, so admitting it
+would be an unchecked second binding.</p>
+<p>This binding is only as strong as the gateway's own path routing: sutura never sees the request the
+caller made to the gateway, only the <code>requestPath</code> the gateway wrote into the assertion. Every
+provider sharing the issuer can mint an assertion naming any prefix, so <a href="#the-key-set">the key set</a>
+still has to hold only this gateway's own keys. <code>transit_audience</code> is also what the host allowlist
+derives a host entry from (see <a href="../../serving-behind-a-gateway/"><code>server.allowed_hosts</code></a>); a
+deployment using <code>transit_request_path_prefix</code> instead must set that allowlist explicitly.</p>
 <h2 id="token-size">Token size<a class="headerlink" href="#token-size" title="Permanent link">&para;</a></h2>
 <p><code>security.inbound.max_token_bytes</code> applies to both modes, to <code>/v1</code> and to the HTTP
 <code>/mcp</code> mount. The default is 8192 bytes and the fixed ceiling is 12288. Zero and
