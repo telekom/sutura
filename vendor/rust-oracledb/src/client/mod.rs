@@ -284,39 +284,30 @@ impl Client {
     /// silently discarded as if it were pre-reset noise.
     ///
     /// On native encryption, the server independently re-derives its MAC
-    /// keystreams the moment it sees the client's answering reset marker,
+    /// keystreams the moment it reads the client's answering reset marker,
     /// chaining forward from their current state rather than restarting from
-    /// the session key. The client reaches that same synchronisation point
-    /// the moment it in turn sees the marker come back, so it rekeys there,
-    /// right before reading what follows - any data still in flight from
-    /// before the break remains under the old keys, exactly like the server's
-    /// own traffic does, and only the record the break/reset handshake is
-    /// actually waiting for is read under the new ones.
+    /// the session key - it does not wait to see anything come back first,
+    /// since sending that marker is itself what moves it to the new state.
+    /// The client reaches that same point the moment it, in turn, decides to
+    /// answer: it rekeys immediately after sending its own reset marker,
+    /// before reading anything further, mirroring go-ora's `processMarker`
+    /// (which re-initialises unconditionally on every marker it reads,
+    /// without inspecting that marker's type) rather than waiting to
+    /// recognise a reset-typed echo on the wire - any data still in flight
+    /// from before the break remains under the old keys, exactly like the
+    /// server's own traffic does, and only the record the break/reset
+    /// handshake is actually waiting for is read under the new ones.
     fn reset(&mut self, reset_received: bool) -> Result<Packet, Error> {
         self.send_marker(constants::MARKER_TYPE_RESET)?;
         let native = self.transport.uses_native();
-        let mut reset_received = reset_received;
-        let mut rekeyed = false;
-        // The caller passes `reset_received = true` when the very marker packet
-        // that led it to call `reset` was itself the reset marker (as opposed to
-        // a break marker that a reset marker still has to follow). That marker
-        // was already consumed before this call, so it never re-enters the loop
-        // below - without rekeying here, the loop's own
-        // `packet.has_reset_marker()` branch, the only other place a rekey
-        // happens, is never reached for this sequence, and the DATA packet that
-        // follows is decrypted with the stale pre-break keystream.
-        if native && reset_received {
+        if native {
             self.transport.rekey_native_protection_for_reset()?;
-            rekeyed = true;
         }
+        let mut reset_received = reset_received;
         loop {
             let packet = self.transport.receive_packet()?;
             if packet.has_reset_marker() {
                 reset_received = true;
-                if native && !rekeyed {
-                    self.transport.rekey_native_protection_for_reset()?;
-                    rekeyed = true;
-                }
             } else if reset_received {
                 if native && packet.packet_type != constants::PACKET_TYPE_DATA {
                     return Err(Error::native_encryption_refused(format!(
@@ -1336,11 +1327,12 @@ mod tests {
     /// Reproduces the entry path flagged in review: the marker packet that led
     /// `receive_data_packet` to call `reset` was itself the reset marker (no
     /// separate break marker preceded it), so `reset_received` starts `true`
-    /// and that marker is never read again inside the loop below - the loop's
-    /// own `packet.has_reset_marker()` branch is the only other place a rekey
-    /// happens, so without rekeying on entry too, the DATA packet that follows
-    /// decrypts under the stale pre-reset keystream and fails to authenticate,
-    /// exactly as observed against a live server.
+    /// and no further marker is written at all. `reset` now rekeys
+    /// unconditionally right after sending its own reset marker - not only
+    /// once it later recognises a reset-typed echo - so no marker needs to
+    /// arrive on the wire for this to authenticate, matching go-ora's
+    /// `processMarker`, which re-initialises as soon as it answers rather
+    /// than waiting to read anything back.
     #[test]
     fn reset_entered_with_reset_already_received_still_rekeys() {
         let (mut server, mut client) = native_client(256);
@@ -1395,7 +1387,13 @@ mod tests {
     /// stale traffic from before the error - on a native transport it must be
     /// refused rather than silently discarded, since silent discard is how a
     /// forged or replayed record would otherwise be dropped without being
-    /// noticed.
+    /// noticed. `reset` now rekeys the moment it sends its own answering
+    /// marker, mirroring go-ora's `processMarker` - so by the time this
+    /// stale record (sealed under the pre-break keys, same as a genuine
+    /// server that has not yet seen that marker) arrives, the client is
+    /// already on the new keystream and the record simply fails to
+    /// authenticate, rather than being accepted and then rejected for its
+    /// packet type.
     #[test]
     fn a_data_packet_before_the_reset_marker_is_refused_not_discarded() {
         let (mut server, mut client) = native_client(256);
@@ -1411,9 +1409,9 @@ mod tests {
             Err(err) => err,
         };
         sender.join().unwrap();
-        assert_eq!(
-            error.to_string(),
-            "native encryption refused: expected an unprotected MARKER before the reset marker, got a protected DATA"
+        assert!(
+            error.to_string().contains("did not authenticate"),
+            "unexpected error: {error}"
         );
     }
 

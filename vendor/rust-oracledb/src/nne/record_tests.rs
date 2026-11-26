@@ -109,6 +109,45 @@ fn authentication_key_folding_is_a_one_way_phase_change() {
 }
 
 #[test]
+fn rekey_for_reset_matches_an_independently_assembled_go_ora_processmarker_derivation() {
+    // Reimplements go-ora's seed-chaining rekey (`session.processMarker` calling
+    // `OracleNetworkHash2.Init` on its persistent 32-byte buffer) directly from the
+    // chain state, using only the low-level `cipher`/`step` primitives - never calling
+    // `HashState::derive`/`Protection::rekey_for_reset` for the computation itself - so
+    // this proves our production rekey agrees with an independent replica of the
+    // reference algorithm, not merely with its own derivation code.
+    let mut client = protection(17, 5);
+    let chain_before = *client.hash.chain;
+
+    let mut seed = [0u8; 16];
+    seed[..15].copy_from_slice(&chain_before[..15]);
+    seed[15] = 0xff;
+    let mut generator = cipher(&seed, &chain_before[16..]).unwrap();
+    let mut generated = [0u8; 32];
+    step(&mut generator, &mut generated);
+    seed.copy_from_slice(&generated[..16]);
+    seed[15] = 0x5a;
+    let mut independent_tx = cipher(&seed, &generated[16..]).unwrap();
+    seed[15] = 0xb4;
+    let mut independent_rx = cipher(&seed, &generated[16..]).unwrap();
+
+    client.hash.rekey_for_reset().unwrap();
+    assert_eq!(*client.hash.chain, generated, "rekey must chain forward to the same 32-byte state");
+
+    let mut independent_tx_mask = vec![0u8; client.hash.algorithm.size()];
+    step(&mut independent_tx, &mut independent_tx_mask);
+    let mut production_tx_mask = client.hash.tx_mask.to_vec();
+    step(&mut client.hash.tx, &mut production_tx_mask);
+    assert_eq!(independent_tx_mask, production_tx_mask, "tx keystream must agree with the reference derivation");
+
+    let mut independent_rx_mask = vec![0u8; client.hash.algorithm.size()];
+    step(&mut independent_rx, &mut independent_rx_mask);
+    let mut production_rx_mask = client.hash.rx_mask.to_vec();
+    step(&mut client.hash.rx, &mut production_rx_mask);
+    assert_eq!(independent_rx_mask, production_rx_mask, "rx keystream must agree with the reference derivation");
+}
+
+#[test]
 fn protected_records_match_independent_go_ora_v3_vectors() {
     // reference_vectors.go, pinned go-ora 62f8a42fe821414cec8fcacb1b877dfef836f798.
     // Hosted generator SHA256: d0ed9ddd0c2ad63921949bfb02024d2f2d9b6d9545c8ab2e19c501375fbf38bc.
