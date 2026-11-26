@@ -118,8 +118,12 @@ impl NamesIndexContent {
     /// and resumes metrics directly - there is no separate "did I already finish models" question to
     /// get wrong, because only the cursor the previous page actually returned can ask for it. If the
     /// model half finishes within this very call, the leftover budget carries straight into metrics
-    /// in the same page - the one place `fill_to_budget`'s admit-the-first-item rule can fire, which
-    /// happens at most once across the whole walk rather than on a caller's every repeated call.
+    /// in the same page - the one place `fill_to_budget`'s admit-the-first-item rule could overshoot
+    /// this page's own shared bound (round 4: the rule is scoped to each pool's own call, not to the
+    /// page as a whole), so that crossing is detected before `fill_to_budget` ever runs and, when the
+    /// first metric would not fit what models left behind, this page carries no metrics at all and
+    /// resumes at `NamesCursor::Metric(String::new())` - the deliberate sentinel for "start the metric
+    /// pool from its first entry, with a full budget" - rather than force the metric in over budget.
     pub fn of(view: &ScopedView<'_>, after: Option<&str>, model_prefix: Option<&str>) -> Result<Self, MalformedNamesCursor> {
         let cursor = after.map(NamesCursor::parse).transpose()?;
         let provenance = bundle_content(view.pinned());
@@ -164,25 +168,46 @@ impl NamesIndexContent {
         };
         let metric_budget = budget.saturating_sub(models_spent);
         let (metric_names, metrics_next) = if walk_metrics {
-            let metric_candidates = view
+            let metric_candidates: Vec<_> = view
                 .metrics()
-                .filter(|metric| model_prefix.is_none_or(|prefix| metric.model().as_str().starts_with(prefix)));
-            let (page, next) = paged_names(
-                metric_candidates,
-                metric_after,
-                None,
-                metric_budget,
-                |metric| metric_entry_cost(metric),
-                |metric| String::from(metric.name().as_str()),
-            );
-            let names = page
-                .into_iter()
-                .map(|metric| MetricNameEntry {
-                    name: String::from(metric.name().as_str()),
-                    model: metric.model().as_str().to_owned(),
-                })
+                .filter(|metric| model_prefix.is_none_or(|prefix| metric.model().as_str().starts_with(prefix)))
+                .filter(|metric| metric_after.is_none_or(|after| metric.name().as_str() > after))
                 .collect();
-            (names, next)
+            // Crossing-page overshoot (`github.com/telekom/sutura#2083` round 4): `fill_to_budget`'s
+            // "the first item is always admitted, even alone over budget" rule is scoped to ITS OWN
+            // call, not to this whole page - it would force the first metric in even when the model
+            // half already spent part of the shared budget this call, pushing the PAGE's total past
+            // `MAX_CATALOG_LISTING_BYTES` even though each pool, read in isolation, stayed under what
+            // it was handed. Only possible when the model half just finished in THIS call
+            // (`models_spent > 0`) and metrics have not been paged into yet (`metric_after.is_none()`
+            // follows from that); once metrics are already mid-page, `models_spent` is always 0 so
+            // this cannot fire. Detected by peeking the first candidate before calling
+            // `fill_to_budget` at all: if it alone would not fit, this page carries no metrics and
+            // resumes at the empty-name sentinel, which spends a full budget next call instead.
+            let first_does_not_fit = models_spent > 0
+                && metric_candidates
+                    .first()
+                    .is_some_and(|metric| metric_entry_cost(metric) > metric_budget);
+            if first_does_not_fit {
+                (Vec::new(), Some(String::new()))
+            } else {
+                let (page, next) = paged_names(
+                    metric_candidates.into_iter(),
+                    metric_after,
+                    None,
+                    metric_budget,
+                    |metric| metric_entry_cost(metric),
+                    |metric| String::from(metric.name().as_str()),
+                );
+                let names = page
+                    .into_iter()
+                    .map(|metric| MetricNameEntry {
+                        name: String::from(metric.name().as_str()),
+                        model: metric.model().as_str().to_owned(),
+                    })
+                    .collect();
+                (names, next)
+            }
         } else {
             (Vec::new(), None)
         };

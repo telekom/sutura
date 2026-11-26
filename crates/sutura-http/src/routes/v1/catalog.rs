@@ -206,15 +206,13 @@ pub(crate) async fn catalog(
     if names {
         let definitions = state.definitions();
         let view = sutura_app::scoped_for(&definitions, asked.context());
-        return (
-            [(header::CACHE_CONTROL, "private, no-store")],
-            Json(CatalogNamesBody::of(
-                &view,
-                query.after.as_deref(),
-                query.model_prefix.as_deref(),
-            )),
-        )
-            .into_response();
+        return match CatalogNamesBody::of(&view, query.after.as_deref(), query.model_prefix.as_deref()) {
+            Ok(body) => ([(header::CACHE_CONTROL, "private, no-store")], Json(body)).into_response(),
+            Err(error) => Failure::NotAQuestion {
+                detail: Detail::of(&error),
+            }
+            .into_response(),
+        };
     }
     let model = match query.model {
         Some(raw) => match ModelName::parse(&raw) {

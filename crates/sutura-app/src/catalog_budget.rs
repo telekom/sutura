@@ -193,14 +193,21 @@ pub fn paged_names<T>(
 /// the bound) because the two halves could be addressed, and so paged, independently of one
 /// another. One cursor naming which half AND where in it removes that independence: a caller only
 /// ever holds the one cursor the previous page actually returned, there is no second `after` to
-/// desynchronise from it, and "first item always admitted" (`fill_to_budget`'s own rule, shared with
-/// every other caller of it in this module) can only ever fire at the one true transition from
-/// models into metrics, not on a repeated call.
+/// desynchronise from it.
+///
+/// Round 4: the models pool and the metrics pool are still two separate `fill_to_budget` calls
+/// spending one shared, dwindling budget, so "first item always admitted" can still fire on the
+/// metrics pool's own first call even when the models pool already spent part of the page - the
+/// crossing page is handled explicitly by the caller (`sutura-mcp`'s `NamesIndexContent::of`):
+/// when that would overshoot, it emits no metrics at all and resumes at `Metric(String::new())`,
+/// the one deliberate empty-name sentinel meaning "the metric pool, from its very first entry,
+/// with a full budget" - the sole name [`NamesCursor::parse`] admits as empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NamesCursor {
     /// Resume the model half strictly after this model name.
     Model(String),
-    /// The model half is exhausted; resume the metric half strictly after this metric name.
+    /// The model half is exhausted; resume the metric half strictly after this metric name, or -
+    /// only when the name is empty - from the metric half's very first entry.
     Metric(String),
 }
 
@@ -214,13 +221,31 @@ pub enum NamesCursor {
 pub struct MalformedNamesCursor;
 
 impl NamesCursor {
+    /// Parses a cursor this module itself rendered, rejecting anything else.
+    ///
+    /// The name part after `model:` or `metric:` must itself be a valid identifier
+    /// ([`sutura_domain::model::ModelName`]/[`sutura_domain::model::MetricName`] - the same shape
+    /// check every identifier in this codebase is held to), with exactly one exception: an empty
+    /// name after `metric:` is the deliberate "resume the metric pool from its first entry" sentinel
+    /// a crossing page emits (see [`NamesCursor`]'s doc). An empty name after `model:`, or a string
+    /// with neither prefix, is refused the same as any other malformed shape.
     pub fn parse(raw: &str) -> Result<Self, MalformedNamesCursor> {
         raw.strip_prefix("model:").map_or_else(
             || {
-                raw.strip_prefix("metric:")
-                    .map_or(Err(MalformedNamesCursor), |name| Ok(Self::Metric(name.to_owned())))
+                raw.strip_prefix("metric:").map_or(Err(MalformedNamesCursor), |name| {
+                    if name.is_empty() {
+                        return Ok(Self::Metric(String::new()));
+                    }
+                    sutura_domain::model::MetricName::parse(name)
+                        .map(|name| Self::Metric(name.as_str().to_owned()))
+                        .map_err(|_invalid| MalformedNamesCursor)
+                })
             },
-            |name| Ok(Self::Model(name.to_owned())),
+            |name| {
+                sutura_domain::model::ModelName::parse(name)
+                    .map(|name| Self::Model(name.as_str().to_owned()))
+                    .map_err(|_invalid| MalformedNamesCursor)
+            },
         )
     }
 }
@@ -316,6 +341,7 @@ mod tests {
         for cursor in [
             NamesCursor::Model("orders".to_owned()),
             NamesCursor::Metric("revenue".to_owned()),
+            NamesCursor::Metric(String::new()),
         ] {
             let rendered = cursor.to_string();
             assert_eq!(NamesCursor::parse(&rendered).expect("its own rendering parses"), cursor);
@@ -326,5 +352,16 @@ mod tests {
     fn a_cursor_with_neither_prefix_is_refused() {
         NamesCursor::parse("orders").unwrap_err();
         NamesCursor::parse("").unwrap_err();
+    }
+
+    #[test]
+    fn an_empty_model_name_is_refused_the_sentinel_is_metric_only() {
+        NamesCursor::parse("model:").unwrap_err();
+    }
+
+    #[test]
+    fn a_name_that_is_not_an_identifier_is_refused() {
+        NamesCursor::parse("model:1st_orders").unwrap_err();
+        NamesCursor::parse("metric:not an identifier!!").unwrap_err();
     }
 }

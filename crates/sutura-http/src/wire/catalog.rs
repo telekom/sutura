@@ -9,7 +9,9 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, fill_to_budget, omission_reserve};
+use sutura_app::catalog_budget::{
+    MAX_CATALOG_LISTING_BYTES, MAX_OMITTED_NAMES, MalformedNamesCursor, NamesCursor, fill_to_budget, omission_reserve,
+};
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::{Grain, MetricName, ModelName};
 use sutura_domain::pinned::view::ScopedView;
@@ -122,7 +124,10 @@ pub struct CatalogNamesBody {
     /// `BTreeMap` walk, so repeating `after` from one page always means the same resume point.
     metric_names: Vec<MetricNameBody>,
     /// The cursor to pass as `?after=` to continue this index - absent once every metric name
-    /// matching `model_prefix` (if any) has been returned.
+    /// matching `model_prefix` (if any) has been returned. The same `metric:<name>` wire form
+    /// `sutura-mcp`'s `NamesCursor` round-trips - this transport carries no model-names half, so only
+    /// that one variant is ever produced or accepted here, but a cursor is not this route's own
+    /// format to invent (`github.com/telekom/sutura#2083` round 4).
     #[serde(skip_serializing_if = "Option::is_none")]
     next: Option<String>,
 }
@@ -134,14 +139,23 @@ fn envelope_reserve(view: &ScopedView<'_>) -> usize {
     let skeleton = CatalogNamesBody {
         provenance: bundle_body(view.pinned()),
         metric_names: Vec::new(),
-        next: Some("a".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN)),
+        next: Some(NamesCursor::Metric("a".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN)).to_string()),
     };
     serde_json::to_vec(&skeleton).map_or(0, |bytes| bytes.len())
 }
 
 impl CatalogNamesBody {
-    #[must_use]
-    pub fn of(view: &ScopedView<'_>, after: Option<&str>, model_prefix: Option<&str>) -> Self {
+    /// `after`, when given, must be a `metric:<name>` cursor this index itself returned - the same
+    /// [`NamesCursor`] wire form `sutura-mcp`'s mirror index uses, refused the same
+    /// [`MalformedNamesCursor`] way. This transport has no model-names half to page, so `model:` is
+    /// refused here exactly as any other malformed shape is.
+    pub fn of(view: &ScopedView<'_>, after: Option<&str>, model_prefix: Option<&str>) -> Result<Self, MalformedNamesCursor> {
+        let after_name = after
+            .map(|raw| match NamesCursor::parse(raw)? {
+                NamesCursor::Metric(name) => Ok(name),
+                NamesCursor::Model(_) => Err(MalformedNamesCursor),
+            })
+            .transpose()?;
         let provenance = bundle_body(view.pinned());
         let budget = MAX_CATALOG_LISTING_BYTES.saturating_sub(envelope_reserve(view));
         let candidates = view
@@ -154,8 +168,14 @@ impl CatalogNamesBody {
             };
             serde_json::to_vec(&entry).map_or(0, |bytes| bytes.len()) + 1
         };
-        let (page, next) =
-            sutura_app::catalog_budget::paged_names(candidates, after, None, budget, cost, |m| String::from(m.name().as_str()));
+        let (page, next) = sutura_app::catalog_budget::paged_names(
+            candidates,
+            after_name.as_deref().filter(|name| !name.is_empty()),
+            None,
+            budget,
+            cost,
+            |m| String::from(m.name().as_str()),
+        );
         let metric_names = page
             .into_iter()
             .map(|m| MetricNameBody {
@@ -163,11 +183,11 @@ impl CatalogNamesBody {
                 model: String::from(m.model().as_str()),
             })
             .collect();
-        Self {
+        Ok(Self {
             provenance,
             metric_names,
-            next,
-        }
+            next: next.map(|name| NamesCursor::Metric(name).to_string()),
+        })
     }
 }
 
@@ -602,7 +622,7 @@ mod tests {
     fn model_prefix_narrows_the_catalog_names_bodys_metrics() {
         let bundle = bundle_with_two_metric_owning_models();
         let view = ScopedView::everything(&bundle);
-        let body = super::CatalogNamesBody::of(&view, None, Some("ord"));
+        let body = super::CatalogNamesBody::of(&view, None, Some("ord")).expect("no after cursor was given");
         let json = serde_json::to_value(&body).expect("the names body serializes");
         let metrics: Vec<&str> = json["metric_names"]
             .as_array()

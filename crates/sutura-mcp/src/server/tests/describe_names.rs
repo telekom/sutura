@@ -275,6 +275,42 @@ async fn malformed_after_is_refused_as_a_protocol_error() {
     drop(client.cancel().await);
 }
 
+/// An `after` with a recognized prefix but a name that is not itself a valid identifier is refused
+/// the same way - `NamesCursor::parse` validates the name part, not just the prefix
+/// (`github.com/telekom/sutura#2083` round 4).
+#[tokio::test]
+async fn an_after_with_an_invalid_identifier_name_is_refused_as_a_protocol_error() {
+    let client = super::connected(super::certified_service()).await;
+    let error = client
+        .call_tool(describe_catalog(
+            &serde_json::json!({ "names": true, "after": "model:not an identifier!!" }),
+        ))
+        .await
+        .expect_err("an after cursor whose name is not a valid identifier is refused, not answered");
+    let ServiceError::McpError(data) = error else {
+        panic!("expected a protocol error, got {error:?}");
+    };
+    assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
+    assert!(data.message.contains("cursor"), "{}", data.message);
+    drop(client.cancel().await);
+}
+
+/// An empty name after `model:` is refused too - the empty-name sentinel is `metric:` only.
+#[tokio::test]
+async fn an_after_with_an_empty_model_name_is_refused_as_a_protocol_error() {
+    let client = super::connected(super::certified_service()).await;
+    let error = client
+        .call_tool(describe_catalog(&serde_json::json!({ "names": true, "after": "model:" })))
+        .await
+        .expect_err("an empty model name is refused, not read as a sentinel");
+    let ServiceError::McpError(data) = error else {
+        panic!("expected a protocol error, got {error:?}");
+    };
+    assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
+    assert!(data.message.contains("cursor"), "{}", data.message);
+    drop(client.cancel().await);
+}
+
 /// An empty `model_prefix` is refused - it would match every name, which is already what omitting
 /// it does, so it is refused rather than silently accepted as a no-op.
 #[tokio::test]

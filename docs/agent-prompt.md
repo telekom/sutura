@@ -108,7 +108,12 @@ true)` answers a names-only, paged index of every model AND every metric this ca
 as one sequential stream (every model, in order, then every metric) - narrowed to one prefix with
 `model_prefix`, paged onward past `MAX_OMITTED_NAMES` with a single `after` cursor that each page
 returns, verbatim, to continue - so every visible model's and metric's name is reachable, eventually,
-with no cap on how many pages the whole walk takes (`github.com/telekom/sutura#2083`). Each omitted metric carries its model alongside it: the
+with no cap on how many pages the whole walk takes (`github.com/telekom/sutura#2083`). `GET
+/v1/catalog?names=true` is the same index over HTTP, metric-only: it carries no model-names half
+(this transport carries no physical schema at all - see above), so `?after=` pages only the metric
+pool, as the one `metric:<name>` cursor form both transports' `next` returns and both transports'
+`after` accept verbatim; a malformed `after` - anything that is not a cursor this index itself
+returned - is refused as `400`, not read as "start from the beginning". Each omitted metric carries its model alongside it: the
 agent tool's structured half and `GET /v1/catalog`'s body give this as a `{"metric": ..., "model":
 ...}` object per entry, and the two text renderings (the agent tool's text half, this prompt) give
 the same pair as `"<metric> (model <model>)"`. A sentence points back at `describe_catalog(metric:
