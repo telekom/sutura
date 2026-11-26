@@ -212,20 +212,23 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
 }
 
 /// On the native-encryption path, a statement the server itself fails (casting the fixture's own
-/// non-numeric `PAYLOAD` text to a number) must reach the operator's log as that server error, not
+/// non-numeric `PAYLOAD` text to `bigint`) must reach the operator's log as that server error, not
 /// as the generic native-encryption refusal the unprotected break-marker packet used to produce
-/// (#2084). The statement has to name a table the catalog already knows - `EVENTS`, from the
-/// fixture catalog `local_catalog` builds - because `resolve.rs`'s `factor()` refuses any other
-/// table name locally as `Refused::UnknownTable` before a single Oracle leg runs, which would make
-/// the ORA code impossible to observe regardless of the fix under test; asserting the reply is not
-/// `unknown_table` pins that this is genuinely the server's own refusal. The reply itself can never
-/// carry the driver's text: `RawRefusalReason::StatementFailed` carries no driver text by design
-/// (`crates/sutura-domain/src/raw.rs`) - whoever controls the statement controls part of what a
-/// database says about it, so the closed reason is all a caller gets. `run_sql`'s own debug line
-/// (`crates/sutura-app/src/raw.rs`'s `run_at`) carries the driver's words verbatim instead, so this
-/// starts the deployment at `RUST_LOG=debug` and reads its own piped log for the ORA code, proving
-/// the fix admits the break marker and reads the encrypted error record that follows it rather than
-/// refusing before ever reaching the server's answer.
+/// (#2084). `bigint` is a standard SQL type the local resolver accepts and pushes down as-is; a
+/// vendor-specific type such as `number` parses as `DataType::Custom` and is refused locally before
+/// any Oracle leg runs, which would make the ORA code impossible to observe regardless of the fix
+/// under test. The statement also has to name a table the catalog already knows - `EVENTS`, from
+/// the fixture catalog `local_catalog` builds - because `resolve.rs`'s `factor()` refuses any other
+/// table name locally as `Refused::UnknownTable`; asserting the refusal code is `source_failed`
+/// (the single-source `run_sql` mapping in `crates/sutura-app/src/raw.rs` for a leg that itself
+/// returned `RawRefusalReason::StatementFailed`), not `unknown_table`, pins that this is genuinely
+/// the server's own refusal. The reply itself can never carry the driver's text: the raw refusal
+/// vocabulary carries no driver text by design (`crates/sutura-domain/src/raw.rs`) - whoever
+/// controls the statement controls part of what a database says about it, so the closed code is all
+/// a caller gets. `run_sql`'s own debug line (`crates/sutura-app/src/raw.rs`'s `run_at`) carries the
+/// driver's words verbatim instead, so this starts the deployment at `RUST_LOG=debug` and reads its
+/// own piped log for the ORA code, proving the fix admits the break marker and reads the encrypted
+/// error record that follows it rather than refusing before ever reaching the server's answer.
 #[test]
 #[ignore = "requires just oracle-native-acceptance"]
 fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
@@ -242,18 +245,14 @@ fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
     let reply = deployment.post(
         &v1(sutura_http::constants::base_paths::RUN_SQL),
         Some(TOKEN),
-        &serde_json::json!({ "statement": "select cast(PAYLOAD as number) from EVENTS" }).to_string(),
+        &serde_json::json!({ "statement": "select cast(PAYLOAD as bigint) from EVENTS" }).to_string(),
     );
+    assert_eq!(reply.status, 422, "a source-failed statement refusal is 422: {}", reply.body);
+    assert_eq!(reply.json()["outcome"], "raw_refusal", "{}", reply.body);
     assert_eq!(
-        reply.status, 200,
-        "the refusal is still a 200 with a closed reason: {}",
-        reply.body
-    );
-    assert_eq!(reply.json()["outcome"], "refusal", "{}", reply.body);
-    assert_ne!(
-        reply.json()["reason"],
-        "unknown_table",
-        "EVENTS is a catalog table - the refusal must come from the server, not local resolution: {}",
+        reply.json()["code"],
+        "source_failed",
+        "EVENTS is a catalog table, so this must be the server's own refusal, not local resolution: {}",
         reply.body
     );
     deployment.awaiting("ORA-01722");
