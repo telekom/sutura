@@ -7,42 +7,15 @@ use std::path::PathBuf;
 use sutura_config::Environment;
 
 use crate::harness::{
-    LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
+    LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured,
+    start_configured_with_environment, v1, written,
 };
 
-/// Whether any tracing event's debug-formatted fields contain `needle` - used to check what an
-/// operator would see in the `run_sql: a leg did not run` debug line without depending on the
-/// exec-datafusion crate's own capture helper.
-#[derive(Default)]
-struct Names(std::sync::atomic::AtomicBool);
-
-struct Capture<'a>(&'a Names, &'static str);
-
-impl tracing::field::Visit for Capture<'_> {
-    fn record_debug(&mut self, _field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if format!("{value:?}").contains(self.1) {
-            self.0.0.store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-}
-
-struct Listening(std::sync::Arc<Names>, &'static str);
-
-impl tracing::Subscriber for Listening {
-    fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
-        true
-    }
-    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        tracing::span::Id::from_u64(1)
-    }
-    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
-    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
-    fn event(&self, event: &tracing::Event<'_>) {
-        event.record(&mut Capture(&self.0, self.1));
-    }
-    fn enter(&self, _span: &tracing::span::Id) {}
-    fn exit(&self, _span: &tracing::span::Id) {}
-}
+/// The subscriber reads `RUST_LOG` before the settings' filter - see `no_echo::TRACE` - so this is
+/// what makes `run_sql`'s own `debug` line (`crates/sutura-app/src/raw.rs`'s `run_at`) land in the
+/// process's piped stderr for [`Served::awaiting`] to find, without turning on `trace` noise from
+/// everything else.
+const DEBUG: [(&str, &str); 1] = [("RUST_LOG", "debug")];
 
 struct Tier {
     port: u16,
@@ -240,10 +213,14 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
 
 /// On the native-encryption path, a statement the server itself fails (a table that does not
 /// exist) must reach the operator's log as that server error, not as the generic native-encryption
-/// refusal the unprotected break-marker packet used to produce (#2084): `run_sql`'s own debug line
-/// carries the driver's words verbatim (see `crates/sutura-app/src/raw.rs`'s `run_at`), so this
-/// checks the ORA code lands there once the fix admits the marker and reads the encrypted record
-/// that follows it.
+/// refusal the unprotected break-marker packet used to produce (#2084). The reply itself can never
+/// show this: `RawRefusalReason::StatementFailed` carries no driver text by design
+/// (`crates/sutura-domain/src/raw.rs`) - whoever controls the statement controls part of what a
+/// database says about it, so the closed reason is all a caller gets. `run_sql`'s own debug line
+/// (`crates/sutura-app/src/raw.rs`'s `run_at`) carries the driver's words verbatim instead, so this
+/// starts the deployment at `RUST_LOG=debug` and reads its own piped log for the ORA code, proving
+/// the fix admits the break marker and reads the encrypted error record that follows it rather than
+/// refusing before ever reaching the server's answer.
 #[test]
 #[ignore = "requires just oracle-native-acceptance"]
 fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
@@ -255,26 +232,20 @@ fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
         "{}tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
         tier.settings(case, false, false, false, FixtureSource::Oracle)
     );
-    let deployment = std::panic::catch_unwind(|| start_configured(case, &settings))
+    let deployment = std::panic::catch_unwind(|| start_configured_with_environment(case, &settings, None, &DEBUG, &[]))
         .expect("native mode must let the correct credentials serve");
-    let names = std::sync::Arc::new(Names::default());
-    let reply = tracing::subscriber::with_default(Listening(std::sync::Arc::clone(&names), "ORA-00942"), || {
-        deployment.post(
-            &v1(sutura_http::constants::base_paths::RUN_SQL),
-            Some(TOKEN),
-            &serde_json::json!({ "statement": "select 1 from sutura_2084_no_such_table" }).to_string(),
-        )
-    });
+    let reply = deployment.post(
+        &v1(sutura_http::constants::base_paths::RUN_SQL),
+        Some(TOKEN),
+        &serde_json::json!({ "statement": "select 1 from sutura_2084_no_such_table" }).to_string(),
+    );
     assert_eq!(
         reply.status, 200,
         "the refusal is still a 200 with a closed reason: {}",
         reply.body
     );
     assert_eq!(reply.json()["outcome"], "refusal", "{}", reply.body);
-    assert!(
-        names.0.load(std::sync::atomic::Ordering::SeqCst),
-        "the server's ORA-00942 must reach the debug log, not just a closed refusal reason"
-    );
+    deployment.awaiting("ORA-00942");
 }
 
 #[test]
