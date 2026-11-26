@@ -229,18 +229,15 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
 /// On the native-encryption path, a statement the server itself fails must reach the operator's
 /// log as that server error, not as the generic native-encryption refusal the unprotected
 /// break-marker packet used to produce (#2084). Casting the fixture's own non-numeric `PAYLOAD`
-/// text to `bigint` in the *projection* fails only after Oracle's own leg already returned those
-/// rows successfully: `combine/statement.rs`'s `Cutter` cuts a bare `TableScan` into one Oracle
-/// part, and a `CAST` the engine kept in the projection sits above that cut as a local node this
-/// process evaluates against the leg's already-fetched rows, so that failure is
+/// text to `bigint` in a *projection* was observed (CI's `oracle-native-acceptance` job) to fail
+/// only after Oracle's own leg already returned those rows successfully, so that failure is
 /// `StatementStopped::NotPlanned` (a leg's rows that did not fit its table), not a leg failure, and
 /// the caller-visible code stays the generic `statement_failed` with no leg log line at all. The
-/// same cast in a *predicate* is instead walked into the cut as part of the pushed
-/// `Filter(TableScan)` node and unparsed into Oracle's own `WHERE` text, so its failure is the
-/// leg's own - `combine/statement/tests/oracle.rs`'s
-/// `a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause` captures that SQL
-/// offline and asserts the `CAST` lands inside the `WHERE`, which is what this live test then relies
-/// on to make the ORA error genuinely Oracle's own. `bigint` is a standard SQL type the local resolver accepts and pushes down as-is; a
+/// same cast in a *predicate* is instead captured in the leg's own SQL text -
+/// `combine/statement/tests/oracle.rs`'s
+/// `a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause` asserts that
+/// offline against the exact unparsed statement - so its failure is the leg's own, which is what
+/// this live test then relies on to make the ORA error genuinely Oracle's own. `bigint` is a standard SQL type the local resolver accepts and pushes down as-is; a
 /// vendor-specific type such as `number` parses as `DataType::Custom` and is refused locally before
 /// any Oracle leg runs, which would make the ORA code impossible to observe regardless of the fix
 /// under test. The statement also has to name a table the catalog already knows - `EVENTS`, from

@@ -187,14 +187,16 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
     assert_eq!(legs.opened.len(), 0);
 }
 
-/// A cast in a `WHERE` predicate over a single Oracle-dialect table is cut into that source's one
-/// part and unparsed into its SQL text - captured here by `OracleLegs` the way #2084's conformance
-/// cell relies on a server-failing cast reaching Oracle rather than being fitted locally after the
-/// leg already answered. The same cast in a bare projection is NOT asserted here: the cutter wraps
-/// a `TableScan` alone (`Cutter::rewrite`'s `TableScan` arm), and a projecting `CAST` sits above
-/// that cut as a local node the combined `plan` then evaluates against the leg's fetched rows, so
-/// it never reaches the part's own unparsed statement - only a predicate, which the cutter walks
-/// into as part of the pushed `Filter(TableScan)` node, is asserted pushed here.
+/// A cast in a `WHERE` predicate over a single Oracle-dialect table is captured here by
+/// `OracleLegs` in the leg's own unparsed SQL text, the way #2084's conformance cell relies on a
+/// server-failing cast reaching Oracle rather than being fitted locally after the leg already
+/// answered. A projection cast was separately observed (the live `oracle_native` acceptance cell)
+/// to stay local instead; this test makes no claim about why, only that the predicate form here
+/// is captured in the leg SQL.
+///
+/// This pins behaviour this change does not itself alter - `Claim-Cell:
+/// a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause`, killing mutation
+/// at `devco/claim-mutations/a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause.patch`.
 #[test]
 fn a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause() {
     let tables = vec![StatementTable::new(
@@ -228,11 +230,9 @@ fn a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause()
         )
     })));
     assert_eq!(legs.statements.len(), 1, "{:?}", legs.statements);
-    let text = &legs.statements[0];
-    assert!(text.to_uppercase().contains("WHERE"), "{text}");
-    assert!(
-        text.to_uppercase().contains("CAST"),
-        "the predicate's cast must reach Oracle's own SQL, not be evaluated locally: {text}"
+    assert_eq!(
+        legs.statements[0],
+        r#"SELECT "dim_region"."region" FROM "dim_region" WHERE (CAST("dim_region"."sales_area" AS INTEGER) = 1)"#
     );
 }
 

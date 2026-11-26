@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/statement.rs b/crates/sutura-exec-datafusion/src/combine/statement.rs
+index 992581478..f848a17ee 100644
+--- a/crates/sutura-exec-datafusion/src/combine/statement.rs
++++ b/crates/sutura-exec-datafusion/src/combine/statement.rs
+@@ -401,6 +401,9 @@ impl OptimizerRule for Cutter {
+             if !safe || !scans {
+                 return Ok(Transformed::no(node));
+             }
++            if matches!(node, LogicalPlan::Filter(_)) && !self.2 {
++                return Ok(Transformed::no(node));
++            }
+             if self.2
+                 && let LogicalPlan::Filter(filter) = &node
+             {
