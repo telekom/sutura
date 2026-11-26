@@ -5,7 +5,7 @@ use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::ModelName;
 use sutura_domain::pinned::view::ScopedView;
 
-use super::{ColumnContent, JoinKeyContent, ModelContent, RelationshipContent, json_string_cost};
+use super::{ColumnContent, JoinKeyContent, ModelContent, RelationshipContent};
 use crate::wire::prose::Carried;
 use crate::wire::{ProvenanceContent, bundle_content};
 
@@ -85,6 +85,24 @@ pub struct NamesIndexContent {
     next_metric: Option<String>,
 }
 
+/// The real worst-case byte cost of this index's fixed envelope - the provenance trailer plus both
+/// halves' header and "more remain" sentences, each carrying the longest cursor a name can produce
+/// ([`sutura_domain::model::MAX_IDENTIFIER_LEN`]) - measured by rendering an actual empty-entries
+/// skeleton rather than guessed, since a guess drifts the moment either sentence's wording changes.
+fn envelope_reserve(view: &ScopedView<'_>) -> usize {
+    let cursor = "a".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN);
+    let skeleton = NamesIndexContent {
+        provenance: bundle_content(view.pinned()),
+        model_names: Vec::new(),
+        next: Some(cursor.clone()),
+        metric_names: Vec::new(),
+        next_metric: Some(cursor),
+    };
+    let text_len = skeleton.as_text().len();
+    let json_len = serde_json::to_vec(&skeleton).map_or(0, |bytes| bytes.len());
+    text_len + json_len
+}
+
 impl NamesIndexContent {
     /// `after`, `after_metric` and `model_prefix` are raw strings here, not yet the newtypes the
     /// rest of this module parses `model`/`metric` into - a cursor or a prefix is not itself
@@ -96,50 +114,73 @@ impl NamesIndexContent {
     /// exceeds [`MAX_CATALOG_LISTING_BYTES`]. `model_prefix` narrows metrics by their OWN model
     /// (`Metric::model`), matching how it narrows the full listing's metrics pool.
     pub fn of(view: &ScopedView<'_>, after: Option<&str>, after_metric: Option<&str>, model_prefix: Option<&str>) -> Self {
-        // A small fixed reserve for the provenance trailer and this result's own JSON scaffolding -
-        // the same role `OMISSION_HEADER_RESERVE` plays for a bounded pool, sized generously rather
-        // than measured, since this index carries nothing else fixed to measure.
-        const FIXED_RESERVE: usize = 256;
         let provenance = bundle_content(view.pinned());
-        let fixed_cost =
-            json_string_cost(&provenance.definition_version) + json_string_cost(&provenance.definition_digest) + FIXED_RESERVE;
-        let budget = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost);
-        let (page, next) = paged_names(
-            view.models(),
-            after,
-            model_prefix,
-            budget,
-            |model| model_entry_cost(model),
-            |model| String::from(model.name().as_str()),
-        );
-        let models_spent: usize = page.iter().map(|model| model_entry_cost(model)).sum();
-        let model_names = page
-            .into_iter()
-            .map(|model| ModelNameEntry {
-                name: String::from(model.name().as_str()),
-                table: model.table().to_string(),
-            })
-            .collect();
+        let budget = MAX_CATALOG_LISTING_BYTES.saturating_sub(envelope_reserve(view));
+
+        // A caller only ever sends `after_metric` without `after` once it has already seen `next:
+        // None` for the model half - so treat the model half as already finished and give metrics the
+        // whole budget, instead of re-walking (and re-spending the budget on) models every call. Without
+        // this, a caller paging `after_metric` to exhaustion would restart the model pool each time,
+        // starving metrics to roughly one entry per call - `github.com/telekom/sutura#2083`'s review.
+        let skip_models = after.is_none() && after_metric.is_some();
+
+        let (model_names, next, models_spent) = if skip_models {
+            (Vec::<ModelNameEntry>::new(), None::<String>, 0_usize)
+        } else {
+            let (page, next) = paged_names(
+                view.models(),
+                after,
+                model_prefix,
+                budget,
+                |model| model_entry_cost(model),
+                |model| String::from(model.name().as_str()),
+            );
+            let spent: usize = page.iter().map(|model| model_entry_cost(model)).sum();
+            let names = page
+                .into_iter()
+                .map(|model| ModelNameEntry {
+                    name: String::from(model.name().as_str()),
+                    table: model.table().to_string(),
+                })
+                .collect();
+            (names, next, spent)
+        };
 
         let metric_budget = budget.saturating_sub(models_spent);
-        let metric_candidates = view
+        let metric_candidates: Vec<&sutura_domain::catalog::Metric> = view
             .metrics()
-            .filter(|metric| model_prefix.is_none_or(|prefix| metric.model().as_str().starts_with(prefix)));
-        let (metric_page, next_metric) = paged_names(
-            metric_candidates,
-            after_metric,
-            None,
-            metric_budget,
-            |metric| metric_entry_cost(metric),
-            |metric| String::from(metric.name().as_str()),
-        );
-        let metric_names = metric_page
-            .into_iter()
-            .map(|metric| MetricNameEntry {
-                name: String::from(metric.name().as_str()),
-                model: metric.model().as_str().to_owned(),
-            })
+            .filter(|metric| model_prefix.is_none_or(|prefix| metric.model().as_str().starts_with(prefix)))
             .collect();
+
+        // The model half already spent part of the shared budget this call - never force the first
+        // metric candidate in over budget the way `fill_to_budget` would for an otherwise-empty page;
+        // a sentinel empty-string cursor defers the whole metric half to a call that (paired with no
+        // `after`) hits `skip_models` above and gets the full budget instead.
+        let starved = models_spent > 0
+            && metric_candidates
+                .first()
+                .is_some_and(|metric| metric_entry_cost(metric) > metric_budget);
+
+        let (metric_names, next_metric) = if starved {
+            (Vec::new(), Some(String::new()))
+        } else {
+            let (page, next) = paged_names(
+                metric_candidates.into_iter(),
+                after_metric,
+                None,
+                metric_budget,
+                |metric| metric_entry_cost(metric),
+                |metric| String::from(metric.name().as_str()),
+            );
+            let names = page
+                .into_iter()
+                .map(|metric| MetricNameEntry {
+                    name: String::from(metric.name().as_str()),
+                    model: metric.model().as_str().to_owned(),
+                })
+                .collect();
+            (names, next)
+        };
 
         Self {
             provenance,

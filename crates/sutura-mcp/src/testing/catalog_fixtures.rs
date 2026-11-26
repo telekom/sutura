@@ -158,38 +158,6 @@ pub(crate) fn bundle_with_many_models(count: usize) -> PinnedDefinitions {
     .expect("the test definitions hash")
 }
 
-/// `count` physical models at `description_bytes` each - [`bundle_with_many_models`]'s own
-/// parameterized twin, for `describe_catalog(names: true)`'s own paging tests
-/// (`github.com/telekom/sutura#2083`'s own ask), where the names index carries no description at
-/// all and a `count` large enough to force more than one page would otherwise cross
-/// `Definitions::assemble`'s bundle-wide prose cap at [`bundle_with_many_models`]'s fixed 4 KiB.
-pub(crate) fn bundle_with_many_small_models(count: usize, description_bytes: usize) -> PinnedDefinitions {
-    let short = description(&"x".repeat(description_bytes));
-    let models = (0..count)
-        .map(|index| {
-            let name = format!("model_{index:05}");
-            Model::new(
-                ModelName::parse(&name).expect("a generated test model name is a name"),
-                source(),
-                TableName::parse(&name).expect("a generated test table name is a name"),
-                BTreeSet::from([column("amount_cents")]),
-                short.clone(),
-            )
-        })
-        .collect();
-    let definitions = Definitions::assemble(models, vec![], vec![]).expect("the generated test bundle is consistent");
-    PinnedDefinitions::pin(
-        DefinitionVersion::parse("test-1").expect("a test version is a version"),
-        definitions.clone(),
-        Knowledge::none(),
-        ContributionManifest::single(
-            SourceName::parse("local").expect("a test source is a source"),
-            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
-        ),
-    )
-    .expect("the test definitions hash")
-}
-
 /// `count` metrics over one model, each described at `description_bytes` - the metric-pool twin of
 /// [`bundle_with_many_models`], for `describe_catalog`'s own metric-budget tests
 /// (`github.com/telekom/sutura#2071`'s second ask). A large enough `count` crosses not only
@@ -226,6 +194,64 @@ pub(crate) fn bundle_with_many_metrics(count: usize, description_bytes: usize) -
         })
         .collect();
     let definitions = Definitions::assemble(vec![model], vec![], metrics).expect("the generated test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
+/// `model_count` models AND `metric_count` metrics, every name padded to
+/// [`sutura_domain::model::MAX_IDENTIFIER_LEN`] - the worst-case-cursor twin of
+/// [`bundle_with_many_models`] and [`bundle_with_many_metrics`] combined into one bundle, for
+/// `describe_catalog(names: true)`'s own test of walking BOTH halves to completion in the same
+/// catalog (`github.com/telekom/sutura#2083`'s review): a fixture with only one pool never exercises
+/// a caller continuing `after_metric` once the model pool is already exhausted, which is exactly the
+/// transition the shared-budget split got wrong.
+pub(crate) fn bundle_with_many_models_and_metrics_at_max_name_len(model_count: usize, metric_count: usize) -> PinnedDefinitions {
+    fn padded(prefix: &str, index: usize) -> String {
+        let core = format!("{prefix}{index:05}");
+        let fill = "x".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN - core.len());
+        format!("{core}{fill}")
+    }
+    let short = description("x");
+    let models: Vec<Model> = (0..model_count)
+        .map(|index| {
+            let name = padded("m", index);
+            Model::new(
+                ModelName::parse(&name).expect("a generated test model name is a name"),
+                source(),
+                TableName::parse(&name).expect("a generated test table name is a name"),
+                BTreeSet::from([column("amount_cents")]),
+                short.clone(),
+            )
+        })
+        .collect();
+    let owner = models.first().expect("at least one model").name().clone();
+    let metrics = (0..metric_count)
+        .map(|index| {
+            let name = padded("x", index);
+            Metric::new(
+                MetricName::parse(&name).expect("a generated test metric name is a name"),
+                owner.clone(),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+                Vec::new(),
+                column("amount_cents"),
+                BTreeSet::from([Grain::Day]),
+                Vec::new(),
+                None,
+                short.clone(),
+                Audience::Open,
+            )
+            .expect("no dimensions to duplicate")
+        })
+        .collect();
+    let definitions = Definitions::assemble(models, vec![], metrics).expect("the generated test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions.clone(),

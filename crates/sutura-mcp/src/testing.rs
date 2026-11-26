@@ -26,7 +26,7 @@
 mod catalog_fixtures;
 pub(crate) use catalog_fixtures::{
     bundle_with_a_restricted_metric, bundle_with_a_restricted_only_model, bundle_with_many_metrics, bundle_with_many_models,
-    bundle_with_many_small_models, bundle_with_two_metric_owning_models, bundle_with_two_models,
+    bundle_with_many_models_and_metrics_at_max_name_len, bundle_with_two_metric_owning_models, bundle_with_two_models,
 };
 
 use std::collections::{BTreeMap, BTreeSet};

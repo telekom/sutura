@@ -127,13 +127,23 @@ pub struct CatalogNamesBody {
     next: Option<String>,
 }
 
+/// The real worst-case byte cost of this body's fixed envelope - the provenance plus a `next` cursor
+/// at [`sutura_domain::model::MAX_IDENTIFIER_LEN`], measured by serializing an actual empty-entries
+/// skeleton rather than guessed, since a guess drifts the moment this shape changes.
+fn envelope_reserve(view: &ScopedView<'_>) -> usize {
+    let skeleton = CatalogNamesBody {
+        provenance: bundle_body(view.pinned()),
+        metric_names: Vec::new(),
+        next: Some("a".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN)),
+    };
+    serde_json::to_vec(&skeleton).map_or(0, |bytes| bytes.len())
+}
+
 impl CatalogNamesBody {
     #[must_use]
     pub fn of(view: &ScopedView<'_>, after: Option<&str>, model_prefix: Option<&str>) -> Self {
-        const FIXED_RESERVE: usize = 256;
         let provenance = bundle_body(view.pinned());
-        let fixed_cost = serde_json::to_vec(&provenance).map_or(0, |bytes| bytes.len()) + FIXED_RESERVE;
-        let budget = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost);
+        let budget = MAX_CATALOG_LISTING_BYTES.saturating_sub(envelope_reserve(view));
         let candidates = view
             .metrics()
             .filter(|m| model_prefix.is_none_or(|prefix| m.model().as_str().starts_with(prefix)));
