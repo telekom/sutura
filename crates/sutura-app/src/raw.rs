@@ -369,6 +369,10 @@ pub(crate) enum LegStop<M> {
 fn settled<M>(ran: Result<RawOutcome, LegStop<M>>) -> Settled<M> {
     match ran {
         Ok(outcome) => Ok(outcome),
+        // Same remap `answer_sql`'s federation path applies: a single leg that
+        // failed to run is a source problem, not the broader statement-level
+        // refusal that covers e.g. a result that did not fit.
+        Err(LegStop::Refused(RawRefusalReason::StatementFailed)) => Ok(refusal(RawRefusalReason::SourceFailed)),
         Err(LegStop::Refused(reason)) => Ok(refusal(reason)),
         Err(LegStop::Failed(failure)) => Err(failure),
     }
