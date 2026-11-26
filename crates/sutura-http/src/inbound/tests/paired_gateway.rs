@@ -228,12 +228,13 @@ async fn a_gateway_signed_token_in_the_caller_header_is_refused_even_beside_a_va
     let impostor = signed_for(&fixture.gateway_issuer, "the-fronting-component");
     let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
     let headers = paired(TOKEN_HEADER, &impostor, &gateway_token);
-    // Only one location is ever read for the caller slot (`x-user-token`), so there is no
-    // ambiguity to trip first - the impostor's issuer is the gateway's own, which `staff`'s single
-    // sub-gate does not carry, so issuer selection itself comes up empty.
+    // `establish`'s single-verifier fast path (`also_accept` is empty here) never peeks at `iss` -
+    // it hands the presented token straight to `staff`'s own `establish_token`. The impostor's
+    // `kid` names the gateway issuer's signing key, which `staff`'s own key set never carries, so
+    // this fails at key lookup rather than at issuer selection.
     assert!(matches!(
         gate.establish(&headers, Instant::now()).await,
-        Err(TokenRejected::UnknownIssuer)
+        Err(TokenRejected::NoKey { .. })
     ));
 }
 
