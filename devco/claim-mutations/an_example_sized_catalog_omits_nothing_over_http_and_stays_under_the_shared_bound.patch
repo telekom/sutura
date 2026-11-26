@@ -16,4 +16,4 @@
 +    MAX_CATALOG_LISTING_BYTES + OMISSION_HEADER_RESERVE - OMISSION_HEADER_RESERVE
  }
  
- #[cfg(test)]
+ /// A page of names plus the cursor to resume from, `None` once the index is exhausted - see

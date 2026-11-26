@@ -77,7 +77,7 @@ mod prose;
 // rather than private because a `pub use` out of a private one reaches the generated API page as an
 // undocumented stub - see the BigQuery adapter's `wire/bounds.rs`, where that was measured.
 pub mod catalog;
-pub use catalog::{CatalogContent, DescribeCatalogArgs, DimensionContent, MetricContent};
+pub use catalog::{CatalogContent, DescribeCatalogArgs, DimensionContent, MetricContent, NamesIndexContent};
 
 // The third tool's whole wire shape, for the reason `catalog` has its own module: one whole tool,
 // not a share of lines.

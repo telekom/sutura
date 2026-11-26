@@ -1,11 +1,11 @@
 --- a/crates/sutura-mcp/src/wire/catalog.rs
 +++ b/crates/sutura-mcp/src/wire/catalog.rs
-@@ -398,7 +398,7 @@
+@@ -442,7 +442,7 @@
+         // The model pool's own candidates, built eagerly - before `remaining` is even known - only
          // when a models section will actually be attached: `metric` skips physical schema entirely
          // regardless of `list_physical_schema`, a metric has none of its own.
-         let model_contents: Option<Vec<ModelContent>> =
--            (metric.is_none() && list_physical_schema).then(|| physical_schema_candidates(view, prose, model));
-+            (metric.is_none() && (list_physical_schema || true)).then(|| physical_schema_candidates(view, prose, model));
+-        let model_contents: Option<Vec<ModelContent>> = (metric.is_none() && list_physical_schema)
++        let model_contents: Option<Vec<ModelContent>> = (metric.is_none() && (list_physical_schema || true))
+             .then(|| names_index::physical_schema_candidates(view, prose, model, model_prefix));
          // Reserved only when models will actually be listed - see `model_contents` above - and
          // sized from those real candidates, the same way the metrics reserve is.
-         let models_omission_reserve = model_contents.as_ref().map_or(0, |contents| {

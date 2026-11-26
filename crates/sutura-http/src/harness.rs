@@ -48,6 +48,11 @@ mod catalog_metric;
 /// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
 mod catalog_identity;
 
+/// `GET /v1/catalog?names=true` - the four refusals it added and a paged walk past the byte cap.
+///
+/// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's.
+mod catalog_names;
+
 /// Whether the catalog route reads the bundle being served after a refresh swaps it.
 ///
 /// Its own file for `catalog_prose`'s reason: the helpers it needs are this module's, and this one is

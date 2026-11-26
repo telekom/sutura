@@ -350,6 +350,39 @@ descriptions_from:
 Unlike `on_missing_endpoint`, this policy is set per mapping only - there is no catalog-wide
 default to inherit, since a `catalog:` reference has no mapping fields of its own to carry it.
 
+`on_invalid_comment` and `sanitize_control_characters` are `dictionary_source: native_dictionary`
+only - `NativeKeysOnView` refuses either on a `documentation_schema` catalog, the same way
+`on_unsupported_column` already is, because a `documentation_schema` catalog's description fields
+carry overlaid authored prose this policy must not touch.
+
+A native_dictionary table or column comment is validated the same way a mapped row's prose is, and
+an unusable one follows its own catalog-wide `on_invalid_comment`, default `refuse`.
+`on_invalid_comment: omit` drops just that comment with a `WARN` log naming the table and, for a
+column, the column - never the text - and serves the table or column without prose instead of
+refusing the whole load. This also closes a gap in `on_invalid_description: omit`: when a mapped
+row is omitted and its fallback native comment is itself unusable, that fallback now follows
+`on_invalid_comment` too, rather than refusing regardless of `omit` upstream.
+
+```yaml
+dictionary_source: native_dictionary
+on_invalid_comment: omit
+```
+
+Separately, `sanitize_control_characters: true` (default `false`) replaces a C1 control character
+(U+0080-U+009F) in a native comment with U+FFFD before it is validated, instead of letting that
+character alone decide whether the comment is refused or omitted. Most C1 bytes found in a native
+comment are cp1252 punctuation (a curly quote, an em dash) stored through a wrong byte-to-Unicode
+conversion, not a deliberate control character, so replacing them can recover an otherwise-unusable
+comment:
+
+```yaml
+sanitize_control_characters: true
+```
+
+This opt-in only ever replaces characters before validation; it never changes an already-usable
+comment, and it does not affect `descriptions_from` mapping rows, which have their own, unrelated
+control-character refusal.
+
 ## Relationships
 
 Native dictionaries read primary keys and foreign keys in the column read's read-only snapshot.

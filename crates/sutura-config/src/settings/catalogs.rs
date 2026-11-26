@@ -186,6 +186,8 @@ fn refuse_rdbms_keys(settings: &CatalogSettings, raw: &RawCatalog) -> Result<(),
         ("on_unsupported_column", raw.on_unsupported_column.is_some()),
         ("on_empty_table", raw.on_empty_table.is_some()),
         ("connection", raw.connection.is_some()),
+        ("on_invalid_comment", raw.on_invalid_comment.is_some()),
+        ("sanitize_control_characters", raw.sanitize_control_characters),
     ];
     match written.into_iter().find(|&(_, written)| written) {
         Some((key, _)) => Err(SettingsError::Catalog {
