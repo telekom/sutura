@@ -228,25 +228,81 @@ async fn a_gateway_signed_token_in_the_caller_header_is_refused_even_beside_a_va
     let impostor = signed_for(&fixture.gateway_issuer, "the-fronting-component");
     let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
     let headers = paired(TOKEN_HEADER, &impostor, &gateway_token);
-    drop(gate.establish(&headers, Instant::now()).await.unwrap_err());
+    // Only one location is ever read for the caller slot (`x-user-token`), so there is no
+    // ambiguity to trip first - the impostor's issuer is the gateway's own, which `staff`'s single
+    // sub-gate does not carry, so issuer selection itself comes up empty.
+    assert!(matches!(
+        gate.establish(&headers, Instant::now()).await,
+        Err(TokenRejected::UnknownIssuer)
+    ));
 }
 
 /// Review item 2: `#1884`'s general refusal of two configured credential locations still fires for
 /// a combination this pairing does NOT name, even though a paired verifier exists elsewhere in the
-/// same real-built gate. A caller token in `Authorization` AND a second, unrelated token in the
-/// gateway's own `transit_header` is not the `staff`/`gateway` pairing - `staff` never reads
-/// `Authorization` for its caller token here, so this is just an ordinary two-location presentation
-/// with no verifier naming it as paired, and must be refused the same way it would with no pairing
-/// configured at all.
+/// same real-built gate. A third, standalone `behind-gateway` verifier mounted on `staff`'s own
+/// path, reading its own token from its own header (`x-transit-proof`), is not named by any
+/// `requires_gateway` and so lands in `also_accept` same as any other co-mounted verifier - a
+/// caller token in `x-user-token` AND a second, unrelated token in `x-transit-proof` are two
+/// distinct locations on the one gate `select_from` walks, which is exactly the shape
+/// `AmbiguousProof` exists to refuse, pairing or no pairing.
 #[tokio::test]
 async fn ambiguous_proof_still_fires_for_an_unrelated_two_location_combination() {
-    let fixture = real_paired_gate();
-    let gate = &fixture.gate;
-    let caller_token = signed_for(&fixture.caller_issuer, "a-user@example.com");
-    let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
-    let mut headers = header_named("authorization", &format!("Bearer {caller_token}"));
-    headers.extend(header_named("authorization", &format!("Bearer {gateway_token}")));
-    drop(gate.establish(&headers, Instant::now()).await.unwrap_err());
+    let caller_issuer = MockIssuer::generating(ISSUER, RESOURCE, "caller-key").expect("a fixture issuer generates a key");
+    let gateway_issuer = gateway(
+        "https://ambiguous-gateway.example.com",
+        "https://ambiguous-gateway.example.com/transit",
+    );
+    let transit_issuer = gateway(
+        "https://unrelated-transit.example.com",
+        "https://unrelated-transit.example.com/transit",
+    );
+    let caller_path = std::env::temp_dir().join(format!("sutura-paired-ambiguous-caller-{}.json", std::process::id()));
+    let gateway_path = std::env::temp_dir().join(format!("sutura-paired-ambiguous-gateway-{}.json", std::process::id()));
+    let transit_path = std::env::temp_dir().join(format!("sutura-paired-ambiguous-transit-{}.json", std::process::id()));
+    caller_issuer.publish(&caller_path).expect("the caller key set is writable");
+    gateway_issuer
+        .publish(&gateway_path)
+        .expect("the gateway key set is writable");
+    transit_issuer
+        .publish(&transit_path)
+        .expect("the unrelated transit key set is writable");
+    let overlay = format!(
+        "security:\n  inbound:\n    - id: staff\n      path: /staff\n      mode: direct\n      \
+         resource: 'https://sutura.example.com/staff'\n      audience: '{}'\n      authorization_server: '{}'\n      \
+         key_set_file: '{}'\n      algorithms: [ES256]\n      token_header: '{TOKEN_HEADER}'\n      requires_gateway: gateway\n    \
+         - id: gateway\n      path: /gateway\n      mode: behind-gateway\n      transit_header: authorization\n      \
+         transit_issuer: '{}'\n      transit_audience: '{}'\n      transit_token_type: at+jwt\n      key_set_file: '{}'\n      \
+         algorithms: [ES256]\n    \
+         - id: transit-proof\n      path: /staff\n      mode: behind-gateway\n      transit_header: x-transit-proof\n      \
+         transit_issuer: '{}'\n      transit_audience: '{}'\n      transit_token_type: at+jwt\n      key_set_file: '{}'\n      \
+         algorithms: [ES256]\n",
+        caller_issuer.audience(),
+        caller_issuer.issuer(),
+        caller_path.display(),
+        gateway_issuer.issuer(),
+        gateway_issuer.audience(),
+        gateway_path.display(),
+        transit_issuer.issuer(),
+        transit_issuer.audience(),
+        transit_path.display(),
+    );
+    let settings = crate::testing::settings_with(&overlay);
+    let gate = InboundGate::from_verifiers_with_outbound(settings.security().inbound(), None)
+        .expect("the real builder accepts a third standalone verifier beside the pairing")
+        .expect("at least one verifier is declared");
+
+    let caller_token = signed_for(&caller_issuer, "a-user@example.com");
+    let transit_token = signed_for(&transit_issuer, "someone-else");
+    let mut headers = header_named(TOKEN_HEADER, &caller_token);
+    headers.extend(header_named("x-transit-proof", &transit_token));
+    assert!(matches!(
+        gate.establish(&headers, Instant::now()).await,
+        Err(TokenRejected::AmbiguousProof)
+    ));
+
+    drop(std::fs::remove_file(&caller_path));
+    drop(std::fs::remove_file(&gateway_path));
+    drop(std::fs::remove_file(&transit_path));
 }
 
 /// Review item 3: the gateway token presented alone is refused through `establish_on`, the
@@ -335,10 +391,22 @@ async fn delegation_exchanges_the_paired_callers_user_token_not_the_gateway_asse
 /// `ProofHeader` folds to lower case at parse time, so the match must hold either way.
 #[tokio::test]
 async fn a_mixed_case_configured_token_header_matches_the_lower_case_incoming_header() {
+    /// Removes its temp key-set files on every exit path, success or panic - same guarantee
+    /// [`RealPairedGate`]'s own `Drop` gives the other filesystem fixture in this module.
+    struct CleanupKeySets(Vec<std::path::PathBuf>);
+    impl Drop for CleanupKeySets {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                drop(std::fs::remove_file(path));
+            }
+        }
+    }
+
     let caller_issuer = MockIssuer::generating(ISSUER, RESOURCE, "caller-key").expect("a fixture issuer generates a key");
     let gateway_issuer = gateway("https://mixed-case.example.com", "https://mixed-case.example.com/transit");
     let caller_path = std::env::temp_dir().join(format!("sutura-paired-mixed-case-caller-{}.json", std::process::id()));
     let gateway_path = std::env::temp_dir().join(format!("sutura-paired-mixed-case-gateway-{}.json", std::process::id()));
+    let _cleanup = CleanupKeySets(vec![caller_path.clone(), gateway_path.clone()]);
     caller_issuer.publish(&caller_path).expect("the caller key set is writable");
     gateway_issuer
         .publish(&gateway_path)
@@ -374,7 +442,4 @@ async fn a_mixed_case_configured_token_header_matches_the_lower_case_incoming_he
         caller.chain().subject(),
         &Subject::verified_by(caller.verifier().id().clone(), "a-user@example.com").expect("a fixture subject")
     );
-
-    drop(std::fs::remove_file(&caller_path));
-    drop(std::fs::remove_file(&gateway_path));
 }
