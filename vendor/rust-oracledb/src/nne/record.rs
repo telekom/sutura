@@ -226,6 +226,17 @@ impl Protection {
     }
 }
 
+/// Swaps the directional hash state so the returned `Protection` is the other
+/// end of the same channel as `protection` - used by tests outside this
+/// module that need to seal a record as the peer of a `Client`-side
+/// transport.
+#[cfg(test)]
+pub(super) fn peer_for_test(mut protection: Protection) -> Protection {
+    std::mem::swap(&mut protection.hash.tx, &mut protection.hash.rx);
+    std::mem::swap(&mut protection.hash.tx_mask, &mut protection.hash.rx_mask);
+    protection
+}
+
 #[cfg(test)]
 #[path = "record_tests.rs"]
 mod tests;

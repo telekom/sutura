@@ -188,6 +188,11 @@ pub(crate) struct Transport {
     native_requested: bool,
     native_deadline: Option<Instant>,
     protection: Option<nne::Protection>,
+    /// Set once the native authentication key has been folded in, i.e. once this session has
+    /// authenticated. Used only to word an unprotected `DATA` packet's refusal: during
+    /// authentication that is the shape a server's own login-failure error takes, so it is named
+    /// as a login refusal; afterwards the same bytes are unexplained and named neutrally instead.
+    authenticated: bool,
 }
 
 // a custom client certificate resolver is required because the client
@@ -209,6 +214,22 @@ const PEM_ENCRYPTED_PRIVATE_KEY_HEADER: &str =
 const PEM_ENCRYPTED_PRIVATE_KEY_FOOTER: &str =
     "-----END ENCRYPTED PRIVATE KEY-----";
 const PEM_UNENCRYPTED_PRIVATE_KEY_HEADER: &str = "-----BEGIN PRIVATE KEY-----";
+
+/// Returns a human-readable name for a TNS packet type, for use in diagnostic
+/// messages. Unrecognised types are named by their numeric value.
+pub(crate) fn packet_type_label(packet_type: u8) -> String {
+    match packet_type {
+        constants::PACKET_TYPE_CONNECT => "CONNECT".to_string(),
+        constants::PACKET_TYPE_ACCEPT => "ACCEPT".to_string(),
+        constants::PACKET_TYPE_REFUSE => "REFUSE".to_string(),
+        constants::PACKET_TYPE_REDIRECT => "REDIRECT".to_string(),
+        constants::PACKET_TYPE_DATA => "DATA".to_string(),
+        constants::PACKET_TYPE_RESEND => "RESEND".to_string(),
+        constants::PACKET_TYPE_MARKER => "MARKER".to_string(),
+        constants::PACKET_TYPE_CONTROL => "CONTROL".to_string(),
+        other => format!("packet type {other}"),
+    }
+}
 
 /// Returns the character to use for the given byte when displaying packet
 /// data.
@@ -289,12 +310,48 @@ impl Transport {
             print_packet(&header, packet_buf);
         }
         let mut packet = Packet::new(packet_buf)?;
-        if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA {
-            return Err(Error::native_encryption_refused("unprotected native control packet"));
+        if self.protection.is_some()
+            && packet.packet_type != constants::PACKET_TYPE_DATA
+            && packet.packet_type != constants::PACKET_TYPE_MARKER
+        {
+            // The protocol's own marker/break packets (TNS break, interrupt and reset
+            // acknowledgements) are never encrypted even on a native-encrypted channel,
+            // including the break the server sends ahead of an encrypted error reply -
+            // so they, and only they, are admitted unprotected here. Anything else
+            // arriving without protection (a control packet, a bare ACCEPT, ...) is a
+            // genuine integrity gap: name what was expected and what arrived so an
+            // operator can tell a protocol gap from a downgrade attempt.
+            return Err(Error::native_encryption_refused(format!(
+                "expected a protected {} or an unprotected {}, got an unprotected {}",
+                packet_type_label(constants::PACKET_TYPE_DATA),
+                packet_type_label(constants::PACKET_TYPE_MARKER),
+                packet_type_label(packet.packet_type),
+            )));
         }
         if packet.packet_type == constants::PACKET_TYPE_DATA {
             if let Some(protection) = self.protection.as_mut() {
-                packet.buf = protection.open(&packet.buf)?;
+                let record_len = packet.buf.len();
+                let authenticated = self.authenticated;
+                // `open` fails the same way for plaintext, a tampered record, a replay or a
+                // lost sequence number - the wording below names only what was observed (an
+                // unprotected DATA packet failed to authenticate) plus the likely cause as a
+                // hint, never an asserted cause. The decision between the two wordings is this
+                // session's own authentication state, not the record's shape: a record's bytes
+                // can be forged to look sealed or unsealed either way, but whether this session
+                // has completed authentication is this client's own fact.
+                packet.buf = protection.open(&packet.buf).map_err(|_| {
+                    if authenticated {
+                        Error::native_encryption_refused(format!(
+                            "expected a protected DATA packet, got one that did not authenticate \
+                             ({record_len} byte record) - refused, not read"
+                        ))
+                    } else {
+                        Error::native_encryption_refused(format!(
+                            "a DATA packet during login did not authenticate (the shape a server \
+                             login refusal takes on native encryption) - refused, not read"
+                        ))
+                    }
+                })?;
             }
         }
         Ok(Some(packet))
@@ -478,12 +535,40 @@ impl Transport {
                 let _ = self.close();
                 return Err(error);
             }
+            self.authenticated = true;
         }
         Ok(())
     }
 
     pub(crate) fn uses_native(&self) -> bool {
         self.protection.is_some()
+    }
+
+    /// Builds a connected, loopback-backed native transport for tests outside
+    /// this module that need a real `Client` to drive the reset handshake
+    /// without a live database. With `protected`, the client side carries the
+    /// same symmetric protection a completed native negotiation would have
+    /// installed, so a `DATA` packet the test writes through the matching
+    /// peer protection (`nne::protection_for_test_peer`) is read back
+    /// decrypted exactly as production code sees it.
+    #[cfg(test)]
+    pub(crate) fn native_pair_for_test(
+        max_packet_size: usize,
+        protected: bool,
+    ) -> (TcpStream, Self) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let mut transport = Self::new();
+        transport.low_level_transport = Some(LowLevelTransport::Tcp(client));
+        transport.native_requested = true;
+        transport.set_max_packet_size(max_packet_size);
+        transport.set_full_packet_size();
+        transport.set_timeout(Some(Duration::from_secs(2))).unwrap();
+        if protected {
+            transport.protection = Some(nne::protection_for_test());
+        }
+        (server, transport)
     }
 
     /// Negotiates TLS on the connection.
@@ -522,6 +607,7 @@ impl Transport {
             native_requested: false,
             native_deadline: None,
             protection: None,
+            authenticated: false,
         }
     }
 

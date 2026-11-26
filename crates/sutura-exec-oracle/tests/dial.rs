@@ -233,24 +233,27 @@ mod dial {
         assert!(cause.contains("shorter than its header"), "{cause}");
     }
 
-    /// The same short marker with a DATA packet after it: the driver still waits for a RESET, so it
-    /// discards that packet rather than answering from it, and the close after it ends the reset.
+    /// A marker's body is always the fixed 3 bytes `[1, 0, marker type]`; one too short to carry
+    /// that type byte is rejected at the same point a too-short header is - regardless of what, if
+    /// anything, the listener sends after it - rather than being read as "not a reset marker" and
+    /// either forwarded as the awaited reply or waited past.
     #[test]
     fn a_marker_too_short_to_name_its_type_is_not_read_as_a_reset() {
         let port = sutura_dev::tns_listener::marking_then_data().expect("the fake listener binds");
         let returned = connect_catching(port).expect("the connect returns rather than unwinding");
         let cause = driver_cause(returned);
-        assert!(cause.contains("unable to recover"), "{cause}");
+        assert!(cause.contains("shorter than its header"), "{cause}");
     }
 
     /// A BREAK marker makes the driver reset the connection and wait for a RESET marker; the next
-    /// marker ends before its type, so it is not one, and the listener then closes.
+    /// marker ends before its type, so parsing it refuses typed rather than treating it as "not a
+    /// reset marker" and forwarding it as the awaited reply.
     #[test]
     fn a_marker_too_short_to_name_its_type_is_refused_typed() {
         let port = sutura_dev::tns_listener::marking().expect("the fake listener binds");
         let returned = connect_catching(port).expect("the connect returns rather than unwinding");
         let cause = driver_cause(returned);
-        assert!(cause.contains("unable to recover"), "{cause}");
+        assert!(cause.contains("shorter than its header"), "{cause}");
     }
 
     /// **A server-sent iteration count above the driver's cap is refused at once.** Deriving a key

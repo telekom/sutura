@@ -79,7 +79,7 @@ pub enum ErrorKind {
     LegacyVerifierRequiresEncryption(u32),
     LockPoisoned,
     MissingBindValue(String),
-    NativeEncryptionRefused(&'static str),
+    NativeEncryptionRefused(String),
     NativeAlgorithmRefused(&'static str, u8),
     NameHasEmbeddedQuotes,
     NoConfigDir,
@@ -105,7 +105,6 @@ pub enum ErrorKind {
     StreamOperation,
     TlsOperation,
     TnsAliasNotFound(String, String),
-    UnableToRecover,
     UnexpectedError,
     UnexpectedNegativeInteger,
     UnexpectedRefuse(String),
@@ -462,9 +461,6 @@ impl fmt::Display for Error {
             ErrorKind::TnsAliasNotFound(file_name, alias) => {
                 write!(fmt, "unable to find \"{}\" in {}", alias, file_name)?
             }
-            ErrorKind::UnableToRecover => fmt.write_str(
-                "unable to recover from error: connection has been closed",
-            )?,
             ErrorKind::UnexpectedError => fmt.write_str("unexpected error")?,
             ErrorKind::UnexpectedNegativeInteger => fmt.write_str(
                 "internal error: read a negative integer when expecting a \
@@ -576,8 +572,8 @@ impl Error {
         Self::new(ErrorKind::LegacyVerifierRequiresEncryption(verifier_type), None)
     }
 
-    pub(crate) fn native_encryption_refused(reason: &'static str) -> Self {
-        Self::new(ErrorKind::NativeEncryptionRefused(reason), None)
+    pub(crate) fn native_encryption_refused(reason: impl Into<String>) -> Self {
+        Self::new(ErrorKind::NativeEncryptionRefused(reason.into()), None)
     }
 
     pub(crate) fn native_algorithm_refused(service: &'static str, id: u8) -> Self {
@@ -928,10 +924,6 @@ impl Error {
         alias: String,
     ) -> Error {
         Error::new(ErrorKind::TnsAliasNotFound(file_name, alias), None)
-    }
-
-    pub(crate) fn unable_to_recover() -> Error {
-        Error::new(ErrorKind::UnableToRecover, None)
     }
 
     pub(crate) fn unexpected_error(
