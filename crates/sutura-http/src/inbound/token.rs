@@ -472,22 +472,10 @@ impl TokenValidator {
             verifier: sutura_domain::identity::AdmittingVerifier::of(
                 id,
                 String::from(requirement.issuer().as_str()),
-                match requirement.location() {
-                    sutura_config::TokenLocation::AuthorizationBearer => sutura_domain::identity::VerifierMode::Direct,
-                    sutura_config::TokenLocation::GatewayBearer => sutura_domain::identity::VerifierMode::Gateway,
-                    // A custom header is ambiguous on its own: `direct` paired with
-                    // `requires_gateway` reads the caller's own token from one (`#2089`), and
-                    // `behind-gateway` reads a fronting component's assertion from one. `resource`
-                    // is `Some` in `direct` only - see `TokenRequirement::resource`'s doc comment -
-                    // so it is the one field here that tells the two apart.
-                    sutura_config::TokenLocation::Header { .. } => {
-                        if requirement.resource().is_some() {
-                            sutura_domain::identity::VerifierMode::Direct
-                        } else {
-                            sutura_domain::identity::VerifierMode::Gateway
-                        }
-                    }
-                },
+                // Carried from the `InboundIdentity` variant, not inferred from `location()`: a
+                // custom header alone doesn't say which mode this is, since `direct` paired with
+                // `requires_gateway` (`#2089`) and `behind-gateway` both read a token from one.
+                requirement.mode(),
             ),
             max_token_bytes: requirement.max_token_bytes(),
             validation,

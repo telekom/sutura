@@ -350,6 +350,11 @@ pub enum InboundIdentity {
 pub struct TokenRequirement<'inbound> {
     max_token_bytes: MaxTokenBytes,
     location: TokenLocation<'inbound>,
+    /// Who authenticated the caller - the `InboundIdentity` variant this requirement came from,
+    /// carried explicitly rather than inferred from `location` or `resource`: a custom header is
+    /// not on its own evidence of either mode, since `direct` paired with `requires_gateway`
+    /// (`#2089`) and `behind-gateway` both read a token from one.
+    mode: sutura_domain::identity::VerifierMode,
     issuer: &'inbound IssuerUrl,
     audience: &'inbound TokenAudience,
     /// The identifier this deployment publishes. `Some` in `direct` only.
@@ -387,6 +392,14 @@ impl<'inbound> TokenRequirement<'inbound> {
     #[must_use]
     pub const fn location(&self) -> TokenLocation<'inbound> {
         self.location
+    }
+
+    /// Who authenticated the caller - the mode a [`sutura_domain::identity::AdmittingVerifier`]
+    /// is built with. Carried from the `InboundIdentity` variant, never inferred from `location`.
+    #[inline]
+    #[must_use]
+    pub const fn mode(&self) -> sutura_domain::identity::VerifierMode {
+        self.mode
     }
 
     /// The issuer the `iss` claim must equal, byte for byte.
@@ -555,6 +568,7 @@ impl InboundIdentity {
                     Some(ref header) => TokenLocation::Header { name: header },
                     None => TokenLocation::AuthorizationBearer,
                 },
+                mode: sutura_domain::identity::VerifierMode::Direct,
                 issuer: authorization_server,
                 audience: resource.audience(),
                 resource: Some(resource),
@@ -576,6 +590,7 @@ impl InboundIdentity {
                 } else {
                     TokenLocation::Header { name: &transit.header }
                 },
+                mode: sutura_domain::identity::VerifierMode::Gateway,
                 issuer: &transit.issuer,
                 audience: &transit.audience,
                 resource: None,

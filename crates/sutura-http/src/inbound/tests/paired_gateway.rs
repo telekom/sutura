@@ -72,6 +72,9 @@ async fn an_accepted_pairing_establishes_the_caller_from_the_user_token_not_the_
         caller.chain().subject(),
         &Subject::verified_by(caller.verifier().id().clone(), "a-user@example.com").expect("a fixture subject")
     );
+    // The custom header this pairing reads the caller's own token from must not make this look
+    // gateway-admitted - that is exactly the misclassification `#2089`'s delegation path hit.
+    assert_eq!(caller.verifier().mode(), sutura_domain::identity::VerifierMode::Direct);
 }
 
 #[tokio::test]
