@@ -1,11 +1,11 @@
---- a/crates/sutura-mcp/src/wire/catalog.rs
-+++ b/crates/sutura-mcp/src/wire/catalog.rs
-@@ -598,7 +598,7 @@
+--- a/crates/sutura-mcp/src/wire/catalog/names_index.rs
++++ b/crates/sutura-mcp/src/wire/catalog/names_index.rs
+@@ -174,7 +174,7 @@
              .map(|model| content_of(model, &mut relationships, prose))
              .collect(),
          None => view
 -            .models()
 +            .models().take(0)
+             .filter(|model| model_prefix.is_none_or(|prefix| model.name().as_str().starts_with(prefix)))
              .map(|model| content_of(model, &mut relationships, prose))
              .collect(),
-     }

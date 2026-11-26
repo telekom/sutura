@@ -206,6 +206,64 @@ pub(crate) fn bundle_with_many_metrics(count: usize, description_bytes: usize) -
     .expect("the test definitions hash")
 }
 
+/// `model_count` models AND `metric_count` metrics, every name padded to
+/// [`sutura_domain::model::MAX_IDENTIFIER_LEN`] - the worst-case-cursor twin of
+/// [`bundle_with_many_models`] and [`bundle_with_many_metrics`] combined into one bundle, for
+/// `describe_catalog(names: true)`'s own test of walking BOTH halves to completion in the same
+/// catalog (`github.com/telekom/sutura#2083`'s review): a fixture with only one pool never exercises
+/// the single sequential cursor crossing from the model half into the metric half mid-walk, which
+/// is exactly the transition the shared-budget split must get right.
+pub(crate) fn bundle_with_many_models_and_metrics_at_max_name_len(model_count: usize, metric_count: usize) -> PinnedDefinitions {
+    fn padded(prefix: &str, index: usize) -> String {
+        let core = format!("{prefix}{index:05}");
+        let fill = "x".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN - core.len());
+        format!("{core}{fill}")
+    }
+    let short = description("x");
+    let models: Vec<Model> = (0..model_count)
+        .map(|index| {
+            let name = padded("m", index);
+            Model::new(
+                ModelName::parse(&name).expect("a generated test model name is a name"),
+                source(),
+                TableName::parse(&name).expect("a generated test table name is a name"),
+                BTreeSet::from([column("amount_cents")]),
+                short.clone(),
+            )
+        })
+        .collect();
+    let owner = models.first().expect("at least one model").name().clone();
+    let metrics = (0..metric_count)
+        .map(|index| {
+            let name = padded("x", index);
+            Metric::new(
+                MetricName::parse(&name).expect("a generated test metric name is a name"),
+                owner.clone(),
+                Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+                Vec::new(),
+                column("amount_cents"),
+                BTreeSet::from([Grain::Day]),
+                Vec::new(),
+                None,
+                short.clone(),
+                Audience::Open,
+            )
+            .expect("no dimensions to duplicate")
+        })
+        .collect();
+    let definitions = Definitions::assemble(models, vec![], metrics).expect("the generated test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
 /// [`bundle`], plus a second metric restricted to the `finance` audience - `docs/adr/0028`.
 ///
 /// One bundle, two callers, two different catalogs: `revenue` stays open so every caller can still
