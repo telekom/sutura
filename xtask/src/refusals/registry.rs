@@ -126,7 +126,13 @@ const STARTUP: Subject = Subject {
     // named-verifier identity, path and source-admission combinations (#1890) replace the
     // five `AlsoAccept` variants; the common audience/header checks cover every verifier.
     // 57: `CallerGoogleTokenVerifier` refuses token forwarding without Google-tokeninfo admission.
-    variants: variants(57),
+    // 61 (#2089): `RequiresGatewayUnknown`, `RequiresGatewayNotBehindGateway` and
+    // `RequiresGatewayNotInAuthorization`, a `direct` verifier's `requires_gateway` naming no
+    // verifier, a non-`behind-gateway` one, or one that does not read `Authorization`; and
+    // `RequiresGatewayHeaderCollision`, that same verifier's own `token_header` naming
+    // `Authorization` too. 62 (#2089): `RequiresGatewayTokenHeaderCollidesWithVerifier`, that
+    // `token_header` naming a header another declared verifier already reads.
+    variants: variants(62),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

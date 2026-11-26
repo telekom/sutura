@@ -48,6 +48,8 @@ const TRANSIT_HEADER: &str = "x-transit-proof";
 pub(super) mod fixtures;
 #[cfg(test)]
 mod multi_verifier;
+#[cfg(test)]
+mod paired_gateway;
 mod token_bytes;
 
 use fixtures::{
@@ -939,25 +941,11 @@ where
         .block_on(future)
 }
 
-#[test]
-fn nothing_in_this_module_is_sendable_by_accident() {
-    // The bound `axum` needs and reports badly when it is missing: a layer's state must be `Send +
-    // Sync`, and the error for a state that is not is an unresolved trait bound on a tuple type. This
-    // is the assertion that names it instead.
-    fn assert_send_sync<T>()
-    where
-        T: Send + Sync + 'static,
-    {
-    }
-    assert_send_sync::<InboundGate>();
-    assert_send_sync::<KeySetCache>();
-    assert_send_sync::<TokenValidator>();
-    assert_send_sync::<KeySet>();
-    assert_send_sync::<crate::inbound::VerifiedCaller>();
-}
-
 /// What review found, as regressions, sharing every fixture above.
 mod review;
+/// `Send + Sync` on the gate's own state, split out for `xtask max-lines`.
+#[cfg(test)]
+mod send_sync;
 
 /// An `aud` other than the resource identifier, and the scopes an Entra token grants through it.
 #[cfg(test)]

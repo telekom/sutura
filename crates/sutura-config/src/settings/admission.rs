@@ -84,6 +84,43 @@ pub(super) fn verifier_refusals(inbound: &[InboundVerifier]) -> Vec<NotFitToServ
                 });
             }
         }
+        if let Some(target_id) = later.requires_gateway() {
+            if let Some(header) = later.token_header()
+                && header.is_authorization()
+            {
+                refusals.push(NotFitToServe::RequiresGatewayHeaderCollision { id: later.id().clone() });
+            }
+            if let Some(header) = later.token_header() {
+                for other in inbound.iter().filter(|candidate| candidate.id() != later.id()) {
+                    let collides = other
+                        .requirement()
+                        .is_some_and(|requirement| matches!(requirement.location(), crate::inbound::TokenLocation::Header { name } if name == header));
+                    if collides {
+                        refusals.push(NotFitToServe::RequiresGatewayTokenHeaderCollidesWithVerifier {
+                            id: later.id().clone(),
+                            other: other.id().clone(),
+                        });
+                    }
+                }
+            }
+            match inbound.iter().find(|verifier| verifier.id() == target_id) {
+                None => refusals.push(NotFitToServe::RequiresGatewayUnknown {
+                    id: later.id().clone(),
+                    target: target_id.clone(),
+                }),
+                Some(target) if target.is_direct() => refusals.push(NotFitToServe::RequiresGatewayNotBehindGateway {
+                    id: later.id().clone(),
+                    target: target.id().clone(),
+                }),
+                Some(target) if !target.reads_the_authorization_header() => {
+                    refusals.push(NotFitToServe::RequiresGatewayNotInAuthorization {
+                        id: later.id().clone(),
+                        target: target.id().clone(),
+                    });
+                }
+                Some(_) => {}
+            }
+        }
     }
     refusals
 }

@@ -213,6 +213,8 @@ pub(super) fn direct_pinning(path: &str, algorithms: PinnedAlgorithms, token_typ
         algorithms,
         token_type,
         address_claim: sutura_config::AddressClaim::VerifiedEmail,
+        token_header: None,
+        requires_gateway: None,
     }
 }
 
@@ -220,6 +222,21 @@ pub(super) fn direct_pinning(path: &str, algorithms: PinnedAlgorithms, token_typ
 /// cache directly, which is the seam that keeps these tests off a filesystem.
 pub(super) fn direct() -> InboundIdentity {
     direct_over("/unread/in/these/tests.json")
+}
+
+/// A `direct` declaration paired with a `behind-gateway` id, reading the caller's own token out of
+/// `header` instead of `Authorization` - `github.com/telekom/sutura#2089`.
+pub(super) fn paired_direct(path: &str, header: &str) -> InboundIdentity {
+    InboundIdentity::Direct {
+        resource: ResourceIdentifier::parse(RESOURCE).expect("a test resource is a resource"),
+        authorization_server: IssuerUrl::parse(ISSUER).expect("a test issuer is an issuer"),
+        key_set: KeySetLocation::File(KeySetFile::parse(path).expect("a test path is a path")),
+        algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
+        token_type: RequiredTokenType::access_token(),
+        address_claim: sutura_config::AddressClaim::VerifiedEmail,
+        token_header: Some(ProofHeader::parse_named(ProofHeader::TOKEN_HEADER_KEY, header).expect("a test header is a header")),
+        requires_gateway: Some(sutura_domain::identity::VerifierId::parse("gateway").expect("a test id is a verifier id")),
+    }
 }
 
 /// A `behind-gateway` declaration, with the class and the lifetime ceiling a test wants.
@@ -407,11 +424,25 @@ pub(super) fn scheme_and_token(scheme: &str, token: &str) -> HeaderMap {
 
 /// The headers a gateway deployment reads, holding an assertion.
 pub(super) fn transit(token: &str) -> HeaderMap {
+    header_named(TRANSIT_HEADER, token)
+}
+
+/// A single named header, unprefixed - for a `token_header` a `direct` verifier paired with
+/// `requires_gateway` reads the caller's own token from - `github.com/telekom/sutura#2089`.
+pub(super) fn header_named(name: &str, value: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     drop(headers.insert(
-        TRANSIT_HEADER,
-        HeaderValue::from_str(token).expect("a test token is a header value"),
+        axum::http::HeaderName::from_bytes(name.as_bytes()).expect("a test header name is a header name"),
+        HeaderValue::from_str(value).expect("a test token is a header value"),
     ));
+    headers
+}
+
+/// Two headers on one request: a named header plus `Authorization: Bearer <token>`, as a paired
+/// `direct`/`requires_gateway` caller presents - `github.com/telekom/sutura#2089`.
+pub(super) fn paired(header: &str, caller_token: &str, gateway_token: &str) -> HeaderMap {
+    let mut headers = header_named(header, caller_token);
+    headers.extend(bearer(gateway_token));
     headers
 }
 

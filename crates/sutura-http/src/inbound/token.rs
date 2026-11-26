@@ -256,6 +256,17 @@ pub enum TokenRejected {
     /// produces; a caller does not learn which locations are configured.
     #[error("tokens were presented in more than one configured header location")]
     AmbiguousProof,
+    /// A `direct` verifier paired with `requires_gateway` - `github.com/telekom/sutura#2089` - and the
+    /// gateway's own assertion was absent from, or did not verify in, `Authorization`.
+    ///
+    /// **The one explicit exception to [`Self::AmbiguousProof`], never a general loosening of it.**
+    /// This deployment still refuses a caller token and a gateway assertion arriving in the same
+    /// header, or two unrelated verifiers' tokens arriving together; this variant exists only because
+    /// one verifier now deliberately reads two headers for one request. The cause is boxed and logged,
+    /// never rendered to the caller: whether the assertion was missing, wrong-issuer, expired or
+    /// forged, the response is the same `401`.
+    #[error("the required gateway assertion was absent or did not verify")]
+    GatewayAssertionRequired(#[source] Box<Self>),
     /// Configured with the request-path alternative to `transit_audience`, a proof with no
     /// `requestPath` claim.
     #[error("the presented proof carries no `requestPath`, and this deployment binds the proof to a provider by it")]
@@ -521,12 +532,10 @@ impl TokenValidator {
             verifier: sutura_domain::identity::AdmittingVerifier::of(
                 id,
                 String::from(requirement.issuer().as_str()),
-                match requirement.location() {
-                    sutura_config::TokenLocation::AuthorizationBearer => sutura_domain::identity::VerifierMode::Direct,
-                    sutura_config::TokenLocation::GatewayBearer | sutura_config::TokenLocation::Header { .. } => {
-                        sutura_domain::identity::VerifierMode::Gateway
-                    }
-                },
+                // Carried from the `InboundIdentity` variant, not inferred from `location()`: a
+                // custom header alone doesn't say which mode this is, since `direct` paired with
+                // `requires_gateway` (`#2089`) and `behind-gateway` both read a token from one.
+                requirement.mode(),
             ),
             max_token_bytes: requirement.max_token_bytes(),
             validation,
@@ -926,74 +935,9 @@ fn actor_of(raw: &str) -> Result<Actor, TokenRejected> {
 }
 
 #[cfg(test)]
-mod tests {
-    use sutura_config::ProofLifetime;
-
-    use super::{NotVerified, TokenRejected, TokenValidator};
-
-    #[test]
-    fn an_assertion_past_its_window_is_refused_as_expired_under_single_use() {
-        let settings = crate::testing::settings_with(
-            "security:\n  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"x-transit-proof\"\n    \
-             transit_issuer: \"https://issuer.example.com\"\n    transit_audience: \"https://sutura.example.com\"\n    \
-             key_set_file: \"/unread.json\"\n    algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n    \
-             transit_single_use: true\n",
-        );
-        let validator = TokenValidator::new(&crate::testing::declared_inbound(&settings).requirement());
-        let refused = validator.admitted_once(Some(&serde_json::json!("a")), 0);
-        assert!(
-            matches!(
-                refused,
-                Err(TokenRejected::NotVerified(NotVerified::Crypto { ref cause }))
-                    if *cause.kind() == jsonwebtoken::errors::ErrorKind::ExpiredSignature
-            ),
-            "{refused:?}"
-        );
-    }
-
-    #[test]
-    fn a_seen_entry_lives_the_ceiling_plus_the_leeway_on_both_ends() {
-        let ceiling = ProofLifetime::parse(120).expect("120 seconds is a lifetime");
-        assert_eq!(super::entry_window(ceiling), 180);
-    }
-}
+#[path = "token/tests.rs"]
+mod tests;
 
 #[cfg(test)]
-mod address_tests {
-    use super::{Claims, VerifiedAddress, address_of};
-
-    fn claims(extra: &serde_json::Value) -> Claims {
-        let mut claims = serde_json::json!({ "sub": "someone@example.com", "exp": 4_102_444_800_i64 });
-        if let (Some(into), Some(from)) = (claims.as_object_mut(), extra.as_object()) {
-            into.extend(from.clone());
-        }
-        serde_json::from_value(claims).expect("a test claim set deserializes")
-    }
-
-    #[test]
-    fn a_verified_email_is_the_callers_address_as_written() {
-        let address = address_of(&claims(
-            &serde_json::json!({ "email": "Some.One@Example.com", "email_verified": true }),
-        ));
-        assert_eq!(address.as_ref().map(VerifiedAddress::as_str), Some("Some.One@Example.com"));
-    }
-
-    #[test]
-    fn an_unverified_email_yields_no_address() {
-        for verified in [serde_json::json!(false), serde_json::json!("true"), serde_json::json!(1)] {
-            let unverified = claims(&serde_json::json!({ "email": "someone@example.com", "email_verified": verified }));
-            assert!(address_of(&unverified).is_none(), "{verified}");
-        }
-        assert!(address_of(&claims(&serde_json::json!({ "email": "someone@example.com" }))).is_none());
-    }
-
-    #[test]
-    fn an_absent_email_yields_no_address() {
-        // The `sub` beside it is an address too, so an absent `email` that fell back to it would show.
-        for email in [serde_json::json!(null), serde_json::json!(["someone@example.com"])] {
-            let verified = claims(&serde_json::json!({ "email": email, "email_verified": true }));
-            assert!(address_of(&verified).is_none(), "{email}");
-        }
-        assert!(address_of(&claims(&serde_json::json!({ "email_verified": true }))).is_none());
-    }
-}
+#[path = "token/address_tests.rs"]
+mod address_tests;

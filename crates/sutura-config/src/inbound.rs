@@ -8,6 +8,13 @@
 //! [`InboundIdentity::BehindGateway`] makes a directly exposed deployment accept an assertion anybody
 //! can mint.
 //!
+//! `direct` may also name a fronting component's own `behind-gateway` entry, with `token_header` and
+//! `requires_gateway`: the caller still authenticates with their own token, read from `token_header`
+//! instead of `Authorization`, and the named entry's assertion must also verify, in full, in
+//! `Authorization` on the same request - `github.com/telekom/sutura#2089`. See
+//! `sutura_http::InboundGate`'s module documentation for how that pairing is the one explicit
+//! exception to refusing two configured locations at once, and what it does not bind.
+//!
 //! So the mode is a required key **inside** the declaration, and the declaration as a whole is
 //! optional. Those are two different absences and the difference matters:
 //!
@@ -69,6 +76,7 @@ mod audience;
 mod declaration;
 pub mod google;
 mod key_set;
+mod lifetime;
 mod primitive;
 mod request_path;
 mod scope;
@@ -78,9 +86,10 @@ pub use crate::inbound::address_claim::{AddressClaim, ClaimName};
 pub use crate::inbound::audience::{ClientId, TokenAudience};
 pub use crate::inbound::declaration::{InboundVerifier, InvalidMcpPath, McpPath};
 pub use crate::inbound::key_set::{KeySetLocation, KeySetMaxStale, KeySetUrl};
+pub use crate::inbound::lifetime::{ProofLifetime, TokenType};
 pub use crate::inbound::primitive::{
-    InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
-    ResourceIdentifier, SigningAlgorithm, TokenType,
+    InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ResourceIdentifier,
+    SigningAlgorithm,
 };
 pub use crate::inbound::request_path::RequestPathPrefix;
 pub use crate::inbound::scope::{ExtraScopeClaims, GrantedScopes};
@@ -338,6 +347,15 @@ pub enum InboundIdentity {
         token_type: RequiredTokenType,
         /// Which claim names the caller's address. See [`AddressClaim`].
         address_claim: AddressClaim,
+        /// The header the caller's own token arrives in, instead of `Authorization`. Present only
+        /// paired with `requires_gateway` - `github.com/telekom/sutura#2089`.
+        token_header: Option<ProofHeader>,
+        /// The id of a `behind-gateway` entry whose own assertion must also be present, in
+        /// `Authorization`, on the same request. The one named exception to the rule that a request
+        /// presenting credentials in two configured locations is refused - see
+        /// `crate::settings::admission::verifier_refusals` for what makes the pairing admissible, and
+        /// `sutura_http::InboundGate` for how the second check never becomes the caller.
+        requires_gateway: Option<sutura_domain::identity::VerifierId>,
     },
     /// A fronting component authenticated the caller. This deployment validates a **signed identity
     /// assertion** the component issued, and derives the subject from that assertion's own claims
@@ -361,6 +379,11 @@ pub enum InboundIdentity {
 pub struct TokenRequirement<'inbound> {
     max_token_bytes: MaxTokenBytes,
     location: TokenLocation<'inbound>,
+    /// Who authenticated the caller - the `InboundIdentity` variant this requirement came from,
+    /// carried explicitly rather than inferred from `location` or `resource`: a custom header is
+    /// not on its own evidence of either mode, since `direct` paired with `requires_gateway`
+    /// (`#2089`) and `behind-gateway` both read a token from one.
+    mode: sutura_domain::identity::VerifierMode,
     issuer: &'inbound IssuerUrl,
     /// `aud` must equal this. `None` only where [`TransitBinding::RequestPath`] binds the assertion
     /// by its request path instead - see [`Self::request_path_prefix`].
@@ -403,6 +426,14 @@ impl<'inbound> TokenRequirement<'inbound> {
     #[must_use]
     pub const fn location(&self) -> TokenLocation<'inbound> {
         self.location
+    }
+
+    /// Who authenticated the caller - the mode a [`sutura_domain::identity::AdmittingVerifier`]
+    /// is built with. Carried from the `InboundIdentity` variant, never inferred from `location`.
+    #[inline]
+    #[must_use]
+    pub const fn mode(&self) -> sutura_domain::identity::VerifierMode {
+        self.mode
     }
 
     /// The issuer the `iss` claim must equal, byte for byte.
@@ -571,12 +602,19 @@ impl InboundIdentity {
                 ref algorithms,
                 ref token_type,
                 ref address_claim,
+                ref token_header,
+                ..
             } => TokenRequirement {
-                // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it.
-                // That is what makes `security.access_token` and this mode a collision on one
+                // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it -
+                // unless `token_header` names a different one, paired with `requires_gateway`. That is
+                // what makes `security.access_token` and the default and this mode a collision on one
                 // header, refused at startup - see `NotFitToServe::DeploymentTokenSharesTheHeader`.
                 max_token_bytes: resource.max_token_bytes(),
-                location: TokenLocation::AuthorizationBearer,
+                location: match *token_header {
+                    Some(ref header) => TokenLocation::Header { name: header },
+                    None => TokenLocation::AuthorizationBearer,
+                },
+                mode: sutura_domain::identity::VerifierMode::Direct,
                 issuer: authorization_server,
                 audience: Some(resource.audience()),
                 request_path_prefix: None,
@@ -604,6 +642,7 @@ impl InboundIdentity {
                     } else {
                         TokenLocation::Header { name: &transit.header }
                     },
+                    mode: sutura_domain::identity::VerifierMode::Gateway,
                     issuer: &transit.issuer,
                     audience,
                     request_path_prefix,

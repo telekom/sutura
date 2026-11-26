@@ -119,4 +119,12 @@ pub(crate) struct RawInbound {
     /// does not start.
     #[serde(default)]
     pub(crate) accept_address_claim: bool,
+    /// `direct`: the header the caller's own token arrives in, instead of `Authorization`. Written
+    /// only beside `requires_gateway` - `github.com/telekom/sutura#2089`.
+    #[serde(default)]
+    pub(crate) token_header: Option<String>,
+    /// `direct`: the id of a `behind-gateway` entry whose own assertion must also be present, in
+    /// `Authorization`, on the same request. Written only beside `token_header`.
+    #[serde(default)]
+    pub(crate) requires_gateway: Option<String>,
 }

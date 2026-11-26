@@ -565,11 +565,23 @@ fn agent_mounts(state: &ServiceState) -> Result<Vec<sutura_http::AgentMount>, St
     if !state.settings().server().agent_surface_enabled() {
         return Ok(Vec::new());
     }
+    // A `behind-gateway` entry some `direct` verifier's `requires_gateway` names is reachable only
+    // through that pairing - `InboundGate::from_verifiers_with_outbound` never routes it on its own
+    // issuer. Mounting its path here anyway would advertise a live `/mcp` route the gate refuses
+    // everything sent to, which is the "dead mount" `github.com/telekom/sutura#2089` review flagged.
+    let required_targets = state
+        .settings()
+        .security()
+        .inbound()
+        .iter()
+        .filter_map(sutura_config::InboundVerifier::requires_gateway)
+        .collect::<std::collections::BTreeSet<_>>();
     let mut paths = state
         .settings()
         .security()
         .inbound()
         .iter()
+        .filter(|verifier| !required_targets.contains(verifier.id()))
         .map(|verifier| verifier.path().clone())
         .collect::<std::collections::BTreeSet<_>>();
     if paths.is_empty() {
