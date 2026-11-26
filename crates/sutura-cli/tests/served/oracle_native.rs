@@ -228,24 +228,16 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
 
 /// On the native-encryption path, a statement the server itself fails must reach the operator's
 /// log as that server error, not as the generic native-encryption refusal the unprotected
-/// break-marker packet used to produce (#2084). Casting the fixture's own non-numeric `PAYLOAD`
-/// text to `bigint` in a *projection* was observed (CI's `oracle-native-acceptance` job) to fail
-/// only after Oracle's own leg already returned those rows successfully, so that failure is
-/// `StatementStopped::NotPlanned` (a leg's rows that did not fit its table), not a leg failure, and
-/// the caller-visible code stays the generic `statement_failed` with no leg log line at all. The
-/// same cast in a *predicate* is instead captured in the leg's own SQL text -
-/// `combine/statement/tests/oracle.rs`'s
-/// `a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause` asserts that
-/// offline against the exact unparsed statement - so its failure is the leg's own, which is what
-/// this live test then relies on to make the ORA error genuinely Oracle's own. `bigint` is a standard SQL type the local resolver accepts and pushes down as-is; a
-/// vendor-specific type such as `number` parses as `DataType::Custom` and is refused locally before
-/// any Oracle leg runs, which would make the ORA code impossible to observe regardless of the fix
-/// under test. The statement also has to name a table the catalog already knows - `EVENTS`, from
-/// the fixture catalog `local_catalog` builds - because `resolve.rs`'s `factor()` refuses any other
-/// table name locally as `Refused::UnknownTable`; asserting the refusal code is `source_failed`
-/// (the single-source `run_sql` mapping in `crates/sutura-app/src/raw.rs` for a leg that itself
-/// returned `RawRefusalReason::StatementFailed`), not `unknown_table` or `statement_failed`, pins
-/// that this is genuinely the server's own refusal. The reply itself can never carry the driver's
+/// break-marker packet used to produce (#2084). The `oracle-native-acceptance` job builds this
+/// crate without the `sql` feature, so there is no planner here and no pushdown: `to_number` on
+/// the fixture's own non-numeric `PAYLOAD` text is passed through to Oracle exactly as written,
+/// unparsed, and fails as `ORA-01722` once Oracle runs it - a `cast(... as bigint)` would instead
+/// be a local Oracle-side parse error (`ORA-00902`, no such type), not the server executing and
+/// then failing the statement. Because this path never names tables or columns, there is nothing
+/// for the local resolver to refuse first regardless of feature set - the statement reaches
+/// Oracle's leg unconditionally, and the leg's own refusal is the honest pass-through code
+/// `statement_failed`, not a claim about identity/authorization (`source_failed`) or about a
+/// planner pushdown this build does not have. The reply itself can never carry the driver's
 /// text: the raw refusal vocabulary carries no driver text by design
 /// (`crates/sutura-domain/src/raw.rs`) - whoever controls the statement controls part of what a
 /// database says about it, so the closed code is all a caller gets. `run_sql`'s own debug line
@@ -269,12 +261,12 @@ fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
     let reply = deployment.post(
         &v1(sutura_http::constants::base_paths::RUN_SQL),
         Some(TOKEN),
-        &serde_json::json!({ "statement": "select ID from EVENTS where cast(PAYLOAD as bigint) = 1" }).to_string(),
+        &serde_json::json!({ "statement": "select ID from EVENTS where to_number(PAYLOAD) = 1" }).to_string(),
     );
     assert_eq!(
         reply.status,
         422,
-        "a source-failed statement refusal is 422: {}\nlog:\n{}",
+        "a statement-failed refusal is 422: {}\nlog:\n{}",
         reply.body,
         deployment.log().join("\n")
     );
@@ -287,12 +279,16 @@ fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
     );
     assert_eq!(
         reply.json()["code"],
-        "source_failed",
-        "EVENTS is a catalog table and the cast is pushed down as a filter Oracle itself evaluates, \
-         so this must be the server's own refusal, not local resolution or local output-fitting: {}\nlog:\n{}",
+        "statement_failed",
+        "this build has no planner (no `sql` feature) and no pushdown, so the statement passes \
+         through to Oracle as written and this is pass-through's own honest code for a leg that \
+         failed to run: {}\nlog:\n{}",
         reply.body,
         deployment.log().join("\n")
     );
+    // The proof the fix actually reads the encrypted error record after the break/reset: the
+    // leg's own debug log carries the real ORA code, which the closed `statement_failed` reply
+    // code above never does.
     deployment.awaiting("ORA-01722");
 }
 
