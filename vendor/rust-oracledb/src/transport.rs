@@ -231,6 +231,24 @@ pub(crate) fn packet_type_label(packet_type: u8) -> String {
     }
 }
 
+/// Diagnostic-only shape check for a DATA record that failed to authenticate:
+/// does it look like the server sent a plaintext TTC error message instead of
+/// a protected one? This inspects only the still-sealed bytes exactly as they
+/// arrived off the wire - the same bytes this transport already holds - never
+/// the decrypted plaintext (`Protection::open` never returns that on failure).
+/// A record is "plaintext-shaped" when most of it is printable ASCII, which a
+/// correctly sealed record practically never is.
+fn looks_like_plaintext_ttc_error(record: &[u8]) -> bool {
+    if record.is_empty() {
+        return false;
+    }
+    let printable = record
+        .iter()
+        .filter(|byte| byte.is_ascii_graphic() || **byte == b' ')
+        .count();
+    printable * 10 >= record.len() * 9
+}
+
 /// Returns the character to use for the given byte when displaying packet
 /// data.
 fn display_char(byte: u8) -> char {
@@ -339,11 +357,16 @@ impl Transport {
                 // session's own authentication state, not the record's shape: a record's bytes
                 // can be forged to look sealed or unsealed either way, but whether this session
                 // has completed authentication is this client's own fact.
+                let packet_flags = packet.packet_flags;
+                let data_flags = packet.data_flags;
+                let plaintext_shaped = looks_like_plaintext_ttc_error(&packet.buf);
                 packet.buf = protection.open(&packet.buf).map_err(|_| {
                     if authenticated {
                         Error::native_encryption_refused(format!(
                             "expected a protected DATA packet, got one that did not authenticate \
-                             ({record_len} byte record) - refused, not read"
+                             ({record_len} byte record, packet_flags=0x{packet_flags:02x}, \
+                             data_flags=0x{data_flags:04x}, plaintext_shaped={plaintext_shaped}) \
+                             - refused, not read"
                         ))
                     } else {
                         Error::native_encryption_refused(format!(
@@ -542,6 +565,17 @@ impl Transport {
 
     pub(crate) fn uses_native(&self) -> bool {
         self.protection.is_some()
+    }
+
+    /// Re-derives the native MAC keystreams for a break/reset, a no-op without
+    /// native encryption. Must be called once the client has sent its own reset
+    /// marker, matching what the server independently does at the same point;
+    /// see `nne::record::HashState::rekey_for_reset`.
+    pub(crate) fn rekey_native_protection_for_reset(&mut self) -> Result<(), Error> {
+        match self.protection.as_mut() {
+            Some(protection) => protection.rekey_for_reset(),
+            None => Ok(()),
+        }
     }
 
     /// Builds a connected, loopback-backed native transport for tests outside

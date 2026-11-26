@@ -65,10 +65,26 @@ struct HashState {
     tx_mask: Zeroizing<Vec<u8>>,
     rx_mask: Zeroizing<Vec<u8>>,
     algorithm: Integrity,
+    /// Last seed-chaining output (the `generated` buffer below), kept so a
+    /// break/reset can re-derive `tx`/`rx` by chaining forward from it - see
+    /// `rekey_for_reset`.
+    chain: Zeroizing<[u8; 32]>,
+    /// Whether `tx`/`rx` were swapped relative to the canonical derivation
+    /// below (only ever set by the `peer_for_test` helper, to make one
+    /// `Protection` play the other end of a channel for tests) - a rekey
+    /// must reproduce the same swap, not silently undo it.
+    swapped: bool,
 }
 
 impl HashState {
-    fn new(key: &[u8], iv: &[u8], algorithm: Integrity) -> Result<Self, Error> {
+    /// Derives the directional MAC keystream ciphers from `key`/`iv` by the same
+    /// seed-chaining construction the TTC native-encryption protocol uses for the
+    /// initial key (and, via `rekey_for_reset`, for every break/reset after it).
+    fn derive(
+        key: &[u8],
+        iv: &[u8],
+        swapped: bool,
+    ) -> Result<(MaskCipher, MaskCipher, Zeroizing<[u8; 32]>), Error> {
         let mut seed = Zeroizing::new([0u8; 16]);
         seed[..15].copy_from_slice(&key[..15]);
         seed[15] = 0xff;
@@ -77,16 +93,45 @@ impl HashState {
         step(&mut generator, generated.as_mut_slice());
         seed.copy_from_slice(&generated[..16]);
         seed[15] = 0x5a;
-        let tx = cipher(seed.as_slice(), &generated[16..])?;
+        let a = cipher(seed.as_slice(), &generated[16..])?;
         seed[15] = 0xb4;
-        let rx = cipher(seed.as_slice(), &generated[16..])?;
+        let b = cipher(seed.as_slice(), &generated[16..])?;
+        Ok(if swapped { (b, a, generated) } else { (a, b, generated) })
+    }
+
+    fn new(key: &[u8], iv: &[u8], algorithm: Integrity) -> Result<Self, Error> {
+        let (tx, rx, generated) = Self::derive(key, iv, false)?;
         Ok(Self {
             tx,
             rx,
             tx_mask: Zeroizing::new(vec![0; algorithm.size()]),
             rx_mask: Zeroizing::new(vec![0; algorithm.size()]),
             algorithm,
+            chain: generated,
+            swapped: false,
         })
+    }
+
+    /// Re-derives `tx`/`rx` by chaining forward from the last-derived seed state,
+    /// as both peers independently do once per break/reset (immediately after the
+    /// client answers with its own reset marker). The per-record encryption key/IV
+    /// is untouched, and the evolving `tx_mask`/`rx_mask` keystream counters carry
+    /// on rather than resetting - only the keying of the ciphers that step them
+    /// changes. Without this, the record that follows a break/reset on an already
+    /// authenticated session fails to authenticate, because the server has moved
+    /// its own MAC state forward the same way.
+    ///
+    /// Adapted from go-ora's `seer_ano_reset` (see `seerdb/SeerODBC#55`, which
+    /// documents this behaviour against a live Oracle server); go-ora is this
+    /// module's cited algorithmic origin (see the header comment above).
+    fn rekey_for_reset(&mut self) -> Result<(), Error> {
+        let seed = Zeroizing::new(self.chain[..16].to_vec());
+        let iv = &self.chain[16..];
+        let (tx, rx, generated) = Self::derive(&seed, iv, self.swapped)?;
+        self.tx = tx;
+        self.rx = rx;
+        self.chain = generated;
+        Ok(())
     }
 
     fn compute(&mut self, data: &[u8]) -> Vec<u8> {
@@ -129,6 +174,11 @@ impl Protection {
 
     pub(crate) fn overhead(&self) -> usize {
         self.hash.algorithm.size() + 17
+    }
+
+    /// Re-derives the MAC keystreams for a break/reset; see `HashState::rekey_for_reset`.
+    pub(crate) fn rekey_for_reset(&mut self) -> Result<(), Error> {
+        self.hash.rekey_for_reset()
     }
 
     pub(crate) fn fold(&mut self, authentication_key: &[u8]) -> Result<(), Error> {
@@ -234,6 +284,7 @@ impl Protection {
 pub(super) fn peer_for_test(mut protection: Protection) -> Protection {
     std::mem::swap(&mut protection.hash.tx, &mut protection.hash.rx);
     std::mem::swap(&mut protection.hash.tx_mask, &mut protection.hash.rx_mask);
+    protection.hash.swapped = !protection.hash.swapped;
     protection
 }
 

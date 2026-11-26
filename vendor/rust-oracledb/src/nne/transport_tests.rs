@@ -31,7 +31,8 @@ fn corrupt_record_poisoning_prevents_any_later_plaintext_write() {
     assert_eq!(
         error.to_string(),
         "native encryption refused: expected a protected DATA packet, got one that did not \
-         authenticate (50 byte record) - refused, not read"
+         authenticate (50 byte record, packet_flags=0x00, data_flags=0x0000, \
+         plaintext_shaped=false) - refused, not read"
     );
     assert!(transport.low_level_transport.is_none());
     assert!(transport.protection.is_none());
@@ -143,6 +144,7 @@ fn an_unprotected_data_packet_after_authentication_is_named_neutrally_not_as_a_l
     assert_eq!(
         error.to_string(),
         "native encryption refused: expected a protected DATA packet, got one that did not \
-         authenticate (39 byte record) - refused, not read"
+         authenticate (39 byte record, packet_flags=0x00, data_flags=0x0000, \
+         plaintext_shaped=true) - refused, not read"
     );
 }

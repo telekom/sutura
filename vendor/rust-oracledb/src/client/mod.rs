@@ -282,14 +282,29 @@ impl Client {
     /// must never be forwarded to the caller as if they were the awaited
     /// response, and a protected packet arriving early must never be
     /// silently discarded as if it were pre-reset noise.
+    ///
+    /// On native encryption, the server independently re-derives its MAC
+    /// keystreams the moment it sees the client's answering reset marker,
+    /// chaining forward from their current state rather than restarting from
+    /// the session key. The client reaches that same synchronisation point
+    /// the moment it in turn sees the marker come back, so it rekeys there,
+    /// right before reading what follows - any data still in flight from
+    /// before the break remains under the old keys, exactly like the server's
+    /// own traffic does, and only the record the break/reset handshake is
+    /// actually waiting for is read under the new ones.
     fn reset(&mut self, reset_received: bool) -> Result<Packet, Error> {
         self.send_marker(constants::MARKER_TYPE_RESET)?;
         let native = self.transport.uses_native();
         let mut reset_received = reset_received;
+        let mut rekeyed = false;
         loop {
             let packet = self.transport.receive_packet()?;
             if packet.has_reset_marker() {
                 reset_received = true;
+                if native && !rekeyed {
+                    self.transport.rekey_native_protection_for_reset()?;
+                    rekeyed = true;
+                }
             } else if reset_received {
                 if native && packet.packet_type != constants::PACKET_TYPE_DATA {
                     return Err(Error::native_encryption_refused(format!(
@@ -1294,6 +1309,9 @@ mod tests {
             let mut discard = [0u8; 256];
             let _ = server.read(&mut discard);
             server.write_all(&marker_packet(constants::MARKER_TYPE_RESET)).unwrap();
+            // The real server also re-derives its MAC keystreams the moment it
+            // answers with its reset marker - see `rekey_for_reset`.
+            peer.rekey_for_reset().unwrap();
             let sealed = peer.seal(b"ORA-00942: table or view does not exist").unwrap();
             server.write_all(&data_packet(&sealed)).unwrap();
         });
@@ -1351,6 +1369,34 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "native encryption refused: expected an unprotected MARKER before the reset marker, got a protected DATA"
+        );
+    }
+
+    /// The rekey must not weaken integrity: a record forged after a
+    /// server-side rekey (right bytes, wrong MAC) is still refused rather
+    /// than authenticating just because a rekey happened.
+    #[test]
+    fn a_forged_record_after_a_server_side_rekey_is_still_refused() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            server.write_all(&marker_packet(constants::MARKER_TYPE_RESET)).unwrap();
+            peer.rekey_for_reset().unwrap();
+            let mut sealed = peer.seal(b"ORA-00942: table or view does not exist").unwrap();
+            let last = sealed.len() - 1;
+            sealed[last] ^= 0xff;
+            server.write_all(&data_packet(&sealed)).unwrap();
+        });
+        let error = match client.reset(true) {
+            Ok(_) => panic!("a forged record must not authenticate just because a rekey happened"),
+            Err(err) => err,
+        };
+        sender.join().unwrap();
+        assert!(
+            error.to_string().contains("did not authenticate"),
+            "unexpected error: {error}"
         );
     }
 }
