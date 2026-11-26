@@ -138,6 +138,22 @@ async fn empty_model_prefix_is_refused_as_not_a_question() {
     assert!(body.contains("model_prefix"), "{body}");
 }
 
+/// A malformed `after` - not this route's own `metric:<name>` cursor form - is refused as
+/// `400`, not read as "start from the beginning" (`github.com/telekom/sutura#2083` round 4;
+/// `CatalogNamesBody::of` returns [`sutura_app::catalog_budget::MalformedNamesCursor`] for it).
+#[tokio::test]
+async fn malformed_after_is_refused_as_not_a_question() {
+    let app = app(settings(Environment::Development, ""));
+    let (status, body) = call(
+        &app,
+        request("GET", "/v1/catalog?names=true&after=revenue", None, Body::empty()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains(r#""code":"not_a_question""#), "{body}");
+    assert!(body.contains("cursor"), "{body}");
+}
+
 #[tokio::test]
 async fn walking_names_after_the_route_reaches_every_metric_past_the_cap() {
     const METRIC_COUNT: usize = 3000;

@@ -140,6 +140,87 @@ async fn walking_after_to_exhaustion_reaches_every_model_and_every_metric() {
     drop(client.cancel().await);
 }
 
+/// A model page that uses the whole shared budget leaves behind less room than one metric entry
+/// costs - round 4's `first_does_not_fit` guard (`github.com/telekom/sutura#2083`). Every model
+/// entry in [`testing::bundle_with_many_models_and_metrics_at_max_name_len`] costs the same number
+/// of bytes, so the largest model count that still lands entirely on one page always leaves a
+/// remainder smaller than one more entry - a division remainder, by construction - which is exactly
+/// the crossing case the guard exists for. Binary-searches for that count against the real server
+/// rather than hand-deriving the byte budget, so the test does not silently stop proving anything
+/// the moment an envelope byte changes elsewhere.
+#[tokio::test]
+async fn a_model_page_that_spends_the_whole_budget_admits_no_metric_onto_it() {
+    async fn models_fit_one_page(model_count: usize) -> bool {
+        let bundle = testing::bundle_with_many_models_and_metrics_at_max_name_len(model_count, 1);
+        let service = LocalService::start(
+            &testing::FixedBundleCatalog(bundle),
+            testing::fake_warehouse(),
+            std::sync::Arc::new(testing::CountingSink::default()),
+            testing::broker(),
+            sutura_domain::plan::RefusingCombiner,
+            1 << 30,
+        )
+        .expect("the probing fixture bundle validates");
+        let client = super::connected(service).await;
+        let result = client
+            .call_tool(describe_catalog(&serde_json::json!({ "names": true })))
+            .await
+            .expect("names: true, probing, is a valid question");
+        let json = result.structured_content.expect("a names index carries structured content");
+        let fits = json["model_names"].as_array().expect("model_names is a list").len() == model_count;
+        drop(client.cancel().await);
+        fits
+    }
+
+    let (mut lo, mut hi) = (1_usize, 4_000_usize);
+    assert!(
+        models_fit_one_page(lo).await,
+        "even a single max-length model must fit on its own page"
+    );
+    assert!(
+        !models_fit_one_page(hi).await,
+        "4000 max-length models must not fit on one page - widen the search"
+    );
+    while hi - lo > 1 {
+        let mid = lo + ((hi - lo) >> 1);
+        if models_fit_one_page(mid).await {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let model_count = lo;
+
+    let bundle = testing::bundle_with_many_models_and_metrics_at_max_name_len(model_count, 2);
+    let service = LocalService::start(
+        &testing::FixedBundleCatalog(bundle),
+        testing::fake_warehouse(),
+        std::sync::Arc::new(testing::CountingSink::default()),
+        testing::broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the boundary fixture bundle validates");
+    let client = super::connected(service).await;
+    let result = client
+        .call_tool(describe_catalog(&serde_json::json!({ "names": true })))
+        .await
+        .expect("names: true at the boundary is a valid question");
+    assert_ne!(result.is_error, Some(true), "{result:?}");
+    let json = result.structured_content.expect("a names index carries structured content");
+    assert_eq!(
+        json["model_names"].as_array().expect("model_names is a list").len(),
+        model_count,
+        "{json}"
+    );
+    assert!(
+        json["metric_names"].as_array().expect("metric_names is a list").is_empty(),
+        "the leftover budget must not fit even one metric entry: {json}"
+    );
+    assert_eq!(json["next"].as_str(), Some("metric:"), "{json}");
+    drop(client.cancel().await);
+}
+
 /// `model_prefix` narrows the FULL (non-`names`) listing's physical-schema candidates to models
 /// starting with that prefix - the excluded model owns its own metric too, so its absence actually
 /// proves the filter ran.
