@@ -297,6 +297,18 @@ impl Client {
         let native = self.transport.uses_native();
         let mut reset_received = reset_received;
         let mut rekeyed = false;
+        // The caller passes `reset_received = true` when the very marker packet
+        // that led it to call `reset` was itself the reset marker (as opposed to
+        // a break marker that a reset marker still has to follow). That marker
+        // was already consumed before this call, so it never re-enters the loop
+        // below - without rekeying here, the loop's own
+        // `packet.has_reset_marker()` branch, the only other place a rekey
+        // happens, is never reached for this sequence, and the DATA packet that
+        // follows is decrypted with the stale pre-break keystream.
+        if native && reset_received {
+            self.transport.rekey_native_protection_for_reset()?;
+            rekeyed = true;
+        }
         loop {
             let packet = self.transport.receive_packet()?;
             if packet.has_reset_marker() {
@@ -1319,6 +1331,39 @@ mod tests {
         sender.join().unwrap();
         assert_eq!(packet.packet_type, constants::PACKET_TYPE_DATA);
         assert_eq!(packet.buf, b"ORA-00942: table or view does not exist");
+    }
+
+    /// Reproduces the entry path flagged in review: the marker packet that led
+    /// `receive_data_packet` to call `reset` was itself the reset marker (no
+    /// separate break marker preceded it), so `reset_received` starts `true`
+    /// and that marker is never read again inside the loop below - the loop's
+    /// own `packet.has_reset_marker()` branch is the only other place a rekey
+    /// happens, so without rekeying on entry too, the DATA packet that follows
+    /// decrypts under the stale pre-reset keystream and fails to authenticate,
+    /// exactly as observed against a live server.
+    #[test]
+    fn reset_entered_with_reset_already_received_still_rekeys() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            // No further marker is written - the reset marker that led the
+            // caller to pass `reset_received = true` was already consumed
+            // before `reset` was even called.
+            peer.rekey_for_reset().unwrap();
+            let sealed = peer.seal(b"ORA-01456: may not perform insert/delete/update operation inside a READ ONLY transaction").unwrap();
+            server.write_all(&data_packet(&sealed)).unwrap();
+        });
+        let packet = client
+            .reset(true)
+            .expect("the DATA packet must authenticate under the keys rekeyed on entry");
+        sender.join().unwrap();
+        assert_eq!(packet.packet_type, constants::PACKET_TYPE_DATA);
+        assert_eq!(
+            packet.buf,
+            b"ORA-01456: may not perform insert/delete/update operation inside a READ ONLY transaction"
+        );
     }
 
     /// A non-reset marker taking the place of the awaited protected record
