@@ -797,6 +797,16 @@ pub(crate) struct RawCatalog {
     /// stays `refuse`, the behaviour before this key existed.
     #[serde(default)]
     pub(crate) on_missing_endpoint: Option<String>,
+    /// What an unusable native table or column comment does, for both `documentation_schema` and
+    /// `native_dictionary`. Absent stays `refuse` - `omit` drops the comment (logged) and serves
+    /// the column or table without prose instead of refusing the whole catalog.
+    #[serde(default)]
+    pub(crate) on_invalid_comment: Option<String>,
+    /// Opt-in: replace a C1 control character (U+0080-U+009F) in a native comment with U+FFFD
+    /// before the comment is validated, instead of the comment being refused or omitted outright.
+    /// Absent leaves native comment text untouched.
+    #[serde(default)]
+    pub(crate) sanitize_control_characters: bool,
 }
 
 /// Native dictionary include pair. Patterns are data, never SQL fragments.

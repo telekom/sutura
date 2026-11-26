@@ -774,6 +774,45 @@ mod tests {
         );
     }
 
+    /// `telekom/sutura#2082` ask 2: an `on_invalid_description: Omit`-dropped row whose fallback -
+    /// the dictionary's own native comment - is itself unusable no longer refuses the whole load.
+    /// It follows ask 1's `on_invalid_comment` policy: `Omit` there serves the column without
+    /// prose, where before this change the load refused because nothing re-validated the fallback.
+    #[test]
+    fn omit_policy_s_native_fallback_being_itself_invalid_is_served_without_prose_not_refused() {
+        use sutura_domain::pinned::SemanticCatalog as _;
+        struct Merged(Dictionary);
+        impl crate::DictionaryReader for Merged {
+            fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
+                Ok(self.0.clone())
+            }
+        }
+        let overlay_source = dictionary("public", &[("id", "Bad\u{96}prose")]);
+        let overlay =
+            DescriptionOverlay::from_dictionary(&overlay_source, bounds(100, 10000), false, InvalidDescriptionPolicy::Omit)
+                .expect("omit never refuses at construction");
+        let native = dictionary("public", &[("id", "Also bad\u{96}prose")]);
+        let (merged, ignored) = native
+            .overlay_descriptions(&[overlay])
+            .expect("an omitted row falls back to the native comment, invalid or not");
+        assert_eq!(ignored, 0);
+        let pinned = crate::RdbmsCatalog::new(
+            sutura_domain::model::SourceName::parse("orders_source").unwrap(),
+            sutura_domain::pinned::DefinitionVersion::parse("test").unwrap(),
+            Merged(merged),
+        )
+        .with_invalid_comment_policy(InvalidDescriptionPolicy::Omit)
+        .load()
+        .expect("the invalid native fallback must be omitted, not refuse the whole catalog");
+        let orders = pinned
+            .definitions()
+            .models()
+            .get(&sutura_domain::model::ModelName::parse("orders").unwrap())
+            .expect("orders is a model");
+        let id = sutura_domain::model::ColumnName::parse("id").unwrap();
+        assert_eq!(orders.column(&id).expect("id is declared").description(), "");
+    }
+
     #[test]
     fn a_catalog_projection_uses_physical_names_and_discards_the_contributors_structure() {
         use sutura_domain::pinned::SemanticCatalog as _;

@@ -186,6 +186,25 @@ fn exact_physical_identifier(raw: &str) -> Result<&str, InvalidIdentifier> {
     Ok(raw)
 }
 
+/// Replaces every C1 control character (U+0080-U+009F) with U+FFFD, the opt-in behind
+/// `with_control_character_sanitization`. Most such bytes in a native comment are cp1252
+/// punctuation carried through a wrong conversion, not a deliberate control byte; U+FFFD leaves a
+/// visible mark where one was removed rather than silently closing the gap. Applied here, in the
+/// adapter, and never inside `sutura_domain::catalog::Description::parse` - that type refuses at
+/// load and never alters text, so sanitizing authored prose is this crate's decision to make on raw
+/// source bytes, before they are treated as authored prose at all.
+fn sanitize_c1_controls(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if ('\u{0080}'..='\u{009F}').contains(&character) {
+                '\u{FFFD}'
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
 /// Where a dictionary's records come from.
 ///
 /// **The fake seam.** Everything above this trait is decided and tested against a recorded
@@ -217,6 +236,8 @@ pub struct RdbmsCatalog<R> {
     bounds: Option<DictionaryBounds>,
     audience: Option<Audience>,
     definitions_bound: DefinitionsByteBound,
+    on_invalid_comment: descriptions::InvalidDescriptionPolicy,
+    sanitize_control_characters: bool,
 }
 
 impl<R> RdbmsCatalog<R> {
@@ -231,6 +252,8 @@ impl<R> RdbmsCatalog<R> {
             bounds: None,
             audience: None,
             definitions_bound: DefinitionsByteBound::DEFAULT,
+            on_invalid_comment: descriptions::InvalidDescriptionPolicy::default(),
+            sanitize_control_characters: false,
         }
     }
 
@@ -244,7 +267,26 @@ impl<R> RdbmsCatalog<R> {
             bounds: self.bounds,
             audience: self.audience,
             definitions_bound: self.definitions_bound,
+            on_invalid_comment: self.on_invalid_comment,
+            sanitize_control_characters: self.sanitize_control_characters,
         }
+    }
+
+    /// What an unusable native table or column comment does - `Refuse` (default, unchanged) or
+    /// `Omit`, which drops just that comment and serves the table or column without prose.
+    #[must_use]
+    pub const fn with_invalid_comment_policy(mut self, policy: descriptions::InvalidDescriptionPolicy) -> Self {
+        self.on_invalid_comment = policy;
+        self
+    }
+
+    /// Opt-in: replace a C1 control character (U+0080-U+009F) in a native comment with U+FFFD
+    /// before the comment is validated, instead of letting the character alone decide the comment's
+    /// fate. Most such bytes are cp1252 punctuation stored through a wrong conversion.
+    #[must_use]
+    pub const fn with_control_character_sanitization(mut self, sanitize: bool) -> Self {
+        self.sanitize_control_characters = sanitize;
+        self
     }
 
     /// Declares `catalogs[].max_definitions_bytes` - `github.com/telekom/sutura#2071` - rather than
@@ -354,10 +396,21 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     cause,
                 })?;
             let metadata = table.column_metadata(column);
+            let comment = self
+                .prepare_native_comment(
+                    metadata.and_then(ColumnMetadata::description),
+                    &physical_table.to_string(),
+                    Some(&column_name),
+                )
+                .map_err(|cause| RdbmsError::ColumnDescription {
+                    table: physical_table.to_string(),
+                    column: column_name.clone(),
+                    cause,
+                })?;
             let column = Column::from_metadata(
                 column_name,
                 metadata.and_then(ColumnMetadata::data_type),
-                metadata.and_then(ColumnMetadata::description),
+                comment.as_deref(),
                 None,
             )
             .map_err(|refusal| {
@@ -374,15 +427,20 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
                     .with_collation(metadata.map_or_default(|metadata| metadata.collation.clone())),
             );
         }
-        let description = table
-            .description()
-            .map(|raw| {
-                Description::parse(raw).map_err(|cause| RdbmsError::Description {
-                    table: physical_table.to_string(),
-                    cause,
-                })
-            })
-            .transpose()?
+        let table_comment = self
+            .prepare_native_comment(table.description(), &physical_table.to_string(), None)
+            .map_err(|cause| RdbmsError::Description {
+                table: physical_table.to_string(),
+                cause,
+            })?;
+        let description = table_comment
+            .as_deref()
+            .map(Description::parse)
+            .transpose()
+            .map_err(|cause| RdbmsError::Description {
+                table: physical_table.to_string(),
+                cause,
+            })?
             .unwrap_or_default();
         let primary_key = table
             .primary_key()
@@ -404,6 +462,42 @@ impl<R: DictionaryReader> RdbmsCatalog<R> {
             model = model.with_audience(audience.clone());
         }
         Ok((physical_table, model))
+    }
+
+    /// Sanitizes (if opted in) and validates one native table or column comment, applying
+    /// `on_invalid_comment`.
+    ///
+    /// `Ok(None)` covers both "no comment" and an unusable comment dropped under `Omit` - the
+    /// latter logs `table` and `column` (never the text) at `WARN`. `Ok(Some(text))` is a comment
+    /// usable as authored prose, sanitized first when opted in. `Err` is reached only under the
+    /// default `Refuse`, and names no text either - the caller wraps it with its own identifying
+    /// `RdbmsError` variant.
+    fn prepare_native_comment(
+        &self,
+        raw: Option<&str>,
+        table: &str,
+        column: Option<&ColumnName>,
+    ) -> Result<Option<String>, sutura_domain::catalog::InvalidDescription> {
+        let Some(raw) = raw else { return Ok(None) };
+        let candidate = if self.sanitize_control_characters {
+            sanitize_c1_controls(raw)
+        } else {
+            raw.to_owned()
+        };
+        match Description::parse(&candidate) {
+            Ok(_) => Ok(Some(candidate)),
+            Err(cause) => match self.on_invalid_comment {
+                descriptions::InvalidDescriptionPolicy::Refuse => Err(cause),
+                descriptions::InvalidDescriptionPolicy::Omit => {
+                    if let Some(column) = column {
+                        tracing::warn!(table, %column, %cause, "omitting native column comment: not usable");
+                    } else {
+                        tracing::warn!(table, %cause, "omitting native table comment: not usable");
+                    }
+                    Ok(None)
+                }
+            },
+        }
     }
 
     fn convert_table_address(address: &TableAddress) -> Result<QualifiedTable, RdbmsError> {

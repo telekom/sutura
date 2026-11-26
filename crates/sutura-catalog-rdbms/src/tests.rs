@@ -1,5 +1,7 @@
 use std::num::NonZeroU64;
 
+mod comments;
+
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
@@ -13,7 +15,7 @@ use sutura_domain::query::{Query, RefusalReason};
 use crate::fixture::FixtureReader;
 use crate::{
     Dictionary, DictionaryBounds, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table,
-    TableAddress,
+    TableAddress, descriptions,
 };
 
 #[cfg(feature = "live")]

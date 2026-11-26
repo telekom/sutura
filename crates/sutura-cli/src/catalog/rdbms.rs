@@ -9,7 +9,10 @@ const fn map_on_missing_endpoint(policy: sutura_config::MissingEndpointPolicy) -
 }
 
 /// The config crate's own `on_invalid_description` policy, to the catalog-rdbms crate's own -
-/// two independent types for the same reason as `map_on_missing_endpoint` above.
+/// two independent types for the same reason as `map_on_missing_endpoint` above. Reused as-is for
+/// the catalog-level `on_invalid_comment` (`telekom/sutura#2082`): both are the same closed
+/// `Refuse`/`Omit` shape, so a second, identically-bodied function would only be a second thing to
+/// keep in step.
 pub(super) const fn map_on_invalid_description(
     policy: sutura_config::catalog::rdbms::InvalidDescriptionPolicy,
 ) -> sutura_catalog_rdbms::descriptions::InvalidDescriptionPolicy {
@@ -102,7 +105,9 @@ pub(super) fn open_one_rdbms_catalog(settings: &sutura_config::CatalogSettings) 
     )
     .with_source_alias(rdbms.source_alias().clone())
     .with_bounds(bounds)
-    .with_definitions_bound(settings.max_definitions_bytes());
+    .with_definitions_bound(settings.max_definitions_bytes())
+    .with_invalid_comment_policy(map_on_invalid_description(rdbms.on_invalid_comment()))
+    .with_control_character_sanitization(rdbms.sanitize_control_characters());
     super::log_definitions_bound(settings);
     Ok(match rdbms.audience() {
         Some(audience) => catalog.with_audience(audience.clone()),
