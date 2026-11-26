@@ -121,9 +121,12 @@ impl HashState {
     /// authenticated session fails to authenticate, because the server has moved
     /// its own MAC state forward the same way.
     ///
-    /// Adapted from go-ora's `seer_ano_reset` (see `seerdb/SeerODBC#55`, which
-    /// documents this behaviour against a live Oracle server); go-ora is this
-    /// module's cited algorithmic origin (see the header comment above).
+    /// Adapted from go-ora's `seer_ano_reset`; go-ora is this module's cited
+    /// algorithmic origin (see the header comment above). Without this, a live
+    /// required-NNE server's error record following a break/reset fails to
+    /// authenticate (observed on CI at the commit that introduced this fix -
+    /// a 114-byte record that did not authenticate), and the `oracle_native`
+    /// live cell now reads that record successfully.
     fn rekey_for_reset(&mut self) -> Result<(), Error> {
         let seed = Zeroizing::new(self.chain[..16].to_vec());
         let iv = &self.chain[16..];

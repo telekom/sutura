@@ -90,18 +90,10 @@ fn oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows(
     let tier = Tier::here();
     let case = "oracle-raw-read-only";
     let served = start_configured(case, &settings(&tier, case, true, false));
-    // ponytail: native reports a channel refusal here; verified reports the read-only error.
-    let (read_only_status, read_only_code) = if tier.channel.starts_with("transport_mode: native-encryption") {
-        (422, "statement_failed")
-    } else {
-        (403, "source_refused")
-    };
+    // Native encryption now reads the server's own read-only refusal after a break/reset the
+    // same way the verified channel does, rather than surfacing a generic channel refusal.
     for (statement, status, code) in [
-        (
-            "SELECT ID FROM EVENTS WHERE ID = 1 FOR UPDATE",
-            read_only_status,
-            read_only_code,
-        ),
+        ("SELECT ID FROM EVENTS WHERE ID = 1 FOR UPDATE", 403, "source_refused"),
         (
             "WITH FUNCTION attempt RETURN NUMBER IS BEGIN EXECUTE IMMEDIATE 'DELETE FROM EVENTS'; RETURN 1; END; SELECT attempt FROM dual",
             403,

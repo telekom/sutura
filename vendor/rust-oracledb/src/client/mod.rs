@@ -1385,8 +1385,10 @@ mod tests {
             server.write_all(&marker_packet(constants::MARKER_TYPE_RESET)).unwrap();
             peer.rekey_for_reset().unwrap();
             let mut sealed = peer.seal(b"ORA-00942: table or view does not exist").unwrap();
-            let last = sealed.len() - 1;
-            sealed[last] ^= 0xff;
+            // Flip a ciphertext byte (not the trailing fold-marker/padding-length
+            // bytes, which are refused before the MAC check even runs) so this
+            // is refused for failing to authenticate, not for a malformed frame.
+            sealed[0] ^= 0xff;
             server.write_all(&data_packet(&sealed)).unwrap();
         });
         let error = match client.reset(true) {
