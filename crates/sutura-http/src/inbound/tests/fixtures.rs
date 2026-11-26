@@ -208,7 +208,34 @@ pub(super) fn gateway_declaring(token_type: RequiredTokenType, lifetime: ProofLi
         transit: TransitProof::new(
             ProofHeader::parse(TRANSIT_HEADER).expect("a test header is a header"),
             IssuerUrl::parse_transit_issuer(ISSUER).expect("a test issuer is an issuer"),
-            ResourceIdentifier::parse_transit_audience(RESOURCE).expect("a test audience is an audience"),
+            sutura_config::TransitBinding::Audience(
+                ResourceIdentifier::parse_transit_audience(RESOURCE).expect("a test audience is an audience"),
+            ),
+            KeySetLocation::File(KeySetFile::parse("/unread.json").expect("a test path is a path")),
+            PinnedAlgorithms::of(SigningAlgorithm::Es256),
+            token_type,
+            lifetime,
+        ),
+    }
+}
+
+/// A `behind-gateway` declaration bound to `prefix` by `requestPath` instead of `transit_audience`.
+pub(super) fn gateway_bound_by_request_path(
+    prefix: sutura_config::RequestPathPrefix,
+    token_type: RequiredTokenType,
+    lifetime: ProofLifetime,
+) -> InboundIdentity {
+    InboundIdentity::BehindGateway {
+        transit: TransitProof::new(
+            ProofHeader::parse(TRANSIT_HEADER).expect("a test header is a header"),
+            IssuerUrl::parse_transit_issuer(ISSUER).expect("a test issuer is an issuer"),
+            sutura_config::TransitBinding::RequestPath {
+                prefix,
+                absent_because: sutura_domain::source::AcknowledgementReason::parse(
+                    "this gateway binds the provider by request path, not by audience",
+                )
+                .expect("a test reason is a reason"),
+            },
             KeySetLocation::File(KeySetFile::parse("/unread.json").expect("a test path is a path")),
             PinnedAlgorithms::of(SigningAlgorithm::Es256),
             token_type,

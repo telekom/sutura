@@ -47,24 +47,26 @@ authenticates the deployment, and every question runs with the access of the dep
 
 ## Settings for `behind-gateway`
 
-| Key                            | Type        | Default                              | Meaning                                                                       |
-| ------------------------------ | ----------- | ------------------------------------ | ----------------------------------------------------------------------------- |
-| `mode`                         | string      | required                             | `behind-gateway`                                                              |
-| `transit_header`               | string      | required                             | The header that holds the assertion                                           |
-| `transit_issuer`               | `https` URI | required                             | The issuer that must sign the assertion                                       |
-| `transit_audience`             | string      | required                             | The `aud` of the assertion: an `https` URI or a path that starts with one `/` |
-| `granted_scopes`               | list        | none                                 | The scopes of an assertion that has no `scope` claim                          |
-| `key_set_file`                 | path        | required unless `key_set_url` is set | A JWK set, or one PEM public key or certificate, of the gateway               |
-| `key_set_url`                  | `https` URL | none                                 | The JWK set URL of the gateway, instead of `key_set_file`                     |
-| `key_set_max_stale_seconds`    | integer     | `3600`                               | As for `direct`                                                               |
-| `max_token_bytes`              | integer     | `8192`                               | Maximum token bytes, excluding the header name and scheme; 1 to 12288         |
-| `algorithms`                   | list        | required                             | The accepted algorithms, as for `direct`                                      |
-| `transit_token_type`           | string      | required                             | The `typ` that the gateway sets, or `any`                                     |
-| `transit_max_lifetime_seconds` | integer     | `120`                                | The longest accepted `exp - iat`, 1 to 3600                                   |
-| `accept_long_transit_lifetime` | boolean     | `false`                              | Must be `true` for a lifetime above 300                                       |
-| `transit_single_use`           | boolean     | `false`                              | Admit each assertion once, by its `jti`                                       |
-| `address_claim`                | string      | `email`                              | As for `direct`                                                               |
-| `accept_address_claim`         | boolean     | `false`                              | As for `direct`                                                               |
+| Key                               | Type        | Default                                     | Meaning                                                                                        |
+| --------------------------------- | ----------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `mode`                            | string      | required                                    | `behind-gateway`                                                                               |
+| `transit_header`                  | string      | required                                    | The header that holds the assertion                                                            |
+| `transit_issuer`                  | `https` URI | required                                    | The issuer that must sign the assertion                                                        |
+| `transit_audience`                | string      | see below                                   | The `aud` of the assertion: an `https` URI or a path that starts with one `/`                  |
+| `transit_request_path_prefix`     | string      | see below                                   | The alternative to `transit_audience`: the `requestPath` of the assertion must start with this |
+| `transit_audience_absent_because` | string      | required with `transit_request_path_prefix` | The written reason `transit_audience` is absent                                                |
+| `granted_scopes`                  | list        | none                                        | The scopes of an assertion that has no `scope` claim                                           |
+| `key_set_file`                    | path        | required unless `key_set_url` is set        | A JWK set, or one PEM public key or certificate, of the gateway                                |
+| `key_set_url`                     | `https` URL | none                                        | The JWK set URL of the gateway, instead of `key_set_file`                                      |
+| `key_set_max_stale_seconds`       | integer     | `3600`                                      | As for `direct`                                                                                |
+| `max_token_bytes`                 | integer     | `8192`                                      | Maximum token bytes, excluding the header name and scheme; 1 to 12288                          |
+| `algorithms`                      | list        | required                                    | The accepted algorithms, as for `direct`                                                       |
+| `transit_token_type`              | string      | required                                    | The `typ` that the gateway sets, or `any`                                                      |
+| `transit_max_lifetime_seconds`    | integer     | `120`                                       | The longest accepted `exp - iat`, 1 to 3600                                                    |
+| `accept_long_transit_lifetime`    | boolean     | `false`                                     | Must be `true` for a lifetime above 300                                                        |
+| `transit_single_use`              | boolean     | `false`                                     | Admit each assertion once, by its `jti`                                                        |
+| `address_claim`                   | string      | `email`                                     | As for `direct`                                                                                |
+| `accept_address_claim`            | boolean     | `false`                                     | As for `direct`                                                                                |
 
 Some gateways authenticate the calling application, for example with its OAuth 2.0 client
 credentials, and replace its token with their own assertion in `Authorization: Bearer`. For such a
@@ -77,6 +79,13 @@ request, so keep its lifetime short. With `transit_single_use: false`, sutura ac
 again and again until its `exp` plus 30 seconds: at most `transit_max_lifetime_seconds` plus 30
 seconds after its `iat`, 150 seconds at the default. See
 [Single use](../serving-behind-a-gateway.md#single-use).
+
+Exactly one of `transit_audience` or `transit_request_path_prefix` must be set; sutura refuses to
+start with both or with neither. A gateway that signs no `aud` claim and instead binds the
+assertion to the provider through a `requestPath` claim uses `transit_request_path_prefix` (a
+path that starts and ends with exactly one `/`) and must also give
+`transit_audience_absent_because`, the written reason `transit_audience` is absent. sutura then
+refuses an assertion whose `requestPath` is missing or does not start with the configured prefix.
 
 ## Token size
 

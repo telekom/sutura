@@ -1,8 +1,8 @@
 diff --git a/crates/sutura-config/src/inbound.rs b/crates/sutura-config/src/inbound.rs
-index 14aa4b225..8f3feb295 100644
+index a347e48b4..4f89b1c99 100644
 --- a/crates/sutura-config/src/inbound.rs
 +++ b/crates/sutura-config/src/inbound.rs
-@@ -213,7 +213,7 @@ impl TransitProof {
+@@ -261,7 +261,7 @@ impl TransitProof {
      /// newtype, so the list is seven invariants rather than seven strings.
      #[inline]
      #[must_use]
@@ -10,8 +10,8 @@ index 14aa4b225..8f3feb295 100644
 +    pub fn new(
          header: ProofHeader,
          issuer: IssuerUrl,
-         audience: TokenAudience,
-@@ -237,12 +237,13 @@ impl TransitProof {
+         binding: TransitBinding,
+@@ -270,12 +270,13 @@ impl TransitProof {
          token_type: RequiredTokenType,
          max_lifetime: ProofLifetime,
      ) -> Self {
@@ -20,7 +20,7 @@ index 14aa4b225..8f3feb295 100644
              max_token_bytes: MaxTokenBytes::DEFAULT,
              header,
              issuer,
-             audience,
+             binding,
 -            key_set,
 +            key_set: KeySetLocation::File(KeySetFile::parse("/elsewhere.json").expect("a path")),
              algorithms,

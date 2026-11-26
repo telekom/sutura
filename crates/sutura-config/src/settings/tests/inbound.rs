@@ -207,7 +207,10 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     assert_eq!(inbound.mode(), "direct");
     assert!(settings.security().describes_identity());
     let requirement = inbound.requirement();
-    assert_eq!(requirement.audience().as_str(), "https://sutura.example.com");
+    assert_eq!(
+        requirement.audience().expect("direct mode always has an audience").as_str(),
+        "https://sutura.example.com"
+    );
     assert_eq!(requirement.issuer().as_str(), "https://issuer.example.com");
     assert!(
         matches!(requirement.key_set(), KeySetLocation::File(file) if file.path() == Path::new("/etc/sutura/jwks.json")),
@@ -418,7 +421,14 @@ fn an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error() {
         .expect("the declaration is there")
         .identity()
         .expect("a JWT verifier");
-    assert_eq!(inbound.requirement().audience().as_str(), "https://other.example.com");
+    assert_eq!(
+        inbound
+            .requirement()
+            .audience()
+            .expect("direct mode always has an audience")
+            .as_str(),
+        "https://other.example.com"
+    );
 
     let sources = Sources::defaults(Environment::Development)
         .with_overlay(format!("security:\n{DIRECT_INBOUND}"))
@@ -676,7 +686,11 @@ fn a_transit_audience_may_be_a_path_and_is_never_cleartext() {
         .identity()
         .expect("a JWT verifier");
     assert_eq!(
-        inbound.requirement().audience().as_str(),
+        inbound
+            .requirement()
+            .audience()
+            .expect("direct mode always has an audience")
+            .as_str(),
         "/hub/My-MCP/v1",
         "stored as written"
     );
@@ -754,7 +768,14 @@ fn a_direct_audience_is_its_own_key_and_never_cleartext() {
         .expect("the declaration is there")
         .identity()
         .expect("a JWT verifier");
-    assert_eq!(inbound.requirement().audience().as_str(), CLIENT);
+    assert_eq!(
+        inbound
+            .requirement()
+            .audience()
+            .expect("direct mode always has an audience")
+            .as_str(),
+        CLIENT
+    );
     let refused = load_inbound_overlay(format!(
         "security:\n{DIRECT_INBOUND}    audience: \"http://sutura.example.com\"\n"
     ))

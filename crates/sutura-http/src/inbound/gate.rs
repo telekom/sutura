@@ -46,7 +46,10 @@ use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_config::{InboundIdentity, InboundVerifier, KeySetLocation, McpPath, ResourceIdentifier, TokenLocation};
+use sutura_config::{
+    InboundIdentity, InboundVerifier, KeySetLocation, McpPath, RequestPathPrefix, ResourceIdentifier, TokenAudience,
+    TokenLocation,
+};
 
 use sutura_runtime::Shutdown;
 
@@ -273,7 +276,10 @@ impl InboundGate {
             realm: String::from(
                 requirement
                     .resource()
-                    .map_or_else(|| requirement.audience().as_str(), ResourceIdentifier::as_str),
+                    .map(ResourceIdentifier::as_str)
+                    .or_else(|| requirement.audience().map(TokenAudience::as_str))
+                    .or_else(|| requirement.request_path_prefix().map(RequestPathPrefix::as_str))
+                    .unwrap_or_else(|| requirement.issuer().as_str()),
             ),
             verification: Verification::Jwt {
                 validator: Box::new(TokenValidator::new(&requirement)),

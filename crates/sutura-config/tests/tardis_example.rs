@@ -35,7 +35,13 @@ mod tests {
         assert!(inbound.reads_the_authorization_header());
         let requirement = inbound.requirement();
         assert_eq!(requirement.issuer().as_str(), ISSUER);
-        assert_eq!(requirement.audience().as_str(), AUDIENCE);
+        assert_eq!(
+            requirement
+                .audience()
+                .expect("this example configures transit_audience")
+                .as_str(),
+            AUDIENCE
+        );
         assert_eq!(requirement.token_type().as_str(), "jwt");
         assert!(!requirement.single_use());
         let grant = requirement

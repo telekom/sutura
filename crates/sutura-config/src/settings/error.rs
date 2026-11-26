@@ -196,6 +196,41 @@ pub enum SettingsError {
          `security.inbound.accept_long_transit_lifetime: true`"
     )]
     TransitLifetimeNotAccepted { found: u64, limit: u64 },
+    /// `behind-gateway` with both `transit_audience` and `transit_request_path_prefix` written.
+    #[error(
+        "`security.inbound` names both `transit_audience` and `transit_request_path_prefix` - the \
+         assertion is bound to this provider by exactly one of an `aud` claim or a `requestPath` \
+         claim, never both"
+    )]
+    InboundTransitBindingBothGiven,
+    /// `behind-gateway` with neither `transit_audience` nor `transit_request_path_prefix` written.
+    #[error(
+        "`security.inbound.mode` is `behind-gateway`, which requires either `transit_audience` or \
+         `transit_request_path_prefix`"
+    )]
+    InboundTransitBindingNeitherGiven,
+    /// `transit_request_path_prefix` written without the required acknowledgement that
+    /// `transit_audience` is absent deliberately.
+    #[error(
+        "`security.inbound.transit_request_path_prefix` is set, so `security.inbound.transit_audience` \
+         is deliberately absent - write why under `{}`",
+        crate::inbound::TransitBinding::AUDIENCE_ABSENT_BECAUSE_KEY
+    )]
+    InboundRequestPathPrefixWithoutReason,
+    /// `transit_audience_absent_because` written without `transit_request_path_prefix`.
+    #[error(
+        "`{}` is set, but `security.inbound.transit_request_path_prefix` is not - remove the \
+         acknowledgement or write the prefix it is acknowledging",
+        crate::inbound::TransitBinding::AUDIENCE_ABSENT_BECAUSE_KEY
+    )]
+    InboundAudienceAbsentBecauseWithoutPrefix,
+    /// `transit_audience_absent_because` fails the operator-text checks shared with every other
+    /// required written reason in this codebase.
+    #[error("`{}` is not usable", crate::inbound::TransitBinding::AUDIENCE_ABSENT_BECAUSE_KEY)]
+    InboundTransitAudienceAbsentBecause {
+        #[source]
+        cause: sutura_domain::source::InvalidOperatorText,
+    },
     /// A trusted-proxy block covering a whole address family, with no by-name acceptance of it.
     #[error(
         "`rate_limit.trusted_proxies` holds `{block}`, which trusts every address, so every caller's \

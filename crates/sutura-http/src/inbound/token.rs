@@ -34,7 +34,12 @@
 //! resource identifier, out of the configuration, and `aud` is in `required_spec_claims` - so a token
 //! with *no* audience is refused rather than accepted for want of a claim to compare. That is the
 //! security decision in the record: a client's resource indicator is welcome and is an optimisation,
-//! and this check is ours, unconditional, and not skippable when the indicator is absent.
+//! and this check is ours and not skippable when the indicator is absent. The one declared exception
+//! is a gateway that binds the provider by request path instead of an `aud` claim -
+//! `security.inbound.transit_request_path_prefix` - where there is no audience to check and
+//! [`TokenValidator::bound_by_request_path`] checks a `requestPath` claim against the configured
+//! prefix instead, with the same unconditional character: no path configured there is skippable
+//! either.
 //!
 //! # What is not `deny_unknown_fields`, and why that is right exactly here
 //!
@@ -56,8 +61,8 @@ use core::time::Duration;
 
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{
-    ClaimName, ClientId, ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement,
-    TokenType,
+    ClaimName, ClientId, ExtraScopeClaims, ProofLifetime, RequestPathPrefix, RequiredTokenType, SigningAlgorithm, TokenAudience,
+    TokenRequirement, TokenType,
 };
 use sutura_domain::identity::{
     Actor, ActorChain, ClientClaim, ClientClaims, InvalidPrincipalId, PrincipalChain, Subject, VerifiedAddress,
@@ -251,6 +256,14 @@ pub enum TokenRejected {
     /// produces; a caller does not learn which locations are configured.
     #[error("tokens were presented in more than one configured header location")]
     AmbiguousProof,
+    /// Configured with the request-path alternative to `transit_audience`, a proof with no
+    /// `requestPath` claim.
+    #[error("the presented proof carries no `requestPath`, and this deployment binds the proof to a provider by it")]
+    NoRequestPath,
+    /// Configured with the request-path alternative to `transit_audience`, a proof whose
+    /// `requestPath` does not start with the configured prefix. The value is never rendered.
+    #[error("the `requestPath` in the presented proof does not start with this provider's configured prefix")]
+    RequestPathNotBound,
 }
 
 /// Why a presented token did not verify, when it did not.
@@ -378,6 +391,10 @@ struct Claims {
     /// deeper than `serde_json`'s recursion limit, which refuses the whole document, as for `scp`.
     #[serde(default)]
     jti: Option<serde_json::Value>,
+    /// The route a gateway dispatched on, read only where `security.inbound` configures the
+    /// request-path alternative to `transit_audience` - see [`TokenValidator::bound_by_request_path`].
+    #[serde(default, rename = "requestPath")]
+    request_path: Option<String>,
 }
 
 /// One deployment's whole token check, built once at startup.
@@ -390,7 +407,12 @@ pub struct TokenValidator {
     verifier: sutura_domain::identity::AdmittingVerifier,
     max_token_bytes: sutura_config::inbound::MaxTokenBytes,
     validation: Validation,
-    audience: TokenAudience,
+    /// `None` only where `request_path_prefix` is `Some` - see
+    /// `sutura_config::TokenRequirement::audience`.
+    audience: Option<TokenAudience>,
+    /// `requestPath` must start with this. `Some` only where `audience` is `None` - the
+    /// alternative to `transit_audience` for a gateway that binds the provider by request path.
+    request_path_prefix: Option<RequestPathPrefix>,
     /// What a token with no `scope` claim is granted. See `sutura_config::GrantedScopes`.
     grant: Option<Scopes>,
     extra_scope_claims: ExtraScopeClaims,
@@ -444,15 +466,24 @@ impl TokenValidator {
         // the whole list, so the seed cannot survive as an extra permitted algorithm.
         let mut validation = Validation::new(map_algorithm(algorithms.first()));
         validation.algorithms = algorithms.iter().map(map_algorithm).collect();
-        // The audience check. One value - ours - whatever the client asked its issuer for.
-        validation.set_audience(&[requirement.audience().as_str()]);
+        // The audience check. One value - ours - whatever the client asked its issuer for. `None`
+        // only where `request_path_prefix` binds the proof to a provider instead - see
+        // `sutura_config::TokenRequirement::audience` - and there `aud` is dropped from
+        // `required_spec_claims` below, because the gateway's assertion carries none at all.
+        if let Some(audience) = requirement.audience() {
+            validation.set_audience(&[audience.as_str()]);
+        }
         validation.set_issuer(&[requirement.issuer().as_str()]);
-        // `exp` and `aud` and `iss` and `sub` all REQUIRED. The library's default set is `{"exp"}`
-        // alone, and the difference is not academic: `validate_aud` only compares an audience that is
-        // there, so without `aud` here a token carrying none would pass the audience check by having
-        // nothing to check. `sub` is required because a verified caller with no subject is not a
-        // caller.
-        validation.set_required_spec_claims(&["exp", "aud", "iss", "sub"]);
+        // `exp` and `iss` and `sub` all REQUIRED, and `aud` too except for the one declared shape
+        // with no `aud` to require. The library's default set is `{"exp"}` alone, and the difference
+        // is not academic: `validate_aud` only compares an audience that is there, so without `aud`
+        // here a token carrying none would pass the audience check by having nothing to check. `sub`
+        // is required because a verified caller with no subject is not a caller.
+        let mut required_spec_claims = vec!["exp", "iss", "sub"];
+        if requirement.audience().is_some() {
+            required_spec_claims.push("aud");
+        }
+        validation.set_required_spec_claims(&required_spec_claims);
         validation.validate_exp = true;
         // Off by default in the library, and a token that is not valid yet is not valid.
         validation.validate_nbf = true;
@@ -470,7 +501,8 @@ impl TokenValidator {
             ),
             max_token_bytes: requirement.max_token_bytes(),
             validation,
-            audience: requirement.audience().clone(),
+            audience: requirement.audience().cloned(),
+            request_path_prefix: requirement.request_path_prefix().cloned(),
             grant: requirement.grant().map(Scopes::declared),
             extra_scope_claims: requirement.extra_scope_claims(),
             token_type: requirement.token_type().clone(),
@@ -522,6 +554,7 @@ impl TokenValidator {
         // signature, an issuer and an audience do not distinguish an access token from an ID token.
         self.of_the_right_class(decoded.header.typ.as_deref())?;
         let claims = decoded.claims;
+        self.bound_by_request_path(&claims)?;
         let address = self.address_claim.as_ref().map_or_else(
             || address_of(&claims),
             |claim| crate::inbound::address::declared_address(token, claim),
@@ -625,7 +658,7 @@ impl TokenValidator {
             .and_then(serde_json::Value::as_str)
             .and_then(|raw| ClientId::parse("azp", raw).ok())
             .ok_or(TokenRejected::ClientNotNamed)?;
-        match self.audience.as_client_id() {
+        match self.audience.as_ref().and_then(TokenAudience::as_client_id) {
             Some(api) if client.is(api) => Err(TokenRejected::ClientIsTheApi),
             _ => Ok(()),
         }
@@ -656,6 +689,23 @@ impl TokenValidator {
             required: String::from(self.token_type.as_str()),
             presented,
         })
+    }
+
+    /// Binds the proof to this provider by `requestPath`, where that is how this deployment is
+    /// configured instead of `transit_audience`.
+    ///
+    /// `Ok` immediately where no prefix is configured - the ordinary shape, checked by `aud` already.
+    /// Where one is, a `requestPath` claim is required and must [`RequestPathPrefix::matches`] it;
+    /// neither case renders the claim value, which is caller-adjacent text.
+    fn bound_by_request_path(&self, claims: &Claims) -> Result<(), TokenRejected> {
+        let Some(ref prefix) = self.request_path_prefix else {
+            return Ok(());
+        };
+        match claims.request_path.as_deref() {
+            Some(path) if prefix.matches(path) => Ok(()),
+            Some(_) => Err(TokenRejected::RequestPathNotBound),
+            None => Err(TokenRejected::NoRequestPath),
+        }
     }
 
     /// Is the token's declared lifetime one this deployment will call short-lived?
@@ -698,10 +748,12 @@ impl TokenValidator {
     }
 
     /// The audience this validator requires, for a challenge and for a log line.
+    ///
+    /// `None` only where this deployment binds the proof by `requestPath` instead.
     #[inline]
     #[must_use]
-    pub const fn audience(&self) -> &TokenAudience {
-        &self.audience
+    pub const fn audience(&self) -> Option<&TokenAudience> {
+        self.audience.as_ref()
     }
 
     /// The leeway in effect, so a test asserts the value rather than the constant.

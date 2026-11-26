@@ -139,10 +139,10 @@ pub enum InvalidInboundValue {
         key = KeySetMaxStale::KEY
     )]
     KeySetMaxStaleOutOfRange { found: u64, min: u64, max: u64 },
-    /// A value written as a path that is not an absolute one: a second leading `/`, which a URL
-    /// reader takes for an authority, or an incomplete percent escape.
     #[error("{key} written as a path starts with exactly one `/` and holds complete percent escapes")]
     NotAnAbsolutePath { key: &'static str },
+    #[error("{key} starts and ends with exactly one `/`, with no second leading `/`, and holds complete percent escapes")]
+    NotARequestPathPrefix { key: &'static str },
     /// A list entry outside the closed set the key reads. The index and not the entry, as for
     /// [`Self::NotPermitted`].
     #[error("{key} entry {index} (counting from zero) is not one of: {accepted}")]

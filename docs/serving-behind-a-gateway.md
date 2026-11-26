@@ -17,6 +17,13 @@ alone. Two settings decide whether the verified subject is true, and only the op
    gives a token with this audience to anyone else, such as the application itself, sutura accepts that token as the word
    of the gateway.
 
+Some gateways sign an assertion with no `aud` claim at all, and instead bind it to the provider through a `requestPath`
+claim that must start with the provider's own route prefix. For that gateway, set `transit_request_path_prefix` instead
+of `transit_audience`, and `transit_audience_absent_because` with the reason `transit_audience` is absent. sutura then
+refuses an assertion whose `requestPath` is missing or does not start with the configured prefix. The two settings are
+mutually exclusive: giving both, or neither with `security.inbound.mode: behind-gateway`, refuses the configuration at
+startup.
+
 ## Who the caller is
 
 The subject of a request is the application that the assertion of the gateway names. It is not a person. Every request
