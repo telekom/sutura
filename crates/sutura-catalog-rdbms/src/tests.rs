@@ -65,11 +65,11 @@ fn the_reader_rejects_untrusted_sql_identifiers_before_opening_a_connection() {
     assert!(matches!(predicate, Err(InvalidReaderConfig::PredicateColumn)));
 }
 
-pub(crate) fn name() -> SourceName {
+fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
 }
 
-pub(crate) fn version() -> DefinitionVersion {
+fn version() -> DefinitionVersion {
     DefinitionVersion::parse("test").expect("a test version is a version")
 }
 
@@ -102,7 +102,7 @@ fn public(table: &str) -> TableAddress {
     address("public", table)
 }
 
-pub(crate) fn table(model: &str, columns: Vec<String>, description: Option<String>) -> Table {
+fn table(model: &str, columns: Vec<String>, description: Option<String>) -> Table {
     Table::new(model.to_owned(), public(model), columns, description)
 }
 
@@ -531,7 +531,7 @@ fn a_relationship_requires_single_column_target_uniqueness_evidence() {
 }
 
 /// A reader that hands its recorded dictionary back unchanged.
-pub(crate) struct SparseReader(pub(crate) Dictionary);
+struct SparseReader(Dictionary);
 
 impl DictionaryReader for SparseReader {
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {

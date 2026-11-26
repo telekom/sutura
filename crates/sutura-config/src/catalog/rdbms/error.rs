@@ -24,7 +24,7 @@ pub enum InvalidRdbmsCatalog {
     #[error("on_empty_table must be one of refuse, omit")]
     EmptyTablePolicy,
     #[error("on_invalid_comment must be one of refuse, omit")]
-    InvalidCommentPolicy,
+    CommentPolicy,
     #[error("invalid column text policy: {cause}")]
     TextPolicy {
         cause: sutura_domain::catalog::InvalidTextPolicy,

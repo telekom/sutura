@@ -350,15 +350,21 @@ descriptions_from:
 Unlike `on_missing_endpoint`, this policy is set per mapping only - there is no catalog-wide
 default to inherit, since a `catalog:` reference has no mapping fields of its own to carry it.
 
-A native table or column comment - read from `native_dictionary`, or reached as the fallback
-above - is validated the same way a mapped row's prose is, and an unusable one follows its own
-catalog-wide `on_invalid_comment`, default `refuse`. `on_invalid_comment: omit` drops just that
-comment with a `WARN` log naming the table and, for a column, the column - never the text - and
-serves the table or column without prose instead of refusing the whole load. This also covers
-ask 2's gap: when a mapped row is omitted and its fallback native comment is itself unusable, that
-fallback now follows `on_invalid_comment` too, rather than refusing regardless of `omit` upstream.
+`on_invalid_comment` and `sanitize_control_characters` are `dictionary_source: native_dictionary`
+only - `NativeKeysOnView` refuses either on a `documentation_schema` catalog, the same way
+`on_unsupported_column` already is, because a `documentation_schema` catalog's description fields
+carry overlaid authored prose this policy must not touch.
+
+A native_dictionary table or column comment is validated the same way a mapped row's prose is, and
+an unusable one follows its own catalog-wide `on_invalid_comment`, default `refuse`.
+`on_invalid_comment: omit` drops just that comment with a `WARN` log naming the table and, for a
+column, the column - never the text - and serves the table or column without prose instead of
+refusing the whole load. This also closes a gap in `on_invalid_description: omit`: when a mapped
+row is omitted and its fallback native comment is itself unusable, that fallback now follows
+`on_invalid_comment` too, rather than refusing regardless of `omit` upstream.
 
 ```yaml
+dictionary_source: native_dictionary
 on_invalid_comment: omit
 ```
 

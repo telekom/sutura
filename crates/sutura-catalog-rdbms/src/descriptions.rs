@@ -774,11 +774,6 @@ mod tests {
         );
     }
 
-    // `telekom/sutura#2082` ask 2's full-pipeline proof (the omitted mapping row's own-invalid
-    // native fallback being served without prose rather than refusing) lives in `lib.rs`, inline
-    // with `with_invalid_comment_policy` - the method it exercises - so causality's base run can
-    // revert this file alone rather than needing a cross-file API that does not exist at base.
-
     #[test]
     fn a_catalog_projection_uses_physical_names_and_discards_the_contributors_structure() {
         use sutura_domain::pinned::SemanticCatalog as _;

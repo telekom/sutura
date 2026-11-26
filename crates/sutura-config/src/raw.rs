@@ -797,9 +797,9 @@ pub(crate) struct RawCatalog {
     /// stays `refuse`, the behaviour before this key existed.
     #[serde(default)]
     pub(crate) on_missing_endpoint: Option<String>,
-    /// What an unusable native table or column comment does, for both `documentation_schema` and
-    /// `native_dictionary`. Absent stays `refuse` - `omit` drops the comment (logged) and serves
-    /// the column or table without prose instead of refusing the whole catalog.
+    /// Native selection only: what an unusable native table or column comment does. Absent stays
+    /// `refuse` - `omit` drops the comment (logged) and serves the column or table without prose
+    /// instead of refusing the whole catalog.
     #[serde(default)]
     pub(crate) on_invalid_comment: Option<String>,
     /// Opt-in: replace a C1 control character (U+0080-U+009F) in a native comment with U+FFFD

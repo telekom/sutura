@@ -646,3 +646,14 @@ fn on_unsupported_column_and_on_empty_table_keys_on_another_kind_are_refused() {
         assert_names(&chain, &format!("`catalogs.dict.{key}` is read only when `kind` is `rdbms`"));
     }
 }
+
+/// `telekom/sutura#2082`: `on_invalid_comment` and `sanitize_control_characters` are rdbms-only
+/// keys too, same as `on_missing_endpoint` above.
+#[test]
+fn on_invalid_comment_and_sanitize_control_characters_keys_on_another_kind_are_refused() {
+    for declaration in ["on_invalid_comment: omit", "sanitize_control_characters: true"] {
+        let chain = refusal(&overlay("markdown", &[declaration], None));
+        let key = declaration.split(':').next().expect("a key precedes the colon");
+        assert_names(&chain, &format!("`catalogs.dict.{key}` is read only when `kind` is `rdbms`"));
+    }
+}
