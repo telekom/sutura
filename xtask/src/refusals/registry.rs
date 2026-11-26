@@ -130,8 +130,9 @@ const STARTUP: Subject = Subject {
     // `RequiresGatewayNotInAuthorization`, a `direct` verifier's `requires_gateway` naming no
     // verifier, a non-`behind-gateway` one, or one that does not read `Authorization`; and
     // `RequiresGatewayHeaderCollision`, that same verifier's own `token_header` naming
-    // `Authorization` too.
-    variants: variants(61),
+    // `Authorization` too. 62 (#2089): `RequiresGatewayTokenHeaderCollidesWithVerifier`, that
+    // `token_header` naming a header another declared verifier already reads.
+    variants: variants(62),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

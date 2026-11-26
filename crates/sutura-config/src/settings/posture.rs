@@ -686,6 +686,15 @@ pub enum NotFitToServe {
     /// to itself.
     #[error("direct verifier `{id}` names `token_header: authorization`, which is reserved for the required gateway assertion")]
     RequiresGatewayHeaderCollision { id: sutura_domain::identity::VerifierId },
+    /// `token_header` names the same header another declared verifier already reads, outside the
+    /// pairing itself - two verifiers reading one header is ambiguous the same way two locations on
+    /// one request are, and the pairing is the only exception `github.com/telekom/sutura#1884` carves
+    /// out, not a general license to collide.
+    #[error("direct verifier `{id}`'s `token_header` collides with verifier `{other}`'s own header")]
+    RequiresGatewayTokenHeaderCollidesWithVerifier {
+        id: sutura_domain::identity::VerifierId,
+        other: sutura_domain::identity::VerifierId,
+    },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;

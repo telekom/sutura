@@ -779,6 +779,10 @@ impl ProofHeader {
     /// The key a `direct` paired caller-token header is written under -
     /// `github.com/telekom/sutura#2089`.
     pub const TOKEN_HEADER_KEY: &'static str = "security.inbound.token_header";
+    /// The key naming the `behind-gateway` entry a paired `direct` verifier requires -
+    /// `github.com/telekom/sutura#2089`. Lives beside `TOKEN_HEADER_KEY` because the two are
+    /// always declared together or not at all.
+    pub const REQUIRES_GATEWAY_KEY: &'static str = "security.inbound.requires_gateway";
 
     /// Reads the header name, folding case, under `Self::KEY`.
     ///

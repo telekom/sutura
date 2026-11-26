@@ -17,7 +17,7 @@ use super::fixtures::{gate_over, header_named, paired, paired_direct};
 use crate::inbound::{InboundGate, TokenRejected};
 use crate::testing::{ISSUER, RESOURCE};
 
-const TOKEN_HEADER: &str = "x-service-access-token";
+const TOKEN_HEADER: &str = "x-user-token";
 
 fn gateway(issuer: &str, audience: &str) -> MockIssuer {
     MockIssuer::generating(issuer, audience, "gateway-key").expect("a fixture issuer generates a key")
@@ -121,6 +121,96 @@ async fn an_anonymous_request_is_still_refused() {
     let headers = axum::http::HeaderMap::new();
     assert!(matches!(
         gate.establish(&headers, Instant::now()).await,
+        Err(TokenRejected::Absent { .. })
+    ));
+}
+
+// -------------------------------------------------- through the real builder ----
+
+/// Builds the pairing through [`InboundGate::from_verifiers_with_outbound`] itself, the entry
+/// point production uses, rather than [`InboundGate::with_required_gateway`] - every cell above
+/// hands the gate an in-memory key-set document because that seam takes one, but the critical
+/// regression this module exists for (a `behind-gateway` target becoming independently
+/// admissible, `github.com/telekom/sutura#2089` review item 1) lives in how
+/// `from_verifiers_with_outbound` decides which declarations get their own mounted path, which no
+/// test-seam cell can exercise. Two real files on disk, named after the process and removed after,
+/// same as the one other filesystem cell in this suite (`refresh.rs`).
+struct RealPairedGate {
+    gate: InboundGate,
+    caller_issuer: MockIssuer,
+    gateway_issuer: MockIssuer,
+    caller_path: std::path::PathBuf,
+    gateway_path: std::path::PathBuf,
+}
+
+impl Drop for RealPairedGate {
+    fn drop(&mut self) {
+        drop(std::fs::remove_file(&self.caller_path));
+        drop(std::fs::remove_file(&self.gateway_path));
+    }
+}
+
+fn real_paired_gate() -> RealPairedGate {
+    let caller_issuer = MockIssuer::generating(ISSUER, RESOURCE, "caller-key").expect("a fixture issuer generates a key");
+    let gateway_issuer = gateway("https://real-gateway.example.com", "https://real-gateway.example.com/transit");
+    let caller_path = std::env::temp_dir().join(format!("sutura-paired-caller-{}.json", std::process::id()));
+    let gateway_path = std::env::temp_dir().join(format!("sutura-paired-gateway-{}.json", std::process::id()));
+    caller_issuer.publish(&caller_path).expect("the caller key set is writable");
+    gateway_issuer
+        .publish(&gateway_path)
+        .expect("the gateway key set is writable");
+    let overlay = format!(
+        "security:\n  inbound:\n    - id: staff\n      path: /staff\n      mode: direct\n      \
+         resource: 'https://sutura.example.com/staff'\n      audience: '{}'\n      authorization_server: '{}'\n      \
+         key_set_file: '{}'\n      algorithms: [ES256]\n      token_header: '{TOKEN_HEADER}'\n      requires_gateway: gateway\n    \
+         - id: gateway\n      path: /gateway\n      mode: behind-gateway\n      transit_header: authorization\n      \
+         transit_issuer: '{}'\n      transit_audience: '{}'\n      key_set_file: '{}'\n      algorithms: [ES256]\n",
+        caller_issuer.audience(),
+        caller_issuer.issuer(),
+        caller_path.display(),
+        gateway_issuer.issuer(),
+        gateway_issuer.audience(),
+        gateway_path.display(),
+    );
+    let settings = crate::testing::settings_with(&overlay);
+    let gate = InboundGate::from_verifiers_with_outbound(settings.security().inbound(), None)
+        .expect("the real builder accepts the pairing")
+        .expect("at least one verifier is declared");
+    RealPairedGate {
+        gate,
+        caller_issuer,
+        gateway_issuer,
+        caller_path,
+        gateway_path,
+    }
+}
+
+#[tokio::test]
+async fn the_real_builder_admits_a_valid_pairing_but_refuses_the_gateway_token_presented_alone() {
+    let fixture = real_paired_gate();
+    let gate = &fixture.gate;
+    let caller_token = signed_for(&fixture.caller_issuer, "a-user@example.com");
+    let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
+
+    // The accepted case: both headers present, caller established from the user token.
+    let headers = paired(TOKEN_HEADER, &caller_token, &gateway_token);
+    let caller = gate
+        .establish(&headers, Instant::now())
+        .await
+        .expect("a valid caller token beside a valid gateway assertion is admitted");
+    assert_eq!(
+        caller.chain().subject(),
+        &Subject::verified_by(caller.verifier().id().clone(), "a-user@example.com").expect("a fixture subject")
+    );
+
+    // The regression this cell exists for: the gateway's own token, presented alone in
+    // `Authorization` with no caller token in `x-user-token`, must never be admitted as the
+    // gateway's own identity. Before review item 1's fix, the `behind-gateway` target built by
+    // `from_verifiers_with_outbound` was also mounted on its own path and routed by issuer in
+    // `also_accept`, making exactly this request succeed with the gateway as caller.
+    let gateway_only = header_named("authorization", &format!("Bearer {gateway_token}"));
+    assert!(matches!(
+        gate.establish(&gateway_only, Instant::now()).await,
         Err(TokenRejected::Absent { .. })
     ));
 }

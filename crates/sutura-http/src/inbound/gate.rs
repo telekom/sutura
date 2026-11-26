@@ -124,7 +124,14 @@ pub struct InboundGate {
     /// and this pairing is the one case where two locations are expected to carry one together. A
     /// successful verification here never produces the caller - only [`Self::establish_token`] on
     /// `self` does that - so the gateway's own identity can never substitute for the caller's.
-    required_gateway: Option<Box<Self>>,
+    ///
+    /// **`Arc`, not `Box`**: a `behind-gateway` entry named by more than one paired `direct`
+    /// verifier is built once and shared, rather than once per pairing with its own key cache and
+    /// replay store duplicating the lookups and the single-use bookkeeping for what is, on the
+    /// wire, the same gateway. The target itself is never mounted standalone - see
+    /// [`Self::from_verifiers_with_outbound`] - so the only way to reach it at all is through this
+    /// field.
+    required_gateway: Option<Arc<Self>>,
 }
 
 /// The gate could not be built.
@@ -261,9 +268,6 @@ impl InboundGate {
         outbound: Option<&sutura_tls::Declared>,
     ) -> Result<Option<Self>, InboundNotUsable> {
         let anchors = outbound.map(sutura_tls::Declared::anchors);
-        let Some((first, rest)) = declarations.split_first() else {
-            return Ok(None);
-        };
         let build = |declaration: &InboundVerifier| {
             let mut gate = match declaration.identity() {
                 Some(identity) => {
@@ -279,32 +283,50 @@ impl InboundGate {
             gate.protected_resource = crate::routes::protected_resource::ProtectedResource::for_verifier(declaration);
             Ok::<Self, InboundNotUsable>(gate)
         };
-        let mut gate = build(first)?;
-        gate.also_accept = rest
+        // A `behind-gateway` entry named by some `direct` verifier's `requires_gateway` is reachable
+        // only through `required_gateway` below, never mounted on its own path or routed by issuer:
+        // otherwise a request presenting only the gateway's own assertion in `Authorization` would be
+        // admitted with the gateway as the caller, which is exactly what this pairing must never do.
+        let required_targets: BTreeSet<&sutura_domain::identity::VerifierId> =
+            declarations.iter().filter_map(InboundVerifier::requires_gateway).collect();
+        let mut standalone = declarations
             .iter()
+            .filter(|declaration| !required_targets.contains(declaration.id()));
+        let Some(first) = standalone.next() else {
+            return Ok(None);
+        };
+        let mut gate = build(first)?;
+        gate.also_accept = standalone
             .map(|declaration| {
                 let next = build(declaration)?;
                 Ok((next.issuer.clone(), next))
             })
             .collect::<Result<_, InboundNotUsable>>()?;
-        // `requires_gateway` pairing - `github.com/telekom/sutura#2089`. A standalone copy of the
-        // named `behind-gateway` sub-gate is attached to the paired `direct` gate's own
+        // `requires_gateway` pairing - `github.com/telekom/sutura#2089`. Built once per distinct
+        // target and shared through `Arc`, attached to each paired `direct` gate's own
         // `required_gateway`, never into `also_accept`: that map is what `select_from` dedups and
         // refuses as ambiguous, and this pairing is the one case where two header locations are
         // meant to both carry a token on the same request. `sutura_config::NotFitToServe`'s
         // `RequiresGateway*` refusals already proved every named target resolves to a usable
         // `behind-gateway` verifier before this runs, so a lookup miss here is unreachable rather
         // than silently ignored.
+        let mut built_targets: BTreeMap<&sutura_domain::identity::VerifierId, Arc<Self>> = BTreeMap::new();
         for declaration in declarations {
             let Some(target_id) = declaration.requires_gateway() else {
                 continue;
             };
-            let Some(target_declaration) = declarations.iter().find(|candidate| candidate.id() == target_id) else {
-                continue;
+            let target_gate = if let Some(shared) = built_targets.get(target_id) {
+                Arc::clone(shared)
+            } else {
+                let Some(target_declaration) = declarations.iter().find(|candidate| candidate.id() == target_id) else {
+                    continue;
+                };
+                let newly_built = Arc::new(build(target_declaration)?);
+                built_targets.insert(target_id, Arc::clone(&newly_built));
+                newly_built
             };
-            let target_gate = build(target_declaration)?;
             if let Some(slot) = find_mut(&mut gate, declaration.issuer().as_str()) {
-                slot.required_gateway = Some(Box::new(target_gate));
+                slot.required_gateway = Some(target_gate);
             }
         }
         Ok(Some(gate))
@@ -426,7 +448,7 @@ impl InboundGate {
     /// through [`Self::from_verifiers_with_outbound`].
     #[cfg(test)]
     pub(crate) fn with_required_gateway(mut self, required_gateway: Self) -> Self {
-        self.required_gateway = Some(Box::new(required_gateway));
+        self.required_gateway = Some(Arc::new(required_gateway));
         self
     }
 
@@ -514,24 +536,27 @@ impl InboundGate {
             // Single-verifier fast path: skip the issuer peek entirely.
             let presented = self.presented(headers)?;
             self.verification.check_size(presented)?;
-            let caller = self.establish_token(presented, now).await?;
+            // The paired gateway assertion, where one is required, is checked before the caller
+            // token below runs any side-effecting check (single-use recording included) -
+            // `github.com/telekom/sutura#2089`. Otherwise a request with a valid caller token and no
+            // usable gateway assertion would still spend the caller's own single-use replay slot on
+            // a request this gate goes on to refuse, letting an attacker burn a legitimate caller's
+            // token by replaying it without ever presenting a gateway assertion.
             self.check_required_gateway(headers, now).await?;
-            return Ok(caller);
+            return self.establish_token(presented, now).await;
         }
         let (gate, presented) = self.select_gate(headers)?;
         gate.verification.check_size(presented)?;
-        let caller = gate.establish_token(presented, now).await?;
         gate.check_required_gateway(headers, now).await?;
-        Ok(caller)
+        gate.establish_token(presented, now).await
     }
 
     /// Filters by the mounted MCP path before reading any issuer or consulting keys.
     pub async fn establish_on(&self, path: &McpPath, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
         let (gate, presented) = self.select_from(headers, Some(path))?;
         gate.verification.check_size(presented)?;
-        let caller = gate.establish_token(presented, now).await?;
         gate.check_required_gateway(headers, now).await?;
-        Ok(caller)
+        gate.establish_token(presented, now).await
     }
 
     /// Checks this gate's paired gateway assertion, where `requires_gateway` declared one -

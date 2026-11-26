@@ -286,7 +286,7 @@ fn caller_run_sources_admit_only_direct_verifiers_and_delegation_admits_exactly_
 fn requires_gateway_pairs_a_direct_verifier_with_a_named_behind_gateway_entry() {
     let paired = |id: &str| {
         format!(
-            "    - id: staff\n      path: /staff\n      mode: direct\n      resource: https://staff.example.com/staff\n      authorization_server: https://staff-issuer.example.com\n      key_set_file: /keys.json\n      algorithms: [RS256]\n      token_header: x-service-access-token\n      requires_gateway: {id}\n"
+            "    - id: staff\n      path: /staff\n      mode: direct\n      resource: https://staff.example.com/staff\n      authorization_server: https://staff-issuer.example.com\n      key_set_file: /keys.json\n      algorithms: [RS256]\n      token_header: x-user-token\n      requires_gateway: {id}\n"
         )
     };
     let gateway_on_authorization = gateway("gateway", "/gateway").replace("x-transit-proof", "Authorization");
@@ -312,7 +312,7 @@ fn requires_gateway_pairs_a_direct_verifier_with_a_named_behind_gateway_entry() 
             .any(|r| matches!(r, NotFitToServe::RequiresGatewayNotInAuthorization { id, target } if id.as_str() == "staff" && target.as_str() == "gateway"))
     );
 
-    let colliding = paired("gateway").replace("x-service-access-token", "Authorization");
+    let colliding = paired("gateway").replace("x-user-token", "Authorization");
     let collision = refused(&format!("{colliding}{gateway_on_authorization}"), "");
     assert!(
         collision
@@ -324,17 +324,34 @@ fn requires_gateway_pairs_a_direct_verifier_with_a_named_behind_gateway_entry() 
         .expect("a direct verifier naming a behind-gateway entry that reads Authorization is fit to serve");
     let staff = &settings.security().inbound()[0];
     assert_eq!(staff.id().as_str(), "staff");
+
+    let header_already_read = gateway("other-gateway", "/other-gateway").replace("x-transit-proof", "x-user-token");
+    let token_header_collision = refused(
+        &format!("{}{}{}", paired("gateway"), gateway_on_authorization, header_already_read),
+        "",
+    );
+    assert!(
+        token_header_collision
+            .iter()
+            .any(|r| matches!(r, NotFitToServe::RequiresGatewayTokenHeaderCollidesWithVerifier { id, other } if id.as_str() == "staff" && other.as_str() == "other-gateway"))
+    );
 }
 
 #[test]
 fn requires_gateway_needs_both_a_token_header_and_a_target_or_neither() {
-    let half = "    - id: staff\n      path: /staff\n      mode: direct\n      resource: https://staff.example.com/staff\n      authorization_server: https://staff-issuer.example.com\n      key_set_file: /keys.json\n      algorithms: [RS256]\n      token_header: x-service-access-token\n";
+    let half = "    - id: staff\n      path: /staff\n      mode: direct\n      resource: https://staff.example.com/staff\n      authorization_server: https://staff-issuer.example.com\n      key_set_file: /keys.json\n      algorithms: [RS256]\n      token_header: x-user-token\n";
     let error = Settings::load(&sources(half, "")).expect_err("a token_header with no requires_gateway is incomplete");
-    assert!(matches!(error.reason(), SettingsError::RequiresGatewayPairIncomplete));
+    assert!(matches!(
+        error.reason(),
+        SettingsError::InboundEntry { cause, .. } if matches!(**cause, SettingsError::RequiresGatewayPairIncomplete)
+    ));
 
     let other_half = "    - id: staff\n      path: /staff\n      mode: direct\n      resource: https://staff.example.com/staff\n      authorization_server: https://staff-issuer.example.com\n      key_set_file: /keys.json\n      algorithms: [RS256]\n      requires_gateway: gateway\n";
     let error = Settings::load(&sources(other_half, "")).expect_err("a requires_gateway with no token_header is incomplete");
-    assert!(matches!(error.reason(), SettingsError::RequiresGatewayPairIncomplete));
+    assert!(matches!(
+        error.reason(),
+        SettingsError::InboundEntry { cause, .. } if matches!(**cause, SettingsError::RequiresGatewayPairIncomplete)
+    ));
 }
 
 #[test]

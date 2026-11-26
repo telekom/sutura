@@ -84,6 +84,19 @@ pub(super) fn verifier_refusals(inbound: &[InboundVerifier]) -> Vec<NotFitToServ
             {
                 refusals.push(NotFitToServe::RequiresGatewayHeaderCollision { id: later.id().clone() });
             }
+            if let Some(header) = later.token_header() {
+                for other in inbound.iter().filter(|candidate| candidate.id() != later.id()) {
+                    let collides = other
+                        .requirement()
+                        .is_some_and(|requirement| matches!(requirement.location(), crate::inbound::TokenLocation::Header { name } if name == header));
+                    if collides {
+                        refusals.push(NotFitToServe::RequiresGatewayTokenHeaderCollidesWithVerifier {
+                            id: later.id().clone(),
+                            other: other.id().clone(),
+                        });
+                    }
+                }
+            }
             match inbound.iter().find(|verifier| verifier.id() == target_id) {
                 None => refusals.push(NotFitToServe::RequiresGatewayUnknown {
                     id: later.id().clone(),

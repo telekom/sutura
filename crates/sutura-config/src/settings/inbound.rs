@@ -56,7 +56,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
             read_only_in(written.token_header.is_some(), ProofHeader::TOKEN_HEADER_KEY, "direct")?;
             read_only_in(
                 written.requires_gateway.is_some(),
-                "security.inbound.requires_gateway",
+                ProofHeader::REQUIRES_GATEWAY_KEY,
                 "direct",
             )?;
             let transit = TransitProof::new(
