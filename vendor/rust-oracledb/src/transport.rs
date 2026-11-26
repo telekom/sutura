@@ -188,6 +188,11 @@ pub(crate) struct Transport {
     native_requested: bool,
     native_deadline: Option<Instant>,
     protection: Option<nne::Protection>,
+    /// Set once the native authentication key has been folded in, i.e. once this session has
+    /// authenticated. Used only to word an unprotected `DATA` packet's refusal: during
+    /// authentication that is the shape a server's own login-failure error takes, so it is named
+    /// as a login refusal; afterwards the same bytes are unexplained and named neutrally instead.
+    authenticated: bool,
 }
 
 // a custom client certificate resolver is required because the client
@@ -326,23 +331,21 @@ impl Transport {
         if packet.packet_type == constants::PACKET_TYPE_DATA {
             if let Some(protection) = self.protection.as_mut() {
                 let record_len = packet.buf.len();
-                // Classified before `open` is attempted - `open` never mutates `packet.buf` on
-                // failure, but the classification itself must never depend on what `open` found,
-                // only on the record's own shape, so a caller never trusts decrypted-looking bytes
-                // that failed authentication as if they were honestly unprotected.
-                let sealed_shaped = protection.looks_sealed(&packet.buf);
+                let authenticated = self.authenticated;
+                // The decision is this session's own authentication state, not the record's
+                // shape: a record's bytes can be forged to look sealed or unsealed either way,
+                // but whether this session has completed authentication is this client's own
+                // fact. Before authentication, an unprotected DATA packet is the shape a
+                // server's login-failure error takes; after, the same bytes are an unexplained
+                // refusal (a mid-session injection, for instance) and must not be reported as a
+                // login problem.
                 packet.buf = protection.open(&packet.buf).map_err(|_| {
-                    if sealed_shaped {
+                    if authenticated {
                         Error::native_encryption_refused(format!(
-                            "a protected DATA packet ({record_len} byte record) failed to authenticate"
+                            "expected a protected DATA packet, got an unprotected DATA packet \
+                             ({record_len} byte record) - refused, not read"
                         ))
                     } else {
-                        // The bytes never had a sealed record's framing (length, 16-byte alignment,
-                        // trailing fold marker) at all - never the payload itself, only its shape -
-                        // consistent with the server having sent this DATA packet's content
-                        // unprotected, e.g. a login-phase error delivered before encryption applied
-                        // to this exchange. Named as a login refusal rather than a generic transport
-                        // message, since that is the shape this is actually expected to happen in.
                         Error::native_encryption_refused(format!(
                             "the server refused the login (its error arrived unprotected in a {record_len} \
                              byte DATA packet and was not read)"
@@ -532,6 +535,7 @@ impl Transport {
                 let _ = self.close();
                 return Err(error);
             }
+            self.authenticated = true;
         }
         Ok(())
     }
@@ -603,6 +607,7 @@ impl Transport {
             native_requested: false,
             native_deadline: None,
             protection: None,
+            authenticated: false,
         }
     }
 

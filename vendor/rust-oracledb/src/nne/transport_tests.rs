@@ -25,9 +25,14 @@ fn packet(payload: &[u8]) -> Vec<u8> {
 fn corrupt_record_poisoning_prevents_any_later_plaintext_write() {
     let (mut server, mut transport) = pair(256);
     transport.protection = Some(nne::protection_for_test());
+    transport.authenticated = true;
     server.write_all(&packet(&[0; 50])).unwrap();
     let error = transport.receive_packet().err().unwrap();
-    assert_eq!(error.to_string(), "native encryption refused: invalid protected record");
+    assert_eq!(
+        error.to_string(),
+        "native encryption refused: expected a protected DATA packet, got an unprotected \
+         DATA packet (50 byte record) - refused, not read"
+    );
     assert!(transport.low_level_transport.is_none());
     assert!(transport.protection.is_none());
     assert!(transport.send_packets(6, 0, 0, b"must never be sent").is_err());
@@ -121,5 +126,23 @@ fn unprotected_marker_packet_is_admitted_then_the_next_data_packet_is_still_auth
     // protected-record path and refused if it fails to decrypt.
     server.write_all(&packet(b"ORA-00942: table or view does not exist")).unwrap();
     let error = transport.receive_packet().err().unwrap();
-    assert_eq!(error.to_string(), "native encryption refused: invalid protected record");
+    assert_eq!(
+        error.to_string(),
+        "native encryption refused: the server refused the login (its error arrived \
+         unprotected in a 39 byte DATA packet and was not read)"
+    );
+}
+
+#[test]
+fn an_unprotected_data_packet_after_authentication_is_named_neutrally_not_as_a_login_refusal() {
+    let (mut server, mut transport) = pair(256);
+    transport.protection = Some(nne::protection_for_test());
+    transport.authenticated = true;
+    server.write_all(&packet(b"ORA-00942: table or view does not exist")).unwrap();
+    let error = transport.receive_packet().err().unwrap();
+    assert_eq!(
+        error.to_string(),
+        "native encryption refused: expected a protected DATA packet, got an unprotected \
+         DATA packet (39 byte record) - refused, not read"
+    );
 }
