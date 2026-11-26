@@ -28,6 +28,9 @@ pub use descriptions::{
     DescriptionKeySource, DescriptionMapping, DescriptionPredicate, DescriptionSource, DescriptionVia, InvalidDescriptionPolicy,
     InvalidDescriptionSource, PredicateTable,
 };
+
+mod comment_policy;
+pub use comment_policy::CommentPolicy;
 mod relationships;
 mod selection;
 pub(crate) use relationships::RawRelationship;
@@ -66,6 +69,8 @@ pub struct RdbmsSettings {
     relationships: Vec<DeclaredRelationship>,
     relationships_view: Option<DocumentationSchema>,
     relationships_on_missing_endpoint: MissingEndpointPolicy,
+    on_invalid_comment: CommentPolicy,
+    sanitize_control_characters: bool,
 }
 
 impl RdbmsSettings {
@@ -83,6 +88,8 @@ impl RdbmsSettings {
                     || raw.column_rules.is_some()
                     || raw.on_unsupported_column.is_some()
                     || raw.on_empty_table.is_some()
+                    || raw.on_invalid_comment.is_some()
+                    || raw.sanitize_control_characters
                 {
                     return Err(InvalidRdbmsCatalog::NativeKeysOnView);
                 }
@@ -164,6 +171,13 @@ impl RdbmsSettings {
                     .map_err(|cause| InvalidRdbmsCatalog::DictionarySchema { cause })?,
             },
             relationships_on_missing_endpoint,
+            on_invalid_comment: raw
+                .on_invalid_comment
+                .as_deref()
+                .map(|written| CommentPolicy::parse(written).ok_or(InvalidRdbmsCatalog::CommentPolicy))
+                .transpose()?
+                .unwrap_or_default(),
+            sanitize_control_characters: raw.sanitize_control_characters,
         })
     }
 
@@ -191,6 +205,17 @@ impl RdbmsSettings {
 
     pub fn descriptions_from(&self) -> &[DescriptionSource] {
         &self.descriptions_from
+    }
+
+    /// What an unusable native table or column comment does. Absent stays `Refuse`, unchanged.
+    pub const fn on_invalid_comment(&self) -> CommentPolicy {
+        self.on_invalid_comment
+    }
+
+    /// Whether a C1 control character (U+0080-U+009F) in a native comment is replaced with
+    /// U+FFFD before validation, instead of the comment being refused or omitted.
+    pub const fn sanitize_control_characters(&self) -> bool {
+        self.sanitize_control_characters
     }
 
     pub const fn native_selection(&self) -> Option<&DictionarySelection> {
@@ -964,3 +989,9 @@ mod tests {
         assert_eq!(schema.as_str(), "docs_v1");
     }
 }
+
+/// `telekom/sutura#2082`: kept out of `mod tests` above, in its own file - a separate test file
+/// calling `on_invalid_comment()`/`sanitize_control_characters()` needs an API absent at base and
+/// never compiles there, which is also true of every test already in `mod tests`'s own file.
+#[cfg(test)]
+mod comment_policy_tests;
