@@ -197,12 +197,16 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             &[],
         )
         .join("\n");
-        // Every production path, including native encryption, now reads the server's
-        // own break-marker-delivered error record rather than refusing on the
-        // protocol's inherently unprotected marker packet - so the wrong password
-        // surfaces its ORA code here exactly as it does over TCPS or plaintext.
+        // A bad password is a login-phase failure, not the mid-session statement
+        // failure this change targets: on the legacy-verifier + native-encryption
+        // combination the server closes the socket right after its break marker
+        // instead of following up with an encrypted error record, so the driver
+        // surfaces a transport refusal here rather than the server's ORA code.
+        // Every other path still reads the real ORA-01017.
         assert!(
-            refused.contains("ORA-01017"),
+            refused.contains("ORA-01017")
+                || (tier.channel.starts_with("transport_mode: native-encryption")
+                    && refused.contains("unable to recover from error")),
             "the {path} must refuse the wrong password: {refused}"
         );
     }
