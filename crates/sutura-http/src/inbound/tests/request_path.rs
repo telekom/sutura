@@ -4,7 +4,9 @@ use std::time::Instant;
 
 use sutura_config::{ProofLifetime, RequestPathPrefix, RequiredTokenType};
 
-use super::fixtures::{claims, claims_no_audience, gate_over, gateway_bound_by_request_path, jwks, key_pair, signed, transit};
+use super::fixtures::{
+    claims, claims_no_audience, expiry_in, gate_over, gateway_bound_by_request_path, jwks, key_pair, signed, transit,
+};
 use crate::testing::{ISSUER, KID};
 
 fn prefix(raw: &str) -> RequestPathPrefix {
@@ -22,11 +24,10 @@ fn gate_bound_to(prefix_raw: &str) -> (rcgen::KeyPair, crate::inbound::InboundGa
     (pair, gate)
 }
 
+// `cause_chain` walks only `#[source]` links and these refusals carry none, so the top-level
+// `Display` - the refusal's own `#[error(...)]` message - is what a caller and a log actually see.
 fn refusal_names_requestpath(refused: &crate::inbound::TokenRejected) -> bool {
-    crate::surface::cause_chain(refused)
-        .join(" ")
-        .to_lowercase()
-        .contains("requestpath")
+    refused.to_string().to_lowercase().contains("requestpath")
 }
 
 #[tokio::test]
@@ -35,7 +36,15 @@ async fn a_requestpath_starting_with_the_configured_prefix_establishes() {
     let token = signed(
         &pair,
         KID,
-        &claims_no_audience("someone@example.com", ISSUER, r#"{"requestPath":"/hub/app/v1/mcp"}"#),
+        &claims_no_audience(
+            "someone@example.com",
+            ISSUER,
+            &format!(
+                r#"{{"requestPath":"/hub/app/v1/mcp","iat":{},"exp":{}}}"#,
+                expiry_in(-60),
+                expiry_in(60)
+            ),
+        ),
     );
     let caller = gate
         .establish(&transit(&token), Instant::now())
@@ -106,8 +115,7 @@ async fn a_token_carrying_an_audience_is_refused_even_with_a_matching_requestpat
         .establish(&transit(&token), Instant::now())
         .await
         .expect_err("an aud claim in request-path mode is refused");
-    let chain = crate::surface::cause_chain(&refused).join(" ").to_lowercase();
-    assert!(chain.contains("aud"), "{refused:?}");
+    assert!(refused.to_string().to_lowercase().contains("aud"), "{refused:?}");
 }
 
 /// A `requestPath` with a dot segment is refused outright, never compared - even where it would

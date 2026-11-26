@@ -34,7 +34,11 @@ mod tests {
         assert_eq!(inbound.mode(), "behind-gateway");
         assert!(inbound.reads_the_authorization_header());
         let requirement = inbound.requirement();
-        assert_eq!(requirement.issuer().as_str(), ISSUER);
+        assert_eq!(
+            requirement.issuer().as_str(),
+            ISSUER,
+            "the example's filled-in issuer did not round-trip"
+        );
         assert_eq!(
             requirement
                 .audience()
@@ -42,8 +46,12 @@ mod tests {
                 .as_str(),
             AUDIENCE
         );
-        assert_eq!(requirement.token_type().as_str(), "jwt");
-        assert!(!requirement.single_use());
+        assert_eq!(
+            requirement.token_type().as_str(),
+            "jwt",
+            "the example's token type did not round-trip"
+        );
+        assert!(!requirement.single_use(), "the example does not opt into single use");
         let grant = requirement
             .grant()
             .expect("the example grants scopes to an assertion with none");
