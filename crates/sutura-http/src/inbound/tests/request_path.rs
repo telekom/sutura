@@ -7,6 +7,7 @@ use sutura_config::{ProofLifetime, RequestPathPrefix, RequiredTokenType};
 use super::fixtures::{
     claims, claims_no_audience, expiry_in, gate_over, gateway_bound_by_request_path, jwks, key_pair, signed, transit,
 };
+use crate::inbound::TokenRejected;
 use crate::testing::{ISSUER, KID};
 
 fn prefix(raw: &str) -> RequestPathPrefix {
@@ -24,10 +25,22 @@ fn gate_bound_to(prefix_raw: &str) -> (rcgen::KeyPair, crate::inbound::InboundGa
     (pair, gate)
 }
 
-// `cause_chain` walks only `#[source]` links and these refusals carry none, so the top-level
-// `Display` - the refusal's own `#[error(...)]` message - is what a caller and a log actually see.
-fn refusal_names_requestpath(refused: &crate::inbound::TokenRejected) -> bool {
-    refused.to_string().to_lowercase().contains("requestpath")
+/// A `requestPath` this mode never compares at all - a dot segment, a doubled `/`, a `%`, a `\`,
+/// or a non-ASCII byte - and the refusal that proves it, with the configured prefix a token
+/// presenting it would otherwise satisfy.
+async fn refused_as_not_plain(path: &str) {
+    let (pair, gate) = gate_bound_to("/hub/app/v1/");
+    let claim = serde_json::to_string(path).expect("a test path is a JSON string");
+    let token = signed(
+        &pair,
+        KID,
+        &claims_no_audience("someone@example.com", ISSUER, &format!(r#"{{"requestPath":{claim}}}"#)),
+    );
+    let refused = gate
+        .establish(&transit(&token), Instant::now())
+        .await
+        .expect_err("a requestPath this mode will not compare is refused");
+    assert!(matches!(refused, TokenRejected::RequestPathNotPlain), "{refused:?}");
 }
 
 #[tokio::test]
@@ -61,7 +74,7 @@ async fn a_token_with_no_requestpath_is_refused() {
         .establish(&transit(&token), Instant::now())
         .await
         .expect_err("a token with no requestPath is refused");
-    assert!(refusal_names_requestpath(&refused), "{refused:?}");
+    assert!(matches!(refused, TokenRejected::NoRequestPath), "{refused:?}");
 }
 
 #[tokio::test]
@@ -76,7 +89,7 @@ async fn a_requestpath_not_starting_with_the_configured_prefix_is_refused() {
         .establish(&transit(&token), Instant::now())
         .await
         .expect_err("a requestPath outside the prefix is refused");
-    assert!(refusal_names_requestpath(&refused), "{refused:?}");
+    assert!(matches!(refused, TokenRejected::RequestPathNotBound), "{refused:?}");
 }
 
 /// A sibling route whose text merely extends the prefix, with no `/` boundary, must not match -
@@ -93,7 +106,7 @@ async fn a_requestpath_extending_the_prefix_as_sibling_text_is_refused() {
         .establish(&transit(&token), Instant::now())
         .await
         .expect_err("a sibling route extending the prefix as text is refused");
-    assert!(refusal_names_requestpath(&refused), "{refused:?}");
+    assert!(matches!(refused, TokenRejected::RequestPathNotBound), "{refused:?}");
 }
 
 /// Fail-closed: this mode never compares an `aud`, so a token carrying one anyway is refused
@@ -115,38 +128,41 @@ async fn a_token_carrying_an_audience_is_refused_even_with_a_matching_requestpat
         .establish(&transit(&token), Instant::now())
         .await
         .expect_err("an aud claim in request-path mode is refused");
-    assert!(refused.to_string().to_lowercase().contains("aud"), "{refused:?}");
+    assert!(
+        matches!(refused, TokenRejected::AudiencePresentInRequestPathMode),
+        "{refused:?}"
+    );
 }
 
 /// A `requestPath` with a dot segment is refused outright, never compared - even where it would
 /// otherwise start with the configured prefix after a browser-style normalisation.
 #[tokio::test]
 async fn a_requestpath_with_a_dot_dot_segment_is_refused() {
-    let (pair, gate) = gate_bound_to("/hub/app/v1/");
-    let token = signed(
-        &pair,
-        KID,
-        &claims_no_audience("someone@example.com", ISSUER, r#"{"requestPath":"/hub/app/v1/../v1/mcp"}"#),
-    );
-    let refused = gate
-        .establish(&transit(&token), Instant::now())
-        .await
-        .expect_err("a requestPath with a dot segment is refused");
-    assert!(refusal_names_requestpath(&refused), "{refused:?}");
+    refused_as_not_plain("/hub/app/v1/../v1/mcp").await;
 }
 
 /// A `requestPath` with a doubled `/` is refused outright, for the same reason as a dot segment.
 #[tokio::test]
 async fn a_requestpath_with_a_doubled_slash_is_refused() {
-    let (pair, gate) = gate_bound_to("/hub/app/v1/");
-    let token = signed(
-        &pair,
-        KID,
-        &claims_no_audience("someone@example.com", ISSUER, r#"{"requestPath":"/hub//app/v1/mcp"}"#),
-    );
-    let refused = gate
-        .establish(&transit(&token), Instant::now())
-        .await
-        .expect_err("a requestPath with a doubled slash is refused");
-    assert!(refusal_names_requestpath(&refused), "{refused:?}");
+    refused_as_not_plain("/hub//app/v1/mcp").await;
+}
+
+/// A `requestPath` carrying a `%` is refused outright - a presented path is compared literally,
+/// never percent-decoded first.
+#[tokio::test]
+async fn a_requestpath_with_a_percent_sign_is_refused() {
+    refused_as_not_plain("/hub/app/v1/%2e%2e/mcp").await;
+}
+
+/// A `requestPath` carrying a backslash is refused outright - some normalisers read it as a path
+/// separator, and this mode takes no side in that disagreement.
+#[tokio::test]
+async fn a_requestpath_with_a_backslash_is_refused() {
+    refused_as_not_plain(r"/hub/app/v1\mcp").await;
+}
+
+/// A non-ASCII `requestPath` is refused outright, rather than compared under some assumed encoding.
+#[tokio::test]
+async fn a_non_ascii_requestpath_is_refused() {
+    refused_as_not_plain("/hub/app/v1/mcp\u{00e9}").await;
 }
