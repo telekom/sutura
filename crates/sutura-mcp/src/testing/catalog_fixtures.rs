@@ -211,8 +211,8 @@ pub(crate) fn bundle_with_many_metrics(count: usize, description_bytes: usize) -
 /// [`bundle_with_many_models`] and [`bundle_with_many_metrics`] combined into one bundle, for
 /// `describe_catalog(names: true)`'s own test of walking BOTH halves to completion in the same
 /// catalog (`github.com/telekom/sutura#2083`'s review): a fixture with only one pool never exercises
-/// a caller continuing `after_metric` once the model pool is already exhausted, which is exactly the
-/// transition the shared-budget split got wrong.
+/// the single sequential cursor crossing from the model half into the metric half mid-walk, which
+/// is exactly the transition the shared-budget split must get right.
 pub(crate) fn bundle_with_many_models_and_metrics_at_max_name_len(model_count: usize, metric_count: usize) -> PinnedDefinitions {
     fn padded(prefix: &str, index: usize) -> String {
         let core = format!("{prefix}{index:05}");

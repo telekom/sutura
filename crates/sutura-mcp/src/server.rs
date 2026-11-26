@@ -508,7 +508,6 @@ where
                         model_prefix: args.model_prefix.as_deref(),
                         names: args.names,
                         after: args.after.as_deref(),
-                        after_metric: args.after_metric.as_deref(),
                     },
                 )?
             }

@@ -61,19 +61,20 @@ async fn names_true_answers_a_names_only_index_of_models_and_metrics() {
         .map(|entry| entry["name"].as_str().expect("a name is a string"))
         .collect();
     assert_eq!(metric_names, vec!["customer_count", "revenue"], "{json}");
-    assert!(json.get("next").is_none(), "both models fit on one page: {json}");
-    assert!(json.get("next_metric").is_none(), "both metrics fit on one page: {json}");
+    assert!(json.get("next").is_none(), "both halves fit on one page: {json}");
     drop(client.cancel().await);
 }
 
-/// Every visible model is reached by walking `names: true`'s `after` cursor to exhaustion, even
-/// with far more models than `sutura_app::catalog_budget::MAX_OMITTED_NAMES` ever could have named
-/// - the paged index has no cap on how many PAGES it takes, only on each page's own byte cost. Each
-/// page, both halves, stays under the shared bound.
+/// A single bundle with BOTH more than 200 models AND more than 200 metrics, walked to completion
+/// with ONE sequential `after` cursor - models first, then metrics, a single stream, crossing from
+/// one half into the other within the walk rather than needing a second cursor to address either
+/// half independently (`github.com/telekom/sutura#2083`'s review, round 3). Every page, both
+/// halves summed, stays under the shared bound.
 #[tokio::test]
-async fn walking_after_to_exhaustion_reaches_every_model_past_the_omission_cap() {
-    const MODEL_COUNT: usize = 2500;
-    let bundle = testing::bundle_with_many_models_and_metrics_at_max_name_len(MODEL_COUNT, 0);
+async fn walking_after_to_exhaustion_reaches_every_model_and_every_metric() {
+    const MODEL_COUNT: usize = 700;
+    const METRIC_COUNT: usize = 700;
+    let bundle = testing::bundle_with_many_models_and_metrics_at_max_name_len(MODEL_COUNT, METRIC_COUNT);
     let service = LocalService::start(
         &testing::FixedBundleCatalog(bundle),
         testing::fake_warehouse(),
@@ -82,12 +83,14 @@ async fn walking_after_to_exhaustion_reaches_every_model_past_the_omission_cap()
         sutura_domain::plan::RefusingCombiner,
         1 << 30,
     )
-    .expect("the many-models fixture bundle validates");
+    .expect("the many-models-and-metrics fixture bundle validates");
     let client = super::connected(service).await;
 
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen_models = std::collections::BTreeSet::new();
+    let mut seen_metrics = std::collections::BTreeSet::new();
     let mut after: Option<String> = None;
     let mut pages = 0_u32;
+    let mut crossed = false;
     loop {
         pages += 1;
         assert!(pages < 10_000, "the index never terminated - a cursor is not advancing");
@@ -108,143 +111,20 @@ async fn walking_after_to_exhaustion_reaches_every_model_past_the_omission_cap()
             "page {pages}'s text ({} bytes) plus structured ({structured_bytes} bytes) half overshot the shared bound",
             text.len()
         );
-        for entry in json["model_names"].as_array().expect("model_names is a list") {
-            seen.insert(entry["name"].as_str().expect("a name is a string").to_owned());
+        let model_entries = json["model_names"].as_array().expect("model_names is a list");
+        let metric_entries = json["metric_names"].as_array().expect("metric_names is a list");
+        if !model_entries.is_empty() && !metric_entries.is_empty() {
+            crossed = true;
+        }
+        for entry in model_entries {
+            seen_models.insert(entry["name"].as_str().expect("a name is a string").to_owned());
+        }
+        for entry in metric_entries {
+            seen_metrics.insert(entry["name"].as_str().expect("a name is a string").to_owned());
         }
         match json.get("next").and_then(serde_json::Value::as_str) {
             Some(cursor) => after = Some(cursor.to_owned()),
             None => break,
-        }
-    }
-    assert!(pages > 1, "the fixture must be large enough to force more than one page");
-    assert_eq!(seen.len(), MODEL_COUNT, "every model must be reached exactly once");
-    drop(client.cancel().await);
-}
-
-/// The metric half of the same index walks the same way, via `after_metric` - the metrics-side
-/// twin of [`walking_after_to_exhaustion_reaches_every_model_past_the_omission_cap`].
-#[tokio::test]
-async fn walking_after_metric_to_exhaustion_reaches_every_metric_past_the_omission_cap() {
-    const METRIC_COUNT: usize = 2500;
-    let bundle = testing::bundle_with_many_models_and_metrics_at_max_name_len(1, METRIC_COUNT);
-    let service = LocalService::start(
-        &testing::FixedBundleCatalog(bundle),
-        testing::fake_warehouse(),
-        std::sync::Arc::new(testing::CountingSink::default()),
-        testing::broker(),
-        sutura_domain::plan::RefusingCombiner,
-        1 << 30,
-    )
-    .expect("the many-metrics fixture bundle validates");
-    let client = super::connected(service).await;
-
-    let mut seen = std::collections::BTreeSet::new();
-    let mut after_metric: Option<String> = None;
-    let mut pages = 0_u32;
-    loop {
-        pages += 1;
-        assert!(pages < 10_000, "the index never terminated - a cursor is not advancing");
-        let mut args = serde_json::json!({ "names": true });
-        if let Some(cursor) = &after_metric {
-            args["after_metric"] = serde_json::Value::String(cursor.clone());
-        }
-        let result = client
-            .call_tool(describe_catalog(&args))
-            .await
-            .expect("names: true, paged, is a valid question");
-        assert_ne!(result.is_error, Some(true), "{result:?}");
-        let text = super::text_of(&result);
-        let json = result.structured_content.expect("a names index carries structured content");
-        let structured_bytes = serde_json::to_vec(&json).expect("structured content serializes").len();
-        assert!(
-            text.len() + structured_bytes <= MAX_CATALOG_LISTING_BYTES,
-            "page {pages}'s text ({} bytes) plus structured ({structured_bytes} bytes) half overshot the shared bound",
-            text.len()
-        );
-        for entry in json["metric_names"].as_array().expect("metric_names is a list") {
-            seen.insert(entry["name"].as_str().expect("a name is a string").to_owned());
-        }
-        match json.get("next_metric").and_then(serde_json::Value::as_str) {
-            Some(cursor) => after_metric = Some(cursor.to_owned()),
-            None => break,
-        }
-    }
-    assert!(pages > 1, "the fixture must be large enough to force more than one page");
-    assert_eq!(seen.len(), METRIC_COUNT, "every metric must be reached exactly once");
-    drop(client.cancel().await);
-}
-
-/// Item 1's own test: a single bundle with BOTH more than 200 models AND more than 200 metrics,
-/// walking BOTH `after` and `after_metric` to completion - the scenario a single-pool fixture never
-/// exercises, since a caller continuing ONLY `after_metric` (no `after`) must not re-walk the model
-/// pool from scratch and starve the metric half to roughly one entry per call
-/// (`github.com/telekom/sutura#2083`'s review).
-#[tokio::test]
-async fn walking_both_halves_to_exhaustion_reaches_every_model_and_every_metric() {
-    const MODEL_COUNT: usize = 250;
-    const METRIC_COUNT: usize = 250;
-    let bundle = testing::bundle_with_many_models_and_metrics_at_max_name_len(MODEL_COUNT, METRIC_COUNT);
-    let service = LocalService::start(
-        &testing::FixedBundleCatalog(bundle),
-        testing::fake_warehouse(),
-        std::sync::Arc::new(testing::CountingSink::default()),
-        testing::broker(),
-        sutura_domain::plan::RefusingCombiner,
-        1 << 30,
-    )
-    .expect("the many-models-and-metrics fixture bundle validates");
-    let client = super::connected(service).await;
-
-    let mut seen_models = std::collections::BTreeSet::new();
-    let mut seen_metrics = std::collections::BTreeSet::new();
-    let mut after: Option<String> = None;
-    let mut models_done = false;
-    let mut pages = 0_u32;
-    loop {
-        pages += 1;
-        assert!(pages < 10_000, "the index never terminated - a cursor is not advancing");
-        let mut args = serde_json::json!({ "names": true });
-        // Walk the model half to exhaustion first, THEN walk the metric half alone - the exact
-        // transition (`after: None, after_metric: Some(_)`) the review flags as starved.
-        if !models_done {
-            if let Some(cursor) = &after {
-                args["after"] = serde_json::Value::String(cursor.clone());
-            }
-        } else if let Some(cursor) = &after {
-            args["after_metric"] = serde_json::Value::String(cursor.clone());
-        }
-        let result = client
-            .call_tool(describe_catalog(&args))
-            .await
-            .expect("names: true, paged, is a valid question");
-        assert_ne!(result.is_error, Some(true), "{result:?}");
-        let text = super::text_of(&result);
-        let json = result.structured_content.expect("a names index carries structured content");
-        let structured_bytes = serde_json::to_vec(&json).expect("structured content serializes").len();
-        assert!(
-            text.len() + structured_bytes <= MAX_CATALOG_LISTING_BYTES,
-            "page {pages}'s text ({} bytes) plus structured ({structured_bytes} bytes) half overshot the shared bound",
-            text.len()
-        );
-        for entry in json["model_names"].as_array().expect("model_names is a list") {
-            seen_models.insert(entry["name"].as_str().expect("a name is a string").to_owned());
-        }
-        for entry in json["metric_names"].as_array().expect("metric_names is a list") {
-            seen_metrics.insert(entry["name"].as_str().expect("a name is a string").to_owned());
-        }
-        if models_done {
-            match json.get("next_metric").and_then(serde_json::Value::as_str) {
-                Some(cursor) if !cursor.is_empty() => after = Some(cursor.to_owned()),
-                // An empty-string sentinel means "retry with no cursor" - the deferral this fix uses
-                // when the model half just spent the budget this very call.
-                Some(_) => after = Some(String::new()),
-                None => break,
-            }
-        } else if let Some(cursor) = json.get("next").and_then(serde_json::Value::as_str) {
-            after = Some(cursor.to_owned());
-        } else {
-            models_done = true;
-            after = None;
         }
     }
     assert!(
@@ -253,6 +133,10 @@ async fn walking_both_halves_to_exhaustion_reaches_every_model_and_every_metric(
     );
     assert_eq!(seen_models.len(), MODEL_COUNT, "every model must be reached exactly once");
     assert_eq!(seen_metrics.len(), METRIC_COUNT, "every metric must be reached exactly once");
+    assert!(
+        crossed,
+        "the walk must cross from models into metrics within one page at least once"
+    );
     drop(client.cancel().await);
 }
 
@@ -374,19 +258,20 @@ async fn after_without_names_is_refused_as_a_protocol_error() {
     drop(client.cancel().await);
 }
 
-/// `after_metric` without `names: true` is refused the same way.
+/// A malformed `after` - neither `model:<name>` nor `metric:<name>` - is refused rather than read
+/// as "start from the beginning".
 #[tokio::test]
-async fn after_metric_without_names_is_refused_as_a_protocol_error() {
+async fn malformed_after_is_refused_as_a_protocol_error() {
     let client = super::connected(super::certified_service()).await;
     let error = client
-        .call_tool(describe_catalog(&serde_json::json!({ "after_metric": "revenue" })))
+        .call_tool(describe_catalog(&serde_json::json!({ "names": true, "after": "orders" })))
         .await
-        .expect_err("after_metric without names is refused, not answered");
+        .expect_err("a malformed after cursor is refused, not answered");
     let ServiceError::McpError(data) = error else {
         panic!("expected a protocol error, got {error:?}");
     };
     assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
-    assert!(data.message.contains("names"), "{}", data.message);
+    assert!(data.message.contains("cursor"), "{}", data.message);
     drop(client.cancel().await);
 }
 

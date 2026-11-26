@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, paged_names};
+use sutura_app::catalog_budget::{MAX_CATALOG_LISTING_BYTES, MalformedNamesCursor, NamesCursor, paged_names};
 use sutura_app::prompt::CatalogProse;
 use sutura_domain::model::ModelName;
 use sutura_domain::pinned::view::ScopedView;
@@ -72,31 +72,30 @@ pub struct NamesIndexContent {
     /// This page's model names, in the same order the full listing's models would appear in - a
     /// `BTreeMap` walk, so repeating `after` from one page always means the same resume point.
     model_names: Vec<ModelNameEntry>,
-    /// The cursor to pass as `after` to continue the model half of this index - absent once every
-    /// model name matching `model_prefix` (if any) has been returned.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    next: Option<String>,
     /// This page's metric names, paged and cursored the same way `model_names` is - the metrics-side
     /// sibling closing the same gap [`CatalogContent::omitted_metrics`] leaves once it crosses
     /// `MAX_OMITTED_NAMES`.
     metric_names: Vec<MetricNameEntry>,
-    /// The cursor to pass as `after_metric` to continue the metric half of this index.
+    /// The cursor to pass as `after` to continue this index - ONE sequential walk, models then
+    /// metrics: absent only once every visible model AND every visible metric has been returned.
+    /// Format it exactly as received here - it round-trips through [`NamesCursor`]'s own
+    /// `Display`/`parse`, never a value this caller constructs itself.
     #[serde(skip_serializing_if = "Option::is_none")]
-    next_metric: Option<String>,
+    next: Option<String>,
 }
 
 /// The real worst-case byte cost of this index's fixed envelope - the provenance trailer plus both
-/// halves' header and "more remain" sentences, each carrying the longest cursor a name can produce
-/// ([`sutura_domain::model::MAX_IDENTIFIER_LEN`]) - measured by rendering an actual empty-entries
-/// skeleton rather than guessed, since a guess drifts the moment either sentence's wording changes.
+/// halves' header and the single "more remain" sentence, carrying the longest cursor this index can
+/// produce ([`NamesCursor::Metric`] over [`sutura_domain::model::MAX_IDENTIFIER_LEN`] bytes, the
+/// longer of its two variants) - measured by rendering an actual empty-entries skeleton rather than
+/// guessed, since a guess drifts the moment the sentence's wording changes.
 fn envelope_reserve(view: &ScopedView<'_>) -> usize {
-    let cursor = "a".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN);
+    let cursor = NamesCursor::Metric("a".repeat(sutura_domain::model::MAX_IDENTIFIER_LEN)).to_string();
     let skeleton = NamesIndexContent {
         provenance: bundle_content(view.pinned()),
         model_names: Vec::new(),
-        next: Some(cursor.clone()),
         metric_names: Vec::new(),
-        next_metric: Some(cursor),
+        next: Some(cursor),
     };
     let text_len = skeleton.as_text().len();
     let json_len = serde_json::to_vec(&skeleton).map_or(0, |bytes| bytes.len());
@@ -104,32 +103,38 @@ fn envelope_reserve(view: &ScopedView<'_>) -> usize {
 }
 
 impl NamesIndexContent {
-    /// `after`, `after_metric` and `model_prefix` are raw strings here, not yet the newtypes the
-    /// rest of this module parses `model`/`metric` into - a cursor or a prefix is not itself
-    /// required to be a valid `ModelName`, only a prefix or exact value one happens to start with,
-    /// so there is nothing to parse into.
+    /// `after` is [`NamesCursor`]'s own wire form here - parsed up front, so a malformed value is
+    /// refused before any pool is walked, not read as "start from the beginning". `model_prefix` is
+    /// a raw string, not yet the `ModelName` newtype `model`/`metric` get parsed into elsewhere: a
+    /// prefix is not itself required to be a valid name, only a prefix one happens to start with.
     ///
-    /// **One shared budget, models first then metrics** - the same "spend in sequence" rule
-    /// [`CatalogContent::of_with_physical_schema`] follows, so the whole page (both halves) never
-    /// exceeds [`MAX_CATALOG_LISTING_BYTES`]. `model_prefix` narrows metrics by their OWN model
-    /// (`Metric::model`), matching how it narrows the full listing's metrics pool.
-    pub fn of(view: &ScopedView<'_>, after: Option<&str>, after_metric: Option<&str>, model_prefix: Option<&str>) -> Self {
+    /// **ONE sequential cursor, models then metrics - `github.com/telekom/sutura#2083`'s round 3.**
+    /// Two independent cursors (`after`/`after_metric`) let a caller address either half without the
+    /// other, which is exactly what went wrong: a caller that only ever followed the metric cursor
+    /// could make the model half look finished without ever having walked it, and the metric half's
+    /// "first candidate always admitted" rule (`fill_to_budget`'s own, shared by every caller of it)
+    /// could fire on every single call rather than once. A `NamesCursor::Model` resumes the model
+    /// half; `NamesCursor::Metric` means the model half is ALREADY exhausted, so this call skips it
+    /// and resumes metrics directly - there is no separate "did I already finish models" question to
+    /// get wrong, because only the cursor the previous page actually returned can ask for it. If the
+    /// model half finishes within this very call, the leftover budget carries straight into metrics
+    /// in the same page - the one place `fill_to_budget`'s admit-the-first-item rule can fire, which
+    /// happens at most once across the whole walk rather than on a caller's every repeated call.
+    pub fn of(view: &ScopedView<'_>, after: Option<&str>, model_prefix: Option<&str>) -> Result<Self, MalformedNamesCursor> {
+        let cursor = after.map(NamesCursor::parse).transpose()?;
         let provenance = bundle_content(view.pinned());
         let budget = MAX_CATALOG_LISTING_BYTES.saturating_sub(envelope_reserve(view));
 
-        // A caller only ever sends `after_metric` without `after` once it has already seen `next:
-        // None` for the model half - so treat the model half as already finished and give metrics the
-        // whole budget, instead of re-walking (and re-spending the budget on) models every call. Without
-        // this, a caller paging `after_metric` to exhaustion would restart the model pool each time,
-        // starving metrics to roughly one entry per call - `github.com/telekom/sutura#2083`'s review.
-        let skip_models = after.is_none() && after_metric.is_some();
+        let model_after = match &cursor {
+            Some(NamesCursor::Model(name)) => Some(name.as_str()),
+            _ => None,
+        };
+        let walk_models = !matches!(cursor, Some(NamesCursor::Metric(_)));
 
-        let (model_names, next, models_spent) = if skip_models {
-            (Vec::<ModelNameEntry>::new(), None::<String>, 0_usize)
-        } else {
+        let (model_names, models_next, models_spent) = if walk_models {
             let (page, next) = paged_names(
                 view.models(),
-                after,
+                model_after,
                 model_prefix,
                 budget,
                 |model| model_entry_cost(model),
@@ -144,29 +149,27 @@ impl NamesIndexContent {
                 })
                 .collect();
             (names, next, spent)
+        } else {
+            (Vec::new(), None, 0_usize)
         };
 
+        // The model half is walked (not skipped) only until IT returns no further cursor - which
+        // covers both "there was no model cursor to begin with" and "this very call's model page
+        // reached the end" - so metrics only start once models are truly exhausted, in or across
+        // calls, never before.
+        let walk_metrics = models_next.is_none();
+        let metric_after = match &cursor {
+            Some(NamesCursor::Metric(name)) => Some(name.as_str()),
+            _ => None,
+        };
         let metric_budget = budget.saturating_sub(models_spent);
-        let metric_candidates: Vec<&sutura_domain::catalog::Metric> = view
-            .metrics()
-            .filter(|metric| model_prefix.is_none_or(|prefix| metric.model().as_str().starts_with(prefix)))
-            .collect();
-
-        // The model half already spent part of the shared budget this call - never force the first
-        // metric candidate in over budget the way `fill_to_budget` would for an otherwise-empty page;
-        // a sentinel empty-string cursor defers the whole metric half to a call that (paired with no
-        // `after`) hits `skip_models` above and gets the full budget instead.
-        let starved = models_spent > 0
-            && metric_candidates
-                .first()
-                .is_some_and(|metric| metric_entry_cost(metric) > metric_budget);
-
-        let (metric_names, next_metric) = if starved {
-            (Vec::new(), Some(String::new()))
-        } else {
+        let (metric_names, metrics_next) = if walk_metrics {
+            let metric_candidates = view
+                .metrics()
+                .filter(|metric| model_prefix.is_none_or(|prefix| metric.model().as_str().starts_with(prefix)));
             let (page, next) = paged_names(
-                metric_candidates.into_iter(),
-                after_metric,
+                metric_candidates,
+                metric_after,
                 None,
                 metric_budget,
                 |metric| metric_entry_cost(metric),
@@ -180,15 +183,23 @@ impl NamesIndexContent {
                 })
                 .collect();
             (names, next)
+        } else {
+            (Vec::new(), None)
         };
 
-        Self {
+        let next = match (models_next, metrics_next) {
+            (Some(name), _) => Some(NamesCursor::Model(name)),
+            (None, Some(name)) => Some(NamesCursor::Metric(name)),
+            (None, None) => None,
+        }
+        .map(|cursor| cursor.to_string());
+
+        Ok(Self {
             provenance,
             model_names,
-            next,
             metric_names,
-            next_metric,
-        }
+            next,
+        })
     }
 
     /// The same index as text, for the content block beside the structured one - see
@@ -205,14 +216,6 @@ impl NamesIndexContent {
             out.push_str(&entry.table);
             out.push(')');
         }
-        match &self.next {
-            Some(cursor) => {
-                out.push_str("\n\nmore model names remain - call describe_catalog(names: true, after: \"");
-                out.push_str(cursor);
-                out.push_str("\") to continue.");
-            }
-            None => out.push_str("\n\nmodel index complete - every visible model name has been returned."),
-        }
         out.push_str("\n\nmetric names (paged index; names only, nothing else):");
         if self.metric_names.is_empty() {
             out.push_str("\n  no visible metrics matched");
@@ -224,13 +227,13 @@ impl NamesIndexContent {
             out.push_str(&entry.model);
             out.push(')');
         }
-        match &self.next_metric {
+        match &self.next {
             Some(cursor) => {
-                out.push_str("\n\nmore metric names remain - call describe_catalog(names: true, after_metric: \"");
+                out.push_str("\n\nmore names remain - call describe_catalog(names: true, after: \"");
                 out.push_str(cursor);
                 out.push_str("\") to continue.");
             }
-            None => out.push_str("\n\nmetric index complete - every visible metric name has been returned."),
+            None => out.push_str("\n\nindex complete - every visible model and metric name has been returned."),
         }
         out.push_str("\ndefinitions: ");
         out.push_str(&self.provenance.definition_version);

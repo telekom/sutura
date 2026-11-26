@@ -183,6 +183,57 @@ pub fn paged_names<T>(
     (included, cursor)
 }
 
+/// A `names: true` listing's single paging cursor - ONE sequential walk, models then metrics, never
+/// two independent ones.
+///
+/// `github.com/telekom/sutura#2083`'s review, round 3: a model-cursor-only and a metric-cursor-only
+/// `after` kept producing their own edge bugs (a caller that only ever follows the metric cursor
+/// could make the model half look finished when it was simply never walked; the metric half's
+/// "first candidate always admitted" rule could fire on every call rather than once, overshooting
+/// the bound) because the two halves could be addressed, and so paged, independently of one
+/// another. One cursor naming which half AND where in it removes that independence: a caller only
+/// ever holds the one cursor the previous page actually returned, there is no second `after` to
+/// desynchronise from it, and "first item always admitted" (`fill_to_budget`'s own rule, shared with
+/// every other caller of it in this module) can only ever fire at the one true transition from
+/// models into metrics, not on a repeated call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NamesCursor {
+    /// Resume the model half strictly after this model name.
+    Model(String),
+    /// The model half is exhausted; resume the metric half strictly after this metric name.
+    Metric(String),
+}
+
+/// `after` did not parse as a [`NamesCursor`].
+///
+/// Neither transport invents its own prefix scheme, so a caller handed one of these needs no
+/// mechanism beyond `Display`/`parse` to round-trip it, and a hand-typed or truncated value is
+/// refused rather than silently read as "the beginning".
+#[derive(Debug, thiserror::Error)]
+#[error("`after` must be a cursor this index itself returned (`model:<name>` or `metric:<name>`)")]
+pub struct MalformedNamesCursor;
+
+impl NamesCursor {
+    pub fn parse(raw: &str) -> Result<Self, MalformedNamesCursor> {
+        raw.strip_prefix("model:").map_or_else(
+            || {
+                raw.strip_prefix("metric:")
+                    .map_or(Err(MalformedNamesCursor), |name| Ok(Self::Metric(name.to_owned())))
+            },
+            |name| Ok(Self::Model(name.to_owned())),
+        )
+    }
+}
+
+impl std::fmt::Display for NamesCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Model(name) => write!(f, "model:{name}"),
+            Self::Metric(name) => write!(f, "metric:{name}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{fill_to_budget, paged_names};
@@ -256,5 +307,24 @@ mod tests {
         let (page, cursor) = paged_names(items.into_iter(), None, Some("orders_"), 1000, |_| 10, String::clone);
         assert_eq!(page, vec!["orders_a", "orders_b"]);
         assert_eq!(cursor, None);
+    }
+
+    use super::NamesCursor;
+
+    #[test]
+    fn a_names_cursor_round_trips_through_its_own_display_and_parse() {
+        for cursor in [
+            NamesCursor::Model("orders".to_owned()),
+            NamesCursor::Metric("revenue".to_owned()),
+        ] {
+            let rendered = cursor.to_string();
+            assert_eq!(NamesCursor::parse(&rendered).expect("its own rendering parses"), cursor);
+        }
+    }
+
+    #[test]
+    fn a_cursor_with_neither_prefix_is_refused() {
+        NamesCursor::parse("orders").unwrap_err();
+        NamesCursor::parse("").unwrap_err();
     }
 }

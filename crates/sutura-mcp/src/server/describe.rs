@@ -62,7 +62,6 @@ pub(super) struct NamesQuery<'a> {
     pub(super) model_prefix: Option<&'a str>,
     pub(super) names: bool,
     pub(super) after: Option<&'a str>,
-    pub(super) after_metric: Option<&'a str>,
 }
 
 pub(super) fn describe<S>(
@@ -82,7 +81,6 @@ where
         model_prefix,
         names,
         after,
-        after_metric,
     } = query;
     // Mutually exclusive by the tool's own doc comment on `DescribeCatalogArgs` - checked before
     // either name is parsed, so a caller that sent both gets one refusal rather than whichever
@@ -99,7 +97,7 @@ where
     if model_prefix.is_some() && (model.is_some() || metric.is_some()) {
         return Err(model_prefix_incompatible_with_model_or_metric());
     }
-    if (after.is_some() || after_metric.is_some()) && !names {
+    if after.is_some() && !names {
         return Err(after_requires_names());
     }
     if model_prefix.is_some_and(str::is_empty) {
@@ -120,7 +118,7 @@ where
     // listing - so it is answered and returned here, before `model`/`metric` are even parsed (the
     // checks above already proved neither was given alongside it).
     if names {
-        let listing = NamesIndexContent::of(&view, after, after_metric, model_prefix);
+        let listing = NamesIndexContent::of(&view, after, model_prefix).map_err(|error| malformed_names_cursor(&error))?;
         let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
         result.structured_content = serde_json::to_value(&listing).ok();
         return Ok(result);
@@ -235,14 +233,19 @@ fn model_prefix_incompatible_with_model_or_metric() -> ErrorData {
     )
 }
 
-/// `after` or `after_metric` given without `names: true` - a cursor into an index that was never
-/// asked for.
+/// `after` given without `names: true` - a cursor into an index that was never asked for.
 fn after_requires_names() -> ErrorData {
     ErrorData::new(
         ErrorCode::INVALID_PARAMS,
-        "`after`/`after_metric` are only meaningful with `names: true`",
+        "`after` is only meaningful with `names: true`",
         None,
     )
+}
+
+/// `after` did not parse as a [`sutura_app::catalog_budget::NamesCursor`] - refused rather than read
+/// as "start from the beginning", so a hand-typed or truncated value cannot silently restart a walk.
+fn malformed_names_cursor(error: &sutura_app::catalog_budget::MalformedNamesCursor) -> ErrorData {
+    ErrorData::new(ErrorCode::INVALID_PARAMS, error.to_string(), None)
 }
 
 /// `model_prefix` given as the empty string - matches every name, which is already what omitting it

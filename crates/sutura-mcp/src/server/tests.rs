@@ -36,7 +36,7 @@ mod asking;
 mod describe_metric;
 #[cfg(test)]
 mod describe_model;
-/// `describe_catalog`'s `names`/`model_prefix`/`after`/`after_metric` - `github.com/telekom/sutura#2083`.
+/// `describe_catalog`'s `names`/`model_prefix`/`after` - `github.com/telekom/sutura#2083`.
 #[cfg(test)]
 mod describe_names;
 #[cfg(test)]

@@ -44,10 +44,14 @@ use super::{ProvenanceContent, bundle_content};
 // `omitted_metrics`) list is itself capped at `MAX_OMITTED_NAMES` entries, so a catalog with more
 // omissions than that cap left the rest of them genuinely unreachable - no argument existed to ask
 // for them. `names: true` switches this tool to a names-only paged index instead of the full
-// listing: every visible model's name and table, walked in the same budget, with `after` a cursor
-// to resume from once a page does not finish the index. `model_prefix` narrows either mode (the
-// full listing or the names index) to names starting with a prefix, which is how an agent that only
-// has part of a name reaches it without already knowing where it sits in the full list.
+// listing: every visible model's name and table, then every visible metric's name and owning model,
+// walked as ONE sequential stream in the same budget, with `after` a single opaque cursor to resume
+// from once a page does not finish the index - round 3 of this review collapsed an earlier
+// `after`/`after_metric` pair into this one cursor, because two independent ones let a caller
+// desynchronise them (follow only the metric cursor and the model half never gets walked at all).
+// `model_prefix` narrows either mode (the full listing or the names index) to names starting with a
+// prefix, which is how an agent that only has part of a name reaches it without already knowing
+// where it sits in the full list.
 /// This tool returns the catalog of what this deployment measures, narrowed to what the calling
 /// principal may see - the metrics, grains, dimensions and permitted values.
 ///
@@ -66,14 +70,14 @@ use super::{ProvenanceContent, bundle_content};
 /// prefix, for when only part of a name is known. Mutually exclusive with `model` and `metric`.
 ///
 /// `names: true` switches this tool to a names-only index of every visible model AND every visible
-/// metric - name and table for a model, name and owning model for a metric, nothing else - each
-/// walked under the same byte bound and NOT subject to the omission list's own cap on how many
-/// names it carries: once a page does not cover every remaining name, the result carries a cursor
-/// (`next` for models, `next_metric` for metrics), and calling this tool again with `after`/
-/// `after_metric` set to that cursor continues that half of the index until it is exhausted. This
-/// is how every model or metric past that cap is reached, not only the first page of them.
-/// Mutually exclusive with `model` and `metric`; `after`/`after_metric` are only meaningful
-/// alongside `names: true`.
+/// metric - name and table for a model, name and owning model for a metric, nothing else - walked as
+/// one sequential stream (every model, in order, then every metric) under the same byte bound and
+/// NOT subject to the omission list's own cap on how many names it carries. Once a page does not
+/// cover every remaining name, the result carries a `next` cursor; call this tool again with
+/// `after` set to that cursor, verbatim, to continue. `next` is absent only once BOTH halves are
+/// exhausted. This is how every model or metric past that cap is reached, not only the first page
+/// of them. Mutually exclusive with `model` and `metric`; `after` is only meaningful alongside
+/// `names: true`, and a value this tool did not itself return is refused.
 ///
 /// This tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and
 /// terms recorded as undefined it carries) and the deployment operator's instructions - neither is
@@ -92,16 +96,13 @@ pub struct DescribeCatalogArgs {
     /// Mutually exclusive with `model` and `metric`. Refused if given empty.
     model_prefix: Option<String>,
     /// `true` switches this tool to a names-only, paged index of every visible model AND every
-    /// visible metric - see this type's own doc for how to page through each half with `after` and
-    /// `after_metric`. Mutually exclusive with `model` and `metric`.
+    /// visible metric - see this type's own doc for how to page through it with `after`. Mutually
+    /// exclusive with `model` and `metric`.
     names: Option<bool>,
-    /// Resumes a `names: true` index's model half strictly after this model name - the `next`
-    /// cursor a previous `names: true` call returned. Refused unless `names` is also `true`.
+    /// Resumes a `names: true` index at the point the previous call left off - pass the `next`
+    /// cursor that call returned, verbatim. Refused unless `names` is also `true`, and refused if it
+    /// does not parse as a cursor this tool itself produced.
     after: Option<String>,
-    /// Resumes a `names: true` index's metric half strictly after this metric name - the
-    /// `next_metric` cursor a previous `names: true` call returned. Refused unless `names` is also
-    /// `true`.
-    after_metric: Option<String>,
 }
 
 /// [`DescribeCatalogArgs`], parsed rather than left as five independent `Option`s - the fields this
@@ -114,11 +115,10 @@ pub(crate) struct DescribeCatalogRequest {
     pub(crate) model_prefix: Option<String>,
     pub(crate) names: bool,
     pub(crate) after: Option<String>,
-    pub(crate) after_metric: Option<String>,
 }
 
 impl DescribeCatalogArgs {
-    /// The six raw fields, taken rather than borrowed - `server::describe` is the only caller and
+    /// The five raw fields, taken rather than borrowed - `server::describe` is the only caller and
     /// it is the last read this value gets, so there is nothing left to hand a borrow to.
     pub(crate) fn into_request(self) -> DescribeCatalogRequest {
         DescribeCatalogRequest {
@@ -127,7 +127,6 @@ impl DescribeCatalogArgs {
             model_prefix: self.model_prefix,
             names: self.names.unwrap_or(false),
             after: self.after,
-            after_metric: self.after_metric,
         }
     }
 }
