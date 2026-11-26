@@ -3768,6 +3768,18 @@ the store of seen assertions is full, where single use is declared.</p>
 <p>Apart from the numeric token-size refusal, the response does <strong>not</strong> say which check failed.
 The log says - through the <code>#[source]</code> chain on <code>TokenRejected</code> - and the caller does not, because
 "the signature verified and the audience did not" tells somebody which half of a forgery to fix.</p>
+<h1 id="two-headers-on-one-request-deliberately-githubcomtelekomsutura2089">Two headers on one request, deliberately (<code>github.com/telekom/sutura#2089</code>)<a class="headerlink" href="#two-headers-on-one-request-deliberately-githubcomtelekomsutura2089" title="Permanent link">&para;</a></h1>
+<p>A request presenting credentials in two configured locations is refused as
+<code>TokenRejected::AmbiguousProof</code> - <code>github.com/telekom/sutura#1884</code>. A <code>direct</code> verifier declared
+with <code>requires_gateway</code> is the one explicit exception, not a loosening of that rule: its paired
+<code>behind-gateway</code> assertion lives in <code>required_gateway</code>, a field <code>select_from</code> never iterates, so
+the gate still refuses any <em>other</em> two-location collision exactly as before. The caller is always
+whoever the primary token names; the gateway assertion is checked in full - issuer, keys, <code>typ</code>,
+lifetime - and its result is discarded rather than returned, so it can never become the caller. A
+caller token placed in <code>Authorization</code> instead of the paired assertion fails the same checks a
+forged or wrong-issuer assertion would; an anonymous request is refused as it always was. What this
+does not bind: nothing here cryptographically ties the two tokens together beyond both arriving on
+the same HTTP request at the same instant - there is no shared nonce or hash between them.</p>
 <h4 id="struct-inboundgate"><code>struct InboundGate</code><a class="headerlink" href="#struct-inboundgate" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">InboundGate</span>
 </span></code></pre></div>
@@ -4441,6 +4453,13 @@ and an error is not a place for credential material.</p>
   verifier, and a request presenting credentials in two of them is a request this gate cannot
   decide: choosing either would silently ignore the other. The same <code>401</code> a wrong credential
   produces; a caller does not learn which locations are configured.
+- <code>GatewayAssertionRequired</code> - A <code>direct</code> verifier paired with <code>requires_gateway</code> - <code>github.com/telekom/sutura#2089</code> - and the gateway's own assertion was absent from, or did not verify in, <code>Authorization</code>.</p>
+<p><strong>The one explicit exception to <code>Self::AmbiguousProof</code>, never a general loosening of it.</strong>
+  This deployment still refuses a caller token and a gateway assertion arriving in the same
+  header, or two unrelated verifiers' tokens arriving together; this variant exists only because
+  one verifier now deliberately reads two headers for one request. The cause is boxed and logged,
+  never rendered to the caller: whether the assertion was missing, wrong-issuer, expired or
+  forged, the response is the same <code>401</code>.
 - <code>NoRequestPath</code> - Configured with the request-path alternative to <code>transit_audience</code>, a proof with no <code>requestPath</code> claim.
 - <code>RequestPathNotBound</code> - Configured with the request-path alternative to <code>transit_audience</code>, a proof whose <code>requestPath</code> does not start with the configured prefix. The value is never rendered.
 - <code>AudiencePresentInRequestPathMode</code> - An <code>aud</code> claim where this mode never compares one - refused rather than ignored, since admitting it would be a second, unchecked binding.
