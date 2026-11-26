@@ -59,21 +59,21 @@ fn metric_entry_cost(metric: &sutura_domain::catalog::Metric) -> usize {
 /// A names-only, paged index of every model this caller may see - `describe_catalog(names: true)`'s
 /// answer, `github.com/telekom/sutura#2083`'s first ask.
 ///
-/// **Why this exists beside [`CatalogContent::omitted_models`]**: that field is itself capped at
-/// [`MAX_OMITTED_NAMES`], so a catalog with more omissions than that cap left the rest of them with
+/// **Why this exists beside [`CatalogContent::omitted_models`](super::CatalogContent::omitted_models)**: that field is itself capped at
+/// [`MAX_OMITTED_NAMES`](sutura_app::catalog_budget::MAX_OMITTED_NAMES), so a catalog with more omissions than that cap left the rest of them with
 /// no argument that could ever name them. This index has no such cap on how many PAGES it takes to
 /// walk it - only [`Self::next`] decides whether another page remains, via [`paged_names`], so every
 /// visible model is reachable, eventually, by repeating the call with `after` set to the cursor each
 /// page returns.
 #[derive(Debug, serde::Serialize)]
 pub struct NamesIndexContent {
-    /// Which snapshot this index describes - see [`CatalogContent::provenance`].
+    /// Which snapshot this index describes - see [`CatalogContent::provenance`](super::CatalogContent::provenance).
     provenance: ProvenanceContent,
     /// This page's model names, in the same order the full listing's models would appear in - a
     /// `BTreeMap` walk, so repeating `after` from one page always means the same resume point.
     model_names: Vec<ModelNameEntry>,
     /// This page's metric names, paged and cursored the same way `model_names` is - the metrics-side
-    /// sibling closing the same gap [`CatalogContent::omitted_metrics`] leaves once it crosses
+    /// sibling closing the same gap [`CatalogContent::omitted_metrics`](super::CatalogContent::omitted_metrics) leaves once it crosses
     /// `MAX_OMITTED_NAMES`.
     metric_names: Vec<MetricNameEntry>,
     /// The cursor to pass as `after` to continue this index - ONE sequential walk, models then
@@ -228,7 +228,7 @@ impl NamesIndexContent {
     }
 
     /// The same index as text, for the content block beside the structured one - see
-    /// [`CatalogContent::as_text`] for why both are sent.
+    /// [`CatalogContent::as_text`](super::CatalogContent::as_text) for why both are sent.
     pub(crate) fn as_text(&self) -> String {
         let mut out = String::from("model names (paged index; names only, nothing else):");
         if self.model_names.is_empty() {
@@ -271,7 +271,7 @@ impl NamesIndexContent {
 
 /// Every model this listing may include, filtered to the caller's `view`, narrowed to one `model`
 /// when given, or to names starting with `model_prefix` when given - factored out of
-/// [`CatalogContent::of_with_physical_schema`] so that function stays under `cargo xtask`'s line cap.
+/// [`CatalogContent::of_with_physical_schema`](super::CatalogContent::of_with_physical_schema) so that function stays under `cargo xtask`'s line cap.
 pub(super) fn physical_schema_candidates(
     view: &ScopedView<'_>,
     prose: CatalogProse,
