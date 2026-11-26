@@ -187,6 +187,57 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
     assert_eq!(legs.opened.len(), 0);
 }
 
+/// A cast in a `WHERE` predicate over a single Oracle-dialect table is captured here by
+/// `OracleLegs` in the leg's own unparsed SQL text, the way #2084's conformance cell relies on a
+/// server-failing cast reaching Oracle rather than being fitted locally after the leg already
+/// answered. A projection cast was separately observed (the live `oracle_native` acceptance cell)
+/// to stay local instead; this test makes no claim about why, only that the predicate form here
+/// is captured in the leg SQL.
+///
+/// This pins behaviour this change does not itself alter - `Claim-Cell:
+/// a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause`, killing mutation
+/// at `devco/claim-mutations/a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause.patch`
+/// (marks a visited `Filter` unsafe to cut, so the predicate stays local and the captured SQL
+/// loses its `WHERE`).
+#[test]
+fn a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause() {
+    let tables = vec![StatementTable::new(
+        named("geo"),
+        QualifiedTable::parse("dim_region").expect("a fixture table"),
+        TypeDialect::Oracle,
+        regions().schema(),
+    )];
+    let statement = RawStatement::parse(r#"select "region" from "dim_region" where cast("sales_area" as bigint) = 1"#)
+        .expect("a bounded fixture query");
+    let mut legs = OracleLegs {
+        engines: Engines::new(None),
+        statements: Vec::new(),
+    };
+    // The fixture's own `sales_area` ("emea", "apac", ...) is not numeric text, so the fake engine
+    // genuinely fails casting it the same way the live Oracle server does (ORA-01722) - that is
+    // the live behaviour this offline test stands in for, not a defect of the capture. `OracleLegs`
+    // records the unparsed statement before running it, so the capture below survives the panic;
+    // what is under test is only that the cast reached the source's own SQL text, never whether the
+    // fake engine's `expect`-based harness can also evaluate it.
+    drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        )
+    })));
+    assert_eq!(legs.statements.len(), 1, "{:?}", legs.statements);
+    assert_eq!(
+        legs.statements[0],
+        r#"SELECT "dim_region"."region" FROM "dim_region" WHERE (CAST("dim_region"."sales_area" AS INTEGER) = 1)"#
+    );
+}
+
 #[test]
 fn mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening() {
     let physical = RecordBatch::try_from_iter([

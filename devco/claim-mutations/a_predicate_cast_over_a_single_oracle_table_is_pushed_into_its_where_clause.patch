@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/statement.rs b/crates/sutura-exec-datafusion/src/combine/statement.rs
+index 992581478..a62753152 100644
+--- a/crates/sutura-exec-datafusion/src/combine/statement.rs
++++ b/crates/sutura-exec-datafusion/src/combine/statement.rs
+@@ -392,6 +392,9 @@ impl OptimizerRule for Cutter {
+                 if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {
+                     safe = false;
+                 }
++                if self.1 != TypeDialect::Cube && matches!(input, LogicalPlan::Filter(_)) {
++                    safe = false;
++                }
+                 Ok(if safe {
+                     TreeNodeRecursion::Continue
+                 } else {
