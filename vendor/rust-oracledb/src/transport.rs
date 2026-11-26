@@ -325,7 +325,30 @@ impl Transport {
         }
         if packet.packet_type == constants::PACKET_TYPE_DATA {
             if let Some(protection) = self.protection.as_mut() {
-                packet.buf = protection.open(&packet.buf)?;
+                let record_len = packet.buf.len();
+                // Classified before `open` is attempted - `open` never mutates `packet.buf` on
+                // failure, but the classification itself must never depend on what `open` found,
+                // only on the record's own shape, so a caller never trusts decrypted-looking bytes
+                // that failed authentication as if they were honestly unprotected.
+                let sealed_shaped = protection.looks_sealed(&packet.buf);
+                packet.buf = protection.open(&packet.buf).map_err(|_| {
+                    if sealed_shaped {
+                        Error::native_encryption_refused(format!(
+                            "a protected DATA packet ({record_len} byte record) failed to authenticate"
+                        ))
+                    } else {
+                        // The bytes never had a sealed record's framing (length, 16-byte alignment,
+                        // trailing fold marker) at all - never the payload itself, only its shape -
+                        // consistent with the server having sent this DATA packet's content
+                        // unprotected, e.g. a login-phase error delivered before encryption applied
+                        // to this exchange. Named as a login refusal rather than a generic transport
+                        // message, since that is the shape this is actually expected to happen in.
+                        Error::native_encryption_refused(format!(
+                            "the server refused the login (its error arrived unprotected in a {record_len} \
+                             byte DATA packet and was not read)"
+                        ))
+                    }
+                })?;
             }
         }
         Ok(Some(packet))

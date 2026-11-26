@@ -197,6 +197,18 @@ impl Protection {
         Ok(std::mem::take(&mut *record))
     }
 
+    /// Checks the structural shape a sealed record always has - length, 16-byte alignment and the
+    /// trailing fold marker - without decrypting or verifying it. Used only to tell a caller, after
+    /// `open` has already refused, whether the bytes even look like a protected record (so a
+    /// corrupt-but-sealed record can be told apart from one that was never sealed at all, e.g. a
+    /// plaintext error the server sent before protection was in force for this exchange) - never to
+    /// trust the bytes as data.
+    pub(crate) fn looks_sealed(&self, record: &[u8]) -> bool {
+        record.len() >= self.hash.algorithm.size() + 2
+            && (record.len() - 2) % 16 == 0
+            && record.last() == Some(&u8::from(self.folded))
+    }
+
     pub(crate) fn open(&mut self, record: &[u8]) -> Result<Vec<u8>, Error> {
         if record.len() < self.hash.algorithm.size() + 2
             || (record.len() - 2) % 16 != 0
