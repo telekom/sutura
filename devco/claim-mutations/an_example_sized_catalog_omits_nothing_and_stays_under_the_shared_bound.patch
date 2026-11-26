@@ -16,4 +16,4 @@
 +    OMISSION_HEADER_RESERVE + MAX_OMITTED_NAMES * (2 * sutura_domain::model::MAX_IDENTIFIER_LEN + 32)
  }
  
- #[cfg(test)]
+ /// A page of names plus the cursor to resume from, `None` once the index is exhausted - see

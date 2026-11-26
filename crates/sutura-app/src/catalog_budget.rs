@@ -138,9 +138,130 @@ pub fn omission_reserve<T>(candidates: &[T], mut entry_cost: impl FnMut(&T) -> u
     OMISSION_HEADER_RESERVE + costs.into_iter().take(max_omittable).sum::<usize>()
 }
 
+/// A page of names plus the cursor to resume from, `None` once the index is exhausted - see
+/// [`paged_names`].
+pub type PagedNames<T> = (Vec<T>, Option<String>);
+
+/// Pages a caller-visible, sorted name set behind a `names`-only index.
+///
+/// The mechanism that keeps every item reachable once a listing's own `MAX_OMITTED_NAMES`-capped
+/// omission list cannot name all of them (`github.com/telekom/sutura#2083`).
+///
+/// `items` is walked in order (the caller's own sort - typically a `BTreeMap`'s, so the same `after`
+/// cursor means the same resume point across calls), filtered to names strictly greater than
+/// `after` when given and, separately, to names starting with `prefix` when given, then packed into
+/// `budget` bytes by `cost` the same way [`fill_to_budget`] packs any pool - the first candidate is
+/// always included even alone over budget, so a budget too small for one item still yields that one
+/// item rather than an empty page.
+///
+/// Returns the page plus a cursor: `Some(last included name)` once a candidate did not fit (there is
+/// more to page through - call again with `after` set to it), `None` once every candidate that
+/// matched `after`/`prefix` fit (the index is exhausted for that prefix). Unlike `fill_to_budget`'s
+/// own omission list, no cap applies to how many PAGES this takes to exhaust an index - only to how
+/// much one page may cost - so this closes the gap `fill_to_budget` alone leaves: an omission list
+/// over `MAX_OMITTED_NAMES` names long still cannot name the rest, but a caller that pages with
+/// `after` reaches every one of them.
+pub fn paged_names<T>(
+    items: impl Iterator<Item = T>,
+    after: Option<&str>,
+    prefix: Option<&str>,
+    budget: usize,
+    cost: impl Fn(&T) -> usize,
+    name_of: impl Fn(&T) -> String,
+) -> PagedNames<T> {
+    let candidates: Vec<T> = items
+        .filter(|item| prefix.is_none_or(|prefix| name_of(item).starts_with(prefix)))
+        .filter(|item| after.is_none_or(|after| name_of(item).as_str() > after))
+        .collect();
+    if candidates.is_empty() {
+        return (Vec::new(), None);
+    }
+    // `max_omitted: 0` - this function never names what did not fit, only reports that something
+    // did not, so the omitted list `fill_to_budget` would otherwise build is pure waste here.
+    let (included, _never_named, cut_off) = fill_to_budget(candidates, budget, 0, |item| cost(item), |_| ());
+    let cursor = (cut_off > 0).then(|| included.last().map(&name_of)).flatten();
+    (included, cursor)
+}
+
+/// A `names: true` listing's single paging cursor - ONE sequential walk, models then metrics, never
+/// two independent ones.
+///
+/// `github.com/telekom/sutura#2083`'s review, round 3: a model-cursor-only and a metric-cursor-only
+/// `after` kept producing their own edge bugs (a caller that only ever follows the metric cursor
+/// could make the model half look finished when it was simply never walked; the metric half's
+/// "first candidate always admitted" rule could fire on every call rather than once, overshooting
+/// the bound) because the two halves could be addressed, and so paged, independently of one
+/// another. One cursor naming which half AND where in it removes that independence: a caller only
+/// ever holds the one cursor the previous page actually returned, there is no second `after` to
+/// desynchronise from it.
+///
+/// Round 4: the models pool and the metrics pool are still two separate `fill_to_budget` calls
+/// spending one shared, dwindling budget, so "first item always admitted" can still fire on the
+/// metrics pool's own first call even when the models pool already spent part of the page - the
+/// crossing page is handled explicitly by the caller (`sutura-mcp`'s `NamesIndexContent::of`):
+/// when that would overshoot, it emits no metrics at all and resumes at `Metric(String::new())`,
+/// the one deliberate empty-name sentinel meaning "the metric pool, from its very first entry,
+/// with a full budget" - the sole name [`NamesCursor::parse`] admits as empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NamesCursor {
+    /// Resume the model half strictly after this model name.
+    Model(String),
+    /// The model half is exhausted; resume the metric half strictly after this metric name, or -
+    /// only when the name is empty - from the metric half's very first entry.
+    Metric(String),
+}
+
+/// `after` did not parse as a [`NamesCursor`].
+///
+/// Neither transport invents its own prefix scheme, so a caller handed one of these needs no
+/// mechanism beyond `Display`/`parse` to round-trip it, and a hand-typed or truncated value is
+/// refused rather than silently read as "the beginning".
+#[derive(Debug, thiserror::Error)]
+#[error("`after` must be a cursor this index itself returned (`model:<name>` or `metric:<name>`)")]
+pub struct MalformedNamesCursor;
+
+impl NamesCursor {
+    /// Parses a cursor this module itself rendered, rejecting anything else.
+    ///
+    /// The name part after `model:` or `metric:` must itself be a valid identifier
+    /// ([`sutura_domain::model::ModelName`]/[`sutura_domain::model::MetricName`] - the same shape
+    /// check every identifier in this codebase is held to), with exactly one exception: an empty
+    /// name after `metric:` is the deliberate "resume the metric pool from its first entry" sentinel
+    /// a crossing page emits (see [`NamesCursor`]'s doc). An empty name after `model:`, or a string
+    /// with neither prefix, is refused the same as any other malformed shape.
+    pub fn parse(raw: &str) -> Result<Self, MalformedNamesCursor> {
+        raw.strip_prefix("model:").map_or_else(
+            || {
+                raw.strip_prefix("metric:").map_or(Err(MalformedNamesCursor), |name| {
+                    if name.is_empty() {
+                        return Ok(Self::Metric(String::new()));
+                    }
+                    sutura_domain::model::MetricName::parse(name)
+                        .map(|name| Self::Metric(name.as_str().to_owned()))
+                        .map_err(|_invalid| MalformedNamesCursor)
+                })
+            },
+            |name| {
+                sutura_domain::model::ModelName::parse(name)
+                    .map(|name| Self::Model(name.as_str().to_owned()))
+                    .map_err(|_invalid| MalformedNamesCursor)
+            },
+        )
+    }
+}
+
+impl std::fmt::Display for NamesCursor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Model(name) => write!(f, "model:{name}"),
+            Self::Metric(name) => write!(f, "metric:{name}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::fill_to_budget;
+    use super::{fill_to_budget, paged_names};
 
     #[test]
     fn the_first_item_is_never_omitted_even_alone_over_budget() {
@@ -164,5 +285,83 @@ mod tests {
         assert_eq!(included, vec![5]);
         assert_eq!(omitted, vec!["1"]);
         assert_eq!(omitted_count, 3);
+    }
+
+    fn names(count: usize) -> Vec<String> {
+        (0..count).map(|index| format!("model_{index:04}")).collect()
+    }
+
+    #[test]
+    fn paged_names_returns_a_cursor_only_while_more_remain() {
+        let (page, cursor) = paged_names(names(5).into_iter(), None, None, 1000, |_| 10, String::clone);
+        assert_eq!(page, names(5));
+        assert_eq!(cursor, None, "every candidate fit - there is nothing left to page to");
+    }
+
+    #[test]
+    fn paged_names_resumes_strictly_after_its_own_cursor() {
+        let all = names(5);
+        let (first, cursor) = paged_names(all.clone().into_iter(), None, None, 25, |_| 10, String::clone);
+        assert_eq!(first, vec!["model_0000", "model_0001"]);
+        let cursor = cursor.expect("two of five did not fit - a cursor must be returned");
+        let (second, cursor) = paged_names(all.into_iter(), Some(&cursor), None, 25, |_| 10, String::clone);
+        assert_eq!(second, vec!["model_0002", "model_0003"]);
+        assert!(cursor.is_some(), "one name is still left past this page");
+    }
+
+    #[test]
+    fn paged_names_walks_every_item_to_completion() {
+        let all = names(450);
+        let mut seen = Vec::new();
+        let mut after: Option<String> = None;
+        loop {
+            let (page, cursor) = paged_names(all.clone().into_iter(), after.as_deref(), None, 200, |_| 10, String::clone);
+            assert!(!page.is_empty(), "a page must never be empty while candidates remain");
+            seen.extend(page);
+            match cursor {
+                Some(next) => after = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(seen, all, "paging to exhaustion must visit every item exactly once, in order");
+    }
+
+    #[test]
+    fn paged_names_honours_a_prefix_filter() {
+        let items = vec!["orders_a".to_owned(), "customers_a".to_owned(), "orders_b".to_owned()];
+        let (page, cursor) = paged_names(items.into_iter(), None, Some("orders_"), 1000, |_| 10, String::clone);
+        assert_eq!(page, vec!["orders_a", "orders_b"]);
+        assert_eq!(cursor, None);
+    }
+
+    use super::NamesCursor;
+
+    #[test]
+    fn a_names_cursor_round_trips_through_its_own_display_and_parse() {
+        for cursor in [
+            NamesCursor::Model("orders".to_owned()),
+            NamesCursor::Metric("revenue".to_owned()),
+            NamesCursor::Metric(String::new()),
+        ] {
+            let rendered = cursor.to_string();
+            assert_eq!(NamesCursor::parse(&rendered).expect("its own rendering parses"), cursor);
+        }
+    }
+
+    #[test]
+    fn a_cursor_with_neither_prefix_is_refused() {
+        NamesCursor::parse("orders").unwrap_err();
+        NamesCursor::parse("").unwrap_err();
+    }
+
+    #[test]
+    fn an_empty_model_name_is_refused_the_sentinel_is_metric_only() {
+        NamesCursor::parse("model:").unwrap_err();
+    }
+
+    #[test]
+    fn a_name_that_is_not_an_identifier_is_refused() {
+        NamesCursor::parse("model:1st_orders").unwrap_err();
+        NamesCursor::parse("metric:not an identifier!!").unwrap_err();
     }
 }

@@ -1,8 +1,7 @@
 //! The handler's tests, driven by the SDK's own client over an in-memory pipe.
 //!
 //! A file of its own because `server.rs` plus this suite crosses the 1000-line cap `cargo xtask
-//! max-lines` enforces, and because the fixtures stay in `crate::testing` either way. The `mod tests`
-//! line and the `#[cfg(test)]` on it are in the parent.
+//! max-lines` enforces; fixtures stay in `crate::testing`. `mod tests`/`#[cfg(test)]` are in the parent.
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -32,15 +31,16 @@ mod deadline;
 /// header says what it builds instead and why.
 #[cfg(test)]
 mod asking;
-/// `describe_catalog`'s `model` and `metric` arguments, over the wire - `github.com/telekom/sutura#2071`'s second ask.
+/// `describe_catalog`'s `model`/`metric` - `github.com/telekom/sutura#2071`'s second ask.
 #[cfg(test)]
 mod describe_metric;
 #[cfg(test)]
 mod describe_model;
-/// The catalog tool after a refresh swaps the served bundle.
+/// `describe_catalog`'s `names`/`model_prefix`/`after` - `github.com/telekom/sutura#2083`.
+#[cfg(test)]
+mod describe_names;
 #[cfg(test)]
 mod refresh;
-/// The `run_sql` malformed-input path, and why `crate::NotServed` has no cell here.
 #[cfg(test)]
 mod variants;
 
@@ -54,12 +54,12 @@ fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
     let view = ScopedView::everything(&bundle);
     let model_label = "model orders (table orders)";
     let model_description = "Orders, one row per order.";
-    let disabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, false, None, None);
+    let disabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, false, None, None, None);
     let disabled_json = serde_json::to_value(&disabled).expect("the catalog serializes");
     assert!(disabled_json.get("models").is_none(), "{disabled_json}");
     assert!(!disabled.as_text().contains(model_label));
 
-    let enabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None, None);
+    let enabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None, None, None);
     let enabled_json = serde_json::to_value(&enabled).expect("the catalog serializes");
     assert_eq!(enabled_json["models"][0]["name"], "orders");
     assert_eq!(enabled_json["models"][0]["columns"][0]["name"], "amount_cents");
@@ -67,7 +67,7 @@ fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
     assert!(enabled.as_text().contains(model_label));
     assert!(enabled.as_text().contains(&format!("> {model_description}")));
 
-    let omitted = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true, None, None);
+    let omitted = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true, None, None, None);
     let omitted_json = serde_json::to_value(&omitted).expect("the catalog serializes");
     assert!(omitted_json["models"][0].get("description").is_none());
     assert!(!omitted.as_text().contains(model_description));

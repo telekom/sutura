@@ -102,8 +102,18 @@ authored catalog can make large, so leaving them uncounted would defeat the boun
 
 Under the budget nothing changes. Over it, whole items are included up to the bound - never one
 truncated mid-metric or mid-model - and the rest are named in an explicit `omitted_metrics` or
-`omitted_models` list, so every omission is reachable by `model` or by `metric` with no need to
-discover which model it belongs to first. Each omitted metric carries its model alongside it: the
+`omitted_models` list, up to `MAX_OMITTED_NAMES` entries each. A listing with more omissions than
+that cap leaves the rest of them unnamed in that list, but still reachable: `describe_catalog(names:
+true)` answers a names-only, paged index of every model AND every metric this caller may see, walked
+as one sequential stream (every model, in order, then every metric) - narrowed to one prefix with
+`model_prefix`, paged onward past `MAX_OMITTED_NAMES` with a single `after` cursor that each page
+returns, verbatim, to continue - so every visible model's and metric's name is reachable, eventually,
+with no cap on how many pages the whole walk takes (`github.com/telekom/sutura#2083`). `GET
+/v1/catalog?names=true` is the same index over HTTP, metric-only: it carries no model-names half
+(this transport carries no physical schema at all - see above), so `?after=` pages only the metric
+pool, as the one `metric:<name>` cursor form both transports' `next` returns and both transports'
+`after` accept verbatim; a malformed `after` - anything that is not a cursor this index itself
+returned - is refused as `400`, not read as "start from the beginning". Each omitted metric carries its model alongside it: the
 agent tool's structured half and `GET /v1/catalog`'s body give this as a `{"metric": ..., "model":
 ...}` object per entry, and the two text renderings (the agent tool's text half, this prompt) give
 the same pair as `"<metric> (model <model>)"`. A sentence points back at `describe_catalog(metric:

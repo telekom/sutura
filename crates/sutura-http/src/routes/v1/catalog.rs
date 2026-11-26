@@ -20,7 +20,7 @@ use sutura_domain::model::{MetricName, ModelName};
 
 use crate::problem::{Detail, Failure};
 use crate::state::ServiceState;
-use crate::wire::{CatalogBody, UnknownCatalogNameBody};
+use crate::wire::{CatalogBody, CatalogNamesBody, UnknownCatalogNameBody};
 
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "catalog";
@@ -31,6 +31,30 @@ const TAG: &str = "catalog";
 #[derive(Debug, thiserror::Error)]
 #[error("give at most one of `model` and `metric`, not both")]
 struct ModelAndMetricTogether;
+
+/// `names=true` given alongside `model` or `metric` - a different mode from either narrowing, not a
+/// third narrowing stacked on top of them. Mirrors `sutura-mcp`'s
+/// `names_incompatible_with_model_or_metric`.
+#[derive(Debug, thiserror::Error)]
+#[error("`names` is mutually exclusive with `model` and `metric`")]
+struct NamesIncompatibleWithModelOrMetric;
+
+/// `model_prefix` given alongside `model` or `metric` - both already narrow to one name or one
+/// metric, so a prefix on top of either names nothing new.
+#[derive(Debug, thiserror::Error)]
+#[error("`model_prefix` is mutually exclusive with `model` and `metric`")]
+struct ModelPrefixIncompatibleWithModelOrMetric;
+
+/// `after` given without `names=true` - a cursor into an index that was never asked for.
+#[derive(Debug, thiserror::Error)]
+#[error("`after` is only meaningful with `names=true`")]
+struct AfterRequiresNames;
+
+/// `model_prefix` given as the empty string - matches every name, which is already what omitting it
+/// does, so an empty prefix is refused rather than silently accepted as a no-op.
+#[derive(Debug, thiserror::Error)]
+#[error("`model_prefix` must not be empty")]
+struct EmptyModelPrefix;
 
 /// The query string `GET /catalog` takes: `model` and `metric`, at most one of the two.
 ///
@@ -49,6 +73,15 @@ pub(crate) struct CatalogQuery {
     /// single metric a previous, byte-bounded listing named but left out in `omitted_metrics`. Omit
     /// it for the whole catalog. Mutually exclusive with `model`.
     metric: Option<String>,
+    /// Narrows the listing, or the `names` index, to metrics whose `model` starts with this prefix.
+    /// Mutually exclusive with `model` and `metric`. Refused if given empty.
+    model_prefix: Option<String>,
+    /// `true` switches this route to a names-only, paged index of every visible metric - see
+    /// [`CatalogNamesBody`]. Mutually exclusive with `model` and `metric`.
+    names: Option<bool>,
+    /// Resumes a `names=true` index strictly after this metric name - the `next` cursor a previous
+    /// `names=true` call returned. Refused unless `names` is also `true`.
+    after: Option<String>,
 }
 
 /// The metrics this catalog defines, and its knowledge as this caller may see it, with the version
@@ -145,6 +178,42 @@ pub(crate) async fn catalog(
         }
         .into_response();
     }
+    let names = query.names.unwrap_or(false);
+    if names && (query.model.is_some() || query.metric.is_some()) {
+        return Failure::NotAQuestion {
+            detail: Detail::of(&NamesIncompatibleWithModelOrMetric),
+        }
+        .into_response();
+    }
+    if query.model_prefix.is_some() && (query.model.is_some() || query.metric.is_some()) {
+        return Failure::NotAQuestion {
+            detail: Detail::of(&ModelPrefixIncompatibleWithModelOrMetric),
+        }
+        .into_response();
+    }
+    if query.after.is_some() && !names {
+        return Failure::NotAQuestion {
+            detail: Detail::of(&AfterRequiresNames),
+        }
+        .into_response();
+    }
+    if query.model_prefix.as_deref().is_some_and(str::is_empty) {
+        return Failure::NotAQuestion {
+            detail: Detail::of(&EmptyModelPrefix),
+        }
+        .into_response();
+    }
+    if names {
+        let definitions = state.definitions();
+        let view = sutura_app::scoped_for(&definitions, asked.context());
+        return match CatalogNamesBody::of(&view, query.after.as_deref(), query.model_prefix.as_deref()) {
+            Ok(body) => ([(header::CACHE_CONTROL, "private, no-store")], Json(body)).into_response(),
+            Err(error) => Failure::NotAQuestion {
+                detail: Detail::of(&error),
+            }
+            .into_response(),
+        };
+    }
     let model = match query.model {
         Some(raw) => match ModelName::parse(&raw) {
             Ok(name) => Some(name),
@@ -198,6 +267,7 @@ pub(crate) async fn catalog(
             state.settings().prompt().catalog_prose(),
             model.as_ref(),
             metric.as_ref(),
+            query.model_prefix.as_deref(),
         )),
     )
         .into_response()
