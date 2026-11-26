@@ -1,7 +1,5 @@
 use std::num::NonZeroU64;
 
-mod comments;
-
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::capabilities::{DeclarableKind, DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
@@ -15,7 +13,7 @@ use sutura_domain::query::{Query, RefusalReason};
 use crate::fixture::FixtureReader;
 use crate::{
     Dictionary, DictionaryBounds, DictionaryReader, RdbmsCatalog, RdbmsError, Relationship, SingleColumnTargetUniqueness, Table,
-    TableAddress, descriptions,
+    TableAddress,
 };
 
 #[cfg(feature = "live")]
@@ -67,11 +65,11 @@ fn the_reader_rejects_untrusted_sql_identifiers_before_opening_a_connection() {
     assert!(matches!(predicate, Err(InvalidReaderConfig::PredicateColumn)));
 }
 
-fn name() -> SourceName {
+pub(crate) fn name() -> SourceName {
     SourceName::parse("local").expect("a test name is a name")
 }
 
-fn version() -> DefinitionVersion {
+pub(crate) fn version() -> DefinitionVersion {
     DefinitionVersion::parse("test").expect("a test version is a version")
 }
 
@@ -104,7 +102,7 @@ fn public(table: &str) -> TableAddress {
     address("public", table)
 }
 
-fn table(model: &str, columns: Vec<String>, description: Option<String>) -> Table {
+pub(crate) fn table(model: &str, columns: Vec<String>, description: Option<String>) -> Table {
     Table::new(model.to_owned(), public(model), columns, description)
 }
 
@@ -533,7 +531,7 @@ fn a_relationship_requires_single_column_target_uniqueness_evidence() {
 }
 
 /// A reader that hands its recorded dictionary back unchanged.
-struct SparseReader(Dictionary);
+pub(crate) struct SparseReader(pub(crate) Dictionary);
 
 impl DictionaryReader for SparseReader {
     fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
