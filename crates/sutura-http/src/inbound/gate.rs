@@ -569,6 +569,15 @@ impl InboundGate {
     /// wrong-audience or wrong-`typ` token would; an absent assertion is `Absent` the same way an
     /// anonymous request to any other verifier is. The cause is boxed rather than flattened, so the
     /// log keeps the full chain while the response still says only `401`.
+    ///
+    /// **Runs before `establish_token`, which is what protects the CALLER token's own single-use
+    /// slot** - a request whose gateway assertion fails never spends the caller token's `jti`. The
+    /// limit this does not close: where the gateway assertion itself is `admitting_once`, THIS check
+    /// consumes ITS single-use slot regardless of what happens next, because the slot is spent
+    /// inside `establish_token` above, before this function returns. A valid gateway assertion
+    /// re-presented beside a caller token that then fails (wrong issuer, expired, malformed) has
+    /// already spent that slot - the next request pairing the same gateway assertion with a valid
+    /// caller token is refused as a replay, even though no caller was ever admitted with it.
     async fn check_required_gateway(&self, headers: &HeaderMap, now: Instant) -> Result<(), TokenRejected> {
         let Some(ref target) = self.required_gateway else {
             return Ok(());

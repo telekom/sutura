@@ -164,7 +164,8 @@ fn real_paired_gate() -> RealPairedGate {
          resource: 'https://sutura.example.com/staff'\n      audience: '{}'\n      authorization_server: '{}'\n      \
          key_set_file: '{}'\n      algorithms: [ES256]\n      token_header: '{TOKEN_HEADER}'\n      requires_gateway: gateway\n    \
          - id: gateway\n      path: /gateway\n      mode: behind-gateway\n      transit_header: authorization\n      \
-         transit_issuer: '{}'\n      transit_audience: '{}'\n      key_set_file: '{}'\n      algorithms: [ES256]\n",
+         transit_issuer: '{}'\n      transit_audience: '{}'\n      transit_token_type: at+jwt\n      key_set_file: '{}'\n      \
+         algorithms: [ES256]\n",
         caller_issuer.audience(),
         caller_issuer.issuer(),
         caller_path.display(),
@@ -213,4 +214,167 @@ async fn the_real_builder_admits_a_valid_pairing_but_refuses_the_gateway_token_p
         gate.establish(&gateway_only, Instant::now()).await,
         Err(TokenRejected::Absent { .. })
     ));
+}
+
+/// Review item 1: a token the GATEWAY issuer signed, placed in the caller's own `x-user-token`
+/// header, beside a valid gateway assertion in `Authorization`. The caller slot is routed by the
+/// `staff` verifier's own issuer/audience, which the gateway issuer never satisfies, so this must
+/// fail as an ordinary caller-token rejection - never fall back to treating the gateway's own
+/// signature as proof of the caller.
+#[tokio::test]
+async fn a_gateway_signed_token_in_the_caller_header_is_refused_even_beside_a_valid_gateway_assertion() {
+    let fixture = real_paired_gate();
+    let gate = &fixture.gate;
+    let impostor = signed_for(&fixture.gateway_issuer, "the-fronting-component");
+    let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
+    let headers = paired(TOKEN_HEADER, &impostor, &gateway_token);
+    drop(gate.establish(&headers, Instant::now()).await.unwrap_err());
+}
+
+/// Review item 2: `#1884`'s general refusal of two configured credential locations still fires for
+/// a combination this pairing does NOT name, even though a paired verifier exists elsewhere in the
+/// same real-built gate. A caller token in `Authorization` AND a second, unrelated token in the
+/// gateway's own `transit_header` is not the `staff`/`gateway` pairing - `staff` never reads
+/// `Authorization` for its caller token here, so this is just an ordinary two-location presentation
+/// with no verifier naming it as paired, and must be refused the same way it would with no pairing
+/// configured at all.
+#[tokio::test]
+async fn ambiguous_proof_still_fires_for_an_unrelated_two_location_combination() {
+    let fixture = real_paired_gate();
+    let gate = &fixture.gate;
+    let caller_token = signed_for(&fixture.caller_issuer, "a-user@example.com");
+    let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
+    let mut headers = header_named("authorization", &format!("Bearer {caller_token}"));
+    headers.extend(header_named("authorization", &format!("Bearer {gateway_token}")));
+    drop(gate.establish(&headers, Instant::now()).await.unwrap_err());
+}
+
+/// Review item 3: the gateway token presented alone is refused through `establish_on`, the
+/// path-scoped entry point the HTTP router actually calls - on BOTH the paired verifier's own path
+/// and the gateway target's path. Proves the dead-mount fix (`crates/sutura-cli/src/serve.rs`'s
+/// `agent_mounts` no longer advertises `/gateway` at all) is backed by the gate itself refusing
+/// that path too, not only by the router declining to mount it.
+#[tokio::test]
+async fn the_gateway_token_alone_is_refused_on_both_paths_through_establish_on() {
+    let fixture = real_paired_gate();
+    let gate = &fixture.gate;
+    let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
+    let headers = header_named("authorization", &format!("Bearer {gateway_token}"));
+    let staff_path = sutura_config::McpPath::parse("/staff").expect("a fixture path");
+    let gateway_path = sutura_config::McpPath::parse("/gateway").expect("a fixture path");
+    assert!(matches!(
+        gate.establish_on(&staff_path, &headers, Instant::now()).await,
+        Err(TokenRejected::Absent { .. })
+    ));
+    assert!(matches!(
+        gate.establish_on(&gateway_path, &headers, Instant::now()).await,
+        Err(TokenRejected::Absent { .. })
+    ));
+}
+
+/// Review item 4: a delegation/token-exchange source is driven from the paired caller's own USER
+/// token, never the gateway's assertion that rode beside it.
+#[tokio::test]
+async fn delegation_exchanges_the_paired_callers_user_token_not_the_gateway_assertion() {
+    use std::sync::{Arc, OnceLock};
+
+    use sutura_config::DeclaredPrincipalBroker;
+    use sutura_config::credentials::SourceAdmissions;
+    use sutura_domain::identity::{
+        CredentialBroker as _, Delegated, Delegation, DelegationExchange, DelegationFailed, RequestedAudience, Secret, SourceSet,
+        VerifierId,
+    };
+
+    #[derive(Debug, Default)]
+    struct Capturing(OnceLock<String>);
+
+    impl DelegationExchange for Capturing {
+        #[expect(clippy::disallowed_methods, reason = "the cell asserts which token delegation received")]
+        fn exchange(&self, subject: &Secret, _audience: &RequestedAudience) -> Result<Delegated, DelegationFailed> {
+            drop(self.0.set(subject.expose_secret().to_owned()));
+            Ok(Delegated::new(Secret::new("exchanged"), 4_102_444_800))
+        }
+    }
+
+    let fixture = real_paired_gate();
+    let gate = &fixture.gate;
+    let caller_token = signed_for(&fixture.caller_issuer, "a-user@example.com");
+    let gateway_token = signed_for(&fixture.gateway_issuer, "the-fronting-component");
+    let headers = paired(TOKEN_HEADER, &caller_token, &gateway_token);
+    let caller = gate
+        .establish(&headers, Instant::now())
+        .await
+        .expect("a valid caller token beside a valid gateway assertion is admitted");
+
+    let capturing = Arc::new(Capturing::default());
+    let delegation = Delegation::through(
+        Arc::<Capturing>::clone(&capturing),
+        RequestedAudience::parse("https://pool.example.com").expect("a fixture audience"),
+    );
+    let broker = DeclaredPrincipalBroker::empty()
+        .admitting(SourceAdmissions::default().and(
+            crate::testing::source(),
+            Some(std::collections::BTreeSet::from([
+                VerifierId::parse("staff").expect("a fixture verifier"),
+            ])),
+        ))
+        .federating(crate::testing::source(), Some(delegation));
+    let context = crate::principal::of_verified(&caller);
+    let _minted = broker
+        .mint(&context, &SourceSet::of(crate::testing::source()))
+        .expect("the broker answers");
+    assert_eq!(
+        capturing.0.get().map(String::as_str),
+        Some(caller_token.as_str()),
+        "delegation must exchange the caller's own user token, never the gateway assertion"
+    );
+}
+
+/// Review item 5: a mixed-case `token_header` in config (`X-User-Token`) still matches a
+/// lower-case incoming header name - header names are case-insensitive over the wire, and
+/// `ProofHeader` folds to lower case at parse time, so the match must hold either way.
+#[tokio::test]
+async fn a_mixed_case_configured_token_header_matches_the_lower_case_incoming_header() {
+    let caller_issuer = MockIssuer::generating(ISSUER, RESOURCE, "caller-key").expect("a fixture issuer generates a key");
+    let gateway_issuer = gateway("https://mixed-case.example.com", "https://mixed-case.example.com/transit");
+    let caller_path = std::env::temp_dir().join(format!("sutura-paired-mixed-case-caller-{}.json", std::process::id()));
+    let gateway_path = std::env::temp_dir().join(format!("sutura-paired-mixed-case-gateway-{}.json", std::process::id()));
+    caller_issuer.publish(&caller_path).expect("the caller key set is writable");
+    gateway_issuer
+        .publish(&gateway_path)
+        .expect("the gateway key set is writable");
+    let overlay = format!(
+        "security:\n  inbound:\n    - id: staff\n      path: /staff\n      mode: direct\n      \
+         resource: 'https://sutura.example.com/staff'\n      audience: '{}'\n      authorization_server: '{}'\n      \
+         key_set_file: '{}'\n      algorithms: [ES256]\n      token_header: 'X-User-Token'\n      requires_gateway: gateway\n    \
+         - id: gateway\n      path: /gateway\n      mode: behind-gateway\n      transit_header: authorization\n      \
+         transit_issuer: '{}'\n      transit_audience: '{}'\n      transit_token_type: at+jwt\n      key_set_file: '{}'\n      \
+         algorithms: [ES256]\n",
+        caller_issuer.audience(),
+        caller_issuer.issuer(),
+        caller_path.display(),
+        gateway_issuer.issuer(),
+        gateway_issuer.audience(),
+        gateway_path.display(),
+    );
+    let settings = crate::testing::settings_with(&overlay);
+    let gate = InboundGate::from_verifiers_with_outbound(settings.security().inbound(), None)
+        .expect("the real builder accepts a mixed-case token_header")
+        .expect("at least one verifier is declared");
+
+    let caller_token = signed_for(&caller_issuer, "a-user@example.com");
+    let gateway_token = signed_for(&gateway_issuer, "the-fronting-component");
+    // The incoming header name is sent lower-case, as `header_named`/`paired` always do.
+    let headers = paired("x-user-token", &caller_token, &gateway_token);
+    let caller = gate
+        .establish(&headers, Instant::now())
+        .await
+        .expect("the lower-case incoming header matches the mixed-case configured name");
+    assert_eq!(
+        caller.chain().subject(),
+        &Subject::verified_by(caller.verifier().id().clone(), "a-user@example.com").expect("a fixture subject")
+    );
+
+    drop(std::fs::remove_file(&caller_path));
+    drop(std::fs::remove_file(&gateway_path));
 }

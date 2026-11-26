@@ -753,10 +753,10 @@ delegation hop are unchanged from plain `direct`: all three come from the user t
 the gateway assertion. Config refuses `requires_gateway` naming no declared verifier, naming a
 verifier that is not `behind-gateway`, naming one that does not read `Authorization`, or a
 `token_header` of `authorization` on the same entry - and refuses `token_header` or
-`requires_gateway` declared without the other. The gateway assertion is checked in full (issuer, JWKS, `typ`, lifetime) and its absence or
-failure refuses the whole request; a user token placed in `Authorization` does not satisfy that
-check, since it is checked against the gateway sub-gate's own issuer and key set, not the
-caller's. Nothing here cryptographically ties the two tokens together beyond both arriving on the
-same HTTP request at the same instant - there is no shared nonce or hash, and no claim that one
-names the other's subject. This is the one explicit exception the `#1884` rule carves out, not a
-general loosening of it.
+`requires_gateway` declared without the other. The gateway assertion is checked in full (issuer,
+JWKS, `typ`, lifetime) and its absence or failure refuses the whole request; a user token placed
+in `Authorization` does not satisfy that check, since it is checked against the gateway sub-gate's
+own issuer and key set, not the caller's. Nothing here cryptographically ties the two tokens
+together beyond both arriving on the same HTTP request at the same instant - there is no shared
+nonce or hash, and no claim that one names the other's subject. This is the one explicit exception
+the `#1884` rule carves out, not a general loosening of it.
