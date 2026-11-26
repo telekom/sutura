@@ -504,9 +504,12 @@ where
                     self.list_physical_schema,
                     args.model,
                     args.metric,
-                    args.model_prefix.as_deref(),
-                    args.names,
-                    args.after.as_deref(),
+                    &describe::NamesQuery {
+                        model_prefix: args.model_prefix.as_deref(),
+                        names: args.names,
+                        after: args.after.as_deref(),
+                        after_metric: args.after_metric.as_deref(),
+                    },
                 )?
             }
             Capability::AskMetric => {

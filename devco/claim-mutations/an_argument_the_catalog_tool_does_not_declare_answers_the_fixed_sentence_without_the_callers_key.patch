@@ -1,3 +1,4 @@
+Claim-Cell-File: crates/sutura-mcp/src/server/tests.rs
 --- a/crates/sutura-mcp/src/wire/catalog.rs
 +++ b/crates/sutura-mcp/src/wire/catalog.rs
 @@ -75,7 +75,6 @@

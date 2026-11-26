@@ -1,7 +1,7 @@
 Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
 --- a/crates/sutura-mcp/src/server.rs
 +++ b/crates/sutura-mcp/src/server.rs
-@@ -212,6 +212,7 @@
+@@ -213,6 +213,7 @@
  /// port has to outlive the future that started the call.
  pub struct AgentSurface<S> {
      service: Arc<S>,
@@ -9,7 +9,7 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
      /// How this surface learns who is asking and what they may invoke, for each call.
      ///
      /// A field and not an `Option<Permitted>`, so "this deployment forgot to say" is not a state
-@@ -298,7 +299,7 @@
+@@ -299,7 +300,7 @@
      /// **`tools` is required and is the fifth: only a composition root has read the settings** that
      /// say which operations this deployment mounts - the same list `sutura prompt` renders.
      #[must_use]
@@ -18,7 +18,7 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
          service: Arc<S>,
          asking: Asking,
          prose: sutura_app::prompt::CatalogProse,
-@@ -306,9 +307,14 @@
+@@ -307,9 +308,14 @@
          reply: RequestTimeout,
          tools: Arc<[Tool]>,
          operator_instructions: Option<Arc<str>>,
@@ -57,40 +57,36 @@ Claim-Cell-File: crates/sutura-mcp/src/server/tests/refresh.rs
 @@ -8,8 +8,6 @@
  use rmcp::ErrorData;
  use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, ErrorCode};
- 
+
 -use sutura_app::surface::Surface;
 -
  use super::{MalformedQuestion, RenderedCause, invalid};
  use crate::wire::{CatalogContent, DescribeCatalogArgs, NamesIndexContent};
- 
-@@ -53,8 +51,8 @@
- /// way - a JSON-RPC error with no record - as [`super::no_established_caller`] and
- /// [`super::not_granted`] already are: every refusal this handler can make before a `Surface` call is
- /// reached shares that absence.
--pub(super) fn describe<S>(
+
+@@ -66,16 +64,13 @@
+ pub(super) fn describe<S>(
 -    service: &Arc<S>,
-+pub(super) fn describe(
 +    definitions: Arc<sutura_domain::pinned::PinnedDefinitions>,
      context: &sutura_domain::identity::RequestContext,
      prose: sutura_app::prompt::CatalogProse,
      operator_instructions: Option<&str>,
-@@ -64,10 +62,7 @@
-     model_prefix: Option<&str>,
-     names: bool,
-     after: Option<&str>,
+     list_physical_schema: bool,
+     model: Option<String>,
+     metric: Option<String>,
+     query: &NamesQuery<'_>,
 -) -> Result<CallToolResult, ErrorData>
 -where
 -    S: Surface,
 -{
 +) -> Result<CallToolResult, ErrorData> {
-     // Mutually exclusive by the tool's own doc comment on `DescribeCatalogArgs` - checked before
-     // either name is parsed, so a caller that sent both gets one refusal rather than whichever
-     // parse error happened to run first.
-@@ -97,7 +92,6 @@
+     let &NamesQuery {
+         model_prefix,
+         names,
+@@ -114,7 +109,6 @@
      //
      // And the view is built here, from the caller this request's own verification resolved - see the
      // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
 -    let definitions = service.definitions();
      let view = sutura_app::scoped_for(&definitions, context);
- 
+
      // `names: true` is a separate mode entirely - a names-only, paged index rather than the full

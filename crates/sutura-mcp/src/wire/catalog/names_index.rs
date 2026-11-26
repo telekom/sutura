@@ -17,6 +17,45 @@ pub(super) struct ModelNameEntry {
     table: String,
 }
 
+/// One metric's name and owning model, as a `names: true` index entry - the metrics-side sibling of
+/// [`ModelNameEntry`], carrying `model` for the same reason [`OmittedMetric`](super::OmittedMetric)
+/// does: `describe_catalog(metric: ...)` is this metric's own read-back, and `model` is the only
+/// value that narrows the full listing to this metric's physical schema.
+#[derive(Debug, serde::Serialize)]
+pub(super) struct MetricNameEntry {
+    name: String,
+    model: String,
+}
+
+/// The real rendering cost of one [`ModelNameEntry`] - derived, not guessed: the structured half
+/// serializes the entry itself (plus one byte for the list separator `,`), and the text half is
+/// exactly the line [`NamesIndexContent::as_text`] pushes per model - `\n  <name> (table <table>)`,
+/// i.e. `name.len() + table.len() + 12`.
+fn model_entry_cost(model: &sutura_domain::catalog::Model) -> usize {
+    let table = model.table().to_string();
+    let entry = ModelNameEntry {
+        name: String::from(model.name().as_str()),
+        table: table.clone(),
+    };
+    let structured = serde_json::to_vec(&entry).map_or(0, |bytes| bytes.len()) + 1;
+    let text = model.name().as_str().len() + table.len() + 12;
+    structured + text
+}
+
+/// The real rendering cost of one [`MetricNameEntry`] - the metrics-side sibling of
+/// [`model_entry_cost`], same derivation: `\n  <name> (model <model>)` is `name.len() + model.len() +
+/// 12`.
+fn metric_entry_cost(metric: &sutura_domain::catalog::Metric) -> usize {
+    let model = metric.model().as_str().to_owned();
+    let entry = MetricNameEntry {
+        name: String::from(metric.name().as_str()),
+        model: model.clone(),
+    };
+    let structured = serde_json::to_vec(&entry).map_or(0, |bytes| bytes.len()) + 1;
+    let text = metric.name().as_str().len() + model.len() + 12;
+    structured + text
+}
+
 /// A names-only, paged index of every model this caller may see - `describe_catalog(names: true)`'s
 /// answer, `github.com/telekom/sutura#2083`'s first ask.
 ///
@@ -30,21 +69,33 @@ pub(super) struct ModelNameEntry {
 pub struct NamesIndexContent {
     /// Which snapshot this index describes - see [`CatalogContent::provenance`].
     provenance: ProvenanceContent,
-    /// This page's names, in the same order the full listing's models would appear in - a `BTreeMap`
-    /// walk, so repeating `after` from one page always means the same resume point.
+    /// This page's model names, in the same order the full listing's models would appear in - a
+    /// `BTreeMap` walk, so repeating `after` from one page always means the same resume point.
     model_names: Vec<ModelNameEntry>,
-    /// The cursor to pass as `after` to continue this index - absent once every name matching
-    /// `model_prefix` (if any) has been returned, i.e. the index is exhausted.
+    /// The cursor to pass as `after` to continue the model half of this index - absent once every
+    /// model name matching `model_prefix` (if any) has been returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     next: Option<String>,
+    /// This page's metric names, paged and cursored the same way `model_names` is - the metrics-side
+    /// sibling closing the same gap [`CatalogContent::omitted_metrics`] leaves once it crosses
+    /// `MAX_OMITTED_NAMES`.
+    metric_names: Vec<MetricNameEntry>,
+    /// The cursor to pass as `after_metric` to continue the metric half of this index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_metric: Option<String>,
 }
 
 impl NamesIndexContent {
-    /// `after` and `model_prefix` are raw strings here, not yet the newtypes the rest of this module
-    /// parses `model`/`metric` into - a cursor or a prefix is not itself required to be a valid
-    /// `ModelName`, only a prefix or exact value one happens to start with, so there is nothing to
-    /// parse into.
-    pub fn of(view: &ScopedView<'_>, after: Option<&str>, model_prefix: Option<&str>) -> Self {
+    /// `after`, `after_metric` and `model_prefix` are raw strings here, not yet the newtypes the
+    /// rest of this module parses `model`/`metric` into - a cursor or a prefix is not itself
+    /// required to be a valid `ModelName`, only a prefix or exact value one happens to start with,
+    /// so there is nothing to parse into.
+    ///
+    /// **One shared budget, models first then metrics** - the same "spend in sequence" rule
+    /// [`CatalogContent::of_with_physical_schema`] follows, so the whole page (both halves) never
+    /// exceeds [`MAX_CATALOG_LISTING_BYTES`]. `model_prefix` narrows metrics by their OWN model
+    /// (`Metric::model`), matching how it narrows the full listing's metrics pool.
+    pub fn of(view: &ScopedView<'_>, after: Option<&str>, after_metric: Option<&str>, model_prefix: Option<&str>) -> Self {
         // A small fixed reserve for the provenance trailer and this result's own JSON scaffolding -
         // the same role `OMISSION_HEADER_RESERVE` plays for a bounded pool, sized generously rather
         // than measured, since this index carries nothing else fixed to measure.
@@ -58,16 +109,10 @@ impl NamesIndexContent {
             after,
             model_prefix,
             budget,
-            |model| {
-                let table = model.table().to_string();
-                json_string_cost(model.name().as_str())
-                    + json_string_cost(&table)
-                    + model.name().as_str().len()
-                    + table.len()
-                    + 16
-            },
+            |model| model_entry_cost(model),
             |model| String::from(model.name().as_str()),
         );
+        let models_spent: usize = page.iter().map(|model| model_entry_cost(model)).sum();
         let model_names = page
             .into_iter()
             .map(|model| ModelNameEntry {
@@ -75,10 +120,33 @@ impl NamesIndexContent {
                 table: model.table().to_string(),
             })
             .collect();
+
+        let metric_budget = budget.saturating_sub(models_spent);
+        let metric_candidates = view
+            .metrics()
+            .filter(|metric| model_prefix.is_none_or(|prefix| metric.model().as_str().starts_with(prefix)));
+        let (metric_page, next_metric) = paged_names(
+            metric_candidates,
+            after_metric,
+            None,
+            metric_budget,
+            |metric| metric_entry_cost(metric),
+            |metric| String::from(metric.name().as_str()),
+        );
+        let metric_names = metric_page
+            .into_iter()
+            .map(|metric| MetricNameEntry {
+                name: String::from(metric.name().as_str()),
+                model: metric.model().as_str().to_owned(),
+            })
+            .collect();
+
         Self {
             provenance,
             model_names,
             next,
+            metric_names,
+            next_metric,
         }
     }
 
@@ -98,11 +166,30 @@ impl NamesIndexContent {
         }
         match &self.next {
             Some(cursor) => {
-                out.push_str("\n\nmore names remain - call describe_catalog(names: true, after: \"");
+                out.push_str("\n\nmore model names remain - call describe_catalog(names: true, after: \"");
                 out.push_str(cursor);
                 out.push_str("\") to continue.");
             }
-            None => out.push_str("\n\nindex complete - every visible model name has been returned."),
+            None => out.push_str("\n\nmodel index complete - every visible model name has been returned."),
+        }
+        out.push_str("\n\nmetric names (paged index; names only, nothing else):");
+        if self.metric_names.is_empty() {
+            out.push_str("\n  no visible metrics matched");
+        }
+        for entry in &self.metric_names {
+            out.push_str("\n  ");
+            out.push_str(&entry.name);
+            out.push_str(" (model ");
+            out.push_str(&entry.model);
+            out.push(')');
+        }
+        match &self.next_metric {
+            Some(cursor) => {
+                out.push_str("\n\nmore metric names remain - call describe_catalog(names: true, after_metric: \"");
+                out.push_str(cursor);
+                out.push_str("\") to continue.");
+            }
+            None => out.push_str("\n\nmetric index complete - every visible metric name has been returned."),
         }
         out.push_str("\ndefinitions: ");
         out.push_str(&self.provenance.definition_version);

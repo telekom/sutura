@@ -299,13 +299,14 @@ mod tests {
         }
     }
 
-    /// The catalog tool takes exactly two optional arguments, `model` and `metric`, and nothing
-    /// else - a shape rather than an absence.
+    /// The catalog tool takes exactly these six optional arguments, and nothing else - a shape
+    /// rather than an absence.
     ///
     /// A tool advertising an open object is a tool whose surface a caller can guess at.
     /// `github.com/telekom/sutura#2071`'s second ask gave this tool its `model` argument and then
     /// its `metric` one; before either it took none at all, which
-    /// `the_catalog_tool_takes_no_arguments_at_all` pinned.
+    /// `the_catalog_tool_takes_no_arguments_at_all` pinned. `model_prefix`, `names`, `after` and
+    /// `after_metric` are `github.com/telekom/sutura#2083`'s own ask.
     #[test]
     fn the_catalog_tool_takes_only_optional_model_and_metric_arguments() {
         let schema = input_schema(Capability::DescribeCatalog);
@@ -315,7 +316,11 @@ mod tests {
             .expect("the generated schema describes properties");
         let mut names: Vec<&str> = properties.keys().map(String::as_str).collect();
         names.sort_unstable();
-        assert_eq!(names, ["metric", "model"], "{names:?}");
+        assert_eq!(
+            names,
+            ["after", "after_metric", "metric", "model", "model_prefix", "names"],
+            "{names:?}"
+        );
         assert_eq!(
             schema.get("additionalProperties"),
             Some(&serde_json::Value::Bool(false)),

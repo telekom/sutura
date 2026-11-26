@@ -158,6 +158,38 @@ pub(crate) fn bundle_with_many_models(count: usize) -> PinnedDefinitions {
     .expect("the test definitions hash")
 }
 
+/// `count` physical models at `description_bytes` each - [`bundle_with_many_models`]'s own
+/// parameterized twin, for `describe_catalog(names: true)`'s own paging tests
+/// (`github.com/telekom/sutura#2083`'s own ask), where the names index carries no description at
+/// all and a `count` large enough to force more than one page would otherwise cross
+/// `Definitions::assemble`'s bundle-wide prose cap at [`bundle_with_many_models`]'s fixed 4 KiB.
+pub(crate) fn bundle_with_many_small_models(count: usize, description_bytes: usize) -> PinnedDefinitions {
+    let short = description(&"x".repeat(description_bytes));
+    let models = (0..count)
+        .map(|index| {
+            let name = format!("model_{index:05}");
+            Model::new(
+                ModelName::parse(&name).expect("a generated test model name is a name"),
+                source(),
+                TableName::parse(&name).expect("a generated test table name is a name"),
+                BTreeSet::from([column("amount_cents")]),
+                short.clone(),
+            )
+        })
+        .collect();
+    let definitions = Definitions::assemble(models, vec![], vec![]).expect("the generated test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions.clone(),
+        Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
+    )
+    .expect("the test definitions hash")
+}
+
 /// `count` metrics over one model, each described at `description_bytes` - the metric-pool twin of
 /// [`bundle_with_many_models`], for `describe_catalog`'s own metric-budget tests
 /// (`github.com/telekom/sutura#2071`'s second ask). A large enough `count` crosses not only

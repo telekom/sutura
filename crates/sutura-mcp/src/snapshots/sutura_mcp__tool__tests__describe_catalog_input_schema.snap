@@ -5,19 +5,47 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "This tool returns the catalog of what this deployment measures, narrowed to what the calling\nprincipal may see - the metrics, grains, dimensions and permitted values.\n\n`model` is optional and narrows the answer to one named model: only the metrics tied to it, and -\nwhere the operator exposes physical schema - only that model's own columns and relationships.\n`metric` is optional and narrows the answer to that one metric alone, naming nothing about its\nmodel's physical schema - the way to read back a single metric a previous, byte-bounded listing\nnamed but left out. Give at most one of the two; both together is refused. Omit both for the\nwhole catalog. An unfiltered catalog whose metrics or physical schema would be large is itself\ncapped at a byte bound shared across the whole result; where it is, every item left out is named\nexplicitly along with how to read it back - call this tool again with `model` or `metric` set to\none of those names.\n\nThis tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and\nterms recorded as undefined it carries) and the deployment operator's instructions - neither is\nscoped to one model or metric, so `model`/`metric` does not narrow them.",
+  "description": "This tool returns the catalog of what this deployment measures, narrowed to what the calling\nprincipal may see - the metrics, grains, dimensions and permitted values.\n\n`model` is optional and narrows the answer to one named model: only the metrics tied to it, and -\nwhere the operator exposes physical schema - only that model's own columns and relationships.\n`metric` is optional and narrows the answer to that one metric alone, naming nothing about its\nmodel's physical schema - the way to read back a single metric a previous, byte-bounded listing\nnamed but left out. Give at most one of `model` and `metric`; both together is refused. Omit\nboth for the whole catalog. An unfiltered catalog whose metrics or physical schema would be\nlarge is itself capped at a byte bound shared across the whole result; where it is, every item\nleft out is named explicitly up to [`sutura_app::catalog_budget::MAX_OMITTED_NAMES`] names,\nalong with how to read it back - call this tool again with `model` or `metric` set to one of\nthose names.\n\n`model_prefix` narrows the listing (or the names index below) to model names starting with that\nprefix, for when only part of a name is known. Mutually exclusive with `model` and `metric`.\n\n`names: true` switches this tool to a names-only index of every visible model AND every visible\nmetric - name and table for a model, name and owning model for a metric, nothing else - each\nwalked under the same byte bound and NOT subject to the omission list's own cap on how many\nnames it carries: once a page does not cover every remaining name, the result carries a cursor\n(`next` for models, `next_metric` for metrics), and calling this tool again with `after`/\n`after_metric` set to that cursor continues that half of the index until it is exhausted. This\nis how every model or metric past that cap is reached, not only the first page of them.\nMutually exclusive with `model` and `metric`; `after`/`after_metric` are only meaningful\nalongside `names: true`.\n\nThis tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and\nterms recorded as undefined it carries) and the deployment operator's instructions - neither is\nscoped to one model or metric, so none of these arguments narrow them.",
   "properties": {
+    "after": {
+      "description": "Resumes a `names: true` index's model half strictly after this model name - the `next`\ncursor a previous `names: true` call returned. Refused unless `names` is also `true`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "after_metric": {
+      "description": "Resumes a `names: true` index's metric half strictly after this metric name - the\n`next_metric` cursor a previous `names: true` call returned. Refused unless `names` is also\n`true`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "metric": {
-      "description": "One metric's own name, to read back exactly that metric's entry - nothing about its model's\nphysical schema. Omit it for the whole catalog. Mutually exclusive with `model`.",
+      "description": "One metric's own name, to read back exactly that metric's entry - nothing about its model's\nphysical schema. Omit it for the whole catalog. Mutually exclusive with `model`,\n`model_prefix` and `names`.",
       "type": [
         "string",
         "null"
       ]
     },
     "model": {
-      "description": "The model's own name - the same identifier its physical schema prints as `model <name>`.\nOmit it for the whole catalog. Mutually exclusive with `metric`.",
+      "description": "The model's own name - the same identifier its physical schema prints as `model <name>`.\nOmit it for the whole catalog. Mutually exclusive with `metric`, `model_prefix` and `names`.",
       "type": [
         "string",
+        "null"
+      ]
+    },
+    "model_prefix": {
+      "description": "Narrows the listing, or the `names` index, to model names starting with this prefix.\nMutually exclusive with `model` and `metric`. Refused if given empty.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "names": {
+      "description": "`true` switches this tool to a names-only, paged index of every visible model AND every\nvisible metric - see this type's own doc for how to page through each half with `after` and\n`after_metric`. Mutually exclusive with `model` and `metric`.",
+      "type": [
+        "boolean",
         "null"
       ]
     }

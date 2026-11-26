@@ -26,7 +26,7 @@
 mod catalog_fixtures;
 pub(crate) use catalog_fixtures::{
     bundle_with_a_restricted_metric, bundle_with_a_restricted_only_model, bundle_with_many_metrics, bundle_with_many_models,
-    bundle_with_two_metric_owning_models, bundle_with_two_models,
+    bundle_with_many_small_models, bundle_with_two_metric_owning_models, bundle_with_two_models,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -351,6 +351,25 @@ impl SemanticCatalog for TwoMetricOwningModelsCatalog {
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         Ok(bundle_with_two_metric_owning_models())
+    }
+}
+
+/// A catalog port that hands back whatever [`PinnedDefinitions`] it is built with - for a test that
+/// needs its own generated fixture (e.g. [`bundle_with_many_models`]) served through a real
+/// `LocalService`, rather than one of the named fixed-bundle catalogs above.
+pub(crate) struct FixedBundleCatalog(pub(crate) PinnedDefinitions);
+
+impl SemanticCatalog for FixedBundleCatalog {
+    type Error = Unreachable;
+
+    const KIND: CatalogKind = CatalogKind::Golden;
+
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::everything()
+    }
+
+    fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+        Ok(self.0.clone())
     }
 }
 

@@ -58,18 +58,22 @@ use super::{ProvenanceContent, bundle_content};
 /// named but left out. Give at most one of `model` and `metric`; both together is refused. Omit
 /// both for the whole catalog. An unfiltered catalog whose metrics or physical schema would be
 /// large is itself capped at a byte bound shared across the whole result; where it is, every item
-/// left out is named explicitly up to 200 names, along with how to read it back - call this tool
-/// again with `model` or `metric` set to one of those names.
+/// left out is named explicitly up to [`sutura_app::catalog_budget::MAX_OMITTED_NAMES`] names,
+/// along with how to read it back - call this tool again with `model` or `metric` set to one of
+/// those names.
 ///
 /// `model_prefix` narrows the listing (or the names index below) to model names starting with that
 /// prefix, for when only part of a name is known. Mutually exclusive with `model` and `metric`.
 ///
-/// `names: true` switches this tool to a names-only index of every visible model - its name and
-/// table, nothing else - walked under the same byte bound and NOT subject to the 200-name omission
-/// cap: once a page does not cover every remaining name, the result carries a cursor, and calling
-/// this tool again with `after` set to that cursor continues the index until it is exhausted. This
-/// is how every model past that cap is reached, not only the first 200. Mutually exclusive with
-/// `model` and `metric`; `after` is only meaningful alongside `names: true`.
+/// `names: true` switches this tool to a names-only index of every visible model AND every visible
+/// metric - name and table for a model, name and owning model for a metric, nothing else - each
+/// walked under the same byte bound and NOT subject to the omission list's own cap on how many
+/// names it carries: once a page does not cover every remaining name, the result carries a cursor
+/// (`next` for models, `next_metric` for metrics), and calling this tool again with `after`/
+/// `after_metric` set to that cursor continues that half of the index until it is exhausted. This
+/// is how every model or metric past that cap is reached, not only the first page of them.
+/// Mutually exclusive with `model` and `metric`; `after`/`after_metric` are only meaningful
+/// alongside `names: true`.
 ///
 /// This tool also returns the catalog's own knowledge (the glossary, caveats, worked examples and
 /// terms recorded as undefined it carries) and the deployment operator's instructions - neither is
@@ -87,13 +91,17 @@ pub struct DescribeCatalogArgs {
     /// Narrows the listing, or the `names` index, to model names starting with this prefix.
     /// Mutually exclusive with `model` and `metric`. Refused if given empty.
     model_prefix: Option<String>,
-    /// `true` switches this tool to a names-only, paged index of every visible model - see this
-    /// type's own doc for how to page through it with `after`. Mutually exclusive with `model` and
-    /// `metric`.
+    /// `true` switches this tool to a names-only, paged index of every visible model AND every
+    /// visible metric - see this type's own doc for how to page through each half with `after` and
+    /// `after_metric`. Mutually exclusive with `model` and `metric`.
     names: Option<bool>,
-    /// Resumes a `names: true` index strictly after this model name - the cursor a previous
-    /// `names: true` call returned. Refused unless `names` is also `true`.
+    /// Resumes a `names: true` index's model half strictly after this model name - the `next`
+    /// cursor a previous `names: true` call returned. Refused unless `names` is also `true`.
     after: Option<String>,
+    /// Resumes a `names: true` index's metric half strictly after this metric name - the
+    /// `next_metric` cursor a previous `names: true` call returned. Refused unless `names` is also
+    /// `true`.
+    after_metric: Option<String>,
 }
 
 /// [`DescribeCatalogArgs`], parsed rather than left as five independent `Option`s - the fields this
@@ -106,10 +114,11 @@ pub(crate) struct DescribeCatalogRequest {
     pub(crate) model_prefix: Option<String>,
     pub(crate) names: bool,
     pub(crate) after: Option<String>,
+    pub(crate) after_metric: Option<String>,
 }
 
 impl DescribeCatalogArgs {
-    /// The five raw fields, taken rather than borrowed - `server::describe` is the only caller and
+    /// The six raw fields, taken rather than borrowed - `server::describe` is the only caller and
     /// it is the last read this value gets, so there is nothing left to hand a borrow to.
     pub(crate) fn into_request(self) -> DescribeCatalogRequest {
         DescribeCatalogRequest {
@@ -118,6 +127,7 @@ impl DescribeCatalogArgs {
             model_prefix: self.model_prefix,
             names: self.names.unwrap_or(false),
             after: self.after,
+            after_metric: self.after_metric,
         }
     }
 }
@@ -914,9 +924,9 @@ mod tests {
     }
 
     /// Enough metrics that the number omitted crosses
-    /// [`sutura_app::catalog_budget::MAX_OMITTED_NAMES`]'s own 200-name cap on the omission list
-    /// itself, so the true count must appear as its own field rather than only being inferable by
-    /// counting names that are no longer all there.
+    /// [`sutura_app::catalog_budget::MAX_OMITTED_NAMES`]'s own cap on the omission list itself, so
+    /// the true count must appear as its own field rather than only being inferable by counting
+    /// names that are no longer all there.
     #[test]
     fn an_over_bound_catalog_with_more_than_the_omission_cap_carries_a_separate_count() {
         const METRIC_COUNT: usize = 400;

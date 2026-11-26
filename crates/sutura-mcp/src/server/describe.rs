@@ -53,6 +53,18 @@ pub(super) fn catalog(request: CallToolRequestParams) -> Result<DescribeCatalogA
 /// way - a JSON-RPC error with no record - as [`super::no_established_caller`] and
 /// [`super::not_granted`] already are: every refusal this handler can make before a `Surface` call is
 /// reached shares that absence.
+/// `names`'s own narrowing and paging knobs, bundled into one argument rather than four of
+/// [`describe`]'s own parameters - `clippy.toml`'s `too-many-arguments-threshold` is 10, and
+/// `describe` already spends seven on `service`/`context`/`prose`/`operator_instructions`/
+/// `list_physical_schema`/`model`/`metric`; a fifth and sixth standalone parameter for the metrics
+/// cursor would cross it for real, not by a stale `#[expect]` that never fired.
+pub(super) struct NamesQuery<'a> {
+    pub(super) model_prefix: Option<&'a str>,
+    pub(super) names: bool,
+    pub(super) after: Option<&'a str>,
+    pub(super) after_metric: Option<&'a str>,
+}
+
 pub(super) fn describe<S>(
     service: &Arc<S>,
     context: &sutura_domain::identity::RequestContext,
@@ -61,13 +73,17 @@ pub(super) fn describe<S>(
     list_physical_schema: bool,
     model: Option<String>,
     metric: Option<String>,
-    model_prefix: Option<&str>,
-    names: bool,
-    after: Option<&str>,
+    query: &NamesQuery<'_>,
 ) -> Result<CallToolResult, ErrorData>
 where
     S: Surface,
 {
+    let &NamesQuery {
+        model_prefix,
+        names,
+        after,
+        after_metric,
+    } = query;
     // Mutually exclusive by the tool's own doc comment on `DescribeCatalogArgs` - checked before
     // either name is parsed, so a caller that sent both gets one refusal rather than whichever
     // parse error happened to run first.
@@ -83,7 +99,7 @@ where
     if model_prefix.is_some() && (model.is_some() || metric.is_some()) {
         return Err(model_prefix_incompatible_with_model_or_metric());
     }
-    if after.is_some() && !names {
+    if (after.is_some() || after_metric.is_some()) && !names {
         return Err(after_requires_names());
     }
     if model_prefix.is_some_and(str::is_empty) {
@@ -104,7 +120,7 @@ where
     // listing - so it is answered and returned here, before `model`/`metric` are even parsed (the
     // checks above already proved neither was given alongside it).
     if names {
-        let listing = NamesIndexContent::of(&view, after, model_prefix);
+        let listing = NamesIndexContent::of(&view, after, after_metric, model_prefix);
         let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
         result.structured_content = serde_json::to_value(&listing).ok();
         return Ok(result);
@@ -219,11 +235,12 @@ fn model_prefix_incompatible_with_model_or_metric() -> ErrorData {
     )
 }
 
-/// `after` given without `names: true` - a cursor into an index that was never asked for.
+/// `after` or `after_metric` given without `names: true` - a cursor into an index that was never
+/// asked for.
 fn after_requires_names() -> ErrorData {
     ErrorData::new(
         ErrorCode::INVALID_PARAMS,
-        "`after` is only meaningful with `names: true`",
+        "`after`/`after_metric` are only meaningful with `names: true`",
         None,
     )
 }

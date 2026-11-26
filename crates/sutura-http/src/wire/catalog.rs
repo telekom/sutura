@@ -101,6 +101,66 @@ pub struct OmittedMetric {
     model: String,
 }
 
+/// One metric's name and owning model, as a `names=true` index entry - nothing else, since this
+/// index exists only to make a name reachable past [`MAX_OMITTED_NAMES`], not to describe what the
+/// metric holds. The metrics-side mirror of `sutura-mcp`'s `names_index::MetricNameEntry`.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct MetricNameBody {
+    name: String,
+    model: String,
+}
+
+/// `GET /catalog?names=true`'s answer: a names-only, paged index of every metric this caller may
+/// see, closing the same gap [`CatalogBody::omitted_metrics`] leaves once it crosses
+/// [`MAX_OMITTED_NAMES`] - the HTTP-side mirror of `sutura-mcp`'s `describe_catalog(names: true)`
+/// (`github.com/telekom/sutura#2083`). No physical-schema half: this transport carries no model
+/// detail at all, so there is nothing for a model-names half to page through here.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct CatalogNamesBody {
+    provenance: ProvenanceBody,
+    /// This page's metric names, in the same order [`CatalogBody::metrics`] would list them - a
+    /// `BTreeMap` walk, so repeating `after` from one page always means the same resume point.
+    metric_names: Vec<MetricNameBody>,
+    /// The cursor to pass as `?after=` to continue this index - absent once every metric name
+    /// matching `model_prefix` (if any) has been returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next: Option<String>,
+}
+
+impl CatalogNamesBody {
+    #[must_use]
+    pub fn of(view: &ScopedView<'_>, after: Option<&str>, model_prefix: Option<&str>) -> Self {
+        const FIXED_RESERVE: usize = 256;
+        let provenance = bundle_body(view.pinned());
+        let fixed_cost = serde_json::to_vec(&provenance).map_or(0, |bytes| bytes.len()) + FIXED_RESERVE;
+        let budget = MAX_CATALOG_LISTING_BYTES.saturating_sub(fixed_cost);
+        let candidates = view
+            .metrics()
+            .filter(|m| model_prefix.is_none_or(|prefix| m.model().as_str().starts_with(prefix)));
+        let cost = |m: &&sutura_domain::catalog::Metric| {
+            let entry = MetricNameBody {
+                name: String::from(m.name().as_str()),
+                model: String::from(m.model().as_str()),
+            };
+            serde_json::to_vec(&entry).map_or(0, |bytes| bytes.len()) + 1
+        };
+        let (page, next) =
+            sutura_app::catalog_budget::paged_names(candidates, after, None, budget, cost, |m| String::from(m.name().as_str()));
+        let metric_names = page
+            .into_iter()
+            .map(|m| MetricNameBody {
+                name: String::from(m.name().as_str()),
+                model: String::from(m.model().as_str()),
+            })
+            .collect();
+        Self {
+            provenance,
+            metric_names,
+            next,
+        }
+    }
+}
+
 /// One dimension of one metric.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct DimensionBody {
@@ -157,6 +217,7 @@ impl CatalogBody {
         prose: sutura_config::CatalogProse,
         model: Option<&ModelName>,
         metric: Option<&MetricName>,
+        model_prefix: Option<&str>,
     ) -> Self {
         // Exhaustive rather than `is_quoted()` in an `if`: a question asked of one variant reads every
         // future spelling as the `else`, and on this setting the `else` withholds prose nobody asked
@@ -176,6 +237,7 @@ impl CatalogBody {
             .metrics()
             .filter(|m| model.is_none_or(|name| m.model() == name))
             .filter(|m| metric.is_none_or(|name| m.name() == name))
+            .filter(|m| model_prefix.is_none_or(|prefix| m.model().as_str().starts_with(prefix)))
             .map(|m| MetricBody {
                 name: String::from(m.name().as_str()),
                 model: String::from(m.model().as_str()),
@@ -388,7 +450,7 @@ mod tests {
         const METRIC_COUNT: usize = 40;
         let bundle = bundle_with_many_metrics(METRIC_COUNT, 4000);
         let view = ScopedView::everything(&bundle);
-        let body = CatalogBody::of(&view, sutura_config::CatalogProse::Quoted, None, None);
+        let body = CatalogBody::of(&view, sutura_config::CatalogProse::Quoted, None, None, None);
         let json = serde_json::to_value(&body).expect("the catalog body serializes");
         let included = json["metrics"].as_array().expect("metrics is a list");
         let omitted = json["omitted_metrics"].as_array().expect("some metric was omitted");
@@ -415,7 +477,7 @@ mod tests {
         const METRIC_COUNT: usize = 400;
         let bundle = bundle_with_many_metrics(METRIC_COUNT, 1000);
         let view = ScopedView::everything(&bundle);
-        let body = CatalogBody::of(&view, sutura_config::CatalogProse::Quoted, None, None);
+        let body = CatalogBody::of(&view, sutura_config::CatalogProse::Quoted, None, None, None);
         let json = serde_json::to_value(&body).expect("the catalog body serializes");
         let included = json["metrics"].as_array().expect("metrics is a list").len();
         let omitted = json["omitted_metrics"].as_array().expect("some metric was omitted");
@@ -443,5 +505,101 @@ mod tests {
             total_bytes <= MAX_CATALOG_LISTING_BYTES,
             "the whole body overshot the shared bound ({total_bytes} bytes)"
         );
+    }
+
+    /// Two physical models, each owning its own metric - `model_prefix`'s own test fixture, mirroring
+    /// `sutura-mcp`'s `TwoMetricOwningModelsCatalog`: the excluded model owns a metric of its own, so
+    /// its absence is actually proven rather than restated because it never had anything to filter.
+    fn bundle_with_two_metric_owning_models() -> PinnedDefinitions {
+        let orders = Model::new(
+            ModelName::parse("orders").expect("a test model is a model"),
+            source(),
+            TableName::parse("orders").expect("a test table is a table"),
+            BTreeSet::from([column("amount_cents")]),
+            description("Orders, one row per order."),
+        );
+        let customers = Model::new(
+            ModelName::parse("customers").expect("a test model is a model"),
+            source(),
+            TableName::parse("customers").expect("a test table is a table"),
+            BTreeSet::from([column("customer_id")]),
+            description("Customers, one row per customer."),
+        );
+        let revenue = Metric::new(
+            MetricName::parse("revenue").expect("a test metric is a metric"),
+            ModelName::parse("orders").expect("a test model is a model"),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+            Vec::new(),
+            column("amount_cents"),
+            BTreeSet::from([Grain::Day]),
+            Vec::new(),
+            None,
+            description("Revenue, in minor units."),
+            Audience::Open,
+        )
+        .expect("no dimensions to duplicate");
+        let customer_count = Metric::new(
+            MetricName::parse("customer_count").expect("a test metric is a metric"),
+            ModelName::parse("customers").expect("a test model is a model"),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+                Aggregate::Count,
+                column("customer_id"),
+            ))),
+            Vec::new(),
+            column("customer_id"),
+            BTreeSet::from([Grain::Day]),
+            Vec::new(),
+            None,
+            description("How many customers, counted once each."),
+            Audience::Open,
+        )
+        .expect("no dimensions to duplicate");
+        let definitions = Definitions::assemble(vec![orders, customers], vec![], vec![revenue, customer_count])
+            .expect("the test bundle is consistent");
+        PinnedDefinitions::pin(
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+            definitions.clone(),
+            Knowledge::none(),
+            ContributionManifest::single(
+                source(),
+                Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+            ),
+        )
+        .expect("the test definitions hash")
+    }
+
+    /// `model_prefix` narrows [`CatalogBody::of`]'s metrics pool to metrics whose own `model` starts
+    /// with the prefix - `github.com/telekom/sutura#2083`'s HTTP-side parity for the same narrowing
+    /// `sutura-mcp`'s `describe_catalog(model_prefix: ...)` already has.
+    #[test]
+    fn model_prefix_narrows_the_catalog_bodys_metrics() {
+        let bundle = bundle_with_two_metric_owning_models();
+        let view = ScopedView::everything(&bundle);
+        let body = CatalogBody::of(&view, sutura_config::CatalogProse::Quoted, None, None, Some("ord"));
+        let json = serde_json::to_value(&body).expect("the catalog body serializes");
+        let metrics: Vec<&str> = json["metrics"]
+            .as_array()
+            .expect("metrics is a list")
+            .iter()
+            .map(|entry| entry["name"].as_str().expect("a name is a string"))
+            .collect();
+        assert_eq!(metrics, vec!["revenue"], "{json}");
+    }
+
+    /// `model_prefix` narrows [`super::CatalogNamesBody::of`]'s metrics pool the same way - the
+    /// `names`-index twin of [`model_prefix_narrows_the_catalog_bodys_metrics`].
+    #[test]
+    fn model_prefix_narrows_the_catalog_names_bodys_metrics() {
+        let bundle = bundle_with_two_metric_owning_models();
+        let view = ScopedView::everything(&bundle);
+        let body = super::CatalogNamesBody::of(&view, None, Some("ord"));
+        let json = serde_json::to_value(&body).expect("the names body serializes");
+        let metrics: Vec<&str> = json["metric_names"]
+            .as_array()
+            .expect("metric_names is a list")
+            .iter()
+            .map(|entry| entry["name"].as_str().expect("a name is a string"))
+            .collect();
+        assert_eq!(metrics, vec!["revenue"], "{json}");
     }
 }
