@@ -212,7 +212,7 @@ const PEM_UNENCRYPTED_PRIVATE_KEY_HEADER: &str = "-----BEGIN PRIVATE KEY-----";
 
 /// Returns a human-readable name for a TNS packet type, for use in diagnostic
 /// messages. Unrecognised types are named by their numeric value.
-fn packet_type_label(packet_type: u8) -> String {
+pub(crate) fn packet_type_label(packet_type: u8) -> String {
     match packet_type {
         constants::PACKET_TYPE_CONNECT => "CONNECT".to_string(),
         constants::PACKET_TYPE_ACCEPT => "ACCEPT".to_string(),
@@ -515,6 +515,33 @@ impl Transport {
 
     pub(crate) fn uses_native(&self) -> bool {
         self.protection.is_some()
+    }
+
+    /// Builds a connected, loopback-backed native transport for tests outside
+    /// this module that need a real `Client` to drive the reset handshake
+    /// without a live database. With `protected`, the client side carries the
+    /// same symmetric protection a completed native negotiation would have
+    /// installed, so a `DATA` packet the test writes through the matching
+    /// peer protection (`nne::protection_for_test_peer`) is read back
+    /// decrypted exactly as production code sees it.
+    #[cfg(test)]
+    pub(crate) fn native_pair_for_test(
+        max_packet_size: usize,
+        protected: bool,
+    ) -> (TcpStream, Self) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let mut transport = Self::new();
+        transport.low_level_transport = Some(LowLevelTransport::Tcp(client));
+        transport.native_requested = true;
+        transport.set_max_packet_size(max_packet_size);
+        transport.set_full_packet_size();
+        transport.set_timeout(Some(Duration::from_secs(2))).unwrap();
+        if protected {
+            transport.protection = Some(nne::protection_for_test());
+        }
+        (server, transport)
     }
 
     /// Negotiates TLS on the connection.

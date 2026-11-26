@@ -105,7 +105,6 @@ pub enum ErrorKind {
     StreamOperation,
     TlsOperation,
     TnsAliasNotFound(String, String),
-    UnableToRecover,
     UnexpectedError,
     UnexpectedNegativeInteger,
     UnexpectedRefuse(String),
@@ -462,9 +461,6 @@ impl fmt::Display for Error {
             ErrorKind::TnsAliasNotFound(file_name, alias) => {
                 write!(fmt, "unable to find \"{}\" in {}", alias, file_name)?
             }
-            ErrorKind::UnableToRecover => fmt.write_str(
-                "unable to recover from error: connection has been closed",
-            )?,
             ErrorKind::UnexpectedError => fmt.write_str("unexpected error")?,
             ErrorKind::UnexpectedNegativeInteger => fmt.write_str(
                 "internal error: read a negative integer when expecting a \
@@ -928,10 +924,6 @@ impl Error {
         alias: String,
     ) -> Error {
         Error::new(ErrorKind::TnsAliasNotFound(file_name, alias), None)
-    }
-
-    pub(crate) fn unable_to_recover() -> Error {
-        Error::new(ErrorKind::UnableToRecover, None)
     }
 
     pub(crate) fn unexpected_error(

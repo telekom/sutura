@@ -245,3 +245,13 @@ mod tests;
 pub(crate) fn protection_for_test() -> Protection {
     Protection::new((0..=255).collect(), 17, 5).unwrap()
 }
+
+/// The peer side of [`protection_for_test`]'s key material: swapping the
+/// directional hash state gives the other end of the same channel, so a test
+/// can seal a record as "the server" and have a `Client`-side transport built
+/// on `protection_for_test()` open it, the same way the two ends of a real
+/// native-encrypted connection stay in step without sharing sequence state.
+#[cfg(test)]
+pub(crate) fn protection_for_test_peer() -> Protection {
+    record::peer_for_test(protection_for_test())
+}

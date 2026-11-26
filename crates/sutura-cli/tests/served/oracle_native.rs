@@ -10,6 +10,40 @@ use crate::harness::{
     LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
 };
 
+/// Whether any tracing event's debug-formatted fields contain `needle` - used to check what an
+/// operator would see in the `run_sql: a leg did not run` debug line without depending on the
+/// exec-datafusion crate's own capture helper.
+#[derive(Default)]
+struct Names(std::sync::atomic::AtomicBool);
+
+struct Capture<'a>(&'a Names, &'static str);
+
+impl tracing::field::Visit for Capture<'_> {
+    fn record_debug(&mut self, _field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if format!("{value:?}").contains(self.1) {
+            self.0.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+struct Listening(std::sync::Arc<Names>, &'static str);
+
+impl tracing::Subscriber for Listening {
+    fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+    fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+    fn event(&self, event: &tracing::Event<'_>) {
+        event.record(&mut Capture(&self.0, self.1));
+    }
+    fn enter(&self, _span: &tracing::span::Id) {}
+    fn exit(&self, _span: &tracing::span::Id) {}
+}
+
 struct Tier {
     port: u16,
     service: String,
@@ -197,19 +231,50 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             &[],
         )
         .join("\n");
-        // A bad password is a login-phase failure, not the mid-session statement
-        // failure this change targets: on the legacy-verifier + native-encryption
-        // combination the server closes the socket right after its break marker
-        // instead of following up with an encrypted error record, so the driver
-        // surfaces a transport refusal here rather than the server's ORA code.
-        // Every other path still reads the real ORA-01017.
         assert!(
-            refused.contains("ORA-01017")
-                || (tier.channel.starts_with("transport_mode: native-encryption")
-                    && refused.contains("unable to recover from error")),
+            refused.contains("ORA-01017"),
             "the {path} must refuse the wrong password: {refused}"
         );
     }
+}
+
+/// On the native-encryption path, a statement the server itself fails (a table that does not
+/// exist) must reach the operator's log as that server error, not as the generic native-encryption
+/// refusal the unprotected break-marker packet used to produce (#2084): `run_sql`'s own debug line
+/// carries the driver's words verbatim (see `crates/sutura-app/src/raw.rs`'s `run_at`), so this
+/// checks the ORA code lands there once the fix admits the marker and reads the encrypted record
+/// that follows it.
+#[test]
+#[ignore = "requires just oracle-native-acceptance"]
+fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
+    let mut tier = Tier::here();
+    tier.legacy_user = tier.user.clone();
+    tier.legacy_password = tier.password.clone();
+    let case = "oracle-native-statement-failure";
+    let settings = format!(
+        "{}tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        tier.settings(case, false, false, false, FixtureSource::Oracle)
+    );
+    let deployment = std::panic::catch_unwind(|| start_configured(case, &settings))
+        .expect("native mode must let the correct credentials serve");
+    let names = std::sync::Arc::new(Names::default());
+    let reply = tracing::subscriber::with_default(Listening(std::sync::Arc::clone(&names), "ORA-00942"), || {
+        deployment.post(
+            &v1(sutura_http::constants::base_paths::RUN_SQL),
+            Some(TOKEN),
+            &serde_json::json!({ "statement": "select 1 from sutura_2084_no_such_table" }).to_string(),
+        )
+    });
+    assert_eq!(
+        reply.status, 200,
+        "the refusal is still a 200 with a closed reason: {}",
+        reply.body
+    );
+    assert_eq!(reply.json()["outcome"], "refusal", "{}", reply.body);
+    assert!(
+        names.0.load(std::sync::atomic::Ordering::SeqCst),
+        "the server's ORA-00942 must reach the debug log, not just a closed refusal reason"
+    );
 }
 
 #[test]
