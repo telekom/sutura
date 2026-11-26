@@ -5,7 +5,8 @@
 
 use super::{
     InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, PinnedAlgorithms,
-    ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenType, TransitProof,
+    ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenType,
+    TransitBinding, TransitProof,
 };
 
 fn resource() -> ResourceIdentifier {
@@ -40,7 +41,9 @@ fn behind_gateway() -> InboundIdentity {
         transit: TransitProof::new(
             ProofHeader::parse("x-transit-proof").expect("a test header is a header"),
             IssuerUrl::parse_transit_issuer("https://gateway.example.com").expect("a test issuer is an issuer"),
-            ResourceIdentifier::parse_transit_audience("https://sutura.example.com").expect("a test audience is one"),
+            TransitBinding::Audience(
+                ResourceIdentifier::parse_transit_audience("https://sutura.example.com").expect("a test audience is one"),
+            ),
             key_set(),
             PinnedAlgorithms::of(SigningAlgorithm::Es256),
             RequiredTokenType::Any,
@@ -331,7 +334,11 @@ fn each_mode_derives_one_requirement_and_they_differ_only_in_where_the_token_is(
     let requirement = direct.requirement();
     assert_eq!(requirement.location(), TokenLocation::AuthorizationBearer);
     assert_eq!(requirement.issuer(), &issuer());
-    assert_eq!(requirement.audience(), &resource(), "the audience IS the resource identifier");
+    assert_eq!(
+        requirement.audience().expect("direct mode always has an audience"),
+        &resource(),
+        "the audience IS the resource identifier"
+    );
     assert_eq!(requirement.algorithms().family(), KeyFamily::Rsa);
     assert_eq!(direct.mode(), "direct");
     assert!(direct.reads_the_authorization_header());
@@ -409,7 +416,9 @@ fn turning_the_class_check_off_is_a_word_and_never_a_silence() {
         transit: TransitProof::new(
             ProofHeader::parse("x-transit-proof").expect("a test header is a header"),
             IssuerUrl::parse_transit_issuer("https://gateway.example.com").expect("a test issuer is an issuer"),
-            ResourceIdentifier::parse_transit_audience("https://sutura.example.com").expect("a test audience is one"),
+            TransitBinding::Audience(
+                ResourceIdentifier::parse_transit_audience("https://sutura.example.com").expect("a test audience is one"),
+            ),
             key_set(),
             PinnedAlgorithms::of(SigningAlgorithm::Es256),
             RequiredTokenType::Any,

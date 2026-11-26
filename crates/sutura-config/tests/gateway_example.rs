@@ -10,7 +10,7 @@ mod tests {
     const AUDIENCE: &str = "/sutura";
 
     #[test]
-    fn the_tardis_example_loads_once_its_placeholders_are_filled() {
+    fn the_gateway_example_loads_once_its_placeholders_are_filled() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/tardis/conf/base.yaml");
         let written = std::fs::read_to_string(&path).expect("the example's settings are readable");
         for placeholder in ["<gateway-issuer>", "<audience>"] {
@@ -34,10 +34,24 @@ mod tests {
         assert_eq!(inbound.mode(), "behind-gateway");
         assert!(inbound.reads_the_authorization_header());
         let requirement = inbound.requirement();
-        assert_eq!(requirement.issuer().as_str(), ISSUER);
-        assert_eq!(requirement.audience().as_str(), AUDIENCE);
-        assert_eq!(requirement.token_type().as_str(), "jwt");
-        assert!(!requirement.single_use());
+        assert_eq!(
+            requirement.issuer().as_str(),
+            ISSUER,
+            "the example's filled-in issuer did not round-trip"
+        );
+        assert_eq!(
+            requirement
+                .audience()
+                .expect("this example configures transit_audience")
+                .as_str(),
+            AUDIENCE
+        );
+        assert_eq!(
+            requirement.token_type().as_str(),
+            "jwt",
+            "the example's token type did not round-trip"
+        );
+        assert!(!requirement.single_use(), "the example does not opt into single use");
         let grant = requirement
             .grant()
             .expect("the example grants scopes to an assertion with none");
@@ -53,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tardis_example_is_refused_while_its_placeholders_remain() {
+    fn the_gateway_example_is_refused_while_its_placeholders_remain() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/tardis/conf/base.yaml");
         let written = std::fs::read_to_string(path).expect("the example's settings are readable");
         let refused = Settings::load(&Sources::defaults(Environment::Development).with_overlay(written))

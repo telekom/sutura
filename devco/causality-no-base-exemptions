@@ -616,6 +616,26 @@ an_over_bound_catalog_body_with_more_than_the_omission_cap_carries_a_separate_co
 a_restricted_only_model_is_refused_byte_identically_to_an_unknown_one # crates/sutura-http/src/harness/catalog_identity.rs, a module new in this change (declared via a mod line in harness.rs, which the base run reverts); the crate does not compile this module at base
 a_restricted_metric_is_refused_byte_identically_to_an_unknown_one_over_catalog # crates/sutura-http/src/harness/catalog_identity.rs, a module new in this change (declared via a mod line in harness.rs, which the base run reverts); the crate does not compile this module at base
 a_granted_callers_model_filter_narrows_to_that_models_own_metrics # crates/sutura-http/src/harness/catalog_identity.rs, a module new in this change (declared via a mod line in harness.rs, which the base run reverts); the crate does not compile this module at base
+a_matching_path_matches # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts, so it does not compile there
+a_sibling_route_extending_the_prefix_as_text_does_not_match # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts
+a_prefix_without_a_trailing_slash_is_refused # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts
+a_prefix_without_a_leading_slash_is_refused # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts
+the_bare_root_is_refused # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts
+a_dot_dot_segment_is_refused # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts
+a_doubled_slash_is_refused # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts
+a_percent_sign_is_refused # crates/sutura-config/src/inbound/request_path.rs, a file this branch adds; module declared in inbound.rs, which the base run reverts
+a_requestpath_starting_with_the_configured_prefix_establishes # crates/sutura-http/src/inbound/tests/request_path.rs, a file this branch adds; module declared in tests.rs, which the base run reverts
+a_token_with_no_requestpath_is_refused # crates/sutura-http/src/inbound/tests/request_path.rs, a file this branch adds; module declared in tests.rs, which the base run reverts
+a_requestpath_not_starting_with_the_configured_prefix_is_refused # crates/sutura-http/src/inbound/tests/request_path.rs, a file this branch adds; module declared in tests.rs, which the base run reverts
+a_requestpath_extending_the_prefix_as_sibling_text_is_refused # crates/sutura-http/src/inbound/tests/request_path.rs, a file this branch adds; module declared in tests.rs, which the base run reverts
+a_token_carrying_an_audience_is_refused_even_with_a_matching_requestpath # crates/sutura-http/src/inbound/tests/request_path.rs, a file this branch adds; module declared in tests.rs, which the base run reverts
+a_requestpath_with_a_dot_dot_segment_is_refused # crates/sutura-http/src/inbound/tests/request_path.rs, a file this branch adds; module declared in tests.rs, which the base run reverts
+a_requestpath_with_a_doubled_slash_is_refused # crates/sutura-http/src/inbound/tests/request_path.rs, a file this branch adds; module declared in tests.rs, which the base run reverts
+a_request_path_prefix_with_its_reason_starts # new test in settings/tests/inbound.rs naming transit_request_path_prefix/transit_audience_absent_because wiring this branch adds; absent on base
+transit_audience_and_transit_request_path_prefix_together_do_not_start # new test in settings/tests/inbound.rs naming SettingsError::InboundTransitBindingBothGiven's wiring this branch adds; absent on base
+neither_transit_audience_nor_transit_request_path_prefix_does_not_start # new test in settings/tests/inbound.rs naming SettingsError::InboundTransitBindingNeitherGiven's wiring this branch adds; absent on base
+a_request_path_prefix_without_its_reason_does_not_start # new test in settings/tests/inbound.rs naming SettingsError::InboundRequestPathPrefixWithoutReason's wiring this branch adds; absent on base
+an_absent_because_reason_without_a_request_path_prefix_does_not_start # new test in settings/tests/inbound.rs naming SettingsError::InboundAudienceAbsentBecauseWithoutPrefix's wiring this branch adds; absent on base
 an_unknown_on_invalid_comment_spelling_is_refused # declared by `mod comment_policy_tests;` in a file the base run reverts (the module does not exist at base), so it is not compiled there
 control_character_sanitization_lets_a_c1_control_comment_through_replaced # declared by `mod comment_policy_tests;` in a file the base run reverts (the module does not exist at base), so it is not compiled there
 control_character_sanitization_lets_a_c1_control_table_comment_through_replaced # declared by `mod comment_policy_tests;` in a file the base run reverts (the module does not exist at base), so it is not compiled there

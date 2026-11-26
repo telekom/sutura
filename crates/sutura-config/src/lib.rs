@@ -138,8 +138,8 @@ pub use crate::governance::SpendBudget;
 pub use crate::inbound::{
     AddressClaim, ClaimName, ClientId, ExtraScopeClaims, GrantedScopes, InboundIdentity, InboundVerifier, InvalidAlgorithms,
     InvalidInboundValue, InvalidMcpPath, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, KeySetMaxStale, KeySetUrl, McpPath,
-    PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenAudience,
-    TokenLocation, TokenRequirement, TokenType, TransitProof,
+    PinnedAlgorithms, ProofHeader, ProofLifetime, RequestPathPrefix, RequiredTokenType, ResourceIdentifier, SigningAlgorithm,
+    TokenAudience, TokenLocation, TokenRequirement, TokenType, TransitBinding, TransitProof,
 };
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 pub use crate::operator::{

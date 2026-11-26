@@ -207,7 +207,10 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     assert_eq!(inbound.mode(), "direct");
     assert!(settings.security().describes_identity());
     let requirement = inbound.requirement();
-    assert_eq!(requirement.audience().as_str(), "https://sutura.example.com");
+    assert_eq!(
+        requirement.audience().expect("direct mode always has an audience").as_str(),
+        "https://sutura.example.com"
+    );
     assert_eq!(requirement.issuer().as_str(), "https://issuer.example.com");
     assert!(
         matches!(requirement.key_set(), KeySetLocation::File(file) if file.path() == Path::new("/etc/sutura/jwks.json")),
@@ -418,7 +421,14 @@ fn an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error() {
         .expect("the declaration is there")
         .identity()
         .expect("a JWT verifier");
-    assert_eq!(inbound.requirement().audience().as_str(), "https://other.example.com");
+    assert_eq!(
+        inbound
+            .requirement()
+            .audience()
+            .expect("direct mode always has an audience")
+            .as_str(),
+        "https://other.example.com"
+    );
 
     let sources = Sources::defaults(Environment::Development)
         .with_overlay(format!("security:\n{DIRECT_INBOUND}"))
@@ -676,7 +686,11 @@ fn a_transit_audience_may_be_a_path_and_is_never_cleartext() {
         .identity()
         .expect("a JWT verifier");
     assert_eq!(
-        inbound.requirement().audience().as_str(),
+        inbound
+            .requirement()
+            .audience()
+            .expect("direct mode always has an audience")
+            .as_str(),
         "/hub/My-MCP/v1",
         "stored as written"
     );
@@ -754,7 +768,14 @@ fn a_direct_audience_is_its_own_key_and_never_cleartext() {
         .expect("the declaration is there")
         .identity()
         .expect("a JWT verifier");
-    assert_eq!(inbound.requirement().audience().as_str(), CLIENT);
+    assert_eq!(
+        inbound
+            .requirement()
+            .audience()
+            .expect("direct mode always has an audience")
+            .as_str(),
+        CLIENT
+    );
     let refused = load_inbound_overlay(format!(
         "security:\n{DIRECT_INBOUND}    audience: \"http://sutura.example.com\"\n"
     ))
@@ -823,4 +844,75 @@ fn a_key_set_max_stale_outside_its_range_does_not_start() {
     for (declared, seconds) in [(DIRECT_INBOUND, 300), (GATEWAY_INBOUND, 86_400)] {
         drop(loads(overlay(declared, seconds)));
     }
+}
+
+/// `GATEWAY_INBOUND` with `transit_audience` replaced by the request-path alternative, both of its
+/// settings together.
+fn gateway_bound_by_path() -> String {
+    GATEWAY_INBOUND.replace(
+        "transit_audience: \"https://sutura.example.com\"",
+        "transit_request_path_prefix: \"/hub/app/v1/\"\n    transit_audience_absent_because: \"the gateway signs no aud claim\"",
+    )
+}
+
+#[test]
+fn a_request_path_prefix_with_its_reason_starts() {
+    let settings = loads(format!("security:\n{}", gateway_bound_by_path()));
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity()
+        .expect("a JWT verifier");
+    assert!(inbound.requirement().audience().is_none());
+}
+
+#[test]
+fn transit_audience_and_transit_request_path_prefix_together_do_not_start() {
+    let both = format!(
+        "security:\n{GATEWAY_INBOUND}    transit_request_path_prefix: \"/hub/app/v1/\"\n    transit_audience_absent_because: \"why\"\n"
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(both))
+        .expect_err("both bindings together are refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundTransitBindingBothGiven),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn neither_transit_audience_nor_transit_request_path_prefix_does_not_start() {
+    let neither = GATEWAY_INBOUND.replace("transit_audience: \"https://sutura.example.com\"\n    ", "");
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{neither}")))
+        .expect_err("no binding at all is refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundTransitBindingNeitherGiven),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn a_request_path_prefix_without_its_reason_does_not_start() {
+    let without_reason = gateway_bound_by_path().replace(
+        "    transit_audience_absent_because: \"the gateway signs no aud claim\"\n",
+        "",
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{without_reason}")))
+        .expect_err("the prefix with no acknowledgement is refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundRequestPathPrefixWithoutReason),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_absent_because_reason_without_a_request_path_prefix_does_not_start() {
+    let orphaned_reason = format!("security:\n{GATEWAY_INBOUND}    transit_audience_absent_because: \"why\"\n");
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(orphaned_reason))
+        .expect_err("a reason with no prefix to acknowledge is refused");
+    assert!(
+        matches!(error.reason(), SettingsError::InboundAudienceAbsentBecauseWithoutPrefix),
+        "{error:?}"
+    );
 }

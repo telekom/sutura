@@ -153,10 +153,12 @@ impl InboundVerifier {
             VerifierPolicy::Jwt(identity) => identity.requirement().issuer(),
         }
     }
+    /// `None` only for [`VerifierPolicy::Jwt`] configured with the request-path alternative to
+    /// `transit_audience` - see [`super::TokenRequirement::audience`].
     #[must_use]
-    pub const fn audience(&self) -> &super::TokenAudience {
+    pub const fn audience(&self) -> Option<&super::TokenAudience> {
         match &self.policy {
-            VerifierPolicy::Google(google) => google.client(),
+            VerifierPolicy::Google(google) => Some(google.client()),
             VerifierPolicy::Jwt(identity) => identity.requirement().audience(),
         }
     }
