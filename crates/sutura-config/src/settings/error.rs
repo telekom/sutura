@@ -162,6 +162,16 @@ pub enum SettingsError {
     InboundKeyNotForMode { key: &'static str, mode: &'static str },
     #[error("`security.inbound` names both `key_set_file` and `key_set_url` - one key set, one source")]
     InboundKeySetTwice,
+    /// `token_header` and `requires_gateway` are written together or not at all -
+    /// `github.com/telekom/sutura#2089`. One present without the other is a deployment that believes
+    /// it names a pairing it has not actually declared.
+    #[error("`security.inbound` names `token_header` without `requires_gateway`, or the reverse - both or neither")]
+    RequiresGatewayPairIncomplete,
+    #[error("`security.inbound.requires_gateway` is not a usable verifier id")]
+    RequiresGatewayId {
+        #[source]
+        cause: sutura_domain::identity::InvalidVerifierId,
+    },
     /// A configured grant of raw SQL. `run_sql` is enabled and acknowledged by name, never handed to
     /// every scopeless assertion a gateway signs.
     #[error(

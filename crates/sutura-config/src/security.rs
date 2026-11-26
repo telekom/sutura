@@ -536,6 +536,8 @@ mod tests {
             algorithms: PinnedAlgorithms::of(SigningAlgorithm::Rs256),
             token_type: crate::inbound::RequiredTokenType::access_token(),
             address_claim: crate::inbound::AddressClaim::VerifiedEmail,
+            token_header: None,
+            requires_gateway: None,
         }
     }
 

@@ -662,6 +662,30 @@ pub enum NotFitToServe {
     },
     #[error("delegation source `{alias}` must admit exactly one direct verifier, found {found}")]
     DelegationVerifierCardinality { alias: SourceName, found: usize },
+    /// `github.com/telekom/sutura#2089`: `requires_gateway` on `id` names no declared verifier.
+    #[error("direct verifier `{id}` names `requires_gateway: {target}`, which is not a declared verifier id")]
+    RequiresGatewayUnknown {
+        id: sutura_domain::identity::VerifierId,
+        target: sutura_domain::identity::VerifierId,
+    },
+    /// `requires_gateway` on `id` names a verifier that is not `behind-gateway`.
+    #[error("direct verifier `{id}` names `requires_gateway: {target}`, but `{target}` is not a behind-gateway verifier")]
+    RequiresGatewayNotBehindGateway {
+        id: sutura_domain::identity::VerifierId,
+        target: sutura_domain::identity::VerifierId,
+    },
+    /// The `behind-gateway` target of `requires_gateway` reads a header other than `Authorization` -
+    /// the pairing requires its assertion to arrive where RFC 6750 puts a bearer token, since the
+    /// caller's own token has moved to `token_header` to make room for it.
+    #[error("direct verifier `{id}` requires gateway `{target}`, which does not read `Authorization`")]
+    RequiresGatewayNotInAuthorization {
+        id: sutura_domain::identity::VerifierId,
+        target: sutura_domain::identity::VerifierId,
+    },
+    /// `token_header` names `authorization` - the one header the paired gateway assertion must keep
+    /// to itself.
+    #[error("direct verifier `{id}` names `token_header: authorization`, which is reserved for the required gateway assertion")]
+    RequiresGatewayHeaderCollision { id: sutura_domain::identity::VerifierId },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;

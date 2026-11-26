@@ -251,6 +251,17 @@ pub enum TokenRejected {
     /// produces; a caller does not learn which locations are configured.
     #[error("tokens were presented in more than one configured header location")]
     AmbiguousProof,
+    /// A `direct` verifier paired with `requires_gateway` - `github.com/telekom/sutura#2089` - and the
+    /// gateway's own assertion was absent from, or did not verify in, `Authorization`.
+    ///
+    /// **The one explicit exception to [`Self::AmbiguousProof`], never a general loosening of it.**
+    /// This deployment still refuses a caller token and a gateway assertion arriving in the same
+    /// header, or two unrelated verifiers' tokens arriving together; this variant exists only because
+    /// one verifier now deliberately reads two headers for one request. The cause is boxed and logged,
+    /// never rendered to the caller: whether the assertion was missing, wrong-issuer, expired or
+    /// forged, the response is the same `401`.
+    #[error("the required gateway assertion was absent or did not verify")]
+    GatewayAssertionRequired(#[source] Box<Self>),
 }
 
 /// Why a presented token did not verify, when it did not.

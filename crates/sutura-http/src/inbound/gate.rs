@@ -36,6 +36,20 @@
 //! Apart from the numeric token-size refusal, the response does **not** say which check failed.
 //! The log says - through the `#[source]` chain on `TokenRejected` - and the caller does not, because
 //! "the signature verified and the audience did not" tells somebody which half of a forgery to fix.
+//!
+//! # Two headers on one request, deliberately (`github.com/telekom/sutura#2089`)
+//!
+//! A request presenting credentials in two configured locations is refused as
+//! [`TokenRejected::AmbiguousProof`] - `github.com/telekom/sutura#1884`. A `direct` verifier declared
+//! with `requires_gateway` is the one explicit exception, not a loosening of that rule: its paired
+//! `behind-gateway` assertion lives in `required_gateway`, a field `select_from` never iterates, so
+//! the gate still refuses any *other* two-location collision exactly as before. The caller is always
+//! whoever the primary token names; the gateway assertion is checked in full - issuer, keys, `typ`,
+//! lifetime - and its result is discarded rather than returned, so it can never become the caller. A
+//! caller token placed in `Authorization` instead of the paired assertion fails the same checks a
+//! forged or wrong-issuer assertion would; an anonymous request is refused as it always was. What this
+//! does not bind: nothing here cryptographically ties the two tokens together beyond both arriving on
+//! the same HTTP request at the same instant - there is no shared nonce or hash between them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -104,6 +118,13 @@ pub struct InboundGate {
     /// case. When non-empty, `establish` peeks at the unverified `iss` claim to select the right
     /// sub-gate before doing any signature work.
     also_accept: BTreeMap<String, Self>,
+    /// The `behind-gateway` sub-gate a `direct` verifier's `requires_gateway` names -
+    /// `github.com/telekom/sutura#2089`. Deliberately never in `also_accept`: that map is what
+    /// [`Self::select_from`] dedups and refuses as ambiguous when two locations both carry a token,
+    /// and this pairing is the one case where two locations are expected to carry one together. A
+    /// successful verification here never produces the caller - only [`Self::establish_token`] on
+    /// `self` does that - so the gateway's own identity can never substitute for the caller's.
+    required_gateway: Option<Box<Self>>,
 }
 
 /// The gate could not be built.
@@ -117,6 +138,18 @@ pub enum InboundNotUsable {
     Unreadable(#[source] KeySetUnavailable),
     #[error("the client for `security.inbound.key_set_url` could not be built")]
     Client(#[source] KeySetClientUnusable),
+}
+
+/// Finds the already-built gate validating `target_issuer`, `self` or a sub-gate, mutably.
+///
+/// Issuer rather than id: `InboundGate` does not keep the declared id once built, and
+/// `NotFitToServe::DuplicateVerifierIssuer` already refuses two verifiers sharing one issuer, so the
+/// lookup is unique whenever it succeeds.
+fn find_mut<'gate>(gate: &'gate mut InboundGate, target_issuer: &str) -> Option<&'gate mut InboundGate> {
+    if gate.issuer == target_issuer {
+        return Some(gate);
+    }
+    gate.also_accept.get_mut(target_issuer)
 }
 
 enum Verification {
@@ -164,6 +197,7 @@ impl InboundGate {
             issuer: declaration.issuer().as_str().to_owned(),
             path: declaration.path().clone(),
             also_accept: BTreeMap::new(),
+            required_gateway: None,
         }
     }
 
@@ -253,6 +287,26 @@ impl InboundGate {
                 Ok((next.issuer.clone(), next))
             })
             .collect::<Result<_, InboundNotUsable>>()?;
+        // `requires_gateway` pairing - `github.com/telekom/sutura#2089`. A standalone copy of the
+        // named `behind-gateway` sub-gate is attached to the paired `direct` gate's own
+        // `required_gateway`, never into `also_accept`: that map is what `select_from` dedups and
+        // refuses as ambiguous, and this pairing is the one case where two header locations are
+        // meant to both carry a token on the same request. `sutura_config::NotFitToServe`'s
+        // `RequiresGateway*` refusals already proved every named target resolves to a usable
+        // `behind-gateway` verifier before this runs, so a lookup miss here is unreachable rather
+        // than silently ignored.
+        for declaration in declarations {
+            let Some(target_id) = declaration.requires_gateway() else {
+                continue;
+            };
+            let Some(target_declaration) = declarations.iter().find(|candidate| candidate.id() == target_id) else {
+                continue;
+            };
+            let target_gate = build(target_declaration)?;
+            if let Some(slot) = find_mut(&mut gate, declaration.issuer().as_str()) {
+                slot.required_gateway = Some(Box::new(target_gate));
+            }
+        }
         Ok(Some(gate))
     }
 
@@ -295,6 +349,7 @@ impl InboundGate {
             issuer: String::from(requirement.issuer().as_str()),
             path: McpPath::conventional(),
             also_accept: BTreeMap::new(),
+            required_gateway: None,
         }
     }
 
@@ -330,6 +385,13 @@ impl InboundGate {
             if let Verification::Jwt { ref keys, .. } = gate.verification {
                 KeySetCache::watch_until_shutdown(keys, MAX_KEY_SET_AGE, shutdown.clone());
             }
+            // The paired gateway sub-gate's own key set rotates too - `github.com/telekom/sutura#2089`
+            // - and it is reachable only through `required_gateway`, never through `self.gates()`.
+            if let Some(ref required) = gate.required_gateway
+                && let Verification::Jwt { ref keys, .. } = required.verification
+            {
+                KeySetCache::watch_until_shutdown(keys, MAX_KEY_SET_AGE, shutdown.clone());
+            }
         }
     }
 
@@ -354,6 +416,17 @@ impl InboundGate {
     #[cfg(test)]
     pub(crate) fn with_also_accept(mut self, also_accept: std::collections::BTreeMap<String, Self>) -> Self {
         self.also_accept = also_accept;
+        self
+    }
+
+    /// Attaches the `behind-gateway` sub-gate a `direct` verifier's `requires_gateway` names -
+    /// `github.com/telekom/sutura#2089`.
+    ///
+    /// **Test-only**, for the same reason as [`Self::with_also_accept`]: production builds this
+    /// through [`Self::from_verifiers_with_outbound`].
+    #[cfg(test)]
+    pub(crate) fn with_required_gateway(mut self, required_gateway: Self) -> Self {
+        self.required_gateway = Some(Box::new(required_gateway));
         self
     }
 
@@ -441,18 +514,48 @@ impl InboundGate {
             // Single-verifier fast path: skip the issuer peek entirely.
             let presented = self.presented(headers)?;
             self.verification.check_size(presented)?;
-            return self.establish_token(presented, now).await;
+            let caller = self.establish_token(presented, now).await?;
+            self.check_required_gateway(headers, now).await?;
+            return Ok(caller);
         }
         let (gate, presented) = self.select_gate(headers)?;
         gate.verification.check_size(presented)?;
-        gate.establish_token(presented, now).await
+        let caller = gate.establish_token(presented, now).await?;
+        gate.check_required_gateway(headers, now).await?;
+        Ok(caller)
     }
 
     /// Filters by the mounted MCP path before reading any issuer or consulting keys.
     pub async fn establish_on(&self, path: &McpPath, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
         let (gate, presented) = self.select_from(headers, Some(path))?;
         gate.verification.check_size(presented)?;
-        gate.establish_token(presented, now).await
+        let caller = gate.establish_token(presented, now).await?;
+        gate.check_required_gateway(headers, now).await?;
+        Ok(caller)
+    }
+
+    /// Checks this gate's paired gateway assertion, where `requires_gateway` declared one -
+    /// `github.com/telekom/sutura#2089`. Absent for every other verifier, where it is a no-op.
+    ///
+    /// **Fully re-runs the sub-gate's own establish path** - size bound, key id, key lookup,
+    /// signature, issuer, audience, `typ`, lifetime - on whatever `Authorization` carries, and
+    /// discards the resulting caller: only `self.establish_token` above produced the one that is
+    /// returned. A user token placed in `Authorization` fails this exactly as any other wrong-issuer,
+    /// wrong-audience or wrong-`typ` token would; an absent assertion is `Absent` the same way an
+    /// anonymous request to any other verifier is. The cause is boxed rather than flattened, so the
+    /// log keeps the full chain while the response still says only `401`.
+    async fn check_required_gateway(&self, headers: &HeaderMap, now: Instant) -> Result<(), TokenRejected> {
+        let Some(ref target) = self.required_gateway else {
+            return Ok(());
+        };
+        async {
+            let presented = target.presented(headers)?;
+            target.verification.check_size(presented)?;
+            target.establish_token(presented, now).await?;
+            Ok::<(), TokenRejected>(())
+        }
+        .await
+        .map_err(|cause| TokenRejected::GatewayAssertionRequired(Box::new(cause)))
     }
 
     /// Reads each distinct location once, refusing competing proofs before issuer selection.
@@ -573,6 +676,7 @@ impl core::fmt::Debug for InboundGate {
             .field("header", &self.header)
             .field("realm", &self.realm)
             .field("also_accept_count", &self.also_accept.len())
+            .field("requires_gateway", &self.required_gateway.is_some())
             .finish_non_exhaustive()
     }
 }

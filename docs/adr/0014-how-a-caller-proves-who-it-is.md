@@ -734,3 +734,27 @@ verifying a human token. Custom brokers remain an in-process trust boundary.
 The authenticated caller quota is shared across API, MCP and Flight after token verification.
 The existing outer network quota remains, including its shared-address coupling. Neither these
 controls nor the audit verifier fields establish source impersonation beyond a recorded venue.
+
+## Fifteenth amendment, 2026-11-26: `direct` paired with a named `behind-gateway` entry
+
+**Status of the amendment: accepted.** `github.com/telekom/sutura#2089`. A front end that forwards
+the caller's own token sits in front of some deployments, adding its own assertion rather than
+replacing the caller's token (the sixth amendment's shape, `Authorization: Bearer <gateway token>`,
+is the other one: there the caller's own token never reaches this deployment at all). Until now
+there was no declaration for *both*: the caller's own token and a gateway's assertion arriving on
+the same request, and `github.com/telekom/sutura#1884` refuses two configured credential locations
+on one request as ambiguous.
+
+A `direct` verifier may now set `token_header` to a header name other than `Authorization` and
+`requires_gateway` to another declared verifier's id. The caller's token moves to `token_header`,
+freeing `Authorization` for that named verifier's gateway assertion, which must be a
+`behind-gateway` entry reading `Authorization` itself. Internal caller identity, scopes and any
+delegation hop are unchanged from plain `direct`: all three come from the user token, never from
+the gateway assertion. Config refuses `requires_gateway` naming no declared verifier, naming a
+verifier that is not `behind-gateway`, naming one that does not read `Authorization`, or a
+`token_header` of `authorization` on the same entry - and refuses `token_header` or
+`requires_gateway` declared without the other. The gateway assertion is checked in full (issuer,
+JWKS, `typ`, lifetime, binding) and its absence or failure refuses the whole request; a user token
+placed in `Authorization` does not satisfy that check, since it is checked against the gateway
+sub-gate's own issuer and key set, not the caller's. This is the one explicit exception the
+`#1884` rule carves out, not a general loosening of it.

@@ -52,6 +52,8 @@ fn direct_from_url() -> InboundIdentity {
         algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
         token_type: RequiredTokenType::access_token(),
         address_claim: sutura_config::AddressClaim::VerifiedEmail,
+        token_header: None,
+        requires_gateway: None,
     }
 }
 

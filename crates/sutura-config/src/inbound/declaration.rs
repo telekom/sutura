@@ -176,6 +176,25 @@ impl InboundVerifier {
     pub fn requirement(&self) -> Option<TokenRequirement<'_>> {
         self.identity().map(InboundIdentity::requirement)
     }
+
+    /// `direct`: the id of the `behind-gateway` entry this verifier also requires an assertion from,
+    /// if it was declared paired - `github.com/telekom/sutura#2089`.
+    #[must_use]
+    pub fn requires_gateway(&self) -> Option<&VerifierId> {
+        match self.identity()? {
+            InboundIdentity::Direct { requires_gateway, .. } => requires_gateway.as_ref(),
+            InboundIdentity::BehindGateway { .. } => None,
+        }
+    }
+
+    /// `direct`: the header a paired caller token arrives in, if it was declared paired.
+    #[must_use]
+    pub fn token_header(&self) -> Option<&super::ProofHeader> {
+        match self.identity()? {
+            InboundIdentity::Direct { token_header, .. } => token_header.as_ref(),
+            InboundIdentity::BehindGateway { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

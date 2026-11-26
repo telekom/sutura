@@ -1,11 +1,11 @@
 diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
 --- a/crates/sutura-http/src/inbound/gate.rs
 +++ b/crates/sutura-http/src/inbound/gate.rs
-@@ -440,7 +440,6 @@
+@@ -513,7 +513,6 @@
          if self.also_accept.is_empty() {
              // Single-verifier fast path: skip the issuer peek entirely.
              let presented = self.presented(headers)?;
 -            self.verification.check_size(presented)?;
-             return self.establish_token(presented, now).await;
-         }
-         let (gate, presented) = self.select_gate(headers)?;
+             let caller = self.establish_token(presented, now).await?;
+             self.check_required_gateway(headers, now).await?;
+             return Ok(caller);

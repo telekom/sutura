@@ -8,6 +8,13 @@
 //! [`InboundIdentity::BehindGateway`] makes a directly exposed deployment accept an assertion anybody
 //! can mint.
 //!
+//! `direct` may also name a fronting component's own `behind-gateway` entry, with `token_header` and
+//! `requires_gateway`: the caller still authenticates with their own token, read from `token_header`
+//! instead of `Authorization`, and the named entry's assertion must also verify, in full, in
+//! `Authorization` on the same request - `github.com/telekom/sutura#2089`. See
+//! `sutura_http::InboundGate`'s module documentation for how that pairing is the one explicit
+//! exception to refusing two configured locations at once, and what it does not bind.
+//!
 //! So the mode is a required key **inside** the declaration, and the declaration as a whole is
 //! optional. Those are two different absences and the difference matters:
 //!
@@ -69,6 +76,7 @@ mod audience;
 mod declaration;
 pub mod google;
 mod key_set;
+mod lifetime;
 mod primitive;
 mod scope;
 mod token_bytes;
@@ -77,9 +85,10 @@ pub use crate::inbound::address_claim::{AddressClaim, ClaimName};
 pub use crate::inbound::audience::{ClientId, TokenAudience};
 pub use crate::inbound::declaration::{InboundVerifier, InvalidMcpPath, McpPath};
 pub use crate::inbound::key_set::{KeySetLocation, KeySetMaxStale, KeySetUrl};
+pub use crate::inbound::lifetime::{ProofLifetime, TokenType};
 pub use crate::inbound::primitive::{
-    InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
-    ResourceIdentifier, SigningAlgorithm, TokenType,
+    InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ResourceIdentifier,
+    SigningAlgorithm,
 };
 pub use crate::inbound::scope::{ExtraScopeClaims, GrantedScopes};
 pub use crate::inbound::token_bytes::MaxTokenBytes;
@@ -309,6 +318,15 @@ pub enum InboundIdentity {
         token_type: RequiredTokenType,
         /// Which claim names the caller's address. See [`AddressClaim`].
         address_claim: AddressClaim,
+        /// The header the caller's own token arrives in, instead of `Authorization`. Present only
+        /// paired with `requires_gateway` - `github.com/telekom/sutura#2089`.
+        token_header: Option<ProofHeader>,
+        /// The id of a `behind-gateway` entry whose own assertion must also be present, in
+        /// `Authorization`, on the same request. The one named exception to the rule that a request
+        /// presenting credentials in two configured locations is refused - see
+        /// `crate::settings::admission::verifier_refusals` for what makes the pairing admissible, and
+        /// `sutura_http::InboundGate` for how the second check never becomes the caller.
+        requires_gateway: Option<sutura_domain::identity::VerifierId>,
     },
     /// A fronting component authenticated the caller. This deployment validates a **signed identity
     /// assertion** the component issued, and derives the subject from that assertion's own claims
@@ -525,12 +543,18 @@ impl InboundIdentity {
                 ref algorithms,
                 ref token_type,
                 ref address_claim,
+                ref token_header,
+                ..
             } => TokenRequirement {
-                // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it.
-                // That is what makes `security.access_token` and this mode a collision on one
+                // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it -
+                // unless `token_header` names a different one, paired with `requires_gateway`. That is
+                // what makes `security.access_token` and the default and this mode a collision on one
                 // header, refused at startup - see `NotFitToServe::DeploymentTokenSharesTheHeader`.
                 max_token_bytes: resource.max_token_bytes(),
-                location: TokenLocation::AuthorizationBearer,
+                location: match *token_header {
+                    Some(ref header) => TokenLocation::Header { name: header },
+                    None => TokenLocation::AuthorizationBearer,
+                },
                 issuer: authorization_server,
                 audience: resource.audience(),
                 resource: Some(resource),

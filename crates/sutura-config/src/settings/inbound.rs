@@ -53,6 +53,12 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
         "behind-gateway" => {
             read_only_in(written.audience.is_some(), TokenAudience::KEY, "direct")?;
             read_only_in(written.extra_scope_claims.is_some(), ExtraScopeClaims::KEY, "direct")?;
+            read_only_in(written.token_header.is_some(), ProofHeader::TOKEN_HEADER_KEY, "direct")?;
+            read_only_in(
+                written.requires_gateway.is_some(),
+                "security.inbound.requires_gateway",
+                "direct",
+            )?;
             let transit = TransitProof::new(
                 ProofHeader::parse(required(written.transit_header.as_deref(), ProofHeader::KEY, mode)?)
                     .map_err(|cause| SettingsError::InboundValue { cause })?,
@@ -123,6 +129,20 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                 },
             },
             address_claim,
+            token_header: match (written.token_header.as_deref(), written.requires_gateway.as_deref()) {
+                (None, None) => None,
+                (Some(_), None) | (None, Some(_)) => return Err(SettingsError::RequiresGatewayPairIncomplete),
+                (Some(header), Some(_)) => Some(
+                    ProofHeader::parse_named(ProofHeader::TOKEN_HEADER_KEY, header)
+                        .map_err(|cause| SettingsError::InboundValue { cause })?,
+                ),
+            },
+            requires_gateway: match written.requires_gateway.as_deref() {
+                None => None,
+                Some(id) => Some(
+                    sutura_domain::identity::VerifierId::parse(id).map_err(|cause| SettingsError::RequiresGatewayId { cause })?,
+                ),
+            },
         }),
     }
 }
