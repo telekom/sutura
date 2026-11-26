@@ -54,12 +54,12 @@ fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
     let view = ScopedView::everything(&bundle);
     let model_label = "model orders (table orders)";
     let model_description = "Orders, one row per order.";
-    let disabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, false, None, None);
+    let disabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, false, None, None, None);
     let disabled_json = serde_json::to_value(&disabled).expect("the catalog serializes");
     assert!(disabled_json.get("models").is_none(), "{disabled_json}");
     assert!(!disabled.as_text().contains(model_label));
 
-    let enabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None, None);
+    let enabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, true, None, None, None);
     let enabled_json = serde_json::to_value(&enabled).expect("the catalog serializes");
     assert_eq!(enabled_json["models"][0]["name"], "orders");
     assert_eq!(enabled_json["models"][0]["columns"][0]["name"], "amount_cents");
@@ -67,7 +67,7 @@ fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
     assert!(enabled.as_text().contains(model_label));
     assert!(enabled.as_text().contains(&format!("> {model_description}")));
 
-    let omitted = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true, None, None);
+    let omitted = CatalogContent::of_with_physical_schema(&view, CatalogProse::Omitted, None, true, None, None, None);
     let omitted_json = serde_json::to_value(&omitted).expect("the catalog serializes");
     assert!(omitted_json["models"][0].get("description").is_none());
     assert!(!omitted.as_text().contains(model_description));

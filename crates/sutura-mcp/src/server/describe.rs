@@ -11,7 +11,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, ErrorCode
 use sutura_app::surface::Surface;
 
 use super::{MalformedQuestion, RenderedCause, invalid};
-use crate::wire::{CatalogContent, DescribeCatalogArgs};
+use crate::wire::{CatalogContent, DescribeCatalogArgs, NamesIndexContent};
 
 /// The catalog tool's arguments: at most one of `model` or `metric`, never both.
 ///
@@ -61,6 +61,9 @@ pub(super) fn describe<S>(
     list_physical_schema: bool,
     model: Option<String>,
     metric: Option<String>,
+    model_prefix: Option<&str>,
+    names: bool,
+    after: Option<&str>,
 ) -> Result<CallToolResult, ErrorData>
 where
     S: Surface,
@@ -70,6 +73,21 @@ where
     // parse error happened to run first.
     if model.is_some() && metric.is_some() {
         return Err(model_and_metric_together());
+    }
+    // `names` and `model_prefix` are a different mode and a different narrowing from `model`/
+    // `metric` - checked up front for the same reason the pair above is, so a caller that combined
+    // modes gets one refusal naming the actual conflict rather than a silent pick of one.
+    if names && (model.is_some() || metric.is_some()) {
+        return Err(names_incompatible_with_model_or_metric());
+    }
+    if model_prefix.is_some() && (model.is_some() || metric.is_some()) {
+        return Err(model_prefix_incompatible_with_model_or_metric());
+    }
+    if after.is_some() && !names {
+        return Err(after_requires_names());
+    }
+    if model_prefix.is_some_and(str::is_empty) {
+        return Err(empty_model_prefix());
     }
     // The setting reaches the CONTENT and not only the rendering, which is the whole of `H1` in
     // `#266`: the text block honoured it while `structured_content` beside it carried every
@@ -81,6 +99,17 @@ where
     // doc above for why `scoped_for` maps an absent or process-owner caller to the whole bundle.
     let definitions = service.definitions();
     let view = sutura_app::scoped_for(&definitions, context);
+
+    // `names: true` is a separate mode entirely - a names-only, paged index rather than the full
+    // listing - so it is answered and returned here, before `model`/`metric` are even parsed (the
+    // checks above already proved neither was given alongside it).
+    if names {
+        let listing = NamesIndexContent::of(&view, after, model_prefix);
+        let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
+        result.structured_content = serde_json::to_value(&listing).ok();
+        return Ok(result);
+    }
+
     // Parsed into the same newtype every other identifier on this surface goes through, and checked
     // against THIS caller's own view - never the bare bundle - so a `model` naming something real but
     // invisible to this caller is refused exactly as absent would be, per `docs/adr/0028`.
@@ -124,6 +153,7 @@ where
         list_physical_schema,
         model.as_ref(),
         metric.as_ref(),
+        model_prefix,
     );
     let mut result = CallToolResult::success(vec![ContentBlock::text(listing.as_text())]);
     // `ok()` rather than a propagated error, for the reason `produced` gives: the content is strings,
@@ -167,4 +197,40 @@ fn model_and_metric_together() -> ErrorData {
         "give at most one of `model` and `metric`, not both",
         None,
     )
+}
+
+/// `names: true` given alongside `model` or `metric` - a different mode from either narrowing, not a
+/// third narrowing stacked on top of them.
+fn names_incompatible_with_model_or_metric() -> ErrorData {
+    ErrorData::new(
+        ErrorCode::INVALID_PARAMS,
+        "`names` is mutually exclusive with `model` and `metric`",
+        None,
+    )
+}
+
+/// `model_prefix` given alongside `model` or `metric` - both already narrow to one name or one
+/// metric, so a prefix on top of either names nothing new.
+fn model_prefix_incompatible_with_model_or_metric() -> ErrorData {
+    ErrorData::new(
+        ErrorCode::INVALID_PARAMS,
+        "`model_prefix` is mutually exclusive with `model` and `metric`",
+        None,
+    )
+}
+
+/// `after` given without `names: true` - a cursor into an index that was never asked for.
+fn after_requires_names() -> ErrorData {
+    ErrorData::new(
+        ErrorCode::INVALID_PARAMS,
+        "`after` is only meaningful with `names: true`",
+        None,
+    )
+}
+
+/// `model_prefix` given as the empty string - matches every name, which is already what omitting it
+/// does, so an empty prefix is refused rather than silently accepted as a no-op a caller likely did
+/// not intend.
+fn empty_model_prefix() -> ErrorData {
+    ErrorData::new(ErrorCode::INVALID_PARAMS, "`model_prefix` must not be empty", None)
 }

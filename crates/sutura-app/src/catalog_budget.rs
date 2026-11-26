@@ -138,9 +138,54 @@ pub fn omission_reserve<T>(candidates: &[T], mut entry_cost: impl FnMut(&T) -> u
     OMISSION_HEADER_RESERVE + costs.into_iter().take(max_omittable).sum::<usize>()
 }
 
+/// A page of names plus the cursor to resume from, `None` once the index is exhausted - see
+/// [`paged_names`].
+pub type PagedNames<T> = (Vec<T>, Option<String>);
+
+/// Pages a caller-visible, sorted name set behind a `names`-only index.
+///
+/// The mechanism that keeps every item reachable once a listing's own `MAX_OMITTED_NAMES`-capped
+/// omission list cannot name all of them (`github.com/telekom/sutura#2083`).
+///
+/// `items` is walked in order (the caller's own sort - typically a `BTreeMap`'s, so the same `after`
+/// cursor means the same resume point across calls), filtered to names strictly greater than
+/// `after` when given and, separately, to names starting with `prefix` when given, then packed into
+/// `budget` bytes by `cost` the same way [`fill_to_budget`] packs any pool - the first candidate is
+/// always included even alone over budget, so a budget too small for one item still yields that one
+/// item rather than an empty page.
+///
+/// Returns the page plus a cursor: `Some(last included name)` once a candidate did not fit (there is
+/// more to page through - call again with `after` set to it), `None` once every candidate that
+/// matched `after`/`prefix` fit (the index is exhausted for that prefix). Unlike `fill_to_budget`'s
+/// own omission list, no cap applies to how many PAGES this takes to exhaust an index - only to how
+/// much one page may cost - so this closes the gap `fill_to_budget` alone leaves: an omission list
+/// over `MAX_OMITTED_NAMES` names long still cannot name the rest, but a caller that pages with
+/// `after` reaches every one of them.
+pub fn paged_names<T>(
+    items: impl Iterator<Item = T>,
+    after: Option<&str>,
+    prefix: Option<&str>,
+    budget: usize,
+    cost: impl Fn(&T) -> usize,
+    name_of: impl Fn(&T) -> String,
+) -> PagedNames<T> {
+    let candidates: Vec<T> = items
+        .filter(|item| prefix.is_none_or(|prefix| name_of(item).starts_with(prefix)))
+        .filter(|item| after.is_none_or(|after| name_of(item).as_str() > after))
+        .collect();
+    if candidates.is_empty() {
+        return (Vec::new(), None);
+    }
+    // `max_omitted: 0` - this function never names what did not fit, only reports that something
+    // did not, so the omitted list `fill_to_budget` would otherwise build is pure waste here.
+    let (included, _never_named, cut_off) = fill_to_budget(candidates, budget, 0, |item| cost(item), |_| ());
+    let cursor = (cut_off > 0).then(|| included.last().map(&name_of)).flatten();
+    (included, cursor)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::fill_to_budget;
+    use super::{fill_to_budget, paged_names};
 
     #[test]
     fn the_first_item_is_never_omitted_even_alone_over_budget() {
@@ -164,5 +209,52 @@ mod tests {
         assert_eq!(included, vec![5]);
         assert_eq!(omitted, vec!["1"]);
         assert_eq!(omitted_count, 3);
+    }
+
+    fn names(count: usize) -> Vec<String> {
+        (0..count).map(|index| format!("model_{index:04}")).collect()
+    }
+
+    #[test]
+    fn paged_names_returns_a_cursor_only_while_more_remain() {
+        let (page, cursor) = paged_names(names(5).into_iter(), None, None, 1000, |_| 10, String::clone);
+        assert_eq!(page, names(5));
+        assert_eq!(cursor, None, "every candidate fit - there is nothing left to page to");
+    }
+
+    #[test]
+    fn paged_names_resumes_strictly_after_its_own_cursor() {
+        let all = names(5);
+        let (first, cursor) = paged_names(all.clone().into_iter(), None, None, 25, |_| 10, String::clone);
+        assert_eq!(first, vec!["model_0000", "model_0001"]);
+        let cursor = cursor.expect("two of five did not fit - a cursor must be returned");
+        let (second, cursor) = paged_names(all.into_iter(), Some(&cursor), None, 25, |_| 10, String::clone);
+        assert_eq!(second, vec!["model_0002", "model_0003"]);
+        assert!(cursor.is_some(), "one name is still left past this page");
+    }
+
+    #[test]
+    fn paged_names_walks_every_item_to_completion() {
+        let all = names(450);
+        let mut seen = Vec::new();
+        let mut after: Option<String> = None;
+        loop {
+            let (page, cursor) = paged_names(all.clone().into_iter(), after.as_deref(), None, 200, |_| 10, String::clone);
+            assert!(!page.is_empty(), "a page must never be empty while candidates remain");
+            seen.extend(page);
+            match cursor {
+                Some(next) => after = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(seen, all, "paging to exhaustion must visit every item exactly once, in order");
+    }
+
+    #[test]
+    fn paged_names_honours_a_prefix_filter() {
+        let items = vec!["orders_a".to_owned(), "customers_a".to_owned(), "orders_b".to_owned()];
+        let (page, cursor) = paged_names(items.into_iter(), None, Some("orders_"), 1000, |_| 10, String::clone);
+        assert_eq!(page, vec!["orders_a", "orders_b"]);
+        assert_eq!(cursor, None);
     }
 }

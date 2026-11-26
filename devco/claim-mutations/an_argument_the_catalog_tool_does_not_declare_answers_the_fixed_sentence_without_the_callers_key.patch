@@ -1,13 +1,10 @@
-Claim-Cell-File: crates/sutura-mcp/src/server/tests.rs
-diff --git a/crates/sutura-mcp/src/wire/catalog.rs b/crates/sutura-mcp/src/wire/catalog.rs
-index 358f19d98..00b9aa1ce 100644
 --- a/crates/sutura-mcp/src/wire/catalog.rs
 +++ b/crates/sutura-mcp/src/wire/catalog.rs
-@@ -58,7 +58,6 @@
- /// scoped to one model or metric, so `model`/`metric` does not narrow them.
+@@ -75,7 +75,6 @@
+ /// terms recorded as undefined it carries) and the deployment operator's instructions - neither is
+ /// scoped to one model or metric, so none of these arguments narrow them.
  #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 -#[serde(deny_unknown_fields)]
  pub struct DescribeCatalogArgs {
      /// The model's own name - the same identifier its physical schema prints as `model <name>`.
-     /// Omit it for the whole catalog. Mutually exclusive with `metric`.
-     model: Option<String>,
+     /// Omit it for the whole catalog. Mutually exclusive with `metric`, `model_prefix` and `names`.
