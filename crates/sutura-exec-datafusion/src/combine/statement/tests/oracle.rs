@@ -196,7 +196,9 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
 ///
 /// This pins behaviour this change does not itself alter - `Claim-Cell:
 /// a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause`, killing mutation
-/// at `devco/claim-mutations/a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause.patch`.
+/// at `devco/claim-mutations/a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause.patch`
+/// (marks a visited `Filter` unsafe to cut, so the predicate stays local and the captured SQL
+/// loses its `WHERE`).
 #[test]
 fn a_predicate_cast_over_a_single_oracle_table_is_pushed_into_its_where_clause() {
     let tables = vec![StatementTable::new(
