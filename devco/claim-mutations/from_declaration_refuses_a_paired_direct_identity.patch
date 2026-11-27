@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 7669f835f..678a33aa5 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -281,9 +281,6 @@ impl InboundGate {
+         inbound: &InboundIdentity,
+         anchors: Option<&sutura_tls::Anchors>,
+     ) -> Result<Self, InboundNotUsable> {
+-        if matches!(inbound, InboundIdentity::Direct { pairing: Some(_), .. }) {
+-            return Err(InboundNotUsable::PairedAlone);
+-        }
+         Self::keyed_from_identity(inbound, anchors)
+     }
+ 

@@ -23,8 +23,8 @@ use axum::http::{HeaderMap, HeaderValue};
 use base64::Engine as _;
 use jsonwebtoken::{EncodingKey, Header};
 use sutura_config::{
-    InboundIdentity, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, PinnedAlgorithms, ProofHeader, ProofLifetime,
-    RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenType, TransitProof,
+    GatewayPairing, InboundIdentity, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, PinnedAlgorithms, ProofHeader,
+    ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenType, TransitProof,
 };
 
 use super::TRANSIT_HEADER;
@@ -213,8 +213,7 @@ pub(super) fn direct_pinning(path: &str, algorithms: PinnedAlgorithms, token_typ
         algorithms,
         token_type,
         address_claim: sutura_config::AddressClaim::VerifiedEmail,
-        token_header: None,
-        requires_gateway: None,
+        pairing: None,
     }
 }
 
@@ -234,8 +233,10 @@ pub(super) fn paired_direct(path: &str, header: &str) -> InboundIdentity {
         algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
         token_type: RequiredTokenType::access_token(),
         address_claim: sutura_config::AddressClaim::VerifiedEmail,
-        token_header: Some(ProofHeader::parse_named(ProofHeader::TOKEN_HEADER_KEY, header).expect("a test header is a header")),
-        requires_gateway: Some(sutura_domain::identity::VerifierId::parse("gateway").expect("a test id is a verifier id")),
+        pairing: Some(GatewayPairing::new(
+            ProofHeader::parse_named(ProofHeader::TOKEN_HEADER_KEY, header).expect("a test header is a header"),
+            sutura_domain::identity::VerifierId::parse("gateway").expect("a test id is a verifier id"),
+        )),
     }
 }
 

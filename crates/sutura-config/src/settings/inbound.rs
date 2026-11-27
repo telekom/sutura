@@ -6,9 +6,9 @@
 //! [`crate::inbound`], and the refusals it produces are [`crate::settings::SettingsError`] variants.
 
 use crate::inbound::{
-    AddressClaim, ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, KeySetMaxStale,
-    KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequestPathPrefix, RequiredTokenType, ResourceIdentifier,
-    TokenAudience, TokenType, TransitBinding, TransitProof,
+    AddressClaim, ExtraScopeClaims, GatewayPairing, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation,
+    KeySetMaxStale, KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequestPathPrefix, RequiredTokenType,
+    ResourceIdentifier, TokenAudience, TokenType, TransitBinding, TransitProof,
 };
 use crate::raw::{RawInbound, RawInboundDeclarations};
 use crate::settings::SettingsError;
@@ -124,19 +124,16 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                 },
             },
             address_claim,
-            token_header: match (written.token_header.as_deref(), written.requires_gateway.as_deref()) {
+            pairing: match (written.token_header.as_deref(), written.requires_gateway.as_deref()) {
                 (None, None) => None,
                 (Some(_), None) | (None, Some(_)) => return Err(SettingsError::RequiresGatewayPairIncomplete),
-                (Some(header), Some(_)) => Some(
-                    ProofHeader::parse_named(ProofHeader::TOKEN_HEADER_KEY, header)
-                        .map_err(|cause| SettingsError::InboundValue { cause })?,
-                ),
-            },
-            requires_gateway: match written.requires_gateway.as_deref() {
-                None => None,
-                Some(id) => Some(
-                    sutura_domain::identity::VerifierId::parse(id).map_err(|cause| SettingsError::RequiresGatewayId { cause })?,
-                ),
+                (Some(header), Some(id)) => {
+                    let header = ProofHeader::parse_named(ProofHeader::TOKEN_HEADER_KEY, header)
+                        .map_err(|cause| SettingsError::InboundValue { cause })?;
+                    let requires_gateway = sutura_domain::identity::VerifierId::parse(id)
+                        .map_err(|cause| SettingsError::RequiresGatewayId { cause })?;
+                    Some(GatewayPairing::new(header, requires_gateway))
+                }
             },
         }),
     }

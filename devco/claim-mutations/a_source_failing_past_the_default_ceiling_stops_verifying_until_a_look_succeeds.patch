@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/keys.rs b/crates/sutura-http/src/inbound/keys.rs
+index b788bfdc1..5e45290fd 100644
+--- a/crates/sutura-http/src/inbound/keys.rs
++++ b/crates/sutura-http/src/inbound/keys.rs
+@@ -708,7 +708,7 @@ impl KeySetCache {
+     async fn after_look(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
+         let cached = self.state.read().await;
+         let unconfirmed = now.saturating_duration_since(cached.last_success);
+-        if unconfirmed >= self.max_stale {
++        if unconfirmed < self.max_stale {
+             return Err(KeyUnavailable::Unconfirmed {
+                 stale_for_ms: unconfirmed.as_millis(),
+                 ceiling_ms: self.max_stale.as_millis(),
