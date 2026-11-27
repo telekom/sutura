@@ -178,4 +178,8 @@ pub(super) const RUN_ALL_PATTERNS: &[&str] = &[
     // first thing judged by the narrowed table, which is the same mistake as the two above.
     "xtask/src/changes.rs",
     "xtask/src/areas.rs",
+    // `changes::touches_fuzzed_tree` reads the "fuzzed tree" row here to set `fuzz_compile`
+    // (#2095) - a table that narrows what selects `ci.yml:fuzz-compile` must not judge its own
+    // narrowing diff by the row it just shrank.
+    "xtask/src/hook_coverage/surfaces.rs",
 ];

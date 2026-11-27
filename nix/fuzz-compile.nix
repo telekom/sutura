@@ -19,7 +19,7 @@
 { pkgs, toolchain }:
 
 pkgs.writeShellApplication {
-  name = "sutura-fuzz-check";
+  name = "sutura-fuzz-compile";
   # `stdenv.cc`: `libfuzzer-sys`'s build script compiles a vendored copy of libFuzzer's own C++
   # sources through the `cc` crate even under `cargo check` - build scripts run regardless of
   # check-vs-build - so without a compiler on PATH the first build fails inside that build script.
@@ -36,7 +36,7 @@ pkgs.writeShellApplication {
       root="$parent"
     done
     cd "$root"
-    export CARGO_TARGET_DIR="$root/target/fuzz-check"
+    export CARGO_TARGET_DIR="$root/target/fuzz-compile"
     # This shell's cranelift settings are for the local inner loop and are unscoped, so they
     # follow cargo in here; unset rather than risk an unrelated local build quirk here.
     unset CARGO_UNSTABLE_CODEGEN_BACKEND CARGO_PROFILE_DEV_CODEGEN_BACKEND

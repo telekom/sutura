@@ -162,7 +162,7 @@ jobs:
     outputs:
       rust: ${{ steps.classify.outputs.rust }}
       postgres_driver: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
-      # `fuzz-check` (#2095); already ORed with `run_all` inside the classifier, so no composite
+      # `fuzz-compile` (#2095); already ORed with `run_all` inside the classifier, so no composite
       # needed here the way `postgres_driver` above needs one.
       fuzz_compile: ${{ steps.classify.outputs.fuzz_compile }}
       tested_commit: ${{ steps.pr-verdict.outputs.tested_commit }}
@@ -443,7 +443,7 @@ jobs:
       nix: ${{ steps.classify.outputs.nix }}
       # AREA axis, for `k3s-autoscaling` and `ci-aggregate`: the chart, its helm and its image.
       chart: ${{ steps.classify.outputs.chart }}
-      # For `ci-aggregate`'s `fuzz-check` REQUIRED gate, same reason `rust` is republished here
+      # For `ci-aggregate`'s `fuzz-compile` REQUIRED gate, same reason `rust` is republished here
       # rather than only on the `classify` job: the aggregate reads `ci`'s own copy (#2095).
       fuzz_compile: ${{ steps.classify.outputs.fuzz_compile }}
     steps:
@@ -1677,16 +1677,21 @@ jobs:
             nix run .#default-feature-tests
 
   # Compile-only check over `fuzz/` (#2095): does the fuzz crate still build, no fuzzing and no
-  # cache writes. Selected by `fuzz_compile`, which `classify` derives from the SAME "fuzzed
+  # cache writes. Named `fuzz-compile`, not `check-fuzz` (`xtask`'s unrelated hygiene-sweep gate
+  # that verifies the manifest's wiring and compiles nothing) - the two read differently and must
+  # not be confused. Selected by `fuzz_compile`, which `classify` derives from the SAME "fuzzed
   # tree" surface `xtask/src/hook_coverage/surfaces.rs` keys `fuzz-smoke` off - not a second path
-  # list - so a change this leg must catch is exactly a change that row already claims to cover.
+  # list - so a change this leg selects on is a change that row NAMES. That row is hand-maintained,
+  # not mechanically derived from the targets' real dependency graph: `check-fuzz` holds each
+  # target's crate-level imports to it, not file-level completeness within a crate, so an unnamed
+  # first-party file can still break a target silently here.
   #
   # `.github/workflows/fuzz.yml`'s own header explains why a REAL fuzz run stays tag-only; this
   # leg does not reopen that. It never resolves `cargo-fuzz` or links the sanitizer runtime in
-  # (`nix/fuzz-check.nix`), so it catches only "does not compile", which is the gap #2091 found:
+  # (`nix/fuzz-compile.nix`), so it catches only "does not compile", which is the gap #2091 found:
   # `fuzz (token)` and `smoke` broke on a release tag with nothing on `pull_request` having
   # compiled the target first.
-  fuzz-check:
+  fuzz-compile:
     needs: [classify]
     if: github.event_name != 'push' && needs.classify.outputs.fuzz_compile == 'true'
     runs-on: rust-mcp-16core
@@ -1696,7 +1701,7 @@ jobs:
     permissions:
       contents: read
     concurrency:
-      group: fuzz-check-${{ github.ref }}
+      group: fuzz-compile-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1730,7 +1735,7 @@ jobs:
           label: fuzz targets compile
           run: |-
             set -eu
-            nix run .#fuzz-check
+            nix run .#fuzz-compile
 
   release-status:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')
@@ -1765,7 +1770,7 @@ jobs:
       causality,
       postgres-linked-driver,
       shipped-features,
-      fuzz-check,
+      fuzz-compile,
       release-status,
     ]
     if: ${{ !cancelled() }}
@@ -1788,7 +1793,7 @@ jobs:
           PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}
           SHIP_RESULT: ${{ needs.shipped-features.result }}
           SHIP_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}
-          FUZZ_RESULT: ${{ needs.fuzz-check.result }}
+          FUZZ_RESULT: ${{ needs.fuzz-compile.result }}
           FUZZ_REQUIRED: ${{ needs.ci.outputs.fuzz_compile == 'true' && github.event_name != 'push' }}
         run: |
           set -eu
@@ -1822,7 +1827,7 @@ jobs:
           require_when_selected causality "$CAUS_RESULT" "$CAUS_REQUIRED"
           require_when_selected postgres-linked-driver "$PGD_RESULT" "$PGD_REQUIRED"
           require_when_selected shipped-features "$SHIP_RESULT" "$SHIP_REQUIRED"
-          require_when_selected fuzz-check "$FUZZ_RESULT" "$FUZZ_REQUIRED"
+          require_when_selected fuzz-compile "$FUZZ_RESULT" "$FUZZ_REQUIRED"
           echo "ci-aggregate: ok - all required checks green"
 
   qa-receipt:

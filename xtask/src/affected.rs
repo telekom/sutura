@@ -690,6 +690,14 @@ macro_rules! registered {
     /// only `select()` can emit. The last is why the expectation includes the crate-directory
     /// floor: an empty diff emits `declared`, but a diff touching an adapter crate no registry
     /// arm names still emits that crate's category.
+    ///
+    /// Also pins `fuzz_compile` (#2095), which is NOT a `Categories` member - it is an AREA flag
+    /// `changes::classify` emits, so the oracle above cannot see it and `is_category` alone would
+    /// let it skip past this test the same way a real category would if this test did not exist.
+    /// Checked by name here rather than in a second test, because `ci_job_outputs` is the one
+    /// reader of `ci.yml`'s real `outputs:` block and the failure mode is identical: the
+    /// `ci-aggregate` job's `require_when_selected fuzz-compile` reads `needs.ci.outputs.fuzz_compile`,
+    /// so a missing or mis-wired entry here is a leg that silently never gates.
     #[test]
     fn every_emitted_category_is_republished_as_a_ci_job_output() {
         let root = crate::repo::root().expect("the repo root");
@@ -737,6 +745,21 @@ macro_rules! registered {
                     )
                 }),
         );
+
+        let fuzz_compile = outputs.iter().find(|(published, _)| published == "fuzz_compile");
+        match fuzz_compile {
+            None => failures.push(String::from(
+                "the `ci` job does not re-publish `fuzz_compile`, so `needs.ci.outputs.fuzz_compile` \
+                 renders '' and `ci-aggregate`'s `require_when_selected fuzz-compile` never gates",
+            )),
+            Some((published, read)) if read.as_deref() != Some("fuzz_compile") => failures.push(format!(
+                "the `ci` job publishes `{published}` from `steps.classify.outputs.{}`, not \
+                 `steps.classify.outputs.fuzz_compile`",
+                read.as_deref().unwrap_or("<not the classify step>")
+            )),
+            Some(_) => {}
+        }
+
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 

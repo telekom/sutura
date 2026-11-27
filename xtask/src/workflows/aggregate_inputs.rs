@@ -23,7 +23,7 @@ const REQUIRED: &[(&str, &str)] = &[
     ("PGD_REQUIRED", "ci"),
     ("SHIP_RESULT", "shipped-features"),
     ("SHIP_REQUIRED", "ci"),
-    ("FUZZ_RESULT", "fuzz-check"),
+    ("FUZZ_RESULT", "fuzz-compile"),
     ("FUZZ_REQUIRED", "ci"),
 ];
 
@@ -63,7 +63,7 @@ const EXPRESSIONS: &[(&str, &str)] = &[
         "SHIP_REQUIRED",
         "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
     ),
-    ("FUZZ_RESULT", "needs.fuzz-check.result"),
+    ("FUZZ_RESULT", "needs.fuzz-compile.result"),
     (
         "FUZZ_REQUIRED",
         "needs.ci.outputs.fuzz_compile == 'true' && github.event_name != 'push'",

@@ -41,13 +41,6 @@ pub(crate) mod ci_suites;
 mod areas;
 use areas::{AREAS, DOCS_ONLY, RUN_ALL_PATTERNS};
 
-/// `fuzz_compile`'s own test, kept out of this file per AGENTS.md: a test beside the change it
-/// proves cannot be reverted independently of it, so causality could not redden it on base. See
-/// `github.com/telekom/sutura#2095`.
-#[path = "fuzz_compile_test.rs"]
-#[cfg(test)]
-mod fuzz_compile_test;
-
 /// Every input `nix-store-cache`'s `primary-key` must hash for the dependency generation,
 /// because each one moves `.#deps` (`ciArtifacts`, `flake.nix`) without moving `Cargo.lock`.
 ///

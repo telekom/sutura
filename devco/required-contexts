@@ -149,7 +149,7 @@ ci.yml:identity-classify
 ci.yml:causality
 ci.yml:postgres-linked-driver
 ci.yml:shipped-features
-ci.yml:fuzz-check
+ci.yml:fuzz-compile
 
 # The documentation site. `verify` proves the site builds under `--strict` on a pull request;
 # `publish` runs on everything else and reports no context on one. Neither is required, and
@@ -192,8 +192,10 @@ tpch-across-nodes.yml:measure
 # on `workflow_dispatch` - neither of them a gating event - so it reports no status-check context
 # and there is nothing for this record to classify. It argues at length why a time-budgeted search
 # over random input must gate neither a merge nor a release. What IS gated on every pull request is
-# `check-fuzz` inside the hygiene sweep, which reads the harness and costs milliseconds - and,
-# since #2095, `ci.yml:fuzz-check` above, which compiles the eight targets (no fuzzing, no cache
-# writes) and is gated through `ci-aggregate` like the other advisory entries in that block.
+# `check-fuzz` inside the hygiene sweep, which reads the harness and costs milliseconds. Since
+# #2095, `ci.yml:fuzz-compile` above adds a second leg, gated through `ci-aggregate` like the other
+# advisory entries in that block - but only WHEN SELECTED, on a diff that touches the same fuzzed-
+# tree surface `xtask/src/hook_coverage/surfaces.rs` already names; it does not run on every pull
+# request the way `check-fuzz` does. It compiles the eight targets (no fuzzing, no cache writes).
 # Neither one runs a single generated input; that is still only `fuzz.yml`, still only on a
 # release tag or `workflow_dispatch`.

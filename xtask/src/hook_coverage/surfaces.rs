@@ -117,20 +117,31 @@ pub(crate) const SURFACES: &[Surface] = &[
         // target that outgrows the row is refused rather than silently skipped. The replay runs
         // every target, not only the ones a diff reaches - the row maps paths, not targets.
         //
-        // The limit: it runs only where `ship-check` does, and a push that skips `ship-check` is
-        // not fuzzed. No pull request or merge-queue run replays the seeds; `fuzz.yml` does, on a
-        // release tag and a manual dispatch. `check-fuzz` derives only the `sutura_*` crates a
-        // target imports, so these vendor paths are held by review, not by a gate.
+        // Since #2095, `changes::touches_fuzzed_tree` reads THIS SAME row (by `reached_by ==
+        // "fuzz-smoke"`, not a second path list) to set `fuzz_compile`, which gates
+        // `ci.yml:fuzz-compile` on `pull_request`/`merge_group` - compile the eight targets, no
+        // fuzzing, no cache writes. A path added here for the smoke replay is a path that also
+        // selects the compile-only CI leg; the two readers cannot drift apart because they are one
+        // table, but a file true-fuzz-smoke needs and this row omits is a gap for both at once.
+        //
+        // The limit: `fuzz-smoke` runs only where `ship-check` does, and a push that skips
+        // `ship-check` is not fuzzed. No pull request or merge-queue run replays the seeds;
+        // `fuzz.yml` does, on a release tag and a manual dispatch. `check-fuzz` derives only the
+        // `sutura_*` crates a target imports, so these vendor paths and manifests are held by
+        // review, not by a gate - and a first-party file this row does not name can still break a
+        // target silently past both `fuzz-smoke` and `fuzz-compile`.
         label: "fuzzed tree",
         paths: &[
             "fuzz/**",
             "nix/fuzz.nix",
+            "nix/fuzz-compile.nix",
             "nix/run-fuzz.sh",
             "vendor/datafusion-proto/**",
             "vendor/datafusion-proto-common/**",
             "vendor/datafusion-physical-plan/**",
             "vendor/datafusion-distributed/**",
             "vendor/arrow-ipc/**",
+            "crates/sutura-domain/Cargo.toml",
             "crates/sutura-domain/src/query.rs",
             "crates/sutura-domain/src/query/methods.rs",
             "crates/sutura-domain/src/model/**",
@@ -142,16 +153,23 @@ pub(crate) const SURFACES: &[Surface] = &[
             "crates/sutura-domain/src/knowledge/**",
             "crates/sutura-domain/src/pinned.rs",
             "crates/sutura-domain/src/pinned/**",
+            "crates/sutura-domain/src/plan/remote.rs",
+            "crates/sutura-domain/src/calendar.rs",
+            "crates/sutura-domain/src/expression.rs",
+            "crates/sutura-domain/src/warehouse.rs",
+            "crates/sutura-http/Cargo.toml",
             "crates/sutura-http/src/wire.rs",
             "crates/sutura-http/src/wire/**",
             "crates/sutura-http/src/inbound/token.rs",
             "crates/sutura-http/src/inbound/keys.rs",
             "crates/sutura-http/src/inbound/keys/**",
+            "crates/sutura-config/Cargo.toml",
             "crates/sutura-config/src/inbound.rs",
             "crates/sutura-config/src/inbound/**",
             "crates/sutura-catalog-local/**",
             "crates/sutura-sql/**",
             "crates/sutura-semantic/**",
+            "crates/sutura-flight/Cargo.toml",
             "crates/sutura-flight/src/lib.rs",
             "crates/sutura-flight/src/receive.rs",
         ],
