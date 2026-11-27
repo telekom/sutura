@@ -299,18 +299,12 @@ impl Client {
     /// handshake is actually waiting for is read under the new ones.
     ///
     /// `processMarker` also reads exactly one more packet right after
-    /// rekeying and discards it unconditionally, without inspecting its
-    /// type - normally the peer's own reset-marker echo. This is ported
-    /// here as a single mandatory discard right after the rekey below: the
-    /// discarded packet is never returned to the caller, even on the
-    /// (traced) occasion it turns out to already be the protected `DATA`
-    /// record the handshake is waiting for - a discarded packet is never
-    /// trusted as data, matching go-ora's own fail-closed-by-construction
-    /// behaviour rather than second-guessing it. **Limit:** a second,
-    /// distinct marker read later in the loop below does not itself trigger
-    /// another full send/rekey/discard cycle, only go-ora's own per-marker
-    /// cycle does that; this is accommodated by setting `reset_received` and
-    /// continuing, as before.
+    /// rekeying and discards it - normally the peer's own reset-marker echo.
+    /// Here that slot accepts only a marker: a protected `DATA` record in it
+    /// is refused, never dropped, because dropping an authenticated record
+    /// would truncate the stream. **Limit:** a second, distinct marker read
+    /// later in the loop below does not trigger another send/rekey/discard
+    /// cycle; it only sets `reset_received`.
     fn reset(&mut self, reset_received: bool) -> Result<Packet, Error> {
         log::debug!(
             "reset: send MARKER type=reset (rekey_count={})",
@@ -337,31 +331,19 @@ impl Client {
                 // `processMarker`, which does not inspect it either.
                 reset_received = true;
             } else if discarded.packet_type == constants::PACKET_TYPE_DATA {
-                if !reset_received {
-                    // A protected record with no reset marker observed yet (not even
-                    // this one) is the same stale-traffic case the loop below refuses
-                    // for exactly this reason - discarding it unconditionally here,
-                    // as go-ora's own order would, would trust it as data by omission
-                    // (go-ora runs with no such pre-existing session traffic to worry
-                    // about); refuse instead of silently dropping it.
-                    return Err(Error::native_encryption_refused(format!(
-                        "expected an unprotected {} before the reset marker, got a protected {}",
-                        crate::transport::packet_type_label(
-                            constants::PACKET_TYPE_MARKER
-                        ),
-                        crate::transport::packet_type_label(
-                            constants::PACKET_TYPE_DATA
-                        ),
-                    )));
-                }
-                // A reset marker was already observed (e.g. the caller entered with
-                // `reset_received = true`): per go-ora's literal order this slot is
-                // discarded unconditionally regardless of its type, even though it
-                // may already be the awaited answer - note that in the trace, but
-                // never return it from here as if it were that answer.
-                log::debug!(
-                    "reset: the discarded packet was DATA, not a marker echo"
-                );
+                // go-ora drops whatever fills this slot. A protected record here is
+                // either stale traffic (no reset marker seen yet) or the awaited
+                // answer arriving without the echo; dropping either would truncate
+                // the authenticated stream, so refuse instead.
+                let expected = if reset_received {
+                    "the peer's reset-marker echo"
+                } else {
+                    "an unprotected MARKER before the reset marker"
+                };
+                return Err(Error::native_encryption_refused(format!(
+                    "expected {expected}, got a protected {}",
+                    crate::transport::packet_type_label(constants::PACKET_TYPE_DATA),
+                )));
             }
             // Any other unprotected marker here (e.g. a second, distinct marker type)
             // is also just discarded, matching go-ora's unconditional single discard.
@@ -1524,6 +1506,35 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "native encryption refused: expected an unprotected MARKER before the reset marker, got a protected DATA"
+        );
+    }
+
+    /// Entered with the reset marker already seen, the slot after the rekey
+    /// still accepts only the peer's echo: an authenticated `DATA` record there
+    /// is refused, not dropped while the next packet is returned in its place.
+    #[test]
+    fn an_authenticated_data_packet_in_the_echo_slot_is_refused_not_dropped() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            peer.rekey_for_reset().unwrap();
+            for payload in [b"first reply".as_slice(), b"second reply"] {
+                let sealed = peer.seal(payload).unwrap();
+                server.write_all(&data_packet(&sealed)).unwrap();
+            }
+        });
+        let error = match client.reset(true) {
+            Ok(_) => panic!(
+                "an authenticated record in the echo slot must not be dropped"
+            ),
+            Err(err) => err,
+        };
+        sender.join().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "native encryption refused: expected the peer's reset-marker echo, got a protected DATA"
         );
     }
 
