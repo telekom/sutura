@@ -20,7 +20,8 @@ alone. Two settings decide whether the verified subject is true, and only the op
 Some gateways sign an assertion with no `aud` claim at all, and instead bind it to the provider through a `requestPath`
 claim that must start with the provider's own route prefix. For that gateway, set `transit_request_path_prefix` instead
 of `transit_audience`, and `transit_audience_absent_because` with the reason `transit_audience` is absent. sutura then
-refuses an assertion whose `requestPath` is missing or does not start with the configured prefix. The two settings are
+refuses an assertion whose `requestPath` is missing, or neither starts with the configured prefix nor is the prefix
+without its trailing `/` (the provider's bare base path, which a gateway's catalog hands to clients). The two settings are
 mutually exclusive: giving both, or neither with `security.inbound.mode: behind-gateway`, refuses the configuration at
 startup. sutura refuses an assertion that carries an `aud` claim at all in this mode, rather than ignore one it never
 compares.

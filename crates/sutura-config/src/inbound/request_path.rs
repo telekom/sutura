@@ -77,13 +77,15 @@ impl RequestPathPrefix {
         Ok(Self(String::from(trimmed)))
     }
 
-    /// Whether a presented `requestPath` claim starts with this prefix.
+    /// Whether a presented `requestPath` claim is under this prefix: it starts with the stored
+    /// value, or it is the provider's base path itself - the stored value without its trailing `/`.
     ///
-    /// A plain [`str::starts_with`] over the stored value, which always ends in `/` - see the type
-    /// documentation for why that is what makes this check boundary-safe.
+    /// The base path is the URL a gateway's catalog hands to clients, so it has to be admitted.
+    /// Equality, not a shorter `starts_with`, keeps the boundary: `/hub/app/v10` is neither, so a
+    /// sibling route still cannot match. See the type documentation.
     #[must_use]
     pub fn matches(&self, request_path: &str) -> bool {
-        request_path.starts_with(self.0.as_str())
+        request_path.starts_with(self.0.as_str()) || self.0.strip_suffix('/') == Some(request_path)
     }
 
     #[inline]
@@ -113,6 +115,15 @@ mod tests {
     fn a_sibling_route_extending_the_prefix_as_text_does_not_match() {
         let prefix = RequestPathPrefix::parse("/hub/app/v1/").expect("a well-formed prefix parses");
         assert!(!prefix.matches("/hub/app/v1evil/mcp"));
+    }
+
+    #[test]
+    fn the_bare_base_path_matches_but_a_sibling_sharing_its_text_does_not() {
+        let prefix = RequestPathPrefix::parse("/hub/app/v1/").expect("a well-formed prefix parses");
+        assert!(prefix.matches("/hub/app/v1"));
+        assert!(prefix.matches("/hub/app/v1/"));
+        assert!(!prefix.matches("/hub/app/v10"));
+        assert!(!prefix.matches("/hub/app"));
     }
 
     #[test]

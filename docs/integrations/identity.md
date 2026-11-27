@@ -85,8 +85,8 @@ start with both or with neither. A gateway that signs no `aud` claim and instead
 assertion to the provider through a `requestPath` claim uses `transit_request_path_prefix` (a
 path that starts and ends with exactly one `/`) and must also give
 `transit_audience_absent_because`, the written reason `transit_audience` is absent. sutura then
-refuses an assertion whose `requestPath` is missing or does not start with the configured prefix,
-and refuses one that carries an `aud` claim at all - this mode never compares one, so admitting it
+refuses an assertion whose `requestPath` is missing, or neither starts with the configured prefix
+nor is that prefix without its trailing `/` (the bare base path), and refuses one that carries an `aud` claim at all - this mode never compares one, so admitting it
 would be an unchecked second binding.
 
 This binding is only as strong as the gateway's own path routing: sutura never sees the request the

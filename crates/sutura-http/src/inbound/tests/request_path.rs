@@ -166,3 +166,42 @@ async fn a_requestpath_with_a_backslash_is_refused() {
 async fn a_non_ascii_requestpath_is_refused() {
     refused_as_not_plain("/hub/app/v1/mcp\u{00e9}").await;
 }
+
+fn token_for_path(pair: &rcgen::KeyPair, path: &str) -> String {
+    signed(
+        pair,
+        KID,
+        &claims_no_audience(
+            "someone@example.com",
+            ISSUER,
+            &format!(
+                r#"{{"requestPath":"{path}","iat":{},"exp":{}}}"#,
+                expiry_in(-60),
+                expiry_in(60)
+            ),
+        ),
+    )
+}
+
+/// The provider's bare base path - the URL a gateway's catalog hands to clients - is the
+/// configured prefix without its trailing `/`, and is admitted (`github.com/telekom/sutura#2098`).
+#[tokio::test]
+async fn the_bare_base_path_of_the_configured_prefix_establishes() {
+    let (pair, gate) = gate_bound_to("/hub/app/v1/");
+    let caller = gate
+        .establish(&transit(&token_for_path(&pair, "/hub/app/v1")), Instant::now())
+        .await
+        .expect("the bare base path establishes");
+    assert_eq!(caller.chain().subject().established(), "verified");
+}
+
+/// Admitting the bare base path must not admit a sibling route whose name extends it as text.
+#[tokio::test]
+async fn a_sibling_extending_the_bare_base_path_as_text_is_refused() {
+    let (pair, gate) = gate_bound_to("/hub/app/v1/");
+    let refused = gate
+        .establish(&transit(&token_for_path(&pair, "/hub/app/v10")), Instant::now())
+        .await
+        .expect_err("a sibling route is refused");
+    assert!(matches!(refused, TokenRejected::RequestPathNotBound), "{refused:?}");
+}
