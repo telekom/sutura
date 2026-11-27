@@ -105,9 +105,8 @@ impl ConnectMessage<'_> {
             ));
         }
         let flags2 = resp.read_u8()?;
-        self.native_available = flags1 & 1 != 0
-            && flags1 & NSI_DISABLE_NA == 0
-            && flags2 & 8 == 0;
+        self.native_available =
+            flags1 & 1 != 0 && flags1 & NSI_DISABLE_NA == 0 && flags2 & 8 == 0;
         resp.advance(8)?;
         self.sdu = resp.read_u32be()?;
         if self.protocol_version >= constants::PROTOCOL_VERSION_18 {
@@ -174,7 +173,10 @@ impl Message for ConnectMessage<'_> {
         self.tls_renegotiation_needed = false;
         match resp.get_packet_type() {
             constants::PACKET_TYPE_ACCEPT => {
-                self.process_accept_packet(resp, client.config().native_encryption())?;
+                self.process_accept_packet(
+                    resp,
+                    client.config().native_encryption(),
+                )?;
             }
             constants::PACKET_TYPE_REFUSE => {
                 self.process_refuse_packet(resp)?;
@@ -225,7 +227,11 @@ impl Message for ConnectMessage<'_> {
             }
         };
         let nsi_flags = NSI_SUPPORT_SECURITY_RENEG
-            | if client.config().native_encryption() { 1 } else { NSI_DISABLE_NA };
+            | if client.config().native_encryption() {
+                1
+            } else {
+                NSI_DISABLE_NA
+            };
         buf.write_u16be(constants::PROTOCOL_VERSION_23);
         buf.write_u16be(constants::PROTOCOL_VERSION_MIN);
         buf.write_u16be(GSO_DONT_CARE);

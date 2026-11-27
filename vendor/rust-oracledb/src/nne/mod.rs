@@ -4,8 +4,8 @@
 
 use crate::error::Error;
 
-mod record;
 mod dh;
+mod record;
 pub(crate) use record::Protection;
 
 const MAGIC: u32 = 0xdeadbeef;
@@ -22,7 +22,10 @@ struct Reader<'a>(&'a [u8]);
 
 impl<'a> Reader<'a> {
     fn take(&mut self, size: usize) -> Result<&'a [u8], Error> {
-        let value = self.0.get(..size).ok_or_else(|| refused("malformed negotiation"))?;
+        let value = self
+            .0
+            .get(..size)
+            .ok_or_else(|| refused("malformed negotiation"))?;
         self.0 = &self.0[size..];
         Ok(value)
     }
@@ -37,9 +40,16 @@ impl<'a> Reader<'a> {
         Ok(u32::from_be_bytes([value[0], value[1], value[2], value[3]]))
     }
 
-    fn field(&mut self, kind: u16, size: Option<usize>) -> Result<&'a [u8], Error> {
+    fn field(
+        &mut self,
+        kind: u16,
+        size: Option<usize>,
+    ) -> Result<&'a [u8], Error> {
         let length = self.u16()? as usize;
-        if self.u16()? != kind || length > MAX_FIELD || size.is_some_and(|n| length != n) {
+        if self.u16()? != kind
+            || length > MAX_FIELD
+            || size.is_some_and(|n| length != n)
+        {
             return Err(refused("invalid negotiation field"));
         }
         self.take(length)
@@ -88,9 +98,11 @@ pub(crate) fn offer() -> Vec<u8> {
     service(&mut output, 4, 3);
     field(&mut output, 5, &VERSION.to_be_bytes());
     field(&mut output, 1, &[0, 0, 16, 28, 102, 236, 40, 234]);
-    field(&mut output, 1, &[
-        0xde, 0xad, 0xbe, 0xef, 0, 3, 0, 0, 0, 4, 0, 4, 0, 1, 0, 2, 0, 3,
-    ]);
+    field(
+        &mut output,
+        1,
+        &[0xde, 0xad, 0xbe, 0xef, 0, 3, 0, 0, 0, 4, 0, 4, 0, 1, 0, 2, 0, 3],
+    );
     service(&mut output, 1, 3);
     field(&mut output, 5, &VERSION.to_be_bytes());
     field(&mut output, 3, &0xe0e1u16.to_be_bytes());
@@ -164,7 +176,9 @@ pub(crate) fn parse(input: &[u8]) -> Result<Negotiated<'_>, Error> {
                     return Err(refused("invalid supervisor services"));
                 }
                 let count = services.u32()?;
-                if !(1..=4).contains(&count) || services.0.len() != count as usize * 2 {
+                if !(1..=4).contains(&count)
+                    || services.0.len() != count as usize * 2
+                {
                     return Err(refused("invalid supervisor services"));
                 }
                 let mut announced = [false; 4];
@@ -178,32 +192,46 @@ pub(crate) fn parse(input: &[u8]) -> Result<Negotiated<'_>, Error> {
             }
             (1, 2) => {
                 if reader.scalar16(6)? != 0xfbff {
-                    return Err(refused("unexpected native authentication service"));
+                    return Err(refused(
+                        "unexpected native authentication service",
+                    ));
                 }
             }
             (2, 2) => {
                 require_modern(service_version)?;
                 encryption = reader.field(2, Some(1))?[0];
                 if !matches!(encryption, 15..=17) {
-                    return Err(Error::native_algorithm_refused("encryption", encryption));
+                    return Err(Error::native_algorithm_refused(
+                        "encryption",
+                        encryption,
+                    ));
                 }
             }
             (3, 8) => {
                 require_modern(service_version)?;
                 integrity = reader.field(2, Some(1))?[0];
                 if !matches!(integrity, 4..=6) {
-                    return Err(Error::native_algorithm_refused("integrity", integrity));
+                    return Err(Error::native_algorithm_refused(
+                        "integrity",
+                        integrity,
+                    ));
                 }
                 let group_bits = reader.scalar16(3)?;
                 let private_bits = reader.scalar16(3)?;
-                if !(512..=2048).contains(&group_bits) || !(1..=2048).contains(&private_bits) {
+                if !(512..=2048).contains(&group_bits)
+                    || !(1..=2048).contains(&private_bits)
+                {
                     return Err(refused("unsupported Diffie-Hellman size"));
                 }
                 let generator = reader.field(1, None)?;
-                let modulus = reader.field(1, Some((group_bits as usize).div_ceil(8)))?;
+                let modulus = reader
+                    .field(1, Some((group_bits as usize).div_ceil(8)))?;
                 let peer = reader.field(1, Some(modulus.len()))?;
                 let iv = reader.field(1, None)?;
-                if generator.is_empty() || generator.len() > modulus.len() || !(16..=64).contains(&iv.len()) {
+                if generator.is_empty()
+                    || generator.len() > modulus.len()
+                    || !(16..=64).contains(&iv.len())
+                {
                     return Err(refused("invalid Diffie-Hellman parameters"));
                 }
                 dh = Some((group_bits, generator, modulus, peer));
@@ -244,4 +272,14 @@ mod tests;
 #[cfg(test)]
 pub(crate) fn protection_for_test() -> Protection {
     Protection::new((0..=255).collect(), 17, 5).unwrap()
+}
+
+/// The peer side of [`protection_for_test`]'s key material: swapping the
+/// directional hash state gives the other end of the same channel, so a test
+/// can seal a record as "the server" and have a `Client`-side transport built
+/// on `protection_for_test()` open it, the same way the two ends of a real
+/// native-encrypted connection stay in step without sharing sequence state.
+#[cfg(test)]
+pub(crate) fn protection_for_test_peer() -> Protection {
+    record::peer_for_test(protection_for_test())
 }

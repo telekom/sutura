@@ -1,7 +1,9 @@
 // Modern NNE record state adapted from go-ora v3 at the revision in ../mod.rs.
 // MIT; see LICENSE-go-ora. No legacy five-byte integrity key mode is implemented.
 
-use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit, block_padding::NoPadding};
+use aes::cipher::{
+    BlockModeDecrypt, BlockModeEncrypt, KeyIvInit, block_padding::NoPadding,
+};
 use sha2::{Digest, Sha256, Sha384, Sha512};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
@@ -38,15 +40,28 @@ impl Integrity {
 
     fn digest(self, data: &[u8], mask: &[u8]) -> Vec<u8> {
         match self {
-            Self::Sha256 => Sha256::new().chain_update(data).chain_update(mask).finalize().to_vec(),
-            Self::Sha384 => Sha384::new().chain_update(data).chain_update(mask).finalize().to_vec(),
-            Self::Sha512 => Sha512::new().chain_update(data).chain_update(mask).finalize().to_vec(),
+            Self::Sha256 => Sha256::new()
+                .chain_update(data)
+                .chain_update(mask)
+                .finalize()
+                .to_vec(),
+            Self::Sha384 => Sha384::new()
+                .chain_update(data)
+                .chain_update(mask)
+                .finalize()
+                .to_vec(),
+            Self::Sha512 => Sha512::new()
+                .chain_update(data)
+                .chain_update(mask)
+                .finalize()
+                .to_vec(),
         }
     }
 }
 
 fn cipher(key: &[u8], iv: &[u8]) -> Result<MaskCipher, Error> {
-    MaskCipher::new_from_slices(key, iv).map_err(|_| refused("invalid native key state"))
+    MaskCipher::new_from_slices(key, iv)
+        .map_err(|_| refused("invalid native key state"))
 }
 
 fn step(cipher: &mut MaskCipher, buffer: &mut [u8]) {
@@ -65,28 +80,85 @@ struct HashState {
     tx_mask: Zeroizing<Vec<u8>>,
     rx_mask: Zeroizing<Vec<u8>>,
     algorithm: Integrity,
+    /// Last seed-chaining output (the `generated` buffer below), kept so a
+    /// break/reset can re-derive `tx`/`rx` by chaining forward from it - see
+    /// `rekey_for_reset`.
+    chain: Zeroizing<[u8; 32]>,
+    /// Whether `tx`/`rx` were swapped relative to the canonical derivation
+    /// below (only ever set by the `peer_for_test` helper, to make one
+    /// `Protection` play the other end of a channel for tests) - a rekey
+    /// must reproduce the same swap, not silently undo it.
+    swapped: bool,
 }
 
 impl HashState {
-    fn new(key: &[u8], iv: &[u8], algorithm: Integrity) -> Result<Self, Error> {
+    /// Derives the directional MAC keystream ciphers from `key`/`iv` by the same
+    /// seed-chaining construction the TTC native-encryption protocol uses for the
+    /// initial key (and, via `rekey_for_reset`, for every break/reset after it).
+    fn derive(
+        key: &[u8],
+        iv: &[u8],
+        swapped: bool,
+    ) -> Result<(MaskCipher, MaskCipher, Zeroizing<[u8; 32]>), Error> {
         let mut seed = Zeroizing::new([0u8; 16]);
         seed[..15].copy_from_slice(&key[..15]);
         seed[15] = 0xff;
         let mut generator = cipher(seed.as_slice(), iv)?;
         let mut generated = Zeroizing::new([0u8; 32]);
         step(&mut generator, generated.as_mut_slice());
+        let (a, b) = Self::directional(&generated, swapped)?;
+        Ok((a, b, generated))
+    }
+
+    /// The send/receive mask ciphers keyed from one ratchet output: its first 16
+    /// bytes with byte 15 set to 0x5a (send) or 0xb4 (receive), IV its last 16.
+    fn directional(
+        generated: &[u8; 32],
+        swapped: bool,
+    ) -> Result<(MaskCipher, MaskCipher), Error> {
+        let mut seed = Zeroizing::new([0u8; 16]);
         seed.copy_from_slice(&generated[..16]);
         seed[15] = 0x5a;
-        let tx = cipher(seed.as_slice(), &generated[16..])?;
+        let a = cipher(seed.as_slice(), &generated[16..])?;
         seed[15] = 0xb4;
-        let rx = cipher(seed.as_slice(), &generated[16..])?;
+        let b = cipher(seed.as_slice(), &generated[16..])?;
+        Ok(if swapped { (b, a) } else { (a, b) })
+    }
+
+    fn new(
+        key: &[u8],
+        iv: &[u8],
+        algorithm: Integrity,
+    ) -> Result<Self, Error> {
+        let (tx, rx, generated) = Self::derive(key, iv, false)?;
         Ok(Self {
             tx,
             rx,
             tx_mask: Zeroizing::new(vec![0; algorithm.size()]),
             rx_mask: Zeroizing::new(vec![0; algorithm.size()]),
             algorithm,
+            chain: generated,
+            swapped: false,
         })
+    }
+
+    /// Advances the MAC ratchet once for a break/reset, as both peers do after the
+    /// client answers with its own reset marker: the last ratchet output is
+    /// encrypted under AES-CBC keyed by its own first 16 bytes (unmodified) with
+    /// its last 16 as IV, and the result keys the new `tx`/`rx`. The per-record
+    /// encryption key/IV is untouched, and `tx_mask`/`rx_mask` carry on - only
+    /// the ciphers that step them change.
+    ///
+    /// This is go-ora v3's `OracleNetworkHash2.Init` on its persistent buffer, which
+    /// `processMarker` reaches through `AdvNego.Reset`. It is not the initial
+    /// derivation re-run: that one seeds byte 15 with 0xff and encrypts zeros.
+    fn rekey_for_reset(&mut self) -> Result<(), Error> {
+        let mut generator = cipher(&self.chain[..16], &self.chain[16..])?;
+        let mut generated = Zeroizing::new(*self.chain);
+        step(&mut generator, generated.as_mut_slice());
+        (self.tx, self.rx) = Self::directional(&generated, self.swapped)?;
+        self.chain = generated;
+        Ok(())
     }
 
     fn compute(&mut self, data: &[u8]) -> Vec<u8> {
@@ -96,7 +168,8 @@ impl HashState {
 
     fn verify(&mut self, data: &[u8], digest: &[u8]) -> bool {
         step(&mut self.rx, &mut self.rx_mask);
-        let expected = Zeroizing::new(self.algorithm.digest(data, &self.rx_mask));
+        let expected =
+            Zeroizing::new(self.algorithm.digest(data, &self.rx_mask));
         bool::from(expected.as_slice().ct_eq(digest))
     }
 }
@@ -110,7 +183,11 @@ pub(crate) struct Protection {
 }
 
 impl Protection {
-    pub(super) fn new(session_key: Vec<u8>, encryption: u8, integrity: u8) -> Result<Self, Error> {
+    pub(super) fn new(
+        session_key: Vec<u8>,
+        encryption: u8,
+        integrity: u8,
+    ) -> Result<Self, Error> {
         let session_key = Zeroizing::new(session_key);
         if session_key.len() < 64 {
             return Err(refused("short native key material"));
@@ -119,11 +196,20 @@ impl Protection {
             15 => 16,
             16 => 24,
             17 => 32,
-            _ => return Err(Error::native_algorithm_refused("encryption", encryption)),
+            _ => {
+                return Err(Error::native_algorithm_refused(
+                    "encryption",
+                    encryption,
+                ));
+            }
         };
         let mut iv = Zeroizing::new([0; 32]);
         iv.copy_from_slice(&session_key[32..64]);
-        let hash = HashState::new(&session_key, &iv[..16], Integrity::from_id(integrity)?)?;
+        let hash = HashState::new(
+            &session_key,
+            &iv[..16],
+            Integrity::from_id(integrity)?,
+        )?;
         Ok(Self { session_key, iv, key_length, hash, folded: false })
     }
 
@@ -131,17 +217,33 @@ impl Protection {
         self.hash.algorithm.size() + 17
     }
 
-    pub(crate) fn fold(&mut self, authentication_key: &[u8]) -> Result<(), Error> {
+    /// Re-derives the MAC keystreams for a break/reset; see `HashState::rekey_for_reset`.
+    pub(crate) fn rekey_for_reset(&mut self) -> Result<(), Error> {
+        self.hash.rekey_for_reset()
+    }
+
+    pub(crate) fn fold(
+        &mut self,
+        authentication_key: &[u8],
+    ) -> Result<(), Error> {
         if self.folded || !matches!(authentication_key.len(), 16 | 24 | 32) {
-            return Err(refused("missing or repeated authentication key folding"));
+            return Err(refused(
+                "missing or repeated authentication key folding",
+            ));
         }
-        for (target, byte) in self.session_key.iter_mut().zip(authentication_key) {
+        for (target, byte) in
+            self.session_key.iter_mut().zip(authentication_key)
+        {
             *target ^= byte;
         }
         for (target, byte) in self.iv.iter_mut().zip(authentication_key) {
             *target ^= byte;
         }
-        self.hash = HashState::new(&self.session_key, &self.iv[..16], self.hash.algorithm)?;
+        self.hash = HashState::new(
+            &self.session_key,
+            &self.iv[..16],
+            self.hash.algorithm,
+        )?;
         self.folded = true;
         Ok(())
     }
@@ -154,13 +256,16 @@ impl Protection {
         let result = match self.key_length {
             16 => cbc::Encryptor::<aes::Aes128>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .encrypt_padded::<NoPadding>(data, length).map(|_| ()),
+                .encrypt_padded::<NoPadding>(data, length)
+                .map(|_| ()),
             24 => cbc::Encryptor::<aes::Aes192>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .encrypt_padded::<NoPadding>(data, length).map(|_| ()),
+                .encrypt_padded::<NoPadding>(data, length)
+                .map(|_| ()),
             32 => cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .encrypt_padded::<NoPadding>(data, length).map(|_| ()),
+                .encrypt_padded::<NoPadding>(data, length)
+                .map(|_| ()),
             _ => return Err(refused("invalid native key state")),
         };
         result.map_err(|_| refused("invalid protected record"))
@@ -172,20 +277,25 @@ impl Protection {
         let result = match self.key_length {
             16 => cbc::Decryptor::<aes::Aes128>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .decrypt_padded::<NoPadding>(data).map(|_| ()),
+                .decrypt_padded::<NoPadding>(data)
+                .map(|_| ()),
             24 => cbc::Decryptor::<aes::Aes192>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .decrypt_padded::<NoPadding>(data).map(|_| ()),
+                .decrypt_padded::<NoPadding>(data)
+                .map(|_| ()),
             32 => cbc::Decryptor::<aes::Aes256>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .decrypt_padded::<NoPadding>(data).map(|_| ()),
+                .decrypt_padded::<NoPadding>(data)
+                .map(|_| ()),
             _ => return Err(refused("invalid native key state")),
         };
         result.map_err(|_| refused("invalid protected record"))
     }
 
     pub(crate) fn seal(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
-        let mut record = Zeroizing::new(Vec::with_capacity(plaintext.len() + self.overhead()));
+        let mut record = Zeroizing::new(Vec::with_capacity(
+            plaintext.len() + self.overhead(),
+        ));
         record.extend_from_slice(plaintext);
         record.extend_from_slice(&self.hash.compute(plaintext));
         let padding = (16 - record.len() % 16) % 16;
@@ -208,15 +318,21 @@ impl Protection {
         if !(1..=16).contains(&padding) {
             return Err(refused("invalid protected record"));
         }
-        let mut plaintext = Zeroizing::new(record[..record.len() - 2].to_vec());
+        let mut plaintext =
+            Zeroizing::new(record[..record.len() - 2].to_vec());
         self.decrypt(&mut plaintext)?;
-        let end = plaintext.len().checked_sub(padding - 1)
+        let end = plaintext
+            .len()
+            .checked_sub(padding - 1)
             .filter(|&n| n >= self.hash.algorithm.size())
             .ok_or_else(|| refused("invalid protected record"))?;
         let data_end = end - self.hash.algorithm.size();
         // No unauthenticated plaintext leaves this method. All corrupt-record errors are uniform.
-        let valid = self.hash.verify(&plaintext[..data_end], &plaintext[data_end..end]);
-        let zero_padding = plaintext[end..].iter().fold(0, |acc, byte| acc | byte) == 0;
+        let valid = self
+            .hash
+            .verify(&plaintext[..data_end], &plaintext[data_end..end]);
+        let zero_padding =
+            plaintext[end..].iter().fold(0, |acc, byte| acc | byte) == 0;
         if !valid || !zero_padding {
             return Err(refused("invalid protected record"));
         }
@@ -224,6 +340,18 @@ impl Protection {
         plaintext.truncate(data_end);
         Ok(std::mem::take(&mut *plaintext))
     }
+}
+
+/// Swaps the directional hash state so the returned `Protection` is the other
+/// end of the same channel as `protection` - used by tests outside this
+/// module that need to seal a record as the peer of a `Client`-side
+/// transport.
+#[cfg(test)]
+pub(super) fn peer_for_test(mut protection: Protection) -> Protection {
+    std::mem::swap(&mut protection.hash.tx, &mut protection.hash.rx);
+    std::mem::swap(&mut protection.hash.tx_mask, &mut protection.hash.rx_mask);
+    protection.hash.swapped = !protection.hash.swapped;
+    protection
 }
 
 #[cfg(test)]

@@ -31,9 +31,9 @@ let
   # `crates/sutura-exec-oracle/tests/dial.rs` drives it through a fake listener instead.
   # `metadata::` dropped: upstream now reads annotations itself, so this crate keeps no test there.
   # `messages/auth.rs` carries the known-answer vectors of each password verifier.
-  # `floor`: `grep -c '#\[test\]'` over the patched files, 48 on 2026-11-23; it counts attribute text.
+  # `floor`: `grep -c '#\[test\]'` over the patched files, 54 on 2026-11-26; it counts attribute text.
   modules = [ "config::base::" "transport::" "messages::execute::" "messages::auth::" "nne::" "response::error_info::" "ora_type::timestamp::" "external_auth::" "arrow::fetch::" "client::" ];
-  floor = 48;
+  floor = 54;
 in
 craneLib.mkCargoDerivation (noArtifacts // {
   pname = "vendored-oracledb-tests";

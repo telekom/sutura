@@ -74,7 +74,12 @@ impl Packet {
     }
 
     /// Creates a new packet from the supplied buffer. A buffer shorter than
-    /// the smallest possible header is an error.
+    /// the smallest possible header is an error. A marker packet's body is
+    /// never variable-length - it is always the 3 bytes `[1, 0, marker
+    /// type]`, so a marker packet too short to carry its own type byte is
+    /// the same protocol violation as a packet shorter than its header, not
+    /// a marker this driver can read as "not a reset marker" and either
+    /// forward as data or wait past it.
     pub(crate) fn new(data: &[u8]) -> Result<Packet, Error> {
         if data.len() < 8 {
             return Err(Error::packet_too_short(data.len()));
@@ -89,6 +94,9 @@ impl Packet {
             }
             data_flags = u16::from_be_bytes(data[8..10].try_into().unwrap());
             buf = &data[10..];
+        } else if packet_type == constants::PACKET_TYPE_MARKER && buf.len() < 3
+        {
+            return Err(Error::packet_too_short(data.len()));
         }
         Ok(Packet { packet_type, packet_flags, data_flags, buf: buf.into() })
     }

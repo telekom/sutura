@@ -171,7 +171,9 @@ impl DbValue {
                     Ok(None)
                 } else {
                     let mut value = OracleTimestamp::try_from_buf(&bytes)?;
-                    if db_type.ora_type_num == constants::ORA_TYPE_NUM_TIMESTAMP_LTZ {
+                    if db_type.ora_type_num
+                        == constants::ORA_TYPE_NUM_TIMESTAMP_LTZ
+                    {
                         value.adjust_timestamp_ltz_to_utc(
                             client.db_timezone_offset()?,
                         )?;

@@ -354,7 +354,9 @@ impl DbObjectReadBuffer<'_> {
                         "object timestamp with a time zone region".into(),
                     ));
                 }
-                DbValue::Timestamp(crate::OracleTimestamp::try_from_buf(bytes)?)
+                DbValue::Timestamp(crate::OracleTimestamp::try_from_buf(
+                    bytes,
+                )?)
             }
             crate::DB_TYPE_CLOB
             | crate::DB_TYPE_NCLOB

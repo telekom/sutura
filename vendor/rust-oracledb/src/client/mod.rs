@@ -177,7 +177,7 @@ impl Client {
                     constants::PACKET_TYPE_MARKER => {
                         let packet = self
                             .reset(packet.has_reset_marker())
-                            .map_err(|_| self.unrecoverable_error())?;
+                            .map_err(|err| self.unrecoverable_error(err))?;
                         return Ok((packet, false));
                     }
                     _ => return Ok((packet, true)),
@@ -267,19 +267,124 @@ impl Client {
     /// The packet received after the reset has completed is returned to the
     /// caller. Note that some databases return multiple reset markers so
     /// these are also accommodated.
+    ///
+    /// On a native-encrypted transport the marker packets this exchanges are
+    /// the protocol's own unprotected marker/break packets (the transport
+    /// admits exactly those unprotected), so a server-signalled break - e.g. a
+    /// statement that fails with an ORA error - reaches the caller as that
+    /// error instead of a transport refusal. But the packet types admitted
+    /// unprotected are exactly marker packets, never data: on native, the
+    /// packet this returns must be a protected `DATA` packet read through
+    /// `protection.open` like any other, and a `DATA` packet arriving before
+    /// the reset marker, or any non-reset marker packet taking its place
+    /// after it, is refused by naming the expected and the arrived packet
+    /// type - the same unprotected bytes that are legitimately a break marker
+    /// must never be forwarded to the caller as if they were the awaited
+    /// response, and a protected packet arriving early must never be
+    /// silently discarded as if it were pre-reset noise.
+    ///
+    /// On native encryption, the server independently re-derives its MAC
+    /// keystreams the moment it reads the client's answering reset marker,
+    /// chaining forward from their current state rather than restarting from
+    /// the session key - it does not wait to see anything come back first,
+    /// since sending that marker is itself what moves it to the new state.
+    /// The client reaches that same point the moment it, in turn, decides to
+    /// answer: it rekeys immediately after sending its own reset marker,
+    /// before reading anything further, mirroring go-ora's `processMarker`
+    /// (which re-initialises unconditionally on every marker it reads,
+    /// without inspecting that marker's type) rather than waiting to
+    /// recognise a reset-typed echo on the wire - any data still in flight
+    /// from before the break remains under the old keys, exactly like the
+    /// server's own traffic does, and only the record the break/reset
+    /// handshake is actually waiting for is read under the new ones.
+    ///
+    /// `processMarker` also reads exactly one more packet right after
+    /// rekeying and discards it - normally the peer's own reset-marker echo.
+    /// Here that slot accepts only a marker: a protected `DATA` record in it
+    /// is refused, never dropped, because dropping an authenticated record
+    /// would truncate the stream. **Limit:** a second, distinct marker read
+    /// later in the loop below does not trigger another send/rekey/discard
+    /// cycle; it only sets `reset_received`.
     fn reset(&mut self, reset_received: bool) -> Result<Packet, Error> {
-        if self.transport.uses_native() {
-            let _ = self.transport.close();
-            return Err(Error::native_encryption_refused("native connection closed on reset"));
-        }
+        log::debug!(
+            "reset: send MARKER type=reset (rekey_count={})",
+            self.transport.rekey_count(),
+        );
         self.send_marker(constants::MARKER_TYPE_RESET)?;
+        let native = self.transport.uses_native();
         let mut reset_received = reset_received;
+        if native {
+            self.transport.rekey_native_protection_for_reset()?;
+            let discarded = self.transport.receive_packet()?;
+            log::debug!(
+                "reset: recv {} (reset_marker={}, reset_received={}, {} byte record, \
+                 rekey_count={})",
+                crate::transport::packet_type_label(discarded.packet_type),
+                discarded.has_reset_marker(),
+                reset_received,
+                discarded.buf.len(),
+                self.transport.rekey_count(),
+            );
+            if discarded.has_reset_marker() {
+                // This is the normal case - the peer's own answering reset marker,
+                // read and discarded unconditionally, mirroring go-ora's
+                // `processMarker`, which does not inspect it either.
+                reset_received = true;
+            } else if discarded.packet_type == constants::PACKET_TYPE_DATA {
+                // go-ora drops whatever fills this slot. A protected record here is
+                // either stale traffic (no reset marker seen yet) or the awaited
+                // answer arriving without the echo; dropping either would truncate
+                // the authenticated stream, so refuse instead.
+                let expected = if reset_received {
+                    "the peer's reset-marker echo"
+                } else {
+                    "an unprotected MARKER before the reset marker"
+                };
+                return Err(Error::native_encryption_refused(format!(
+                    "expected {expected}, got a protected {}",
+                    crate::transport::packet_type_label(constants::PACKET_TYPE_DATA),
+                )));
+            }
+            // Any other unprotected marker here (e.g. a second, distinct marker type)
+            // is also just discarded, matching go-ora's unconditional single discard.
+        }
         loop {
             let packet = self.transport.receive_packet()?;
+            log::debug!(
+                "reset: recv {} (reset_marker={}, reset_received={}, {} byte record, \
+                 rekey_count={})",
+                crate::transport::packet_type_label(packet.packet_type),
+                packet.has_reset_marker(),
+                reset_received,
+                packet.buf.len(),
+                self.transport.rekey_count(),
+            );
             if packet.has_reset_marker() {
                 reset_received = true;
             } else if reset_received {
+                if native && packet.packet_type != constants::PACKET_TYPE_DATA
+                {
+                    return Err(Error::native_encryption_refused(format!(
+                        "expected a protected {} after the reset marker, got an unprotected {}",
+                        crate::transport::packet_type_label(
+                            constants::PACKET_TYPE_DATA
+                        ),
+                        crate::transport::packet_type_label(
+                            packet.packet_type
+                        ),
+                    )));
+                }
                 return Ok(packet);
+            } else if native
+                && packet.packet_type == constants::PACKET_TYPE_DATA
+            {
+                return Err(Error::native_encryption_refused(format!(
+                    "expected an unprotected {} before the reset marker, got a protected {}",
+                    crate::transport::packet_type_label(
+                        constants::PACKET_TYPE_MARKER
+                    ),
+                    crate::transport::packet_type_label(packet.packet_type),
+                )));
             }
         }
     }
@@ -320,11 +425,13 @@ impl Client {
     }
 
     /// Called when an unrecoverable error has taken place and the connection
-    /// is no longer deemed usable. The connection is closed and an error is
-    /// returned.
-    fn unrecoverable_error(&mut self) -> Error {
+    /// is no longer deemed usable. The connection is closed; the triggering
+    /// error is returned unchanged so the caller still sees its real cause
+    /// (an ORA code read from the server, or a genuine transport refusal)
+    /// rather than a generic "unable to recover" message that would mask it.
+    fn unrecoverable_error(&mut self, err: Error) -> Error {
         let _ = self.transport.close();
-        Error::unable_to_recover()
+        err
     }
 
     /// Writes the close cursors piggyback.
@@ -690,7 +797,9 @@ impl Client {
             return Err(Error::external_auth_requires_tcps());
         }
         if self.config.native_encryption() && address.protocol() != "tcp" {
-            return Err(Error::native_encryption_refused("native mode requires TCP"));
+            return Err(Error::native_encryption_refused(
+                "native mode requires TCP",
+            ));
         }
         let stream =
             if let Some(timeout) = self.config.transport_connect_timeout() {
@@ -752,9 +861,12 @@ impl Client {
         if self.config.native_encryption() {
             if !connect_message.native_available {
                 let _ = self.transport.close();
-                return Err(Error::native_encryption_refused("peer disabled native negotiation"));
+                return Err(Error::native_encryption_refused(
+                    "peer disabled native negotiation",
+                ));
             }
-            self.transport.negotiate_native(self.config.transport_connect_timeout())?;
+            self.transport
+                .negotiate_native(self.config.transport_connect_timeout())?;
         }
 
         // OCI IAM token based authentication requires a header identifying
@@ -1054,7 +1166,9 @@ impl Client {
         if self.transport.uses_native() {
             let Some(key) = self.combo_key.as_ref() else {
                 let _ = self.transport.close();
-                return Err(Error::native_encryption_refused("missing authentication key folding"));
+                return Err(Error::native_encryption_refused(
+                    "missing authentication key folding",
+                ));
             };
             self.transport.fold_native_key(key.as_bytes())?;
         }
@@ -1200,9 +1314,9 @@ mod tests {
     use super::*;
 
     /// A failed interrupt/reset recovery must not replace the timeout that
-    /// triggered it with `UnableToRecover` - an unconnected client's own
-    /// recovery attempt fails the same way a peer that already timed out the
-    /// original call commonly does, so this drives the real failure path
+    /// triggered it with a generic recovery error - an unconnected client's
+    /// own recovery attempt fails the same way a peer that already timed out
+    /// the original call commonly does, so this drives the real failure path
     /// without a live socket.
     #[test]
     fn recovery_failure_keeps_the_timeout_kind() {
@@ -1219,7 +1333,243 @@ mod tests {
         };
         assert!(
             err.is_call_timeout_exceeded(),
-            "recovery failure must surface the original timeout, not UnableToRecover: {err}"
+            "recovery failure must surface the original timeout, not a generic recovery error: {err}"
+        );
+    }
+
+    use std::io::{Read, Write};
+
+    use crate::nne;
+
+    fn raw_packet(packet_type: u8, payload: &[u8]) -> Vec<u8> {
+        let mut output = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
+        output.extend_from_slice(&[packet_type, 0, 0, 0]);
+        output.extend_from_slice(payload);
+        output
+    }
+
+    fn data_packet(payload: &[u8]) -> Vec<u8> {
+        let mut output = ((payload.len() + 10) as u32).to_be_bytes().to_vec();
+        output.extend_from_slice(&[
+            constants::PACKET_TYPE_DATA,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]);
+        output.extend_from_slice(payload);
+        output
+    }
+
+    fn marker_packet(marker_type: u8) -> Vec<u8> {
+        raw_packet(constants::PACKET_TYPE_MARKER, &[1, 0, marker_type])
+    }
+
+    fn native_client(max_packet_size: usize) -> (TcpStream, Client) {
+        let (server, transport) =
+            Transport::native_pair_for_test(max_packet_size, true);
+        let mut client = Client::with_ttc_field_version(0);
+        client.transport = transport;
+        (server, client)
+    }
+
+    /// The core of the fix: a server signals a mid-session statement failure
+    /// with an unprotected break marker, then an unprotected reset-ack marker,
+    /// then the encrypted record carrying the actual ORA error. `reset()`
+    /// admits exactly the two unprotected marker packets and returns the
+    /// error record decrypted, the same as any other protected data.
+    #[test]
+    fn reset_reads_the_encrypted_error_record_after_a_native_break_marker() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            // Drain whatever the client wrote (its own reset marker) without
+            // depending on its exact bytes.
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            server
+                .write_all(&marker_packet(constants::MARKER_TYPE_RESET))
+                .unwrap();
+            // The real server also re-derives its MAC keystreams the moment it
+            // answers with its reset marker - see `rekey_for_reset`.
+            peer.rekey_for_reset().unwrap();
+            let sealed =
+                peer.seal(b"ORA-00942: table or view does not exist").unwrap();
+            server.write_all(&data_packet(&sealed)).unwrap();
+        });
+        let packet = client.reset(true).expect(
+            "a protected record after the reset marker must be admitted",
+        );
+        sender.join().unwrap();
+        assert_eq!(packet.packet_type, constants::PACKET_TYPE_DATA);
+        assert_eq!(packet.buf, b"ORA-00942: table or view does not exist");
+    }
+
+    /// Reproduces the entry path flagged in review: the marker packet that led
+    /// `receive_data_packet` to call `reset` was itself the reset marker (no
+    /// separate break marker preceded it), so `reset_received` starts `true`.
+    /// `reset` now rekeys unconditionally right after sending its own reset
+    /// marker - not only once it later recognises a reset-typed echo -
+    /// matching go-ora's `processMarker`, which re-initialises as soon as it
+    /// answers rather than waiting to read anything back; the mandatory
+    /// discard slot right after that rekey still consumes one packet, as
+    /// go-ora's own order requires (here, the peer's own reset-marker echo),
+    /// before the real answer is read.
+    #[test]
+    fn reset_entered_with_reset_already_received_still_rekeys() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            server
+                .write_all(&marker_packet(constants::MARKER_TYPE_RESET))
+                .unwrap();
+            peer.rekey_for_reset().unwrap();
+            let sealed = peer.seal(b"ORA-01456: may not perform insert/delete/update operation inside a READ ONLY transaction").unwrap();
+            server.write_all(&data_packet(&sealed)).unwrap();
+        });
+        let packet = client
+            .reset(true)
+            .expect("the DATA packet must authenticate under the keys rekeyed on entry");
+        sender.join().unwrap();
+        assert_eq!(packet.packet_type, constants::PACKET_TYPE_DATA);
+        assert_eq!(
+            packet.buf,
+            b"ORA-01456: may not perform insert/delete/update operation inside a READ ONLY transaction"
+        );
+    }
+
+    /// A non-reset marker taking the place of the awaited protected record
+    /// must never be forwarded to the caller as if it were that record - the
+    /// bytes are legitimately unprotected (markers always are), so without
+    /// this check they would reach `ReadBuffer::from_packets` as if they were
+    /// the server's authenticated reply.
+    #[test]
+    fn a_non_reset_marker_after_the_reset_marker_is_refused_not_forwarded() {
+        let (mut server, mut client) = native_client(256);
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            server
+                .write_all(&marker_packet(constants::MARKER_TYPE_RESET))
+                .unwrap();
+            server
+                .write_all(&marker_packet(constants::MARKER_TYPE_INTERRUPT))
+                .unwrap();
+        });
+        let error = match client.reset(true) {
+            Ok(_) => panic!(
+                "a non-reset marker must not be forwarded as the reset result"
+            ),
+            Err(err) => err,
+        };
+        sender.join().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "native encryption refused: expected a protected DATA after the reset marker, got an unprotected MARKER"
+        );
+    }
+
+    /// A protected `DATA` packet arriving before the reset marker is genuine
+    /// stale traffic from before the error - on a native transport it must be
+    /// refused rather than silently discarded, since silent discard is how a
+    /// forged or replayed record would otherwise be dropped without being
+    /// noticed. `reset` rekeys and then reads exactly one more packet right
+    /// after sending its own answering marker (mirroring go-ora's
+    /// `processMarker`, which discards whatever comes next unconditionally,
+    /// without inspecting it) - but unlike go-ora, which has no such
+    /// pre-existing session traffic to worry about, this transport never
+    /// lets that discard-slot double as trusting a protected record as data:
+    /// the peer here rekeys too (so the record authenticates structurally,
+    /// the same shape the real post-break answer would have) to prove the
+    /// refusal below is reached by the type check, not by a decrypt failure.
+    #[test]
+    fn a_data_packet_before_the_reset_marker_is_refused_not_discarded() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            peer.rekey_for_reset().unwrap();
+            let sealed = peer.seal(b"stale reply").unwrap();
+            server.write_all(&data_packet(&sealed)).unwrap();
+        });
+        let error = match client.reset(false) {
+            Ok(_) => panic!(
+                "a data packet before the reset marker must not be silently discarded"
+            ),
+            Err(err) => err,
+        };
+        sender.join().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "native encryption refused: expected an unprotected MARKER before the reset marker, got a protected DATA"
+        );
+    }
+
+    /// Entered with the reset marker already seen, the slot after the rekey
+    /// still accepts only the peer's echo: an authenticated `DATA` record there
+    /// is refused, not dropped while the next packet is returned in its place.
+    #[test]
+    fn an_authenticated_data_packet_in_the_echo_slot_is_refused_not_dropped() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            peer.rekey_for_reset().unwrap();
+            for payload in [b"first reply".as_slice(), b"second reply"] {
+                let sealed = peer.seal(payload).unwrap();
+                server.write_all(&data_packet(&sealed)).unwrap();
+            }
+        });
+        let error = match client.reset(true) {
+            Ok(_) => panic!(
+                "an authenticated record in the echo slot must not be dropped"
+            ),
+            Err(err) => err,
+        };
+        sender.join().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "native encryption refused: expected the peer's reset-marker echo, got a protected DATA"
+        );
+    }
+
+    /// The rekey must not weaken integrity: a record forged after a
+    /// server-side rekey (right bytes, wrong MAC) is still refused rather
+    /// than authenticating just because a rekey happened.
+    #[test]
+    fn a_forged_record_after_a_server_side_rekey_is_still_refused() {
+        let (mut server, mut client) = native_client(256);
+        let mut peer = nne::protection_for_test_peer();
+        let sender = std::thread::spawn(move || {
+            let mut discard = [0u8; 256];
+            let _ = server.read(&mut discard);
+            server
+                .write_all(&marker_packet(constants::MARKER_TYPE_RESET))
+                .unwrap();
+            peer.rekey_for_reset().unwrap();
+            let mut sealed =
+                peer.seal(b"ORA-00942: table or view does not exist").unwrap();
+            // Flip a ciphertext byte (not the trailing fold-marker/padding-length
+            // bytes, which are refused before the MAC check even runs) so this
+            // is refused for failing to authenticate, not for a malformed frame.
+            sealed[0] ^= 0xff;
+            server.write_all(&data_packet(&sealed)).unwrap();
+        });
+        let error = match client.reset(true) {
+            Ok(_) => panic!(
+                "a forged record must not authenticate just because a rekey happened"
+            ),
+            Err(err) => err,
+        };
+        sender.join().unwrap();
+        assert!(
+            error.to_string().contains("did not authenticate"),
+            "unexpected error: {error}"
         );
     }
 }

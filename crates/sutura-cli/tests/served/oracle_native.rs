@@ -7,8 +7,15 @@ use std::path::PathBuf;
 use sutura_config::Environment;
 
 use crate::harness::{
-    LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
+    LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured,
+    start_configured_with_environment, v1, written,
 };
+
+/// The subscriber reads `RUST_LOG` before the settings' filter - see `no_echo::TRACE` - so this is
+/// what makes `run_sql`'s own `debug` line (`crates/sutura-app/src/raw.rs`'s `run_at`) land in the
+/// process's piped stderr for [`Served::awaiting`] to find, without turning on `trace` noise from
+/// everything else.
+const DEBUG: [(&str, &str); 1] = [("RUST_LOG", "debug")];
 
 struct Tier {
     port: u16,
@@ -197,13 +204,79 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             &[],
         )
         .join("\n");
+        // On native encryption the server reports this failure after a break/reset, so reading
+        // its real ORA-01017 here proves the MAC ratchet across that reset matches the server's.
         assert!(
-            refused.contains("ORA-01017")
-                || (tier.channel.starts_with("transport_mode: native-encryption")
-                    && refused.contains("native encryption refused: unprotected native control packet")),
-            "the {path} must refuse the wrong password: {refused}"
+            refused.contains("ORA-01017"),
+            "the {path} must refuse the wrong password with the server's own error: {refused}"
         );
     }
+}
+
+/// On the native-encryption path, a statement the server itself fails must reach the operator's
+/// log as that server error, not as the generic native-encryption refusal the unprotected
+/// break-marker packet used to produce (#2084). The `oracle-native-acceptance` job builds this
+/// crate without the `sql` feature, so there is no planner here and no pushdown: `to_number` on
+/// the fixture's own non-numeric `PAYLOAD` text is passed through to Oracle exactly as written,
+/// unparsed, and fails as `ORA-01722` once Oracle runs it - a `cast(... as bigint)` would instead
+/// be a local Oracle-side parse error (`ORA-00902`, no such type), not the server executing and
+/// then failing the statement. Because this path never names tables or columns, there is nothing
+/// for the local resolver to refuse first regardless of feature set - the statement reaches
+/// Oracle's leg unconditionally, and the leg's own refusal is the honest pass-through code
+/// `statement_failed`, not a claim about identity/authorization (`source_failed`) or about a
+/// planner pushdown this build does not have. The reply itself can never carry the driver's
+/// text: the raw refusal vocabulary carries no driver text by design
+/// (`crates/sutura-domain/src/raw.rs`) - whoever controls the statement controls part of what a
+/// database says about it, so the closed code is all a caller gets. `run_sql`'s own debug line
+/// (`crates/sutura-app/src/raw.rs`'s `run_at`) carries the driver's words verbatim instead, so this
+/// starts the deployment at `RUST_LOG=debug` and reads its own piped log for the ORA code, proving
+/// the fix admits the break marker and reads the encrypted error record that follows it rather than
+/// refusing before ever reaching the server's answer.
+#[test]
+#[ignore = "requires just oracle-native-acceptance"]
+fn a_server_failing_statement_over_native_encryption_logs_the_ora_code() {
+    let mut tier = Tier::here();
+    tier.legacy_user = tier.user.clone();
+    tier.legacy_password = tier.password.clone();
+    let case = "oracle-native-statement-failure";
+    let settings = format!(
+        "{}tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        tier.settings(case, false, false, false, FixtureSource::Oracle)
+    );
+    let deployment = std::panic::catch_unwind(|| start_configured_with_environment(case, &settings, None, &DEBUG, &[]))
+        .expect("native mode must let the correct credentials serve");
+    let reply = deployment.post(
+        &v1(sutura_http::constants::base_paths::RUN_SQL),
+        Some(TOKEN),
+        &serde_json::json!({ "statement": "select ID from EVENTS where to_number(PAYLOAD) = 1" }).to_string(),
+    );
+    assert_eq!(
+        reply.status,
+        422,
+        "a statement-failed refusal is 422: {}\nlog:\n{}",
+        reply.body,
+        deployment.log().join("\n")
+    );
+    assert_eq!(
+        reply.json()["outcome"],
+        "raw_refusal",
+        "{}\nlog:\n{}",
+        reply.body,
+        deployment.log().join("\n")
+    );
+    assert_eq!(
+        reply.json()["code"],
+        "statement_failed",
+        "this build has no planner (no `sql` feature) and no pushdown, so the statement passes \
+         through to Oracle as written and this is pass-through's own honest code for a leg that \
+         failed to run: {}\nlog:\n{}",
+        reply.body,
+        deployment.log().join("\n")
+    );
+    // The proof the fix actually reads the encrypted error record after the break/reset: the
+    // leg's own debug log carries the real ORA code, which the closed `statement_failed` reply
+    // code above never does.
+    deployment.awaiting("ORA-01722");
 }
 
 #[test]

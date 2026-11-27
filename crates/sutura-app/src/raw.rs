@@ -523,7 +523,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             return Err(LegStop::Failed(RunSqlError::NoAcceptingSource));
         };
         let rows = executed.map_err(|cause| {
-            LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
+            let reason = if warehouse.result_did_not_fit(&cause) {
                 if policy == PolicyRead::Locally {
                     RawRefusalReason::PolicySearchNeedsNarrowing { ineligible }
                 } else {
@@ -539,7 +539,19 @@ impl<'a, W, B> RawLegs<'a, W, B> {
                 RawRefusalReason::SourceRefused
             } else {
                 RawRefusalReason::StatementFailed
-            })
+            };
+            // `cause` carries the adapter's own words - an Oracle ORA code, a transport
+            // refusal, a driver timeout - and none of that reaches the caller, who is told
+            // only the closed `reason` above. Logged here, once, so an operator reading the
+            // leg's own log line can tell which it was, rather than only "a source part did
+            // not run" with no cause attached. `cause`'s own `Display` is frequently a fixed
+            // adapter-level sentence (e.g. Oracle's `Execute` variant always reads "the
+            // statement failed while running") with the driver's actual words - the ORA code -
+            // only reachable through `core::error::Error::source()`, so the chain is walked and
+            // joined here rather than logging `cause` alone.
+            let cause_chain = error_chain(&cause);
+            tracing::debug!(%source, cause = %cause_chain, ?reason, "run_sql: a leg did not run");
+            LegStop::Refused(reason)
         })?;
         if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
             return Err(LegStop::Refused(if policy == PolicyRead::Locally {
@@ -618,6 +630,51 @@ where
         record.and(source.clone(), posture.clone())
     })
     .ok()
+}
+
+/// Joins an error's `Display` with every `core::error::Error::source()` beneath it, `": "`
+/// separated. An adapter's top-level variant is frequently a fixed sentence (`sutura-exec-oracle`'s
+/// `Execute` always reads "the statement failed while running"); the driver's own words - an ORA
+/// code, a transport refusal - live only in `#[source]`. Logging the top level alone would hide
+/// exactly the text an operator needs to tell an Oracle error from a transport refusal.
+fn error_chain(cause: &(dyn core::error::Error + 'static)) -> String {
+    let mut parts = vec![cause.to_string()];
+    let mut next = cause.source();
+    while let Some(source) = next {
+        parts.push(source.to_string());
+        next = source.source();
+    }
+    parts.join(": ")
+}
+
+#[cfg(test)]
+mod error_chain_tests {
+    use super::error_chain;
+
+    /// Mirrors the real shape `#2084` pins: a fixed top-level sentence (like
+    /// `sutura-exec-oracle`'s `Execute`) wrapping the driver's own words (the ORA code) one level
+    /// further down, with nothing synthetic in between.
+    #[derive(Debug, thiserror::Error)]
+    #[error("the statement failed while running")]
+    struct AdapterLevel {
+        #[source]
+        driver: DriverLevel,
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("ORA-01722: invalid number")]
+    struct DriverLevel;
+
+    #[test]
+    fn a_fixed_adapter_sentence_still_carries_the_driver_code_in_the_chain() {
+        let cause = AdapterLevel { driver: DriverLevel };
+        let chain = error_chain(&cause);
+        assert_eq!(chain, "the statement failed while running: ORA-01722: invalid number");
+        assert!(
+            chain.contains("ORA-01722"),
+            "the logged chain must carry the driver's own ORA code, not only the adapter's fixed sentence: {chain}"
+        );
+    }
 }
 
 #[cfg(test)]

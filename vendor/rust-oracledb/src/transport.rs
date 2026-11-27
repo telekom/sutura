@@ -46,6 +46,7 @@ use rustls::pki_types::TrustAnchor;
 use rustls::pki_types::pem::PemObject;
 use rustls::sign::CertifiedKey;
 
+use crate::nne;
 use std::cmp::min;
 use std::env;
 use std::fs;
@@ -56,7 +57,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use zeroize::Zeroize;
-use crate::nne;
 
 use crate::config::Address;
 use crate::config::Config;
@@ -188,6 +188,14 @@ pub(crate) struct Transport {
     native_requested: bool,
     native_deadline: Option<Instant>,
     protection: Option<nne::Protection>,
+    /// Set once the native authentication key has been folded in, i.e. once this session has
+    /// authenticated. Used only to word an unprotected `DATA` packet's refusal: during
+    /// authentication that is the shape a server's own login-failure error takes, so it is named
+    /// as a login refusal; afterwards the same bytes are unexplained and named neutrally instead.
+    authenticated: bool,
+    /// Count of completed `rekey_native_protection_for_reset` calls, for the debug wire
+    /// trace only - never a security decision.
+    rekey_count: usize,
 }
 
 // a custom client certificate resolver is required because the client
@@ -209,6 +217,40 @@ const PEM_ENCRYPTED_PRIVATE_KEY_HEADER: &str =
 const PEM_ENCRYPTED_PRIVATE_KEY_FOOTER: &str =
     "-----END ENCRYPTED PRIVATE KEY-----";
 const PEM_UNENCRYPTED_PRIVATE_KEY_HEADER: &str = "-----BEGIN PRIVATE KEY-----";
+
+/// Returns a human-readable name for a TNS packet type, for use in diagnostic
+/// messages. Unrecognised types are named by their numeric value.
+pub(crate) fn packet_type_label(packet_type: u8) -> String {
+    match packet_type {
+        constants::PACKET_TYPE_CONNECT => "CONNECT".to_string(),
+        constants::PACKET_TYPE_ACCEPT => "ACCEPT".to_string(),
+        constants::PACKET_TYPE_REFUSE => "REFUSE".to_string(),
+        constants::PACKET_TYPE_REDIRECT => "REDIRECT".to_string(),
+        constants::PACKET_TYPE_DATA => "DATA".to_string(),
+        constants::PACKET_TYPE_RESEND => "RESEND".to_string(),
+        constants::PACKET_TYPE_MARKER => "MARKER".to_string(),
+        constants::PACKET_TYPE_CONTROL => "CONTROL".to_string(),
+        other => format!("packet type {other}"),
+    }
+}
+
+/// Diagnostic-only shape check for a DATA record that failed to authenticate:
+/// does it look like the server sent a plaintext TTC error message instead of
+/// a protected one? This inspects only the still-sealed bytes exactly as they
+/// arrived off the wire - the same bytes this transport already holds - never
+/// the decrypted plaintext (`Protection::open` never returns that on failure).
+/// A record is "plaintext-shaped" when most of it is printable ASCII, which a
+/// correctly sealed record practically never is.
+fn looks_like_plaintext_ttc_error(record: &[u8]) -> bool {
+    if record.is_empty() {
+        return false;
+    }
+    let printable = record
+        .iter()
+        .filter(|byte| byte.is_ascii_graphic() || **byte == b' ')
+        .count();
+    printable * 10 >= record.len() * 9
+}
 
 /// Returns the character to use for the given byte when displaying packet
 /// data.
@@ -275,8 +317,12 @@ impl Transport {
         if self.last_packet_bytes < 8 && !self.native_requested {
             return Err(Error::packet_too_short(self.last_packet_bytes));
         }
-        if self.last_packet_bytes < 8 || self.last_packet_bytes > self.max_packet_size {
-            return Err(Error::native_encryption_refused("invalid packet length"));
+        if self.last_packet_bytes < 8
+            || self.last_packet_bytes > self.max_packet_size
+        {
+            return Err(Error::native_encryption_refused(
+                "invalid packet length",
+            ));
         }
         if self.residual_bytes < self.last_packet_bytes {
             return Ok(None);
@@ -289,13 +335,76 @@ impl Transport {
             print_packet(&header, packet_buf);
         }
         let mut packet = Packet::new(packet_buf)?;
-        if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA {
-            return Err(Error::native_encryption_refused("unprotected native control packet"));
+        if self.protection.is_some()
+            && packet.packet_type != constants::PACKET_TYPE_DATA
+            && packet.packet_type != constants::PACKET_TYPE_MARKER
+        {
+            // The protocol's own marker/break packets (TNS break, interrupt and reset
+            // acknowledgements) are never encrypted even on a native-encrypted channel,
+            // including the break the server sends ahead of an encrypted error reply -
+            // so they, and only they, are admitted unprotected here. Anything else
+            // arriving without protection (a control packet, a bare ACCEPT, ...) is a
+            // genuine integrity gap: name what was expected and what arrived so an
+            // operator can tell a protocol gap from a downgrade attempt.
+            return Err(Error::native_encryption_refused(format!(
+                "expected a protected {} or an unprotected {}, got an unprotected {}",
+                packet_type_label(constants::PACKET_TYPE_DATA),
+                packet_type_label(constants::PACKET_TYPE_MARKER),
+                packet_type_label(packet.packet_type),
+            )));
         }
         if packet.packet_type == constants::PACKET_TYPE_DATA {
             if let Some(protection) = self.protection.as_mut() {
-                packet.buf = protection.open(&packet.buf)?;
+                let record_len = packet.buf.len();
+                let authenticated = self.authenticated;
+                // `open` fails the same way for plaintext, a tampered record, a replay or a
+                // lost sequence number - the wording below names only what was observed (an
+                // unprotected DATA packet failed to authenticate) plus the likely cause as a
+                // hint, never an asserted cause. The decision between the two wordings is this
+                // session's own authentication state, not the record's shape: a record's bytes
+                // can be forged to look sealed or unsealed either way, but whether this session
+                // has completed authentication is this client's own fact.
+                let packet_flags = packet.packet_flags;
+                let data_flags = packet.data_flags;
+                let plaintext_shaped =
+                    looks_like_plaintext_ttc_error(&packet.buf);
+                let opened = protection.open(&packet.buf);
+                // Trace only shape/metadata that is already visible on the wire unsealed
+                // (lengths and flags) plus the pass/fail outcome - never the sealed or opened
+                // bytes themselves and never any key or keystream material.
+                log::debug!(
+                    "extract_packet: recv DATA, {record_len} byte record, \
+                     packet_flags=0x{packet_flags:02x}, data_flags=0x{data_flags:04x}, \
+                     open={}",
+                    opened.is_ok(),
+                );
+                packet.buf = opened.map_err(|_| {
+                    if authenticated {
+                        Error::native_encryption_refused(format!(
+                            "expected a protected DATA packet, got one that did not authenticate \
+                             ({record_len} byte record, packet_flags=0x{packet_flags:02x}, \
+                             data_flags=0x{data_flags:04x}, plaintext_shaped={plaintext_shaped}) \
+                             - refused, not read"
+                        ))
+                    } else {
+                        Error::native_encryption_refused(format!(
+                            "a DATA packet during login did not authenticate (the shape a server \
+                             login refusal takes on native encryption) - refused, not read"
+                        ))
+                    }
+                })?;
             }
+        } else if self.protection.is_some() {
+            log::debug!(
+                "extract_packet: recv {} ({} byte record)",
+                packet_type_label(packet.packet_type),
+                packet.buf.len()
+                    + if packet.packet_type == constants::PACKET_TYPE_DATA {
+                        2
+                    } else {
+                        0
+                    },
+            );
         }
         Ok(Some(packet))
     }
@@ -352,12 +461,20 @@ impl Transport {
             if let Some(deadline) = self.native_deadline {
                 self.negotiation_deadline(deadline)?;
             }
-            let written = match self.low_level_transport.as_mut().ok_or_else(Error::not_connected)?
-                .write(&self.write_buf[offset..]) {
-                    Ok(written) => written,
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(error) => return Err(error.into()),
-                };
+            let written = match self
+                .low_level_transport
+                .as_mut()
+                .ok_or_else(Error::not_connected)?
+                .write(&self.write_buf[offset..])
+            {
+                Ok(written) => written,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::Interrupted =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             if written == 0 {
                 return Err(Error::dead_connection());
             }
@@ -395,7 +512,9 @@ impl Transport {
         config: &Config,
     ) -> Result<(), Error> {
         if config.native_encryption() && address.protocol() != "tcp" {
-            return Err(Error::native_encryption_refused("native mode requires TCP"));
+            return Err(Error::native_encryption_refused(
+                "native mode requires TCP",
+            ));
         }
         self.protection = None;
         self.native_requested = config.native_encryption();
@@ -424,10 +543,15 @@ impl Transport {
     }
 
     /// Establishes protection before the first TTC or authentication message.
-    pub(crate) fn negotiate_native(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        let deadline = Instant::now() + timeout.unwrap_or(Duration::from_secs(30));
+    pub(crate) fn negotiate_native(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Result<(), Error> {
+        let deadline =
+            Instant::now() + timeout.unwrap_or(Duration::from_secs(30));
         self.native_deadline = Some(deadline);
-        let result = self.negotiate_native_inner(deadline)
+        let result = self
+            .negotiate_native_inner(deadline)
             .and_then(|()| self.set_timeout(None));
         self.native_deadline = None;
         if result.is_err() {
@@ -437,28 +561,42 @@ impl Transport {
     }
 
     fn negotiation_deadline(&self, deadline: Instant) -> Result<(), Error> {
-        let remaining = deadline.checked_duration_since(Instant::now())
-            .ok_or_else(|| Error::native_encryption_refused("negotiation deadline exceeded"))?;
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or_else(|| {
+                Error::native_encryption_refused(
+                    "negotiation deadline exceeded",
+                )
+            })?;
         self.set_timeout(Some(remaining))
     }
 
-    fn negotiate_native_inner(&mut self, deadline: Instant) -> Result<(), Error> {
+    fn negotiate_native_inner(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<(), Error> {
         self.negotiation_deadline(deadline)?;
         self.send_packets(constants::PACKET_TYPE_DATA, 0, 0, &nne::offer())?;
         let mut data = Vec::new();
         loop {
             self.negotiation_deadline(deadline)?;
             let packet = self.receive_packet()?;
-            if packet.packet_type != constants::PACKET_TYPE_DATA || packet.data_flags != 0
-                || packet.buf.is_empty() || packet.buf.len() > nne::MAX_NEGOTIATION - data.len()
+            if packet.packet_type != constants::PACKET_TYPE_DATA
+                || packet.data_flags != 0
+                || packet.buf.is_empty()
+                || packet.buf.len() > nne::MAX_NEGOTIATION - data.len()
             {
-                return Err(Error::native_encryption_refused("invalid negotiation packet"));
+                return Err(Error::native_encryption_refused(
+                    "invalid negotiation packet",
+                ));
             }
             data.extend_from_slice(&packet.buf);
             if data.len() >= 6 {
                 let length = nne::frame_length(&data)?;
                 if data.len() > length {
-                    return Err(Error::native_encryption_refused("negotiation length mismatch"));
+                    return Err(Error::native_encryption_refused(
+                        "negotiation length mismatch",
+                    ));
                 }
                 if data.len() == length {
                     break;
@@ -478,12 +616,67 @@ impl Transport {
                 let _ = self.close();
                 return Err(error);
             }
+            self.authenticated = true;
         }
         Ok(())
     }
 
     pub(crate) fn uses_native(&self) -> bool {
         self.protection.is_some()
+    }
+
+    /// Re-derives the native MAC keystreams for a break/reset, a no-op without
+    /// native encryption. Must be called once the client has sent its own reset
+    /// marker, matching what the server independently does at the same point;
+    /// see `nne::record::HashState::rekey_for_reset`.
+    pub(crate) fn rekey_native_protection_for_reset(
+        &mut self,
+    ) -> Result<(), Error> {
+        match self.protection.as_mut() {
+            Some(protection) => {
+                protection.rekey_for_reset()?;
+                self.rekey_count += 1;
+                log::debug!(
+                    "rekey_native_protection_for_reset: rekey_count={}",
+                    self.rekey_count
+                );
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Count of completed resets' rekeys so far, for the debug wire trace only.
+    pub(crate) fn rekey_count(&self) -> usize {
+        self.rekey_count
+    }
+
+    /// Builds a connected, loopback-backed native transport for tests outside
+    /// this module that need a real `Client` to drive the reset handshake
+    /// without a live database. With `protected`, the client side carries the
+    /// same symmetric protection a completed native negotiation would have
+    /// installed, so a `DATA` packet the test writes through the matching
+    /// peer protection (`nne::protection_for_test_peer`) is read back
+    /// decrypted exactly as production code sees it.
+    #[cfg(test)]
+    pub(crate) fn native_pair_for_test(
+        max_packet_size: usize,
+        protected: bool,
+    ) -> (TcpStream, Self) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client =
+            TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let mut transport = Self::new();
+        transport.low_level_transport = Some(LowLevelTransport::Tcp(client));
+        transport.native_requested = true;
+        transport.set_max_packet_size(max_packet_size);
+        transport.set_full_packet_size();
+        transport.set_timeout(Some(Duration::from_secs(2))).unwrap();
+        if protected {
+            transport.protection = Some(nne::protection_for_test());
+        }
+        (server, transport)
     }
 
     /// Negotiates TLS on the connection.
@@ -493,7 +686,9 @@ impl Transport {
         config: &Config,
     ) -> Result<(), Error> {
         if self.native_requested {
-            return Err(Error::native_encryption_refused("native mode cannot renegotiate TLS"));
+            return Err(Error::native_encryption_refused(
+                "native mode cannot renegotiate TLS",
+            ));
         }
         if self.print_packets {
             self.op_num += 1;
@@ -522,6 +717,8 @@ impl Transport {
             native_requested: false,
             native_deadline: None,
             protection: None,
+            authenticated: false,
+            rekey_count: 0,
         }
     }
 
@@ -572,7 +769,12 @@ impl Transport {
         data_flags: u16,
         data: &[u8],
     ) -> Result<(), Error> {
-        let result = self.send_packets_inner(packet_type, packet_flags, data_flags, data);
+        let result = self.send_packets_inner(
+            packet_type,
+            packet_flags,
+            data_flags,
+            data,
+        );
         if result.is_err() && self.native_requested {
             let _ = self.close();
         }
@@ -580,7 +782,11 @@ impl Transport {
     }
 
     fn send_packets_inner(
-        &mut self, packet_type: u8, packet_flags: u8, data_flags: u16, mut data: &[u8],
+        &mut self,
+        packet_type: u8,
+        packet_flags: u8,
+        data_flags: u16,
+        mut data: &[u8],
     ) -> Result<(), Error> {
         let mut header_size = 8;
         if packet_type == constants::PACKET_TYPE_DATA {
@@ -588,10 +794,18 @@ impl Transport {
         }
         let overhead = if packet_type == constants::PACKET_TYPE_DATA {
             self.protection.as_ref().map_or(0, nne::Protection::overhead)
-        } else { 0 };
-        let max_data_size = self.max_packet_size.checked_sub(header_size + overhead)
+        } else {
+            0
+        };
+        let max_data_size = self
+            .max_packet_size
+            .checked_sub(header_size + overhead)
             .filter(|&n| n > 0)
-            .ok_or_else(|| Error::native_encryption_refused("packet size cannot hold protection"))?;
+            .ok_or_else(|| {
+                Error::native_encryption_refused(
+                    "packet size cannot hold protection",
+                )
+            })?;
         loop {
             let packet_data_size = min(max_data_size, data.len());
             let packet_data = &data[..packet_data_size];
@@ -601,8 +815,12 @@ impl Transport {
                 if let Some(protection) = self.protection.as_mut() {
                     protected = protection.seal(packet_data)?;
                     protected.as_slice()
-                } else { packet_data }
-            } else { packet_data };
+                } else {
+                    packet_data
+                }
+            } else {
+                packet_data
+            };
             let packet_size = packet_data.len() + header_size;
             self.write_buf.clear();
             if self.full_packet_size {
@@ -816,10 +1034,15 @@ mod tests {
     fn tls_uses_aws_lc_fallback_without_installing_a_provider() {
         assert!(CryptoProvider::get_default().is_none());
         let tls = CustomClientCertResolver::new(&Config::default())
-            .get_tls_config().unwrap();
+            .get_tls_config()
+            .unwrap();
         let aws_lc = rustls::crypto::aws_lc_rs::default_provider();
         let groups = |provider: &CryptoProvider| {
-            provider.kx_groups.iter().map(|group| group.name()).collect::<Vec<_>>()
+            provider
+                .kx_groups
+                .iter()
+                .map(|group| group.name())
+                .collect::<Vec<_>>()
         };
         assert_eq!(groups(tls.crypto_provider()), groups(&aws_lc));
         assert!(CryptoProvider::get_default().is_none());
@@ -839,9 +1062,12 @@ mod tests {
             ])
             .env("ORACLE_PROVIDER_TEST_CHILD", "1")
             .output().unwrap();
-            assert!(child.status.success(), "{}{}",
+            assert!(
+                child.status.success(),
+                "{}{}",
                 String::from_utf8_lossy(&child.stdout),
-                String::from_utf8_lossy(&child.stderr));
+                String::from_utf8_lossy(&child.stderr)
+            );
             return;
         }
         assert!(CryptoProvider::get_default().is_none());
@@ -856,7 +1082,8 @@ mod tests {
         let captured = before_install.get_tls_config().unwrap();
         assert!(!Arc::ptr_eq(captured.crypto_provider(), installed));
         let tls = CustomClientCertResolver::new(&Config::default())
-            .get_tls_config().unwrap();
+            .get_tls_config()
+            .unwrap();
         assert!(Arc::ptr_eq(tls.crypto_provider(), installed));
     }
 
