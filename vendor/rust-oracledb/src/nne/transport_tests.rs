@@ -52,7 +52,8 @@ fn protected_fragmentation_keeps_every_wire_packet_inside_its_sdu() {
     while total < 300 {
         let mut header = [0; 10];
         server.read_exact(&mut header).unwrap();
-        let size = u32::from_be_bytes(header[..4].try_into().unwrap()) as usize;
+        let size =
+            u32::from_be_bytes(header[..4].try_into().unwrap()) as usize;
         assert!(size <= 128);
         assert_eq!(&header[4..], &[6, 0, 0, 0, 0, 0]);
         let mut data = vec![0; size - 10];
@@ -68,7 +69,8 @@ fn protected_fragmentation_keeps_every_wire_packet_inside_its_sdu() {
 #[test]
 fn partial_packet_trickle_cannot_renew_the_absolute_native_deadline() {
     let (mut server, mut transport) = pair(256);
-    transport.native_deadline = Some(Instant::now() + Duration::from_millis(100));
+    transport.native_deadline =
+        Some(Instant::now() + Duration::from_millis(100));
     let sender = std::thread::spawn(move || {
         let mut header = packet(&[0; 190]);
         header.truncate(10);
@@ -89,7 +91,8 @@ fn partial_packet_trickle_cannot_renew_the_absolute_native_deadline() {
 
 #[test]
 fn unprotected_non_marker_control_packets_close_a_native_transport() {
-    for kind in [constants::PACKET_TYPE_CONTROL, constants::PACKET_TYPE_ACCEPT] {
+    for kind in [constants::PACKET_TYPE_CONTROL, constants::PACKET_TYPE_ACCEPT]
+    {
         let (mut server, mut transport) = pair(256);
         transport.protection = Some(nne::protection_for_test());
         let mut injected = packet(&[0; 8]);
@@ -101,14 +104,21 @@ fn unprotected_non_marker_control_packets_close_a_native_transport() {
             message.starts_with("native encryption refused: expected a protected DATA or an unprotected MARKER, got"),
             "names what was expected and what arrived: {message}"
         );
-        assert!(message.ends_with(&format!("got an unprotected {}", packet_type_label(kind))), "{message}");
+        assert!(
+            message.ends_with(&format!(
+                "got an unprotected {}",
+                packet_type_label(kind)
+            )),
+            "{message}"
+        );
         assert!(transport.low_level_transport.is_none());
         assert!(transport.protection.is_none());
     }
 }
 
 #[test]
-fn unprotected_marker_packet_is_admitted_then_the_next_data_packet_is_still_authenticated() {
+fn unprotected_marker_packet_is_admitted_then_the_next_data_packet_is_still_authenticated()
+ {
     let (mut server, mut transport) = pair(256);
     transport.protection = Some(nne::protection_for_test());
 
@@ -119,13 +129,18 @@ fn unprotected_marker_packet_is_admitted_then_the_next_data_packet_is_still_auth
     server.write_all(&marker).unwrap();
     let received = transport.receive_packet().unwrap();
     assert_eq!(received.packet_type, constants::PACKET_TYPE_MARKER);
-    assert!(transport.protection.is_some(), "admitting the marker does not drop protection");
+    assert!(
+        transport.protection.is_some(),
+        "admitting the marker does not drop protection"
+    );
 
     // Admitting the marker does not admit unauthenticated data: the next
     // packet, which carries the server's actual (here: unencrypted, so
     // undecodable) error reply, is still run through the authenticated
     // protected-record path and refused if it fails to decrypt.
-    server.write_all(&packet(b"ORA-00942: table or view does not exist")).unwrap();
+    server
+        .write_all(&packet(b"ORA-00942: table or view does not exist"))
+        .unwrap();
     let error = transport.receive_packet().err().unwrap();
     assert_eq!(
         error.to_string(),
@@ -135,11 +150,14 @@ fn unprotected_marker_packet_is_admitted_then_the_next_data_packet_is_still_auth
 }
 
 #[test]
-fn an_unprotected_data_packet_after_authentication_is_named_neutrally_not_as_a_login_refusal() {
+fn an_unprotected_data_packet_after_authentication_is_named_neutrally_not_as_a_login_refusal()
+ {
     let (mut server, mut transport) = pair(256);
     transport.protection = Some(nne::protection_for_test());
     transport.authenticated = true;
-    server.write_all(&packet(b"ORA-00942: table or view does not exist")).unwrap();
+    server
+        .write_all(&packet(b"ORA-00942: table or view does not exist"))
+        .unwrap();
     let error = transport.receive_packet().err().unwrap();
     assert_eq!(
         error.to_string(),

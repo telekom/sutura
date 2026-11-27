@@ -1,8 +1,11 @@
-use crypto_bigint::{Odd, U256, U2048, modular::{FixedMontyForm, FixedMontyParams}};
+use crypto_bigint::{
+    Odd, U256, U2048,
+    modular::{FixedMontyForm, FixedMontyParams},
+};
 use zeroize::{Zeroize, Zeroizing};
 
-use super::{Negotiated, field, finish, header, refused, service};
 use super::record::Protection;
+use super::{Negotiated, field, finish, header, refused, service};
 use crate::error::Error;
 
 // RFC 3526 group 14: a fixed, independently published safe prime. Unknown groups
@@ -30,8 +33,11 @@ fn number(bytes: &[u8]) -> Result<U2048, Error> {
     Ok(U2048::from_be_slice(&padded))
 }
 
-pub(super) fn exchange(negotiated: &Negotiated<'_>) -> Result<(Vec<u8>, Protection), Error> {
-    if negotiated.group_bits != 2048 || number(negotiated.modulus)? != GROUP14
+pub(super) fn exchange(
+    negotiated: &Negotiated<'_>,
+) -> Result<(Vec<u8>, Protection), Error> {
+    if negotiated.group_bits != 2048
+        || number(negotiated.modulus)? != GROUP14
         || number(negotiated.generator)? != U2048::from_u8(2)
     {
         return Err(refused("unsupported Diffie-Hellman group"));
@@ -40,7 +46,9 @@ pub(super) fn exchange(negotiated: &Negotiated<'_>) -> Result<(Vec<u8>, Protecti
     if peer <= U2048::ONE || peer >= GROUP14.wrapping_sub(&U2048::ONE) {
         return Err(refused("invalid Diffie-Hellman public value"));
     }
-    let odd = Odd::new(GROUP14).into_option().ok_or_else(|| refused("invalid Diffie-Hellman group"))?;
+    let odd = Odd::new(GROUP14)
+        .into_option()
+        .ok_or_else(|| refused("invalid Diffie-Hellman group"))?;
     let parameters = FixedMontyParams::new(odd);
     let peer_form = FixedMontyForm::new(&peer, &parameters);
     let order = GROUP14.wrapping_sub(&U2048::ONE).shr(1);
@@ -50,15 +58,28 @@ pub(super) fn exchange(negotiated: &Negotiated<'_>) -> Result<(Vec<u8>, Protecti
     let mut private_bytes = Zeroizing::new([0u8; 32]);
     rand::fill(private_bytes.as_mut_slice());
     private_bytes[0] |= 0x80;
-    let private = Zeroizing::new(U256::from_be_slice(private_bytes.as_slice()));
-    let public = FixedMontyForm::new(&U2048::from_u8(2), &parameters).pow(&*private).retrieve();
+    let private =
+        Zeroizing::new(U256::from_be_slice(private_bytes.as_slice()));
+    let public = FixedMontyForm::new(&U2048::from_u8(2), &parameters)
+        .pow(&*private)
+        .retrieve();
     let shared_form = Zeroizing::new(peer_form.pow(&*private));
     let shared = Zeroizing::new(shared_form.retrieve());
     if *shared <= U2048::ONE || *shared >= GROUP14.wrapping_sub(&U2048::ONE) {
         return Err(refused("invalid Diffie-Hellman shared value"));
     }
     let mut shared_bytes = shared.to_be_bytes();
-    let protection = Protection::new(shared_bytes.to_vec(), negotiated.encryption, negotiated.integrity);
+    log::debug!(
+        "native_dh: negotiated encryption={} integrity={} shared_key_len={}",
+        negotiated.encryption,
+        negotiated.integrity,
+        shared_bytes.len(),
+    );
+    let protection = Protection::new(
+        shared_bytes.to_vec(),
+        negotiated.encryption,
+        negotiated.integrity,
+    );
     shared_bytes.zeroize();
     let protection = protection?;
     let mut response = Vec::with_capacity(281);

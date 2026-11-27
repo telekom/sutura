@@ -3296,6 +3296,7 @@ dependencies = [
  "chrono",
  "crypto-bigint",
  "des",
+ "log",
  "md-5",
  "pbkdf2",
  "pkcs8",

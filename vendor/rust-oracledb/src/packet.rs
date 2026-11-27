@@ -94,7 +94,8 @@ impl Packet {
             }
             data_flags = u16::from_be_bytes(data[8..10].try_into().unwrap());
             buf = &data[10..];
-        } else if packet_type == constants::PACKET_TYPE_MARKER && buf.len() < 3 {
+        } else if packet_type == constants::PACKET_TYPE_MARKER && buf.len() < 3
+        {
             return Err(Error::packet_too_short(data.len()));
         }
         Ok(Packet { packet_type, packet_flags, data_flags, buf: buf.into() })

@@ -19,9 +19,21 @@ fn cbc_matches_independent_nist_sp800_38a_vectors() {
     let iv = bytes("000102030405060708090a0b0c0d0e0f");
     let plaintext = bytes("6bc1bee22e409f96e93d7e117393172a");
     for (encryption, key, expected) in [
-        (15, "2b7e151628aed2a6abf7158809cf4f3c", "7649abac8119b246cee98e9b12e9197d"),
-        (16, "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b", "4f021db243bc633d7178183a9fa071e8"),
-        (17, "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4", "f58c4c04d6e5f1ba779eabfb5f7bfbd6"),
+        (
+            15,
+            "2b7e151628aed2a6abf7158809cf4f3c",
+            "7649abac8119b246cee98e9b12e9197d",
+        ),
+        (
+            16,
+            "8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b",
+            "4f021db243bc633d7178183a9fa071e8",
+        ),
+        (
+            17,
+            "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4",
+            "f58c4c04d6e5f1ba779eabfb5f7bfbd6",
+        ),
     ] {
         let key = bytes(key);
         let mut secret = vec![0; 256];
@@ -37,7 +49,8 @@ fn cbc_matches_independent_nist_sp800_38a_vectors() {
 }
 
 #[test]
-fn every_algorithm_pair_protects_directional_multirecord_and_padding_boundaries() {
+fn every_algorithm_pair_protects_directional_multirecord_and_padding_boundaries()
+ {
     for encryption in [15, 16, 17] {
         for integrity in [4, 5, 6] {
             let mut client = protection(encryption, integrity);
@@ -61,11 +74,18 @@ fn every_single_byte_record_corruption_and_truncation_is_refused_uniformly() {
         let mut tampered = record.clone();
         tampered[index] ^= 1;
         let error = server(protection(17, 5)).open(&tampered).unwrap_err();
-        assert_eq!(error.to_string(), "native encryption refused: invalid protected record");
+        assert_eq!(
+            error.to_string(),
+            "native encryption refused: invalid protected record"
+        );
     }
     for end in 0..record.len() {
-        let error = server(protection(17, 5)).open(&record[..end]).unwrap_err();
-        assert_eq!(error.to_string(), "native encryption refused: invalid protected record");
+        let error =
+            server(protection(17, 5)).open(&record[..end]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "native encryption refused: invalid protected record"
+        );
     }
     let mut extended = record.clone();
     extended.push(0);
@@ -109,15 +129,42 @@ fn authentication_key_folding_is_a_one_way_phase_change() {
 }
 
 #[test]
-fn rekey_for_reset_matches_an_independently_assembled_go_ora_processmarker_derivation() {
+fn rekey_for_reset_matches_an_independently_assembled_go_ora_processmarker_derivation()
+ {
     // Reimplements go-ora's seed-chaining rekey (`session.processMarker` calling
     // `OracleNetworkHash2.Init` on its persistent 32-byte buffer) directly from the
     // chain state, using only the low-level `cipher`/`step` primitives - never calling
     // `HashState::derive`/`Protection::rekey_for_reset` for the computation itself - so
     // this proves our production rekey agrees with an independent replica of the
     // reference algorithm, not merely with its own derivation code.
+    //
+    // `tx_mask`/`rx_mask` are carried forward across a rekey (only the ciphers that
+    // step them are replaced), so a test starting from the freshly-derived zero masks
+    // cannot distinguish a rekey that evolves the mask correctly from one that resets
+    // it - exercise a few sealed/opened records first so both masks are non-zero
+    // going into the rekey, matching what a session that has exchanged any traffic
+    // before its first break/reset actually looks like.
     let mut client = protection(17, 5);
+    let mut peer = server(protection(17, 5));
+    for plaintext in [b"first".as_slice(), b"second", b"third"] {
+        let sealed = client.seal(plaintext).unwrap();
+        assert_eq!(peer.open(&sealed).unwrap(), plaintext);
+        let reply = peer.seal(plaintext).unwrap();
+        assert_eq!(client.open(&reply).unwrap(), plaintext);
+    }
     let chain_before = *client.hash.chain;
+    let tx_mask_before = client.hash.tx_mask.to_vec();
+    let rx_mask_before = client.hash.rx_mask.to_vec();
+    assert_ne!(
+        tx_mask_before,
+        vec![0u8; client.hash.algorithm.size()],
+        "tx mask must have evolved"
+    );
+    assert_ne!(
+        rx_mask_before,
+        vec![0u8; client.hash.algorithm.size()],
+        "rx mask must have evolved"
+    );
 
     let mut seed = [0u8; 16];
     seed[..15].copy_from_slice(&chain_before[..15]);
@@ -132,19 +179,38 @@ fn rekey_for_reset_matches_an_independently_assembled_go_ora_processmarker_deriv
     let mut independent_rx = cipher(&seed, &generated[16..]).unwrap();
 
     client.hash.rekey_for_reset().unwrap();
-    assert_eq!(*client.hash.chain, generated, "rekey must chain forward to the same 32-byte state");
+    assert_eq!(
+        *client.hash.chain, generated,
+        "rekey must chain forward to the same 32-byte state"
+    );
+    assert_eq!(
+        client.hash.tx_mask.to_vec(),
+        tx_mask_before,
+        "rekey must not reset the tx mask"
+    );
+    assert_eq!(
+        client.hash.rx_mask.to_vec(),
+        rx_mask_before,
+        "rekey must not reset the rx mask"
+    );
 
-    let mut independent_tx_mask = vec![0u8; client.hash.algorithm.size()];
+    let mut independent_tx_mask = tx_mask_before;
     step(&mut independent_tx, &mut independent_tx_mask);
     let mut production_tx_mask = client.hash.tx_mask.to_vec();
     step(&mut client.hash.tx, &mut production_tx_mask);
-    assert_eq!(independent_tx_mask, production_tx_mask, "tx keystream must agree with the reference derivation");
+    assert_eq!(
+        independent_tx_mask, production_tx_mask,
+        "tx keystream must agree with the reference derivation"
+    );
 
-    let mut independent_rx_mask = vec![0u8; client.hash.algorithm.size()];
+    let mut independent_rx_mask = rx_mask_before;
     step(&mut independent_rx, &mut independent_rx_mask);
     let mut production_rx_mask = client.hash.rx_mask.to_vec();
     step(&mut client.hash.rx, &mut production_rx_mask);
-    assert_eq!(independent_rx_mask, production_rx_mask, "rx keystream must agree with the reference derivation");
+    assert_eq!(
+        independent_rx_mask, production_rx_mask,
+        "rx keystream must agree with the reference derivation"
+    );
 }
 
 #[test]
@@ -152,7 +218,8 @@ fn protected_records_match_independent_go_ora_v3_vectors() {
     // reference_vectors.go, pinned go-ora 62f8a42fe821414cec8fcacb1b877dfef836f798.
     // Hosted generator SHA256: d0ed9ddd0c2ad63921949bfb02024d2f2d9b6d9545c8ab2e19c501375fbf38bc.
     // These cover the client direction and 32-byte folding; live peers must prove interoperability.
-    let lines: Vec<_> = include_str!("reference_vectors.txt").lines().collect();
+    let lines: Vec<_> =
+        include_str!("reference_vectors.txt").lines().collect();
     assert_eq!(lines.len(), 54);
     for group in lines.chunks_exact(3) {
         let mut fields = group[0].split_whitespace();
@@ -166,7 +233,9 @@ fn protected_records_match_independent_go_ora_v3_vectors() {
             peer.fold(&[0xa5; 32]).unwrap();
         }
         let mut peer = server(peer);
-        for (index, (line, plaintext)) in group.iter().zip([b"first".as_slice(), b"second", b""]).enumerate() {
+        for (index, (line, plaintext)) in
+            group.iter().zip([b"first".as_slice(), b"second", b""]).enumerate()
+        {
             let fields: Vec<_> = line.split_whitespace().collect();
             assert_eq!(fields.len(), 5);
             assert_eq!(fields[0].parse::<u8>().unwrap(), encryption);

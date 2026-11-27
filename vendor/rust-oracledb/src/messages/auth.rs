@@ -116,9 +116,8 @@ impl Verifier {
     fn from_flags(flags: u32, allow_legacy: bool) -> Result<Verifier, Error> {
         let verifier = match flags {
             constants::VERIFIER_TYPE_12C => return Ok(Verifier::Pbkdf2),
-            constants::VERIFIER_TYPE_11G_1 | constants::VERIFIER_TYPE_11G_2 => {
-                Verifier::Legacy11g
-            }
+            constants::VERIFIER_TYPE_11G_1
+            | constants::VERIFIER_TYPE_11G_2 => Verifier::Legacy11g,
             constants::VERIFIER_TYPE_10G => Verifier::Legacy10g,
             _ => return Err(Error::password_verifier_refused(flags)),
         };
@@ -233,17 +232,26 @@ impl LoginKey {
         let result = match self {
             LoginKey::Aes128(key) => {
                 cbc::Decryptor::<aes::Aes128>::new(key.into(), &iv.into())
-                    .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
+                    .decrypt_padded_b2b::<NoPadding>(
+                        encrypted_text,
+                        plain_text,
+                    )
                     .map(|_| ())
             }
             LoginKey::Aes192(key) => {
                 cbc::Decryptor::<aes::Aes192>::new(key.into(), &iv.into())
-                    .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
+                    .decrypt_padded_b2b::<NoPadding>(
+                        encrypted_text,
+                        plain_text,
+                    )
                     .map(|_| ())
             }
             LoginKey::Aes256(key) => {
                 cbc::Decryptor::<aes::Aes256>::new(key.into(), &iv.into())
-                    .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
+                    .decrypt_padded_b2b::<NoPadding>(
+                        encrypted_text,
+                        plain_text,
+                    )
                     .map(|_| ())
             }
         };
@@ -257,17 +265,26 @@ impl LoginKey {
         match self {
             LoginKey::Aes128(key) => {
                 cbc::Encryptor::<aes::Aes128>::new(key.into(), &iv.into())
-                    .encrypt_padded_b2b::<NoPadding>(plain_text, encrypted_text)
+                    .encrypt_padded_b2b::<NoPadding>(
+                        plain_text,
+                        encrypted_text,
+                    )
                     .unwrap();
             }
             LoginKey::Aes192(key) => {
                 cbc::Encryptor::<aes::Aes192>::new(key.into(), &iv.into())
-                    .encrypt_padded_b2b::<NoPadding>(plain_text, encrypted_text)
+                    .encrypt_padded_b2b::<NoPadding>(
+                        plain_text,
+                        encrypted_text,
+                    )
                     .unwrap();
             }
             LoginKey::Aes256(key) => {
                 cbc::Encryptor::<aes::Aes256>::new(key.into(), &iv.into())
-                    .encrypt_padded_b2b::<NoPadding>(plain_text, encrypted_text)
+                    .encrypt_padded_b2b::<NoPadding>(
+                        plain_text,
+                        encrypted_text,
+                    )
                     .unwrap();
             }
         }
@@ -508,7 +525,11 @@ impl AuthMessage {
     }
 
     /// Encrypts the main password (and the new password, if applicable).
-    fn encrypt_passwords(&mut self, client: &mut Client, combo_key: &LoginKey) {
+    fn encrypt_passwords(
+        &mut self,
+        client: &mut Client,
+        combo_key: &LoginKey,
+    ) {
         self.encrypt_password(
             "AUTH_PASSWORD",
             &client.config().get_password_bytes(),
@@ -569,7 +590,9 @@ impl AuthMessage {
         )?;
 
         if verifier != Verifier::Pbkdf2 && !client.encrypted_transport() {
-            return Err(Error::legacy_verifier_requires_encryption(verifier_type));
+            return Err(Error::legacy_verifier_requires_encryption(
+                verifier_type,
+            ));
         }
 
         // create password hash
@@ -580,8 +603,11 @@ impl AuthMessage {
                 let iterations =
                     self.session_iterations("AUTH_PBKDF2_VGEN_COUNT")?;
                 let verifier_data = self.session_bytes("AUTH_VFR_DATA")?;
-                let (key, hash) =
-                    pbkdf2_password_hash(&password, &verifier_data, iterations);
+                let (key, hash) = pbkdf2_password_hash(
+                    &password,
+                    &verifier_data,
+                    iterations,
+                );
                 password_key = Some(key);
                 hash
             }
@@ -604,16 +630,12 @@ impl AuthMessage {
         // sends EXACTLY ONE the challenge is partial and the Pbkdf2 arm reads
         // both in order and names the missing field rather than falling to the
         // legacy MD5 path.
-        let custom_hash = self
-            .session_data
-            .contains_key("AUTH_PBKDF2_CSK_SALT")
-            || self
-                .session_data
-                .contains_key("AUTH_PBKDF2_SDER_COUNT");
-        let combo_key = match verifier.combo_key_derivation(
-            encoded_server_key.len(),
-            custom_hash,
-        )? {
+        let custom_hash =
+            self.session_data.contains_key("AUTH_PBKDF2_CSK_SALT")
+                || self.session_data.contains_key("AUTH_PBKDF2_SDER_COUNT");
+        let combo_key = match verifier
+            .combo_key_derivation(encoded_server_key.len(), custom_hash)?
+        {
             ComboKeyDerivation::Pbkdf2 => {
                 let iterations =
                     self.session_iterations("AUTH_PBKDF2_SDER_COUNT")?;
@@ -650,7 +672,9 @@ impl AuthMessage {
                         )
                     }
                     _ => {
-                        return Err(Error::invalid_auth_response("AUTH_SESSKEY"))
+                        return Err(Error::invalid_auth_response(
+                            "AUTH_SESSKEY",
+                        ));
                     }
                 }
             }
@@ -675,7 +699,9 @@ impl AuthMessage {
                         md5_combo_key(verifier, &server_key, &client_key)
                     }
                     _ => {
-                        return Err(Error::invalid_auth_response("AUTH_SESSKEY"))
+                        return Err(Error::invalid_auth_response(
+                            "AUTH_SESSKEY",
+                        ));
                     }
                 }
             }
@@ -849,26 +875,29 @@ impl AuthMessage {
         &self,
         client: &Client,
     ) -> Result<OracleVersion, Error> {
-        let full_version_num: usize = self.session_number("AUTH_VERSION_NO")?;
-        Ok(if client.supports_ttc_field_version(
-            constants::TTC_FIELD_VERSION_18_1_EXT_1,
-        ) {
-            OracleVersion(
-                (full_version_num >> 24) & 0xff,
-                (full_version_num >> 16) & 0xff,
-                (full_version_num >> 12) & 0x0f,
-                (full_version_num >> 4) & 0xff,
-                full_version_num & 0x0f,
-            )
-        } else {
-            OracleVersion(
-                (full_version_num >> 24) & 0xff,
-                (full_version_num >> 20) & 0x0f,
-                (full_version_num >> 12) & 0x0f,
-                (full_version_num >> 8) & 0x0f,
-                full_version_num & 0x0f,
-            )
-        })
+        let full_version_num: usize =
+            self.session_number("AUTH_VERSION_NO")?;
+        Ok(
+            if client.supports_ttc_field_version(
+                constants::TTC_FIELD_VERSION_18_1_EXT_1,
+            ) {
+                OracleVersion(
+                    (full_version_num >> 24) & 0xff,
+                    (full_version_num >> 16) & 0xff,
+                    (full_version_num >> 12) & 0x0f,
+                    (full_version_num >> 4) & 0xff,
+                    full_version_num & 0x0f,
+                )
+            } else {
+                OracleVersion(
+                    (full_version_num >> 24) & 0xff,
+                    (full_version_num >> 20) & 0x0f,
+                    (full_version_num >> 12) & 0x0f,
+                    (full_version_num >> 8) & 0x0f,
+                    full_version_num & 0x0f,
+                )
+            },
+        )
     }
 
     /// Returns the service name used to connect to the database.
@@ -1029,7 +1058,9 @@ mod tests {
 
     fn refused_type(result: Result<Verifier, Error>) -> u32 {
         match result.unwrap_err().kind() {
-            ErrorKind::PasswordVerifierRefused(verifier_type) => *verifier_type,
+            ErrorKind::PasswordVerifierRefused(verifier_type) => {
+                *verifier_type
+            }
             kind => panic!("expected PasswordVerifierRefused, got {kind:?}"),
         }
     }
@@ -1054,7 +1085,10 @@ mod tests {
 
     #[test]
     fn the_10g_verifier_ignores_the_case_of_user_and_password() {
-        assert_eq!(des_verifier("scott", "tiger"), des_verifier("SCOTT", "TIGER"));
+        assert_eq!(
+            des_verifier("scott", "tiger"),
+            des_verifier("SCOTT", "TIGER")
+        );
         assert_eq!(
             key_bytes(&des_password_hash("Scott", "Tiger")),
             bytes("F894844C34402B670000000000000000")
@@ -1151,7 +1185,11 @@ mod tests {
         let server_key: [u8; 48] = std::array::from_fn(|i| i as u8);
         let client_key: [u8; 48] = std::array::from_fn(|i| 0x80 + i as u8);
         assert_eq!(
-            key_bytes(&md5_combo_key(Verifier::Legacy11g, &server_key, &client_key)),
+            key_bytes(&md5_combo_key(
+                Verifier::Legacy11g,
+                &server_key,
+                &client_key
+            )),
             bytes("324C5183D4096C99A3D737B4522F21B2D0B32013C743BC99")
         );
     }
@@ -1185,8 +1223,7 @@ mod tests {
         let salt = bytes("0F1E2D3C4B5A69788796A5B4C3D2E1F0");
         // Custom-hash PBKDF2: server 0x00..0x1f, client 0x20..0x3f.
         let server_key_p: [u8; 32] = std::array::from_fn(|i| i as u8);
-        let client_key_p: [u8; 32] =
-            std::array::from_fn(|i| 0x20 + i as u8);
+        let client_key_p: [u8; 32] = std::array::from_fn(|i| 0x20 + i as u8);
         assert_eq!(
             key_bytes(&pbkdf2_combo_key(
                 Verifier::Legacy10g,
@@ -1199,8 +1236,7 @@ mod tests {
         );
         // Legacy MD5: server 0x00..0x1f, client 0x80..0x61.
         let server_key_m: [u8; 32] = std::array::from_fn(|i| i as u8);
-        let client_key_m: [u8; 32] =
-            std::array::from_fn(|i| 0x80u8 - i as u8);
+        let client_key_m: [u8; 32] = std::array::from_fn(|i| 0x80u8 - i as u8);
         assert_eq!(
             key_bytes(&md5_combo_key(
                 Verifier::Legacy10g,
@@ -1270,18 +1306,23 @@ mod tests {
             constants::VERIFIER_TYPE_11G_1,
             constants::VERIFIER_TYPE_11G_2,
         ] {
-            assert_eq!(refused_type(Verifier::from_flags(flags, false)), flags);
+            assert_eq!(
+                refused_type(Verifier::from_flags(flags, false)),
+                flags
+            );
         }
         assert_eq!(
             Verifier::from_flags(constants::VERIFIER_TYPE_10G, true).unwrap(),
             Verifier::Legacy10g
         );
         assert_eq!(
-            Verifier::from_flags(constants::VERIFIER_TYPE_11G_1, true).unwrap(),
+            Verifier::from_flags(constants::VERIFIER_TYPE_11G_1, true)
+                .unwrap(),
             Verifier::Legacy11g
         );
         assert_eq!(
-            Verifier::from_flags(constants::VERIFIER_TYPE_11G_2, true).unwrap(),
+            Verifier::from_flags(constants::VERIFIER_TYPE_11G_2, true)
+                .unwrap(),
             Verifier::Legacy11g
         );
     }
@@ -1375,7 +1416,6 @@ mod tests {
             }
         }
     }
-
 }
 
 #[cfg(test)]

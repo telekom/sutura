@@ -12,7 +12,10 @@ fn approved_group_checks_peer_range_and_subgroup_before_key_exchange() {
         (U2048::ONE, range_error),
         (GROUP14.wrapping_sub(&U2048::ONE), range_error),
         (GROUP14, range_error),
-        (GROUP14.wrapping_sub(&U2048::from_u8(2)), Some("invalid Diffie-Hellman subgroup")),
+        (
+            GROUP14.wrapping_sub(&U2048::from_u8(2)),
+            Some("invalid Diffie-Hellman subgroup"),
+        ),
     ] {
         let bytes = peer.to_be_bytes();
         let negotiated = Negotiated {
@@ -26,7 +29,9 @@ fn approved_group_checks_peer_range_and_subgroup_before_key_exchange() {
         let result = exchange(&negotiated);
         if let Some(expected) = expected {
             let error = result.err().unwrap();
-            assert!(matches!(error.kind(), ErrorKind::NativeEncryptionRefused(reason) if *reason == expected));
+            assert!(
+                matches!(error.kind(), ErrorKind::NativeEncryptionRefused(reason) if *reason == expected)
+            );
         } else {
             assert!(result.is_ok());
         }
