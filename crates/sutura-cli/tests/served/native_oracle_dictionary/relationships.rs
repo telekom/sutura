@@ -24,7 +24,7 @@ fn served_oracle_relationships_require_enforced_complete_keys_and_bounded_declar
         fixture.owner.execute(statement, &[]).unwrap();
     }
     fixture.owner.commit().unwrap();
-    for table in [
+    let created = [
         "APPS",
         "UNIQUE_APPS",
         "UNIQUE_EVENTS",
@@ -35,27 +35,46 @@ fn served_oracle_relationships_require_enforced_complete_keys_and_bounded_declar
         "DEFERRED_LINKS",
         "LOOSE_APPS",
         "LOOSE_EVENTS",
-    ] {
+    ];
+    for table in created {
         fixture
             .owner
             .execute(&format!("GRANT SELECT ON {table} TO {}", fixture.reader), &[])
             .unwrap();
     }
+    // The served process's own startup dictionary load - triggered by `try_start_configured` below,
+    // not by the later `describe_catalog` call, which only serves what that load already cached and
+    // opens no transaction of its own - reads Oracle's ALL_* dictionary views plus LOOSE_APPS, the
+    // declared `check_target_uniqueness` target (`declared.rs::probe_statement`,
+    // `oracle_reader.rs:344-353`), inside one `SET TRANSACTION READ ONLY`. LOOSE_EVENTS, the
+    // relationship's origin table, is never read there. LOOSE_APPS is the table that mattered: it
+    // was created after PAIR_EVENTS, the one table the base code probed, and an unprobed LOOSE_APPS
+    // still settling is what failed the startup load on #2087. The rest of this list is a deliberate
+    // superset, not a claim that every one of them is read in that snapshot - the ALL_* views in
+    // particular are not observed to raise ORA-01466 here, which is unobserved, not proven
+    // impossible. One shared deadline bounds the whole probe rather than one per table.
     let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        fixture.owner.rollback().unwrap();
-        fixture.owner.execute("SET TRANSACTION READ ONLY", &[]).unwrap();
-        match fixture.owner.query_row("SELECT COUNT(*) FROM PAIR_EVENTS", &[]) {
-            Ok(_) => {
-                fixture.owner.rollback().unwrap();
-                break;
-            }
-            Err(cause) => {
-                assert!(
-                    cause.to_string().contains("ORA-01466") && Instant::now() < deadline,
-                    "{cause}"
-                );
-                std::thread::sleep(Duration::from_millis(200));
+    for table in std::iter::once("EVENTS").chain(created) {
+        loop {
+            fixture.owner.rollback().unwrap();
+            fixture.owner.execute("SET TRANSACTION READ ONLY", &[]).unwrap();
+            match fixture.owner.query_row(&format!("SELECT COUNT(*) FROM {table}"), &[]) {
+                Ok(_) => {
+                    fixture.owner.rollback().unwrap();
+                    break;
+                }
+                Err(cause) => {
+                    let text = cause.to_string();
+                    assert!(
+                        text.contains("ORA-01466"),
+                        "{table}: the probe read failed with an error that is not ORA-01466: {cause}"
+                    );
+                    assert!(
+                        Instant::now() < deadline,
+                        "{table} never became readable under a read-only snapshot within 60s of the fixture's own DDL: {cause}"
+                    );
+                    std::thread::sleep(Duration::from_millis(200));
+                }
             }
         }
     }
