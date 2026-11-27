@@ -27,9 +27,11 @@ COPY --from=sutura-server /bin/sutura /usr/local/bin/sutura
 # The demo's own code, and the read-only corpus it serves. COPIED rather than bind-mounted: a host
 # bind mount belongs to the machine and every worktree would share it, which the compose tier
 # refuses (`no_service_in_the_tier_mounts_a_host_directory`). A copied tree cannot be written back.
-COPY examples/demo-chatinterface/run.sh examples/demo-chatinterface/healthcheck.py /usr/local/bin/
+COPY examples/demo-chatinterface/run.sh examples/demo-chatinterface/healthcheck.py \
+     examples/demo-chatinterface/bootstrap.py examples/demo-chatinterface/sql_expander.py \
+     /usr/local/bin/
 COPY examples/single-player /opt/sutura-demo/corpus
-RUN chmod 0755 /usr/local/bin/run.sh /usr/local/bin/healthcheck.py
+RUN chmod 0755 /usr/local/bin/run.sh /usr/local/bin/healthcheck.py /usr/local/bin/bootstrap.py
 
 ENV SUTURA_DEMO_CORPUS=/opt/sutura-demo/corpus \
     SUTURA_DEMO_SUTURA_PORT=9000 \
@@ -48,3 +50,4 @@ HEALTHCHECK --interval=3s --timeout=5s --start-period=45s --retries=60 \
   CMD ["python3", "/usr/local/bin/healthcheck.py"]
 
 ENTRYPOINT ["/usr/local/bin/run.sh"]
+
