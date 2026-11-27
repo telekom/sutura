@@ -618,6 +618,11 @@ fuzz seconds="300" target="":
 fuzz-smoke:
     bash nix/run-fuzz.sh smoke
 
+# Compile the fuzz targets only - no fuzzing, no cache writes. `ci.yml`'s `fuzz-check` job (#2095)
+# runs this same app; `nix/fuzz-check.nix` carries why it is separate from `fuzz` above.
+fuzz-check:
+    nix run .#fuzz-check
+
 # ------------------------------------------------------------------ tooling ---
 
 # Scan the whole worktree for secrets. The hook already covers each commit.
