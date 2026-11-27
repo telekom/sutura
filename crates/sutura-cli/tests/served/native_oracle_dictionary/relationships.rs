@@ -24,7 +24,7 @@ fn served_oracle_relationships_require_enforced_complete_keys_and_bounded_declar
         fixture.owner.execute(statement, &[]).unwrap();
     }
     fixture.owner.commit().unwrap();
-    for table in [
+    let created = [
         "APPS",
         "UNIQUE_APPS",
         "UNIQUE_EVENTS",
@@ -35,27 +35,36 @@ fn served_oracle_relationships_require_enforced_complete_keys_and_bounded_declar
         "DEFERRED_LINKS",
         "LOOSE_APPS",
         "LOOSE_EVENTS",
-    ] {
+    ];
+    for table in created {
         fixture
             .owner
             .execute(&format!("GRANT SELECT ON {table} TO {}", fixture.reader), &[])
             .unwrap();
     }
+    // The describe_catalog call below reads every one of these tables (plus EVENTS, altered above
+    // by the FOREIGN KEY) in one read-only snapshot. Probing only the one table created in the
+    // middle of this list (PAIR_EVENTS) proved readable while a table created afterward - above
+    // all LOOSE_EVENTS, the very last DDL statement - could still be within its own post-DDL
+    // ORA-01466 window: a race seen across #2085/#2087/#2091. One shared deadline bounds the whole
+    // probe rather than one per table.
     let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        fixture.owner.rollback().unwrap();
-        fixture.owner.execute("SET TRANSACTION READ ONLY", &[]).unwrap();
-        match fixture.owner.query_row("SELECT COUNT(*) FROM PAIR_EVENTS", &[]) {
-            Ok(_) => {
-                fixture.owner.rollback().unwrap();
-                break;
-            }
-            Err(cause) => {
-                assert!(
-                    cause.to_string().contains("ORA-01466") && Instant::now() < deadline,
-                    "{cause}"
-                );
-                std::thread::sleep(Duration::from_millis(200));
+    for table in std::iter::once("EVENTS").chain(created) {
+        loop {
+            fixture.owner.rollback().unwrap();
+            fixture.owner.execute("SET TRANSACTION READ ONLY", &[]).unwrap();
+            match fixture.owner.query_row(&format!("SELECT COUNT(*) FROM {table}"), &[]) {
+                Ok(_) => {
+                    fixture.owner.rollback().unwrap();
+                    break;
+                }
+                Err(cause) => {
+                    assert!(
+                        cause.to_string().contains("ORA-01466") && Instant::now() < deadline,
+                        "{table} never became readable under a read-only snapshot within 60s of the fixture's own DDL: {cause}"
+                    );
+                    std::thread::sleep(Duration::from_millis(200));
+                }
             }
         }
     }

@@ -117,22 +117,30 @@ mod oracle_provisioned {
             .expect("the fixture reader settings parse")
         }
 
-        /// Waits, bounded, until a read-only transaction can read the freshly created table: for a
-        /// short window after the DDL Oracle refuses that snapshot with `ORA-01466`, as it would the
-        /// reader's own. A fresh session per probe, because the driver drops one that hit the error.
-        fn await_read_only_snapshot(&self) {
+        /// Waits, bounded, until a read-only transaction can read every one of `tables`: for a short
+        /// window after each is created, dropped and recreated, or altered, Oracle refuses that
+        /// snapshot with `ORA-01466`, as it would the reader's own - and a single documented
+        /// dictionary read opens one read-only transaction and reads every table named in it, so
+        /// `COLUMNS` settling says nothing about a relationship target table created moments later.
+        /// A fresh session per probe, because the driver drops one that hit the error. One shared
+        /// 60s deadline covers the whole list.
+        fn await_read_only_snapshot(&self, tables: &[&str]) {
             let deadline = Instant::now() + Duration::from_secs(60);
-            loop {
-                let probe = self.connect();
-                probe
-                    .execute("SET TRANSACTION READ ONLY", &[])
-                    .expect("the probe transaction starts");
-                match probe.query_row("SELECT COUNT(*) FROM \"COLUMNS\"", &[]) {
-                    Ok(_) => return,
-                    Err(cause) if cause.to_string().contains("ORA-01466") && Instant::now() < deadline => {
-                        std::thread::sleep(Duration::from_millis(100));
+            for table in tables {
+                loop {
+                    let probe = self.connect();
+                    probe
+                        .execute("SET TRANSACTION READ ONLY", &[])
+                        .expect("the probe transaction starts");
+                    match probe.query_row(&format!("SELECT COUNT(*) FROM \"{table}\""), &[]) {
+                        Ok(_) => break,
+                        Err(cause) if cause.to_string().contains("ORA-01466") && Instant::now() < deadline => {
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                        Err(cause) => {
+                            panic!("{table} never became readable under a read-only snapshot within 60s: {cause}")
+                        }
                     }
-                    Err(cause) => panic!("the fixture never became readable under a read-only snapshot: {cause}"),
                 }
             }
         }
@@ -182,7 +190,7 @@ mod oracle_provisioned {
         let tier = Tier::here();
         let setup = tier.connect();
         install_fixture(&setup);
-        tier.await_read_only_snapshot();
+        tier.await_read_only_snapshot(&["COLUMNS"]);
 
         let catalog_name = SourceName::parse("dictionary").expect("catalog name parses");
         let source_alias = SourceName::parse("warehouse").expect("source alias parses");
@@ -307,7 +315,9 @@ JEcF0XIa1gIgE3M4ixRwgpQcNQDe5W2BUZWG+7HGdQFw5Mz/20QHKgU=
             setup.execute("INSERT INTO RELATIONSHIPS VALUES (:1,:2,NULL,'public','orders','order_id',NULL,'public','customers','customer_id',1,1,'many_to_one',:3)", &[&environment,&name,&deleted]).unwrap();
         }
         setup.commit().unwrap();
-        tier.await_read_only_snapshot();
+        // The read below opens one read-only snapshot and reads COLUMNS, then RELATIONSHIPS - the
+        // table created last, right above - in the same transaction, so both must be probed.
+        tier.await_read_only_snapshot(&["COLUMNS", "RELATIONSHIPS"]);
         let reader = tier
             .reader(&tier.user, None, None)
             .with_relationships_view(Some("relationships"))
@@ -369,7 +379,9 @@ JEcF0XIa1gIgE3M4ixRwgpQcNQDe5W2BUZWG+7HGdQFw5Mz/20QHKgU=
         }
         setup.execute("INSERT INTO PROBE_SECOND VALUES(1)", &[]).unwrap();
         setup.commit().unwrap();
-        tier.await_read_only_snapshot();
+        // Both PROBE_FIRST and PROBE_SECOND are read in the one snapshot below; COLUMNS was
+        // recreated by install_fixture earlier in this same test.
+        tier.await_read_only_snapshot(&["COLUMNS", "PROBE_FIRST", "PROBE_SECOND"]);
         let declaration = |table: &str| {
             DeclaredRelationship::new(
                 Relationship::declared(
