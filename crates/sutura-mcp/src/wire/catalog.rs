@@ -240,6 +240,10 @@ pub struct OmittedMetric {
 pub struct ModelContent {
     name: String,
     table: String,
+    /// The listed sutura source this table lives at - what `run_sql` takes as the prefix in
+    /// `source.table` or `source.schema.table` to say which source a path two of them share
+    /// should resolve against.
+    source: String,
     #[serde(skip_serializing_if = "Carried::is_absent")]
     description: Carried,
     columns: Vec<ColumnContent>,
@@ -650,6 +654,8 @@ fn model_text(model: &ModelContent) -> String {
     out.push_str(&model.name);
     out.push_str(" (table ");
     out.push_str(&model.table);
+    out.push_str(", source ");
+    out.push_str(&model.source);
     out.push(')');
     if let Some(description) = model.description.words() {
         push_prose(&mut out, description, "  description:");

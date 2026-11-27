@@ -21,7 +21,8 @@
 //! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
 //! | a value built outside the working set can still be large: a string doubled through each common table expression, or a `CAST` to a fixed-size list of a length the caller spells | the pool charges only what operators reserve, and a constant is folded while planning; the session leaves out only the functions whose output length the caller spells or multiplies, and neither an operator nor a SQL type is a function |
 //! | a statement of more than `MOST_OPERATORS` operator tokens is refused, however shallow it is | the count is taken over the text, before any tree is built, because `recursive_protection` grows the stack for the parser, planner and optimizer but not for an expression's `Display`, `Clone` or `Drop` |
-//! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
+//! | a path two listed sources both carry resolves only under the one whose source the caller names, `source.schema.table` | an unprefixed `schema.table` would not say which source the caller meant |
+//! | a reference that only resolved by naming its source refuses `answer_sql`'s fallback to the caller's own text against a single source | that text is not admission-checked - the source would see `source.X` literally |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
 //! | value-dependent uses of an explicit NUMBER-to-Utf8 mapping run unchanged at one Oracle source or are refused before credentials open | no local lexical answer is returned; source scalar syntax still belongs to Oracle |
@@ -81,6 +82,7 @@ mod oracle;
 mod projection;
 mod pushdown;
 mod resolve;
+mod rewrite;
 mod text;
 mod text_prefilter;
 mod unparse;
@@ -94,28 +96,32 @@ pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuesti
 where
     L: StatementLegs,
 {
-    let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause))?;
+    let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause, false))?;
     let working_set = working_set_of(question.working_set_bytes());
     let mut legs = projection::Guarded::new(legs);
     let fetched = Arc::new(Fetched::default());
-    let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
-    let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
-    let (plan, numeric_operations, native_schema) =
-        within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
-            .ok_or(StatementStopped::DeadlineExceeded)?
-            .map_err(|cause| match cause {
-                PlanningStopped::Refused(refused) => stopped(refused),
-                PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
-                PlanningStopped::Engine(cause) => {
-                    let fallback = unplanned("the statement did not plan", &cause);
-                    if field_not_found(&cause) {
-                        StatementStopped::UnknownColumn
-                    } else {
-                        fallback
-                    }
-                }
-            })?;
-    let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause))?;
+    let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause, false))?;
+    let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause, false))?;
+    let mut prefixed = false;
+    let (plan, numeric_operations, native_schema) = within(
+        runtime,
+        question.deadline(),
+        planned(&context, question.statement(), &tables, &mut prefixed),
+    )
+    .ok_or(StatementStopped::DeadlineExceeded)?
+    .map_err(|cause| match cause {
+        PlanningStopped::Refused(refused) => stopped(refused),
+        PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
+        PlanningStopped::Engine(cause) => {
+            let fallback = unplanned("the statement did not plan", &cause, prefixed);
+            if field_not_found(&cause) {
+                StatementStopped::UnknownColumn
+            } else {
+                fallback
+            }
+        }
+    })?;
+    let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause, prefixed))?;
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
     if sources.len() > 1 && !question.federation_allowed() {
         return Err(StatementStopped::SpansMoreThanOneSource);
@@ -131,34 +137,36 @@ where
         // Re-resolve the admitted input against this source alone: optimization can remove a
         // second source, but that must never authorize its original table under this credential.
         let mut native = Parser::parse_sql(&GenericDialect, question.statement().as_str())
-            .map_err(|cause| unplanned("the numeric statement did not parse", &cause))?;
+            .map_err(|cause| unplanned("the numeric statement did not parse", &cause, prefixed))?;
         let [native] = native.as_mut_slice() else {
             return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
         };
-        let scans = resolve::explicit_statement(native, &native_tables)
+        let (scans, native_prefixed) = resolve::explicit_statement(native, &native_tables)
             .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
+        prefixed |= native_prefixed;
         let read: Vec<_> = native_tables
             .into_iter()
             .filter(|table| scans.contains(table.table()))
             .collect();
         let ineligible = oracle::native(native)
             .and_then(|()| text::apply_to(native, &read, TypeDialect::Oracle))
-            .map_err(|cause| unwritten("the numeric statement did not unparse", &cause))?;
+            .map_err(|cause| unwritten("the numeric statement did not unparse", &cause, prefixed))?;
         let text = if read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema) {
             text::native_oracle_rows(native, &native_schema, &read)
         } else {
             literal::spelled(native, TypeDialect::Oracle)
         }
-        .map_err(|cause| unwritten("the numeric statement did not unparse", &cause))?;
+        .map_err(|cause| unwritten("the numeric statement did not unparse", &cause, prefixed))?;
         // The caller's own names were read at its tokens; this reads those the resolver wrote.
         if !literal::quotable_names(&text, TypeDialect::Oracle) {
             return Err(stopped(resolve::Refused::UnquotableName));
         }
-        let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
-        legs.open(&sources, [(&native, TypeDialect::Oracle)])?;
-        let rows = legs.run_planned(source, &native, &scans, policy_of(&parts), ineligible)?;
+        let native =
+            RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause, prefixed))?;
+        legs.open(&sources, [(&native, TypeDialect::Oracle)], prefixed)?;
+        let rows = legs.run_planned(source, &native, &scans, policy_of(&parts), ineligible, prefixed)?;
         return projection::output(&native_schema, rows)
-            .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
+            .map_err(|cause| unplanned("the numeric source output did not fit", &cause, prefixed));
     }
     // A bare marked scan still needs fitting to its declared text representation.
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
@@ -169,18 +177,19 @@ where
             Ok((statement, ineligible, part.scan_tables(&tables)?))
         })
         .collect::<Planned<Vec<_>>>()
-        .map_err(|cause| unwritten("a part did not unparse", &cause))?;
+        .map_err(|cause| unwritten("a part did not unparse", &cause, prefixed))?;
     legs.open(
         &sources,
         parts
             .iter()
             .zip(&statements)
             .map(|(part, (statement, _ineligible, _tables))| (statement, part.dialect)),
+        prefixed,
     )?;
     let mut leaves = Vec::with_capacity(parts.len());
     for (part, (statement, ineligible, tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
-            .run_planned(&part.source, statement, tables, part.policy, *ineligible)
+            .run_planned(&part.source, statement, tables, part.policy, *ineligible, prefixed)
             .inspect_err(|stopped| {
                 if matches!(stopped, StatementStopped::Leg(_)) {
                     tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
@@ -188,14 +197,18 @@ where
             })?;
         if whole {
             return projection::output(part.plan.schema().inner(), rows)
-                .map_err(|cause| unplanned("the source output did not fit", &cause));
+                .map_err(|cause| unplanned("the source output did not fit", &cause, prefixed));
         }
-        let batches =
-            fitted(&rows, part.plan.schema().inner()).map_err(|cause| unplanned("a leg did not fit its part", &cause))?;
+        let batches = fitted(&rows, part.plan.schema().inner())
+            .map_err(|cause| unplanned("a leg did not fit its part", &cause, prefixed))?;
         leaves.push((part.plan, batches));
     }
     if fetched.0.set(leaves).is_err() {
-        return Err(StatementStopped::NotPlanned);
+        return Err(if prefixed {
+            StatementStopped::SourcePrefixRefused
+        } else {
+            StatementStopped::NotPlanned
+        });
     }
     let local = within(runtime, question.deadline(), async {
         let frame = context
@@ -208,11 +221,11 @@ where
     let answered = match local {
         Ok(answered) => answered,
         Err(CombineError::Exhausted { .. }) => return Err(StatementStopped::AnswerTooLarge),
-        Err(cause) => return Err(unplanned("the local part did not run", &cause)),
+        Err(cause) => return Err(unplanned("the local part did not run", &cause, prefixed)),
     };
     let (columns, rows) = answered
         .to_rows()
-        .map_err(|cause| unplanned("the answer did not read as rows", &cause))?
+        .map_err(|cause| unplanned("the answer did not read as rows", &cause, prefixed))?
         .into_parts();
     Ok(RawRows::of(columns, rows))
 }
@@ -461,7 +474,7 @@ impl Part {
                         )
                     });
                     table.source() == &self.source
-                        && table.table().name().as_str() == scan.table_name.table()
+                        && resolve::registered_leaf(admitted, table) == scan.table_name.table()
                         && schema == scan.table_name.schema().unwrap_or("")
                         && catalog == scan.table_name.catalog().unwrap_or("")
                 }) else {
@@ -487,10 +500,13 @@ impl Part {
         if full_lobs && !whole {
             return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
         }
-        let (text, ineligible) = if whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner()) {
-            written(&self.plan, self.dialect, &read)?
+        // `self.plan`'s scan and column names may still carry a collision's mangled registration
+        // leaf (`resolve::registered_leaf`); the source has no notion of that sutura-internal name.
+        let physical = rewrite::physically_qualified(&self.plan, tables)?;
+        let (text, ineligible) = if whole && !full_lobs && !projection::duplicate_names(physical.schema().inner()) {
+            written(&physical, self.dialect, &read)?
         } else {
-            written(&labelled(&self.plan)?, self.dialect, &read)?
+            written(&labelled(&physical)?, self.dialect, &read)?
         };
         let text = if full_lobs {
             text::bounded_oracle_rows(&text, output_schema, &read)?
@@ -566,18 +582,23 @@ fn source_of(part: &LogicalPlan) -> Planned<String> {
 }
 
 /// One caller-scoped registration view, shared by the session, resolver and source-part lookup.
+///
+/// Distinct by `(source, table)`, not by the physical path alone: a path two listed sources both
+/// carry is kept once per source, each still reachable through that source's `session` catalog slot
+/// via [`resolve::registered_leaf`]'s mangled registration - only a model sharing both its table and
+/// its source merges here, exactly as before.
 fn registered_tables(tables: &[StatementTable]) -> Planned<Vec<StatementTable>> {
     let mut registered = BTreeSet::new();
     let mut admitted = Vec::new();
     for table in tables {
-        if !registered.insert(table.table())
-            || tables
-                .iter()
-                .any(|other| other.table() == table.table() && other.source() != table.source())
-        {
+        if !registered.insert((table.source(), table.table())) {
             continue;
         }
-        let visible = || tables.iter().filter(|other| other.table() == table.table());
+        let visible = || {
+            tables
+                .iter()
+                .filter(|other| other.table() == table.table() && other.source() == table.source())
+        };
         if visible().any(|other| other.dialect() != table.dialect()) {
             return plan_err!("models of one physical table disagree on its dialect");
         }
@@ -653,7 +674,7 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
             source,
             schema: Arc::clone(table.schema()),
         }));
-        schema.register_table(table.table().name().as_str().to_owned(), Arc::new(provider))?;
+        schema.register_table(resolve::registered_leaf(tables, table), Arc::new(provider))?;
     }
     Ok(context)
 }
@@ -698,10 +719,15 @@ fn admitted() -> Vec<Arc<ScalarUDF>> {
 const MOST_OPERATORS: usize = 1024;
 
 /// `statement`'s optimized plan, refused unless it is one query of at most [`MOST_OPERATORS`].
+///
+/// `prefixed` is set once resolution matches any reference only by naming its source explicitly,
+/// even when a later step in this function still fails - the caller must know that before it
+/// decides whether a planning failure may fall back to the statement's own text.
 async fn planned(
     context: &SessionContext,
     statement: &RawStatement,
     tables: &[StatementTable],
+    prefixed: &mut bool,
 ) -> Result<(LogicalPlan, bool, SchemaRef), PlanningStopped> {
     let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
         .tokenize()
@@ -747,7 +773,8 @@ async fn planned(
     let [statement] = statements.as_mut_slice() else {
         return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
     };
-    drop(resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?);
+    let (_, statement_prefixed) = resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?;
+    *prefixed = statement_prefixed;
     let Some(statement) = statements.pop() else {
         return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
     };
@@ -823,14 +850,14 @@ enum PlanningStopped {
 
 /// Why a source statement was not written: a name it could not quote, the unparser's own gap
 /// against one of its aggregate rewrites, or else `why`.
-fn unwritten<S>(why: &str, cause: &DataFusionError) -> StatementStopped<S> {
+fn unwritten<S>(why: &str, cause: &DataFusionError, prefixed: bool) -> StatementStopped<S> {
     if unquotable(cause) {
         stopped(resolve::Refused::UnquotableName)
     } else if let Some(column) = unprojected_agg(cause) {
         tracing::debug!(column, "run_sql: the unparser could not name an aggregate rewrite's column");
         StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)
     } else {
-        unplanned(why, cause)
+        unplanned(why, cause, prefixed)
     }
 }
 
@@ -901,10 +928,18 @@ fn fitted(rows: &RawRows, schema: &SchemaRef) -> Planned<Vec<RecordBatch>> {
 /// The caller reads only that the statement did not plan, and the log at info only which step
 /// stopped it. The engine's words can name a column or quote a value a leg read, so they are written
 /// at debug, which a deployment that logs at debug still writes.
-fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display) -> StatementStopped<S> {
+///
+/// `prefixed` reports [`StatementStopped::SourcePrefixRefused`] instead: a reference that resolved
+/// only by naming its source must never let the application fall back to the caller's original,
+/// not-admission-checked text against a single source.
+fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display, prefixed: bool) -> StatementStopped<S> {
     tracing::info!("run_sql: {why}");
     tracing::debug!(%cause, "run_sql: {why}");
-    StatementStopped::NotPlanned
+    if prefixed {
+        StatementStopped::SourcePrefixRefused
+    } else {
+        StatementStopped::NotPlanned
+    }
 }
 
 /// Declared here rather than in `combine::tests`, because this file is new: the base run removes it,

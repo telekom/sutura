@@ -35,6 +35,7 @@ mod raw_condition;
 #[cfg(test)]
 mod registration;
 mod resolution;
+mod source_collision;
 mod source_qualified;
 mod text;
 mod text_prefilter;

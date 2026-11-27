@@ -23,6 +23,9 @@ pub(super) enum Refused {
 
 type Resolved<T> = Result<T, Refused>;
 type Body = (Relation, Vec<Relation>);
+/// The statement's own admitted physical tables, plus whether any reference resolved only by
+/// naming its source explicitly - see [`statement`]'s own doc for what that flag then obliges.
+type ResolvedTables = Resolved<(BTreeSet<QualifiedTable>, bool)>;
 
 #[derive(Clone, Copy)]
 enum Fold {
@@ -125,22 +128,30 @@ const fn unsupported() -> Refused {
 
 /// Quoted paths and schemas remain exact; an unquoted Oracle component folds up, all others down.
 ///
-/// A table's own physical path resolves as today, and so does that same path prefixed with the
-/// sutura source it lives at (`source.schema.table` beside `schema.table`, `source.table` beside
-/// `table`) - one caller-facing syntax, not a second one gated behind a flag. The prefix only
-/// selects among `tables`, which is already the caller's listed and permitted set: a source
-/// segment naming anything else matches no candidate and falls through to the same
-/// [`Refused::UnknownTable`] as an unknown schema or table does, so nothing about which other
-/// sources exist leaks through it.
-pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
+/// A table's own physical path resolves first, exactly as before; only when nothing matches it does
+/// that same path prefixed with the sutura source it lives at (`source.schema.table` beside
+/// `schema.table`, `source.table` beside `table`) get tried - one caller-facing syntax, not a second
+/// one gated behind a flag, and never the reason an unprefixed path two sources share stops
+/// resolving on its own. The prefix only selects among `tables`, which is already the caller's
+/// listed and permitted set: a source segment naming anything else matches no candidate and falls
+/// through to the same [`Refused::UnknownTable`] as an unknown schema or table does, so nothing
+/// about which other sources exist leaks through it. The source segment compares case-preserved,
+/// never folded by the candidate's dialect - a sutura source name is not a column or table
+/// identifier at that source, so `doku.DOKU.X` reaches an Oracle source without quoting.
+///
+/// The returned flag is `true` once any reference in the statement resolved only through the prefix
+/// reading: the caller text that follows is no longer admission-checked on its own (a source name is
+/// not a thing the source itself knows), so a caller of this module must not treat a later failure
+/// the same as an ordinary one that never named a source.
+pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> ResolvedTables {
     resolved(statement, tables, false)
 }
 
-pub(super) fn explicit_statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
+pub(super) fn explicit_statement(statement: &mut Statement, tables: &[StatementTable]) -> ResolvedTables {
     resolved(statement, tables, true)
 }
 
-fn resolved(statement: &mut Statement, tables: &[StatementTable], explicit: bool) -> Resolved<BTreeSet<QualifiedTable>> {
+fn resolved(statement: &mut Statement, tables: &[StatementTable], explicit: bool) -> ResolvedTables {
     let Statement::Query(query) = statement else {
         return Err(Refused::Unsupported(SqlConstruct::NonQuery));
     };
@@ -148,18 +159,21 @@ fn resolved(statement: &mut Statement, tables: &[StatementTable], explicit: bool
         tables,
         physical: BTreeSet::new(),
         explicit,
+        prefixed: false,
     };
     drop(resolver.query(query, &[], &[])?);
     if resolver.physical.is_empty() {
         return Err(Refused::Unsupported(SqlConstruct::SelectWithoutTable));
     }
-    Ok(resolver.physical)
+    Ok((resolver.physical, resolver.prefixed))
 }
 
 struct Resolver<'a> {
     tables: &'a [StatementTable],
     physical: BTreeSet<QualifiedTable>,
     explicit: bool,
+    /// Whether any reference so far resolved only by naming its source explicitly.
+    prefixed: bool,
 }
 
 impl Resolver<'_> {
@@ -382,13 +396,10 @@ impl Resolver<'_> {
                     *name = object_name(&cte.path);
                     (cte.clone(), alias)
                 } else {
-                    let mut candidates = self.tables.iter().filter(|table| matches_path(table, &path));
-                    let table = candidates.next().ok_or(Refused::UnknownTable)?;
-                    if candidates.next().is_some() {
-                        return Err(Refused::UnknownTable);
-                    }
+                    let (table, prefixed) = resolve_table(self.tables, &path)?;
+                    self.prefixed |= prefixed;
                     let path = table_path(table);
-                    *name = object_name(&path);
+                    *name = object_name(&registered_path(self.tables, table));
                     self.physical.insert(table.table().clone());
                     let fold = Fold::of(table.dialect());
                     let columns = table
@@ -438,23 +449,53 @@ impl Resolver<'_> {
     }
 }
 
-/// Does `path` name `table`, either as its own physical path or as that path prefixed with the
-/// source it lives at?
-///
-/// Both forms fold an unquoted segment the same way `table`'s own path already does - per
-/// `table`'s dialect, since that is the convention a federated statement already applies
-/// per-candidate. A caller who already spells out the full physical path keeps resolving exactly
-/// as before; the prefixed form is the only new way in.
-fn matches_path(table: &StatementTable, path: &[Ident]) -> bool {
+/// Does `path` name `table`'s own physical path, folding an unquoted segment the same way `table`'s
+/// path already does - per `table`'s dialect, since that is the convention a federated statement
+/// already applies per-candidate?
+fn matches_physical(table: &StatementTable, path: &[Ident]) -> bool {
     let physical = table_path(table);
     let fold = Fold::of(table.dialect());
-    let matches_physical = |segments: &[Ident]| {
-        segments.len() == physical.len() && segments.iter().zip(&physical).all(|(ident, name)| fold.name(ident) == *name)
-    };
-    matches_physical(path)
-        || path
-            .split_first()
-            .is_some_and(|(source, rest)| fold.name(source) == table.source().as_str() && matches_physical(rest))
+    path.len() == physical.len() && path.iter().zip(&physical).all(|(ident, name)| fold.name(ident) == *name)
+}
+
+/// Does `path` name `table`'s physical path prefixed with the sutura source it lives at?
+///
+/// The source segment is a sutura name, not a column or table identifier at `table`'s source, so it
+/// compares case-preserved - never folded by `table`'s dialect, or `doku.DOKU.X` could not reach an
+/// Oracle source without quoting.
+fn matches_prefixed(table: &StatementTable, path: &[Ident]) -> bool {
+    let physical = table_path(table);
+    let fold = Fold::of(table.dialect());
+    path.split_first().is_some_and(|(source, rest)| {
+        source.value == table.source().as_str()
+            && rest.len() == physical.len()
+            && rest.iter().zip(&physical).all(|(ident, name)| fold.name(ident) == *name)
+    })
+}
+
+/// `path`'s table among `tables`: resolved first against every candidate's own physical path, and
+/// only when that phase matches nothing, against the same path prefixed with the table's source.
+///
+/// Ambiguity within either phase refuses, and the second phase runs only once the first has matched
+/// nothing - so a source prefix can only select among candidates no physical path already claims,
+/// and an unprefixed reference to a path two sources share still refuses as unknown rather than
+/// silently picking one. The second element of the result is whether the match came from the
+/// prefixed phase.
+fn resolve_table<'a>(tables: &'a [StatementTable], path: &[Ident]) -> Resolved<(&'a StatementTable, bool)> {
+    let mut physical = tables.iter().filter(|table| matches_physical(table, path));
+    if let Some(table) = physical.next() {
+        return if physical.next().is_some() {
+            Err(Refused::UnknownTable)
+        } else {
+            Ok((table, false))
+        };
+    }
+    let mut prefixed = tables.iter().filter(|table| matches_prefixed(table, path));
+    let table = prefixed.next().ok_or(Refused::UnknownTable)?;
+    if prefixed.next().is_some() {
+        return Err(Refused::UnknownTable);
+    }
+    Ok((table, true))
 }
 
 fn table_path(table: &StatementTable) -> Vec<String> {
@@ -466,6 +507,32 @@ fn table_path(table: &StatementTable) -> Vec<String> {
         path.push(String::from(qualifier.dataset().as_str()));
     }
     path.push(String::from(table.table().name().as_str()));
+    path
+}
+
+/// The physical leaf [`super::session`] registers `table` under: mangled with its source when
+/// another admitted table shares the same physical path at a different source, since a session's
+/// single per-path catalog slot cannot otherwise hold both. `\u{1}` is not a character any source's
+/// own leaf carries, so the mangled leaf never coincides with an unrelated table's own name, and a
+/// caller can never type it - the mangled form is reachable only by this module's own rewrite.
+pub(super) fn registered_leaf(tables: &[StatementTable], table: &StatementTable) -> String {
+    let leaf = String::from(table.table().name().as_str());
+    let colliding = tables
+        .iter()
+        .any(|other| other.table() == table.table() && other.source() != table.source());
+    if colliding {
+        format!("{}\u{1}{leaf}", table.source().as_str())
+    } else {
+        leaf
+    }
+}
+
+/// `table`'s physical path with its leaf replaced by [`registered_leaf`] - the path the AST must
+/// name for the planner to resolve to the catalog slot `session` actually registered `table` under.
+pub(super) fn registered_path(tables: &[StatementTable], table: &StatementTable) -> Vec<String> {
+    let mut path = table_path(table);
+    path.pop();
+    path.push(registered_leaf(tables, table));
     path
 }
 

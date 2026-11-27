@@ -233,6 +233,27 @@ fn oracle_names_fold_in_their_scope_and_quoted_columns_and_aliases_stay_exact() 
     }
 }
 
+/// A lowercase source prefix is compared to the source's own id, never folded by the source's own
+/// dialect - only the schema/table that follows it is. `geo`'s id stays `geo` even though Oracle
+/// folds everything after it to uppercase.
+#[test]
+fn a_lowercase_source_prefix_is_not_oracle_folded() {
+    let (tables, mut legs) = oracle_inputs();
+    let answer = over_oracle("select region from geo.dim_region order by region", &tables, &mut legs);
+    let Some(Ok(rows)) = answer else {
+        panic!("{answer:?}");
+    };
+    assert_eq!(
+        rows,
+        rows_of(
+            &legs.runtime,
+            legs.at.get(&named("geo")).expect("the Oracle fake"),
+            "select \"REGION\" from \"DIM_REGION\" order by \"REGION\"",
+        )
+    );
+    assert_eq!(legs.ran, [named("geo")]);
+}
+
 #[test]
 fn oracle_and_lowercase_sources_resolve_independently_in_one_join() {
     let (tables, mut legs) = oracle_inputs();

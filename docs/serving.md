@@ -277,7 +277,18 @@ Input uses DataFusion SQL, including `LIMIT` instead of `FETCH FIRST`. Double qu
 identifier. Unquoted physical table and column names fold to uppercase at an Oracle source and
 lowercase at other sources; SQL aliases follow the planner's lowercase folding unless quoted.
 Physical metadata is preserved, so an Oracle table or column declared with mixed or lowercase names
-needs its exact quoted name. A name that resolves to different sources is refused.
+needs its exact quoted name. A table is named by its physical path (`table`, `schema.table`) or
+that path prefixed with the listed source it lives at (`source.table`, `source.schema.table`); the
+physical reading is tried first, and the source-prefixed reading only once nothing physical
+matches, so an unprefixed name two listed sources both carry stays refused as `unknown_table`
+rather than picking one. The source segment compares to the source's own id unfolded by either
+source's dialect, so `doku.DOKU.X` reaches an Oracle source without quoting `doku`. A statement
+that resolved any reference only by naming its source refuses outright if it still fails to plan;
+it never falls back to running the caller's own text against a single listed source, because that
+text is not admission-checked and the source has no notion of a sutura source id. The prefix is a
+FROM-clause reading only: a column reference that itself carries the source segment
+(`source.schema.table.column`) is not resolved against it and typically fails at the source instead
+of refusing cleanly here.
 
 An unresolved admitted table is `unknown_table`, and an unresolved admitted column is `unknown_column`.
 Hidden tables have the same detail as absent tables; excluded columns have the same detail as absent

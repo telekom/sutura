@@ -104,9 +104,15 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
              column names resolve with Oracle uppercase folding; other sources use the planner's \
              lowercase folding. Name a table by its own path (`table`, `schema.table`) or prefix \
              that path with the listed source it lives at (`source.table`, `source.schema.table`) \
-             to say which source explicitly - the prefix only picks among sources already listed \
-             for this tool, never a wider one. Use describe_catalog for admitted names; the \
-             operator can enable prompt.list_physical_schema. Each part runs at its \
+             to say which source explicitly, compared to that source's own id unfolded - the \
+             prefix only picks among sources already listed for this tool, never a wider one, and \
+             is tried only once the unprefixed path matches no listed source; a path two listed \
+             sources both carry reaches each one only by its prefix, and stays refused unprefixed. \
+             A statement answered only by naming a source refuses outright rather than falling \
+             back to any other source if it still fails to plan. The prefix is not read in a \
+             column reference (`source.schema.table.column`); describe_catalog and, where the \
+             operator enables it, prompt.list_physical_schema name each admitted table's source so \
+             a table reference can use it. Each part runs at its \
              source under that source's declared posture: the verified caller where supported, \
              or the acknowledged shared identity. Where one statement \
              may read more than one source, the answer names each source it read and the posture \

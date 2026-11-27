@@ -87,10 +87,11 @@ where
         &mut self,
         sources: &BTreeSet<SourceName>,
         statements: impl IntoIterator<Item = (&'a RawStatement, TypeDialect)>,
+        prefixed: bool,
     ) -> Stopped<(), L::Stop> {
         for (statement, dialect) in statements {
             checked(statement.as_str(), dialect)
-                .map_err(|cause| super::unplanned("the final source projection was not admitted", &cause))?;
+                .map_err(|cause| super::unplanned("the final source projection was not admitted", &cause, prefixed))?;
             self.admitted.insert(statement.as_str().to_owned());
         }
         self.legs.open(sources).map_err(StatementStopped::Leg)
@@ -103,11 +104,13 @@ where
         tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
         ineligible: Option<PrefilterIneligible>,
+        prefixed: bool,
     ) -> Stopped<RawRows, L::Stop> {
         if !self.admitted.contains(statement.as_str()) {
             return Err(super::unplanned(
                 "a source statement ran unadmitted",
                 &Inadmissible::Unadmitted,
+                prefixed,
             ));
         }
         self.legs
@@ -300,6 +303,7 @@ mod tests {
             let result = Guarded::new(&mut legs).open(
                 &sources,
                 statements.iter().map(|statement| (statement, TypeDialect::DataFusion)),
+                false,
             );
             assert!(matches!(result, Err(StatementStopped::NotPlanned)), "{result:?}");
             assert_eq!(legs.opened, 0);
@@ -308,9 +312,9 @@ mod tests {
         let mut legs = Legs::default();
         let admitted = RawStatement::parse("SELECT count(*) FROM items").unwrap();
         let mut guarded = Guarded::new(&mut legs);
-        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
+        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)], false).unwrap();
         guarded
-            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None)
+            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None, false)
             .unwrap();
         assert_eq!(legs.opened, 1);
         assert_eq!(legs.ran, 1);
@@ -323,10 +327,10 @@ mod tests {
         let other = RawStatement::parse("SELECT id FROM other_items").unwrap();
         let mut legs = Legs::default();
         let mut guarded = Guarded::new(&mut legs);
-        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None);
+        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None, false);
         assert!(matches!(before_open, Err(StatementStopped::NotPlanned)), "{before_open:?}");
-        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
-        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread, None);
+        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)], false).unwrap();
+        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread, None, false);
         assert!(matches!(other_text, Err(StatementStopped::NotPlanned)), "{other_text:?}");
         assert_eq!(legs.ran, 0);
     }
