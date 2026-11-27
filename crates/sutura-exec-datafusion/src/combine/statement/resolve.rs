@@ -124,6 +124,14 @@ const fn unsupported() -> Refused {
 }
 
 /// Quoted paths and schemas remain exact; an unquoted Oracle component folds up, all others down.
+///
+/// A table's own physical path resolves as today, and so does that same path prefixed with the
+/// sutura source it lives at (`source.schema.table` beside `schema.table`, `source.table` beside
+/// `table`) - one caller-facing syntax, not a second one gated behind a flag. The prefix only
+/// selects among `tables`, which is already the caller's listed and permitted set: a source
+/// segment naming anything else matches no candidate and falls through to the same
+/// [`Refused::UnknownTable`] as an unknown schema or table does, so nothing about which other
+/// sources exist leaks through it.
 pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
     resolved(statement, tables, false)
 }
@@ -374,14 +382,7 @@ impl Resolver<'_> {
                     *name = object_name(&cte.path);
                     (cte.clone(), alias)
                 } else {
-                    let mut candidates = self.tables.iter().filter(|table| {
-                        let physical = table_path(table);
-                        path.len() == physical.len()
-                            && path
-                                .iter()
-                                .zip(physical)
-                                .all(|(ident, name)| Fold::of(table.dialect()).name(ident) == name)
-                    });
+                    let mut candidates = self.tables.iter().filter(|table| matches_path(table, &path));
                     let table = candidates.next().ok_or(Refused::UnknownTable)?;
                     if candidates.next().is_some() {
                         return Err(Refused::UnknownTable);
@@ -435,6 +436,25 @@ impl Resolver<'_> {
         });
         Ok(())
     }
+}
+
+/// Does `path` name `table`, either as its own physical path or as that path prefixed with the
+/// source it lives at?
+///
+/// Both forms fold an unquoted segment the same way `table`'s own path already does - per
+/// `table`'s dialect, since that is the convention a federated statement already applies
+/// per-candidate. A caller who already spells out the full physical path keeps resolving exactly
+/// as before; the prefixed form is the only new way in.
+fn matches_path(table: &StatementTable, path: &[Ident]) -> bool {
+    let physical = table_path(table);
+    let fold = Fold::of(table.dialect());
+    let matches_physical = |segments: &[Ident]| {
+        segments.len() == physical.len() && segments.iter().zip(&physical).all(|(ident, name)| fold.name(ident) == *name)
+    };
+    matches_physical(path)
+        || path
+            .split_first()
+            .is_some_and(|(source, rest)| fold.name(source) == table.source().as_str() && matches_physical(rest))
 }
 
 fn table_path(table: &StatementTable) -> Vec<String> {
