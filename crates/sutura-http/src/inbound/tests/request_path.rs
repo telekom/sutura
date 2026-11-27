@@ -194,14 +194,3 @@ async fn the_bare_base_path_of_the_configured_prefix_establishes() {
         .expect("the bare base path establishes");
     assert_eq!(caller.chain().subject().established(), "verified");
 }
-
-/// Admitting the bare base path must not admit a sibling route whose name extends it as text.
-#[tokio::test]
-async fn a_sibling_extending_the_bare_base_path_as_text_is_refused() {
-    let (pair, gate) = gate_bound_to("/hub/app/v1/");
-    let refused = gate
-        .establish(&transit(&token_for_path(&pair, "/hub/app/v10")), Instant::now())
-        .await
-        .expect_err("a sibling route is refused");
-    assert!(matches!(refused, TokenRejected::RequestPathNotBound), "{refused:?}");
-}

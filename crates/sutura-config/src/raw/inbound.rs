@@ -51,7 +51,7 @@ pub(crate) struct RawInbound {
     pub(crate) transit_audience: Option<String>,
     /// `behind-gateway`: the alternative to `transit_audience` for a gateway that binds the
     /// provider by request path instead of an `aud` claim - the prefix a `requestPath` claim must
-    /// start with. Mutually exclusive with `transit_audience`, and requires
+    /// lie under. Mutually exclusive with `transit_audience`, and requires
     /// `transit_audience_absent_because` alongside it.
     #[serde(default)]
     pub(crate) transit_request_path_prefix: Option<String>,

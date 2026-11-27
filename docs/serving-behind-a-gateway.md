@@ -18,7 +18,7 @@ alone. Two settings decide whether the verified subject is true, and only the op
    of the gateway.
 
 Some gateways sign an assertion with no `aud` claim at all, and instead bind it to the provider through a `requestPath`
-claim that must start with the provider's own route prefix. For that gateway, set `transit_request_path_prefix` instead
+claim that must lie under the provider's own route prefix. For that gateway, set `transit_request_path_prefix` instead
 of `transit_audience`, and `transit_audience_absent_because` with the reason `transit_audience` is absent. sutura then
 refuses an assertion whose `requestPath` is missing, or neither starts with the configured prefix nor is the prefix
 without its trailing `/` (the provider's bare base path, which a gateway's catalog hands to clients). The two settings are
@@ -31,7 +31,8 @@ check never sees the request the caller made to the gateway, only what the gatew
 forwarding it. The gateway itself - not any provider - signs the assertion for whichever provider it dispatches to,
 and sutura trusts whatever `requestPath` the gateway wrote: there is no cryptographic separation between sibling
 providers behind one issuer, only the gateway's own path-dispatch logic deciding which assertion each provider
-receives. Rule 1 above still applies in full. Also,
+receives. Admitting the bare base path assumes the gateway routes that exact path to this provider, as it does the
+paths under it. Rule 1 above still applies in full. Also,
 `transit_audience` is what [the host allowlist](integrations/identity.md#settings-for-behind-gateway) derives a host
 entry from; `transit_request_path_prefix` contributes none, so set `server.allowed_hosts` explicitly when using it.
 
