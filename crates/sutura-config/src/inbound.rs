@@ -430,8 +430,7 @@ impl GatewayPairing {
 /// posture must not be satisfiable by silence.
 ///
 /// **`Direct`'s own gateway pairing is one field, [`GatewayPairing`], and not the two independent
-/// `Option`s it replaced - `github.com/telekom/sutura#2096`.** The earlier claim that no
-/// red-on-base test pins that shape change is wrong; this is the test. Nothing here names a
+/// `Option`s it replaced - `github.com/telekom/sutura#2096`.** Nothing here names a
 /// `token_header` or `requires_gateway` field on this variant any more, so the old construction
 /// does not compile against this type:
 ///

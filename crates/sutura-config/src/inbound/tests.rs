@@ -26,6 +26,7 @@ fn rs256() -> PinnedAlgorithms {
 }
 
 fn direct() -> InboundIdentity {
+    let pairing = None;
     InboundIdentity::Direct {
         resource: resource(),
         authorization_server: issuer(),
@@ -33,7 +34,7 @@ fn direct() -> InboundIdentity {
         algorithms: rs256(),
         token_type: RequiredTokenType::access_token(),
         address_claim: crate::inbound::AddressClaim::VerifiedEmail,
-        pairing: None,
+        pairing,
     }
 }
 

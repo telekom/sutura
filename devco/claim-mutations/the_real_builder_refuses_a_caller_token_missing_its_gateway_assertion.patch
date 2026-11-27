@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 56a977b05..a1c2d3e4f 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -421,7 +421,6 @@ impl InboundGate {
+                     issuer: declaration.issuer().as_str().to_owned(),
+                 }
+             })?;
+-            slot.required_gateway = Some(target_gate);
+         }
+         Ok(Some(gate))
+     }

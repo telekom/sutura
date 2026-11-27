@@ -529,6 +529,7 @@ mod tests {
 
     /// A deployment that is its own resource server. The narrowest declaration that exists.
     fn direct() -> InboundIdentity {
+        let pairing = None;
         InboundIdentity::Direct {
             resource: ResourceIdentifier::parse("https://sutura.example.com").expect("a test resource is a resource"),
             authorization_server: IssuerUrl::parse("https://issuer.example.com").expect("a test issuer is an issuer"),
@@ -536,7 +537,7 @@ mod tests {
             algorithms: PinnedAlgorithms::of(SigningAlgorithm::Rs256),
             token_type: crate::inbound::RequiredTokenType::access_token(),
             address_claim: crate::inbound::AddressClaim::VerifiedEmail,
-            pairing: None,
+            pairing,
         }
     }
 

@@ -183,6 +183,16 @@ pub enum InboundNotUsable {
         verifier: sutura_domain::identity::VerifierId,
         issuer: String,
     },
+    /// Two of the declarations handed to [`InboundGate::from_verifiers_with_outbound`] share an
+    /// issuer. `also_accept` keys a built gate by issuer, so left unrefused the later declaration's
+    /// gate would silently replace the earlier one's - and [`find_mut`] could then attach a
+    /// `requires_gateway` target to whichever gate survived.
+    #[error("inbound verifiers `{earlier}` and `{later}` share issuer `{issuer}`")]
+    DuplicateVerifierIssuer {
+        earlier: sutura_domain::identity::VerifierId,
+        later: sutura_domain::identity::VerifierId,
+        issuer: String,
+    },
 }
 
 /// Finds the already-built gate validating `target_issuer`, `self` or a sub-gate, mutably.
@@ -348,9 +358,24 @@ impl InboundGate {
         // admitted with the gateway as the caller, which is exactly what this pairing must never do.
         let required_targets: BTreeSet<&sutura_domain::identity::VerifierId> =
             declarations.iter().filter_map(InboundVerifier::requires_gateway).collect();
-        let mut standalone = declarations
+        let standalone: Vec<&InboundVerifier> = declarations
             .iter()
-            .filter(|declaration| !required_targets.contains(declaration.id()));
+            .filter(|declaration| !required_targets.contains(declaration.id()))
+            .collect();
+        // `also_accept` keys by issuer; refused here, before either gate is built, rather than
+        // letting the later declaration's gate silently replace the earlier one's.
+        let mut by_issuer: BTreeMap<&str, &sutura_domain::identity::VerifierId> = BTreeMap::new();
+        for declaration in &standalone {
+            let issuer = declaration.issuer().as_str();
+            if let Some(earlier) = by_issuer.insert(issuer, declaration.id()) {
+                return Err(InboundNotUsable::DuplicateVerifierIssuer {
+                    earlier: earlier.clone(),
+                    later: declaration.id().clone(),
+                    issuer: issuer.to_owned(),
+                });
+            }
+        }
+        let mut standalone = standalone.into_iter();
         let Some(first) = standalone.next() else {
             return Ok(None);
         };

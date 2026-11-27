@@ -45,6 +45,7 @@ fn declared(mode: &str, source: &str, seconds: u64) -> sutura_config::Settings {
 
 /// A `direct` declaration reading its keys from a URL, with the default ceiling.
 fn direct_from_url() -> InboundIdentity {
+    let pairing = None;
     InboundIdentity::Direct {
         resource: ResourceIdentifier::parse(RESOURCE).expect("a test resource is a resource"),
         authorization_server: IssuerUrl::parse(ISSUER).expect("a test issuer is an issuer"),
@@ -52,7 +53,7 @@ fn direct_from_url() -> InboundIdentity {
         algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
         token_type: RequiredTokenType::access_token(),
         address_claim: sutura_config::AddressClaim::VerifiedEmail,
-        pairing: None,
+        pairing,
     }
 }
 
