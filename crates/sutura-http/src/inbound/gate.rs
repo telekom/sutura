@@ -147,6 +147,42 @@ pub enum InboundNotUsable {
     Unreadable(#[source] KeySetUnavailable),
     #[error("the client for `security.inbound.key_set_url` could not be built")]
     Client(#[source] KeySetClientUnusable),
+    /// A `direct` declaration carrying [`sutura_config::GatewayPairing`] was handed to a builder
+    /// that sees only this one declaration and so can never resolve the paired target.
+    ///
+    /// [`InboundGate::from_declaration`] and [`InboundGate::from_declaration_trusting`] refuse this
+    /// rather than building a gate whose `requires_gateway` silently never attaches -
+    /// `github.com/telekom/sutura#2096`. Only [`InboundGate::from_verifiers_with_outbound`] sees
+    /// every declared verifier and can find the named target.
+    #[error(
+        "this `direct` declaration pairs its own token with `requires_gateway`, which only \
+         `InboundGate::from_verifiers_with_outbound` can resolve - built alone, the paired gateway \
+         requirement would never attach and the gate would check nothing beyond the caller's own token"
+    )]
+    PairedAlone,
+    /// `requires_gateway` names a verifier id absent from the declarations handed to
+    /// [`InboundGate::from_verifiers_with_outbound`].
+    ///
+    /// **Should not happen for settings this crate loaded**: `sutura_config::NotFitToServe`'s
+    /// `RequiresGateway*` refusals already proved every named target resolves to a usable
+    /// `behind-gateway` verifier before a deployment starts. A declaration assembled some other way
+    /// is not bound by that proof, so this refuses rather than silently dropping the requirement.
+    #[error("`requires_gateway` on `{verifier}` names `{target}`, which is not among the declared verifiers")]
+    RequiresGatewayTargetMissing {
+        verifier: sutura_domain::identity::VerifierId,
+        target: sutura_domain::identity::VerifierId,
+    },
+    /// The paired declaration's own gate could not be found, by issuer, to attach the resolved
+    /// `requires_gateway` target to.
+    ///
+    /// **Should not happen**: every declaration that is not itself a `requires_gateway` target is
+    /// built into the gate or `also_accept`, keyed by its own issuer, before this lookup runs. This
+    /// refuses rather than silently dropping the requirement if that invariant is ever violated.
+    #[error("the paired verifier `{verifier}` has no gate at issuer `{issuer}` to attach its `requires_gateway` target to")]
+    RequiresGatewaySlotMissing {
+        verifier: sutura_domain::identity::VerifierId,
+        issuer: String,
+    },
 }
 
 /// Finds the already-built gate validating `target_issuer`, `self` or a sub-gate, mutably.
@@ -223,10 +259,31 @@ impl InboundGate {
 
     /// The same, fetching a key set URL over `anchors` - the deployment's `security.outbound`
     /// trust - or, with none declared, the compiled-in web roots.
+    ///
+    /// Refuses a `direct` declaration carrying [`sutura_config::GatewayPairing`] -
+    /// [`InboundNotUsable::PairedAlone`] - rather than building a gate with no gateway check:
+    /// this single-declaration builder never sees the other declared verifiers, so it has no way to
+    /// find the paired target. [`Self::from_verifiers_with_outbound`] is the builder that resolves
+    /// a pairing.
     pub fn from_declaration_trusting(
         inbound: &InboundIdentity,
         anchors: Option<&sutura_tls::Anchors>,
     ) -> Result<Self, InboundNotUsable> {
+        if matches!(inbound, InboundIdentity::Direct { pairing: Some(_), .. }) {
+            return Err(InboundNotUsable::PairedAlone);
+        }
+        Self::keyed_from_identity(inbound, anchors)
+    }
+
+    /// The key-set read shared by [`Self::from_declaration_trusting`] - which refuses a paired
+    /// identity first, having no sibling list to resolve it against - and
+    /// [`Self::from_verifiers_with_outbound`]'s own per-declaration build, which calls this
+    /// directly: it legitimately builds the gate for a paired identity's own token here, then
+    /// resolves every `requires_gateway` itself afterward, over the full declared list, and
+    /// attaches it to `required_gateway` below. Neither caller is a gate that would check nothing
+    /// beyond the caller's own token, which is what [`InboundNotUsable::PairedAlone`] exists to
+    /// rule out for a builder that cannot resolve the pairing at all.
+    fn keyed_from_identity(inbound: &InboundIdentity, anchors: Option<&sutura_tls::Anchors>) -> Result<Self, InboundNotUsable> {
         let requirement = inbound.requirement();
         let source: Box<dyn KeySetSource> = match requirement.key_set() {
             KeySetLocation::File(file) => Box::new(FileKeySet::at(file.path())),
@@ -273,7 +330,7 @@ impl InboundGate {
         let build = |declaration: &InboundVerifier| {
             let mut gate = match declaration.identity() {
                 Some(identity) => {
-                    let mut gate = Self::from_declaration_trusting(identity, anchors)?;
+                    let mut gate = Self::keyed_from_identity(identity, anchors)?;
                     if let Verification::Jwt { ref mut validator, .. } = gate.verification {
                         **validator = TokenValidator::named(declaration.id().clone(), &identity.requirement());
                     }
@@ -310,8 +367,10 @@ impl InboundGate {
         // refuses as ambiguous, and this pairing is the one case where two header locations are
         // meant to both carry a token on the same request. `sutura_config::NotFitToServe`'s
         // `RequiresGateway*` refusals already proved every named target resolves to a usable
-        // `behind-gateway` verifier before this runs, so a lookup miss here is unreachable rather
-        // than silently ignored.
+        // `behind-gateway` verifier before this runs, for settings this crate loaded - but a
+        // declaration assembled some other way is not bound by that proof, so a lookup miss here
+        // returns `InboundNotUsable::RequiresGatewayTargetMissing` or
+        // `InboundNotUsable::RequiresGatewaySlotMissing` rather than being silently dropped.
         let mut built_targets: BTreeMap<&sutura_domain::identity::VerifierId, Arc<Self>> = BTreeMap::new();
         for declaration in declarations {
             let Some(target_id) = declaration.requires_gateway() else {
@@ -320,16 +379,24 @@ impl InboundGate {
             let target_gate = if let Some(shared) = built_targets.get(target_id) {
                 Arc::clone(shared)
             } else {
-                let Some(target_declaration) = declarations.iter().find(|candidate| candidate.id() == target_id) else {
-                    continue;
-                };
+                let target_declaration = declarations
+                    .iter()
+                    .find(|candidate| candidate.id() == target_id)
+                    .ok_or_else(|| InboundNotUsable::RequiresGatewayTargetMissing {
+                        verifier: declaration.id().clone(),
+                        target: target_id.clone(),
+                    })?;
                 let newly_built = Arc::new(build(target_declaration)?);
                 built_targets.insert(target_id, Arc::clone(&newly_built));
                 newly_built
             };
-            if let Some(slot) = find_mut(&mut gate, declaration.issuer().as_str()) {
-                slot.required_gateway = Some(target_gate);
-            }
+            let slot = find_mut(&mut gate, declaration.issuer().as_str()).ok_or_else(|| {
+                InboundNotUsable::RequiresGatewaySlotMissing {
+                    verifier: declaration.id().clone(),
+                    issuer: declaration.issuer().as_str().to_owned(),
+                }
+            })?;
+            slot.required_gateway = Some(target_gate);
         }
         Ok(Some(gate))
     }
