@@ -23,6 +23,8 @@ const REQUIRED: &[(&str, &str)] = &[
     ("PGD_REQUIRED", "ci"),
     ("SHIP_RESULT", "shipped-features"),
     ("SHIP_REQUIRED", "ci"),
+    ("FUZZ_RESULT", "fuzz-compile"),
+    ("FUZZ_REQUIRED", "ci"),
 ];
 
 /// The exact conditions for the aggregate's inputs.
@@ -60,6 +62,11 @@ const EXPRESSIONS: &[(&str, &str)] = &[
     (
         "SHIP_REQUIRED",
         "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
+    ),
+    ("FUZZ_RESULT", "needs.fuzz-compile.result"),
+    (
+        "FUZZ_REQUIRED",
+        "needs.ci.outputs.fuzz_compile == 'true' && github.event_name != 'push'",
     ),
 ];
 
@@ -461,6 +468,8 @@ mod tests {
             "          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}",
             "          SHIP_RESULT: ${{ needs.shipped-features.result }}",
             "          SHIP_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
+            "          FUZZ_RESULT: ${{ needs.fuzz-compile.result }}",
+            "          FUZZ_REQUIRED: ${{ needs.ci.outputs.fuzz_compile == 'true' && github.event_name != 'push' }}",
         ]
         .join("\n")
     }
@@ -577,7 +586,13 @@ mod tests {
 
     #[test]
     fn a_neutralised_moved_job_condition_fails() {
-        for key in ["CAUS_REQUIRED", "PGD_REQUIRED", "SHIP_REQUIRED", "RELEASE_PUSH"] {
+        for key in [
+            "CAUS_REQUIRED",
+            "PGD_REQUIRED",
+            "SHIP_REQUIRED",
+            "FUZZ_REQUIRED",
+            "RELEASE_PUSH",
+        ] {
             let env = real_env().replace(&format!("{key}: ${{{{"), &format!("{key}: ${{{{ false &&"));
             let workflow = aggregate_workflow(&env);
             let problems = check(&workflow);

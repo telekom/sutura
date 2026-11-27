@@ -162,6 +162,9 @@ jobs:
     outputs:
       rust: ${{ steps.classify.outputs.rust }}
       postgres_driver: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
+      # `fuzz-compile` (#2095); already ORed with `run_all` inside the classifier, so no composite
+      # needed here the way `postgres_driver` above needs one.
+      fuzz_compile: ${{ steps.classify.outputs.fuzz_compile }}
       tested_commit: ${{ steps.pr-verdict.outputs.tested_commit }}
       green_jobs: ${{ steps.pr-verdict.outputs.green_jobs }}
       causality_reused: ${{ steps.pr-verdict.outputs.causality_reused }}
@@ -440,6 +443,9 @@ jobs:
       nix: ${{ steps.classify.outputs.nix }}
       # AREA axis, for `k3s-autoscaling` and `ci-aggregate`: the chart, its helm and its image.
       chart: ${{ steps.classify.outputs.chart }}
+      # For `ci-aggregate`'s `fuzz-compile` REQUIRED gate, same reason `rust` is republished here
+      # rather than only on the `classify` job: the aggregate reads `ci`'s own copy (#2095).
+      fuzz_compile: ${{ steps.classify.outputs.fuzz_compile }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1670,6 +1676,67 @@ jobs:
             set -eu
             nix run .#default-feature-tests
 
+  # Compile-only check over `fuzz/` (#2095): does the fuzz crate still build, no fuzzing and no
+  # cache writes. Named `fuzz-compile`, not `check-fuzz` (`xtask`'s unrelated hygiene-sweep gate
+  # that verifies the manifest's wiring and compiles nothing) - the two read differently and must
+  # not be confused. Selected by `fuzz_compile`, which `classify` derives from the SAME "fuzzed
+  # tree" surface `xtask/src/hook_coverage/surfaces.rs` keys `fuzz-smoke` off - not a second path
+  # list - so a change this leg selects on is a change that row NAMES. That row is hand-maintained,
+  # not mechanically derived from the targets' real dependency graph: `check-fuzz` holds each
+  # target's crate-level imports to it, not file-level completeness within a crate, so an unnamed
+  # first-party file can still break a target silently here.
+  #
+  # `.github/workflows/fuzz.yml`'s own header explains why a REAL fuzz run stays tag-only; this
+  # leg does not reopen that. It never resolves `cargo-fuzz` or links the sanitizer runtime in
+  # (`nix/fuzz-compile.nix`), so it catches only "does not compile", which is the gap #2091 found:
+  # `fuzz (token)` and `smoke` broke on a release tag with nothing on `pull_request` having
+  # compiled the target first.
+  fuzz-compile:
+    needs: [classify]
+    if: github.event_name != 'push' && needs.classify.outputs.fuzz_compile == 'true'
+    runs-on: rust-mcp-16core
+    # The fuzz crate's own graph (datafusion, arrow-flight, datafusion-distributed) is most of a
+    # cold `shipped-features` compile; `cargo check` skips codegen, so 30 leaves headroom.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: fuzz-compile-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      # EXACTLY ONE INSTALLER PER EVENT, `ci`'s pattern and for its reason (#980).
+      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
+        if: github.event_name != 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # 32.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      - name: The fuzz targets compile
+        uses: $/.github/actions/measure-host
+        with:
+          label: fuzz targets compile
+          run: |-
+            set -eu
+            nix run .#fuzz-compile
+
   release-status:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-latest
@@ -1703,6 +1770,7 @@ jobs:
       causality,
       postgres-linked-driver,
       shipped-features,
+      fuzz-compile,
       release-status,
     ]
     if: ${{ !cancelled() }}
@@ -1725,6 +1793,8 @@ jobs:
           PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}
           SHIP_RESULT: ${{ needs.shipped-features.result }}
           SHIP_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}
+          FUZZ_RESULT: ${{ needs.fuzz-compile.result }}
+          FUZZ_REQUIRED: ${{ needs.ci.outputs.fuzz_compile == 'true' && github.event_name != 'push' }}
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
@@ -1757,6 +1827,7 @@ jobs:
           require_when_selected causality "$CAUS_RESULT" "$CAUS_REQUIRED"
           require_when_selected postgres-linked-driver "$PGD_RESULT" "$PGD_REQUIRED"
           require_when_selected shipped-features "$SHIP_RESULT" "$SHIP_REQUIRED"
+          require_when_selected fuzz-compile "$FUZZ_RESULT" "$FUZZ_REQUIRED"
           echo "ci-aggregate: ok - all required checks green"
 
   qa-receipt:

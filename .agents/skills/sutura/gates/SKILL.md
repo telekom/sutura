@@ -269,11 +269,14 @@ stops meaning anything:
   `just fuzz-smoke` at `-runs=0` over every committed seed, in `just ship-check` for a diff that
   touches the "fuzzed tree" row (it replays every target, not only the ones the diff reaches; the
   commit hook is gone by owner decision) and in `fuzz.yml`'s `smoke` job, plus `check-fuzz`, which
-  reads the harness and compiles nothing. **So no pull request or merge-queue run replays the seeds,
-  a push that skips `ship-check` is not fuzzed, a change that breaks a target's build is found at
+  reads the harness and compiles nothing. Since #2095, `ci.yml:fuzz-compile` adds a third leg on
+  `pull_request`/`merge_group` - compile only, no fuzzing, no cache writes - but only WHEN SELECTED,
+  on a diff that touches the same "fuzzed tree" row; a change outside that row still merges green.
+  **So no pull request or merge-queue run replays the seeds, a push that skips `ship-check` is not
+  fuzzed, a change that breaks a target's build outside the named surface is still found only at
   the next tag or dispatch, and this repository stops searching for new defects between releases
-  while checking only the harness wiring between them** - a quiet fuzz surface means nobody is
-  searching, not that there is nothing to find.
+  while checking only the harness wiring and, when selected, the build between them** - a quiet
+  fuzz surface means nobody is searching, not that there is nothing to find.
 
 The `smoke` leg is real but narrow: `-runs=0` replays every tracked seed once with no mutation, so
 its verdict is a function of committed files. Neither `fuzz.yml` job appears in

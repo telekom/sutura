@@ -9,10 +9,11 @@ use super::aggregate_shell::{run_aggregator, run_qa};
 /// (result var, required var, the name the verdict must carry).
 type Moved = (&'static str, &'static str, &'static str);
 
-const MOVED: [Moved; 3] = [
+const MOVED: [Moved; 4] = [
     ("CAUS_RESULT", "CAUS_REQUIRED", "causality"),
     ("PGD_RESULT", "PGD_REQUIRED", "postgres-linked-driver"),
     ("SHIP_RESULT", "SHIP_REQUIRED", "shipped-features"),
+    ("FUZZ_RESULT", "FUZZ_REQUIRED", "fuzz-compile"),
 ];
 
 /// A clean aggregate but for the one pair under test.
@@ -63,4 +64,40 @@ fn a_cross_leg_that_ran_and_is_not_green_is_red_and_a_skipped_one_is_not() {
         let (ok, text) = run_qa(&[("CROSS_RESULT", result)]);
         assert!(ok, "a `cross` that reported {result} must aggregate green: {text}");
     }
+}
+
+#[test]
+fn the_fuzz_compile_job_is_pinned_like_the_other_classified_lanes() {
+    // Held here rather than beside `classify` in `xtask/src/changes.rs`: this round's
+    // `fuzz_compile` implementation lines live in that file too, so a test added there is not
+    // mechanically separable from them for `cargo xtask causality`. This file is declared
+    // `#[cfg(test)]` by `affected.rs` (`regions.rs::declared_under_cfg_test`, matched at this
+    // file's own default-layout path), so the whole thing reads as test code no matter what
+    // else it is next to.
+    //
+    // `fuzz_compile` has no `just gates` task of its own (`justfile`'s `fuzz-compile` recipe
+    // calls `nix run .#fuzz-compile` directly), so unlike
+    // `default_features::tests::both_lanes_still_invoke_this_gate` this holds only the CI half:
+    // the job still runs the app, still gates rather than reports, and is still selected by the
+    // flag `changes::touches_fuzzed_tree` sets.
+    const WORKFLOW: &str = ".github/workflows/ci.yml";
+    const JOB: &str = "fuzz-compile";
+    const APP: &str = "fuzz-compile";
+    const CLASSIFIED: &str = "needs.classify.outputs.fuzz_compile == 'true'";
+
+    let root = crate::repo::root().expect("the repo root");
+    let workflow = std::fs::read_to_string(root.join(WORKFLOW)).expect("ci.yml");
+    crate::workflows::step::app_step(&workflow, JOB, APP)
+        .unwrap_or_else(|| panic!("a live `nix run .#{APP}` step inside {WORKFLOW}'s `{JOB}` job"));
+    let job = crate::workflows::step::job(&workflow, JOB).unwrap_or_default();
+    let live = || job.iter().filter(|line| !line.trim_start().starts_with('#'));
+    assert!(
+        !live().any(|line| line.contains("continue-on-error")),
+        "`{JOB}` tolerates a failure, so the CI half reports rather than gates:\n{}",
+        job.join("\n")
+    );
+    assert!(
+        live().any(|line| line.starts_with("    if:") && line.contains(CLASSIFIED)),
+        "`{JOB}` is not selected by `{CLASSIFIED}`, the condition the step had in `ci`"
+    );
 }
