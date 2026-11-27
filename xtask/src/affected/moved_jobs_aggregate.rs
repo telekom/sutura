@@ -9,10 +9,11 @@ use super::aggregate_shell::{run_aggregator, run_qa};
 /// (result var, required var, the name the verdict must carry).
 type Moved = (&'static str, &'static str, &'static str);
 
-const MOVED: [Moved; 3] = [
+const MOVED: [Moved; 4] = [
     ("CAUS_RESULT", "CAUS_REQUIRED", "causality"),
     ("PGD_RESULT", "PGD_REQUIRED", "postgres-linked-driver"),
     ("SHIP_RESULT", "SHIP_REQUIRED", "shipped-features"),
+    ("FUZZ_RESULT", "FUZZ_REQUIRED", "fuzz-compile"),
 ];
 
 /// A clean aggregate but for the one pair under test.

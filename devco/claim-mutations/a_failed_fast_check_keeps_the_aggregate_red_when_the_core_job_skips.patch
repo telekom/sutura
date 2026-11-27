@@ -1,0 +1,12 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index adbeeaad3..279f24ba6 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1809,7 +1809,6 @@ jobs:
+             fi
+             require "$@"
+           }
+-          require "fast checks" "$FAST_RESULT" true
+           if [ "$RELEASE_PUSH" = true ]; then
+             if [ "$RELEASE_RESULT" != success ]; then
+               fail "release workflow did not publish this release: '$RELEASE_RESULT'"
