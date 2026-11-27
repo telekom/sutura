@@ -50,4 +50,3 @@ HEALTHCHECK --interval=3s --timeout=5s --start-period=45s --retries=60 \
   CMD ["python3", "/usr/local/bin/healthcheck.py"]
 
 ENTRYPOINT ["/usr/local/bin/run.sh"]
-

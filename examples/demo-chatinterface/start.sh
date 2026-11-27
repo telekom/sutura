@@ -261,4 +261,3 @@ done
 printf 'demo: the demo stopped answering before it was interrupted; its container or its server\n' >&2
 printf 'demo: exited, so this is a failure - see the demo container log for why\n' >&2
 exit 1
-
