@@ -43,8 +43,7 @@ fn validator() -> &'static (TokenValidator, KeySet) {
             algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
             token_type: RequiredTokenType::access_token(),
             address_claim: AddressClaim::VerifiedEmail,
-            token_header: None,
-            requires_gateway: None,
+            pairing: None,
         };
         let keys = KeySet::parse(PUBLIC_KEY_SET).expect("fixture key set is valid");
         (TokenValidator::new(&identity.requirement()), keys)
