@@ -106,12 +106,23 @@ impl HashState {
         let mut generator = cipher(seed.as_slice(), iv)?;
         let mut generated = Zeroizing::new([0u8; 32]);
         step(&mut generator, generated.as_mut_slice());
+        let (a, b) = Self::directional(&generated, swapped)?;
+        Ok((a, b, generated))
+    }
+
+    /// The send/receive mask ciphers keyed from one ratchet output: its first 16
+    /// bytes with byte 15 set to 0x5a (send) or 0xb4 (receive), IV its last 16.
+    fn directional(
+        generated: &[u8; 32],
+        swapped: bool,
+    ) -> Result<(MaskCipher, MaskCipher), Error> {
+        let mut seed = Zeroizing::new([0u8; 16]);
         seed.copy_from_slice(&generated[..16]);
         seed[15] = 0x5a;
         let a = cipher(seed.as_slice(), &generated[16..])?;
         seed[15] = 0xb4;
         let b = cipher(seed.as_slice(), &generated[16..])?;
-        Ok(if swapped { (b, a, generated) } else { (a, b, generated) })
+        Ok(if swapped { (b, a) } else { (a, b) })
     }
 
     fn new(
@@ -131,27 +142,21 @@ impl HashState {
         })
     }
 
-    /// Re-derives `tx`/`rx` by chaining forward from the last-derived seed state,
-    /// as both peers independently do once per break/reset (immediately after the
-    /// client answers with its own reset marker). The per-record encryption key/IV
-    /// is untouched, and the evolving `tx_mask`/`rx_mask` keystream counters carry
-    /// on rather than resetting - only the keying of the ciphers that step them
-    /// changes. Without this, the record that follows a break/reset on an already
-    /// authenticated session fails to authenticate, because the server has moved
-    /// its own MAC state forward the same way.
+    /// Advances the MAC ratchet once for a break/reset, as both peers do after the
+    /// client answers with its own reset marker: the last ratchet output is
+    /// encrypted under AES-CBC keyed by its own first 16 bytes (unmodified) with
+    /// its last 16 as IV, and the result keys the new `tx`/`rx`. The per-record
+    /// encryption key/IV is untouched, and `tx_mask`/`rx_mask` carry on - only
+    /// the ciphers that step them change.
     ///
-    /// Adapted from go-ora's `seer_ano_reset`; go-ora is this module's cited
-    /// algorithmic origin (see the header comment above). Without this, a live
-    /// required-NNE server's error record following a break/reset fails to
-    /// authenticate (observed on CI at the commit that introduced this fix -
-    /// a 114-byte record that did not authenticate), and the `oracle_native`
-    /// live cell now reads that record successfully.
+    /// This is go-ora v3's `OracleNetworkHash2.Init` on its persistent buffer, which
+    /// `processMarker` reaches through `AdvNego.Reset`. It is not the initial
+    /// derivation re-run: that one seeds byte 15 with 0xff and encrypts zeros.
     fn rekey_for_reset(&mut self) -> Result<(), Error> {
-        let seed = Zeroizing::new(self.chain[..16].to_vec());
-        let iv = &self.chain[16..];
-        let (tx, rx, generated) = Self::derive(&seed, iv, self.swapped)?;
-        self.tx = tx;
-        self.rx = rx;
+        let mut generator = cipher(&self.chain[..16], &self.chain[16..])?;
+        let mut generated = Zeroizing::new(*self.chain);
+        step(&mut generator, generated.as_mut_slice());
+        (self.tx, self.rx) = Self::directional(&generated, self.swapped)?;
         self.chain = generated;
         Ok(())
     }

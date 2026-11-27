@@ -131,12 +131,10 @@ fn authentication_key_folding_is_a_one_way_phase_change() {
 #[test]
 fn rekey_for_reset_matches_an_independently_assembled_go_ora_processmarker_derivation()
  {
-    // Reimplements go-ora's seed-chaining rekey (`session.processMarker` calling
-    // `OracleNetworkHash2.Init` on its persistent 32-byte buffer) directly from the
-    // chain state, using only the low-level `cipher`/`step` primitives - never calling
-    // `HashState::derive`/`Protection::rekey_for_reset` for the computation itself - so
-    // this proves our production rekey agrees with an independent replica of the
-    // reference algorithm, not merely with its own derivation code.
+    // Reimplements go-ora v3's ratchet (`session.processMarker` -> `AdvNego.Reset` ->
+    // `OracleNetworkHash2.Init` on its persistent 32-byte buffer) from the chain state,
+    // using only the low-level `cipher`/`step` primitives - never `HashState::derive` or
+    // `directional` - so production is checked against the reference text, not itself.
     //
     // `tx_mask`/`rx_mask` are carried forward across a rekey (only the ciphers that
     // step them are replaced), so a test starting from the freshly-derived zero masks
@@ -166,12 +164,13 @@ fn rekey_for_reset_matches_an_independently_assembled_go_ora_processmarker_deriv
         "rx mask must have evolved"
     );
 
-    let mut seed = [0u8; 16];
-    seed[..15].copy_from_slice(&chain_before[..15]);
-    seed[15] = 0xff;
-    let mut generator = cipher(&seed, &chain_before[16..]).unwrap();
-    let mut generated = [0u8; 32];
+    // go-ora v3 `OracleNetworkHash2.Init`: `keyGen` is AES-CBC keyed by the previous
+    // buffer's first 16 bytes as they are, IV its last 16, and it encrypts that same
+    // buffer in place: `onh.keyGen.CryptBlocks(onh.buffer, onh.buffer)`.
+    let mut generator = cipher(&chain_before[..16], &chain_before[16..]).unwrap();
+    let mut generated = chain_before;
     step(&mut generator, &mut generated);
+    let mut seed = [0u8; 16];
     seed.copy_from_slice(&generated[..16]);
     seed[15] = 0x5a;
     let mut independent_tx = cipher(&seed, &generated[16..]).unwrap();
