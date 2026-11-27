@@ -12,7 +12,8 @@ use sutura_config::{InboundVerifier, McpPath};
 use sutura_dev::issuer::MockIssuer;
 use sutura_domain::identity::VerifierId;
 
-use super::fixtures::{direct_over, gateway_declaring, paired_direct};
+use super::TRANSIT_HEADER;
+use super::fixtures::{direct_over, paired_direct};
 use crate::inbound::{InboundGate, InboundNotUsable};
 use crate::testing::{ISSUER, RESOURCE};
 
@@ -100,13 +101,39 @@ fn from_verifiers_with_outbound_refuses_a_paired_target_with_no_slot_of_its_own(
     let target_id = VerifierId::parse("paired-target").expect("a fixture verifier id");
     let outer_id = VerifierId::parse("outer").expect("a fixture verifier id");
 
+    // The builder reads every standalone declaration's key set before resolving any pairing. `gateway`
+    // and `outer` are both built (see below), so both need a real, readable key set - `target`'s own
+    // key set is never read in this scenario: it is excluded from `standalone`, and its own pairing
+    // resolves against `gateway` by issuer and fails before `outer`'s pairing is ever looked at.
+    let gateway_issuer = MockIssuer::generating(ISSUER, RESOURCE, "gateway-key").expect("a fixture issuer generates a key");
+    let gateway_path = std::env::temp_dir().join(format!("sutura-pairing-resolution-gateway-{}.json", std::process::id()));
+    gateway_issuer
+        .publish(&gateway_path)
+        .expect("the gateway key set is writable");
+
+    let outer_issuer = MockIssuer::generating("https://outer.example.com", "https://outer.example.com/resource", "outer-key")
+        .expect("a fixture issuer generates a key");
+    let outer_path = std::env::temp_dir().join(format!("sutura-pairing-resolution-outer-{}.json", std::process::id()));
+    outer_issuer.publish(&outer_path).expect("the outer key set is writable");
+
     let gateway = InboundVerifier::new(
         gateway_id,
         McpPath::parse("/gateway").expect("a fixture path"),
-        gateway_declaring(
-            sutura_config::RequiredTokenType::access_token(),
-            sutura_config::ProofLifetime::default_lifetime(),
-        ),
+        sutura_config::InboundIdentity::BehindGateway {
+            transit: sutura_config::TransitProof::new(
+                sutura_config::ProofHeader::parse(TRANSIT_HEADER).expect("a fixture header"),
+                sutura_config::IssuerUrl::parse_transit_issuer(ISSUER).expect("a fixture issuer"),
+                sutura_config::TransitBinding::Audience(
+                    sutura_config::ResourceIdentifier::parse_transit_audience(RESOURCE).expect("a fixture audience"),
+                ),
+                sutura_config::KeySetLocation::File(
+                    sutura_config::KeySetFile::parse(gateway_path.to_string_lossy()).expect("a fixture path"),
+                ),
+                sutura_config::PinnedAlgorithms::of(sutura_config::SigningAlgorithm::Es256),
+                sutura_config::RequiredTokenType::access_token(),
+                sutura_config::ProofLifetime::default_lifetime(),
+            ),
+        },
     );
     // Paired with `gateway` above - exactly the shape `paired_direct` builds - but ALSO named as
     // `outer`'s own `requires_gateway` target below, which is what excludes it from `standalone`.
@@ -122,7 +149,7 @@ fn from_verifiers_with_outbound_refuses_a_paired_target_with_no_slot_of_its_own(
             resource: sutura_config::ResourceIdentifier::parse("https://outer.example.com/resource").expect("a fixture resource"),
             authorization_server: sutura_config::IssuerUrl::parse("https://outer.example.com").expect("a fixture issuer"),
             key_set: sutura_config::KeySetLocation::File(
-                sutura_config::KeySetFile::parse("/unread/in/this/test-outer.json").expect("a fixture path"),
+                sutura_config::KeySetFile::parse(outer_path.to_string_lossy()).expect("a fixture path"),
             ),
             algorithms: sutura_config::PinnedAlgorithms::of(sutura_config::SigningAlgorithm::Es256),
             token_type: sutura_config::RequiredTokenType::access_token(),
@@ -136,7 +163,11 @@ fn from_verifiers_with_outbound_refuses_a_paired_target_with_no_slot_of_its_own(
     );
 
     let declarations = vec![gateway, target, outer];
-    match InboundGate::from_verifiers_with_outbound(&declarations, None) {
+    let result = InboundGate::from_verifiers_with_outbound(&declarations, None);
+    drop(std::fs::remove_file(&gateway_path));
+    drop(std::fs::remove_file(&outer_path));
+
+    match result {
         Err(InboundNotUsable::RequiresGatewaySlotMissing { verifier, issuer }) => {
             assert_eq!(verifier, target_id);
             assert_eq!(
