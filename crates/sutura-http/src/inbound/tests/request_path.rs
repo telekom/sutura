@@ -194,3 +194,21 @@ async fn the_bare_base_path_of_the_configured_prefix_establishes() {
         .expect("the bare base path establishes");
     assert_eq!(caller.chain().subject().established(), "verified");
 }
+
+/// An ANCESTOR of the configured prefix - a path the prefix extends, rather than one that
+/// extends the prefix - must not be admitted as the bare base path is: `/hub/app`, `/hub/app/`,
+/// `/` and `""` are all shorter than `/hub/app/v1`, so [`RequestPathPrefix::matches`]'s own
+/// `starts_with` can never see them as a match, only the stricter equality the bare-base-path
+/// case added could - and that equality is exact, not `self.0.starts_with(request_path)`, which
+/// would wrongly admit every one of these (`github.com/telekom/sutura#2100`).
+#[tokio::test]
+async fn an_ancestor_of_the_configured_prefix_is_refused() {
+    let (pair, gate) = gate_bound_to("/hub/app/v1/");
+    for path in ["/hub/app", "/hub/app/", "/", ""] {
+        let refused = gate
+            .establish(&transit(&token_for_path(&pair, path)), Instant::now())
+            .await
+            .expect_err("an ancestor of the configured prefix is refused");
+        assert!(matches!(refused, TokenRejected::RequestPathNotBound), "{path:?}: {refused:?}");
+    }
+}
