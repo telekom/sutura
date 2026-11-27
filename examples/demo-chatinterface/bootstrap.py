@@ -112,7 +112,7 @@ def _wait_ready(timeout: int = 180) -> None:
             _request("GET", "/health")
             _log("Open WebUI is ready")
             return
-        except Exception:
+        except Exception:  # noqa: BLE001
             time.sleep(3)
     _log("Open WebUI did not become ready — giving up")
     sys.exit(1)
@@ -134,7 +134,7 @@ def _get_token() -> str | None:
         if token:
             _log("admin account created")
             return token
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     try:
@@ -150,7 +150,7 @@ def _get_token() -> str | None:
         if token:
             _log("signed in as admin")
             return token
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _log(f"could not obtain admin token: {exc}")
 
     return None
@@ -200,7 +200,7 @@ def _create_filter(token: str | None) -> bool:
                 )
                 _log(f"filter '{FILTER_ID}' updated")
                 created = True
-            except Exception as upd_exc:
+            except Exception as upd_exc:  # noqa: BLE001
                 _log(f"could not update filter: {upd_exc}")
         else:
             _log(f"could not create filter: {exc}")
@@ -214,7 +214,7 @@ def _create_filter(token: str | None) -> bool:
         if not fn.get("is_active"):
             _request("POST", f"/api/v1/functions/id/{FILTER_ID}/toggle", token=token)
             _log(f"filter '{FILTER_ID}' activated")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _log(f"could not activate filter (non-fatal): {exc}")
 
     try:
@@ -224,7 +224,7 @@ def _create_filter(token: str | None) -> bool:
                 "POST", f"/api/v1/functions/id/{FILTER_ID}/toggle/global", token=token
             )
             _log(f"filter '{FILTER_ID}' enabled globally")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _log(f"could not enable filter globally (non-fatal): {exc}")
 
     return True
@@ -261,7 +261,7 @@ def _create_model(token: str | None, filter_ok: bool) -> None:
                 _request("POST", "/api/v1/models/model/update", payload, token)
                 _log("'Demo' model preset updated")
                 return
-            except Exception as update_exc:
+            except Exception as update_exc:  # noqa: BLE001
                 _log(f"could not update 'Demo': {update_exc}")
         else:
             _log(f"could not create 'Demo': {exc}")
