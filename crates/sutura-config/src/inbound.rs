@@ -217,7 +217,7 @@ impl core::fmt::Display for TokenLocation<'_> {
 pub enum TransitBinding {
     /// `aud` must equal this, byte for byte.
     Audience(TokenAudience),
-    /// No `aud` claim exists to check: `requestPath` must start with `prefix` instead.
+    /// No `aud` claim exists to check: `requestPath` must lie under `prefix` instead (see [`RequestPathPrefix::matches`]).
     RequestPath {
         prefix: RequestPathPrefix,
         /// Why `transit_audience` is absent - `sutura_domain::source::AcknowledgementReason`'s
@@ -388,7 +388,7 @@ pub struct TokenRequirement<'inbound> {
     /// `aud` must equal this. `None` only where [`TransitBinding::RequestPath`] binds the assertion
     /// by its request path instead - see [`Self::request_path_prefix`].
     audience: Option<&'inbound TokenAudience>,
-    /// `requestPath` must start with this. `Some` only where [`TransitBinding::RequestPath`] is
+    /// `requestPath` must lie under this (see [`RequestPathPrefix::matches`]). `Some` only where [`TransitBinding::RequestPath`] is
     /// configured, which is the only shape with no [`Self::audience`].
     request_path_prefix: Option<&'inbound RequestPathPrefix>,
     /// The identifier this deployment publishes. `Some` in `direct` only.
@@ -458,7 +458,7 @@ impl<'inbound> TokenRequirement<'inbound> {
         self.audience
     }
 
-    /// The prefix a `requestPath` claim must start with - `Some` only where [`Self::audience`] is
+    /// The prefix a `requestPath` claim must lie under - `Some` only where [`Self::audience`] is
     /// `None`, because [`TransitBinding::RequestPath`] is the only configuration with no `aud` to
     /// check and this is what binds the assertion to this provider instead.
     #[inline]

@@ -433,7 +433,7 @@ pub struct TokenValidator {
     /// `None` only where `request_path_prefix` is `Some` - see
     /// `sutura_config::TokenRequirement::audience`.
     audience: Option<TokenAudience>,
-    /// `requestPath` must start with this. `Some` only where `audience` is `None` - the
+    /// `requestPath` must lie under this (`RequestPathPrefix::matches`). `Some` only where `audience` is `None` - the
     /// alternative to `transit_audience` for a gateway that binds the provider by request path.
     request_path_prefix: Option<RequestPathPrefix>,
     /// What a token with no `scope` claim is granted. See `sutura_config::GrantedScopes`.
