@@ -50,6 +50,8 @@ pub(super) mod fixtures;
 mod multi_verifier;
 #[cfg(test)]
 mod paired_gateway;
+#[cfg(test)]
+mod pairing_resolution;
 mod token_bytes;
 
 use fixtures::{

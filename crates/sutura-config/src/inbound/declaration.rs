@@ -184,7 +184,7 @@ impl InboundVerifier {
     #[must_use]
     pub fn requires_gateway(&self) -> Option<&VerifierId> {
         match self.identity()? {
-            InboundIdentity::Direct { requires_gateway, .. } => requires_gateway.as_ref(),
+            InboundIdentity::Direct { pairing, .. } => pairing.as_ref().map(super::GatewayPairing::requires_gateway),
             InboundIdentity::BehindGateway { .. } => None,
         }
     }
@@ -193,7 +193,7 @@ impl InboundVerifier {
     #[must_use]
     pub fn token_header(&self) -> Option<&super::ProofHeader> {
         match self.identity()? {
-            InboundIdentity::Direct { token_header, .. } => token_header.as_ref(),
+            InboundIdentity::Direct { pairing, .. } => pairing.as_ref().map(super::GatewayPairing::header),
             InboundIdentity::BehindGateway { .. } => None,
         }
     }

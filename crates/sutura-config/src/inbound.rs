@@ -328,12 +328,166 @@ impl TransitProof {
     }
 }
 
+/// A `direct` verifier's own token header, paired with the id of the `behind-gateway` entry whose
+/// own assertion must also be present, in `Authorization`, on the same request -
+/// `github.com/telekom/sutura#2089`.
+///
+/// **What this holds: one complete declaration, never a half-written one.** `token_header` and
+/// `requires_gateway` used to be two independent `Option` fields on [`InboundIdentity::Direct`],
+/// and the rule that they come together was held only by
+/// `crate::settings::inbound::parse_inbound`'s
+/// [`crate::settings::SettingsError::RequiresGatewayPairIncomplete`] refusal - not by the type.
+/// Code building the variant directly, rather than through the parser, could write one field
+/// `Some` and the other `None`; [`InboundIdentity::requirement`] would then read the caller's
+/// token from that header with **no** gateway assertion required, which is exactly the shape
+/// `github.com/telekom/sutura#2089`'s review ruled out. There is no public field and the only
+/// constructor is [`Self::new`], which takes both - so that shape is unrepresentable rather than
+/// merely refused. The parser's refusal is unchanged: it still refuses one key written without
+/// the other, before either reaches this type.
+///
+/// The fields are private, so a literal naming both is refused outright rather than only by
+/// convention - distinct from [`InboundIdentity`]'s own `compile_fail,E0559` doctest, which holds
+/// the CARRIER (`Direct` has no `token_header` or `requires_gateway` field to name any more, so
+/// that shape fails before this type's privacy is ever reached):
+///
+/// ```compile_fail,E0451
+/// use sutura_config::{GatewayPairing, ProofHeader};
+/// use sutura_domain::identity::VerifierId;
+///
+/// fn _literal(header: ProofHeader, requires_gateway: VerifierId) -> GatewayPairing {
+///     GatewayPairing { header, requires_gateway }
+/// }
+/// ```
+///
+/// ```
+/// use sutura_config::{GatewayPairing, ProofHeader};
+/// use sutura_domain::identity::VerifierId;
+///
+/// fn _constructed(header: ProofHeader, requires_gateway: VerifierId) -> GatewayPairing {
+///     GatewayPairing::new(header, requires_gateway)
+/// }
+/// ```
+///
+/// **What this does not do: enforce the check itself.** Holding a complete pairing says what a
+/// caller must also present; nothing about holding one makes anything verify it at request time.
+/// That runs only where a gate builder reads [`Self::requires_gateway`] and attaches the named
+/// target - `sutura_http::InboundGate::from_verifiers_with_outbound` does, for every declared
+/// verifier it is handed. A builder that sees only this one declaration cannot resolve the target
+/// at all, so it refuses to build (`sutura_http`'s `InboundNotUsable::PairedAlone`) rather than
+/// returning a gate that silently checks nothing beyond the caller's own token -
+/// `github.com/telekom/sutura#2104`.
+///
+/// **What this does not check: that the pairing is admissible.** A `GatewayPairing` can name a
+/// target id this type has no way to see - absent, not `behind-gateway`, not reading
+/// `Authorization`, or colliding with another verifier's own header. Those are checked only at
+/// **load time**, over every declared verifier at once: `crate::settings::admission::verifier_refusals`
+/// pushes a `NotFitToServe::RequiresGateway*` refusal for each, before a deployment built from
+/// settings this crate loaded can start.
+///
+/// A declaration assembled directly in Rust, rather than parsed from settings, is not bound by
+/// that load-time check - which is exactly why `sutura_http::InboundGate`'s own gate builders
+/// enforce a second, independent of it, at **build time**: that `requires_gateway` names a
+/// declared verifier at all (`InboundNotUsable::RequiresGatewayTargetMissing`); that the paired
+/// declaration still has a built gate, by issuer, to attach the target to
+/// (`InboundNotUsable::RequiresGatewaySlotMissing`); that no two of the declarations handed to
+/// `InboundGate::from_verifiers_with_outbound` - paired or not, standalone or themselves a nested
+/// target - share an issuer (`InboundNotUsable::DuplicateVerifierIssuer`); and that a builder
+/// seeing only one declaration refuses rather than silently building a pairing it cannot resolve
+/// (`InboundNotUsable::PairedAlone`). What the gate builders do **not** re-check is the target's
+/// mode, location or header: a collision there stays a load-time-only concern, decided once by
+/// the `NotFitToServe::RequiresGateway*` refusals above.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GatewayPairing {
+    header: ProofHeader,
+    requires_gateway: sutura_domain::identity::VerifierId,
+}
+
+impl GatewayPairing {
+    /// Pairs the header the caller's own token arrives in with the id of the `behind-gateway`
+    /// entry whose own assertion this pairing also requires.
+    #[inline]
+    #[must_use]
+    pub const fn new(header: ProofHeader, requires_gateway: sutura_domain::identity::VerifierId) -> Self {
+        Self {
+            header,
+            requires_gateway,
+        }
+    }
+
+    /// The header the caller's own token arrives in, instead of `Authorization`.
+    #[inline]
+    #[must_use]
+    pub const fn header(&self) -> &ProofHeader {
+        &self.header
+    }
+
+    /// The id of the `behind-gateway` entry whose own assertion must also be present, in
+    /// `Authorization`, on the same request. The one named exception to the rule that a request
+    /// presenting credentials in two configured locations is refused - see
+    /// `crate::settings::admission::verifier_refusals` for what makes the pairing admissible, and
+    /// `sutura_http::InboundGate` for how the second check never becomes the caller.
+    #[inline]
+    #[must_use]
+    pub const fn requires_gateway(&self) -> &sutura_domain::identity::VerifierId {
+        &self.requires_gateway
+    }
+}
+
 /// How the identity of a caller reaches this deployment. Printed at startup, per deployment.
 ///
 /// A closed enum with a required key, in the shape
 /// [`TlsTermination`](crate::security::TlsTermination) already uses here - and for the same reason
 /// `Environment` is a parsed enum rather than a string with a fallback: the value that decides a
 /// posture must not be satisfiable by silence.
+///
+/// **`Direct`'s own gateway pairing is one field, [`GatewayPairing`], and not the two independent
+/// `Option`s it replaced - `github.com/telekom/sutura#2096`.** Nothing here names a
+/// `token_header` or `requires_gateway` field on this variant any more, so the old construction
+/// does not compile against this type:
+///
+/// ```compile_fail,E0559
+/// use sutura_config::{
+///     AddressClaim, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, PinnedAlgorithms, ProofHeader,
+///     RequiredTokenType, ResourceIdentifier, SigningAlgorithm,
+/// };
+///
+/// // `Direct` has no `token_header` or `requires_gateway` field - #2096 replaced both with `pairing`.
+/// fn _half_paired(header: ProofHeader) -> InboundIdentity {
+///     InboundIdentity::Direct {
+///         resource: ResourceIdentifier::parse("https://example.com/mcp").expect("a doctest resource is a resource"),
+///         authorization_server: IssuerUrl::parse("https://issuer.example.com").expect("a doctest issuer is an issuer"),
+///         key_set: KeySetLocation::File(KeySetFile::parse("/keys.json").expect("a doctest path is a path")),
+///         algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
+///         token_type: RequiredTokenType::access_token(),
+///         address_claim: AddressClaim::VerifiedEmail,
+///         token_header: Some(header),
+///         requires_gateway: None,
+///     }
+/// }
+/// ```
+///
+/// And the twin, so a rename cannot make that block pass vacuously - the complete pairing arrives
+/// as one [`GatewayPairing`], built by [`GatewayPairing::new`]:
+///
+/// ```
+/// use sutura_config::{
+///     AddressClaim, GatewayPairing, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, PinnedAlgorithms,
+///     ProofHeader, RequiredTokenType, ResourceIdentifier, SigningAlgorithm,
+/// };
+/// use sutura_domain::identity::VerifierId;
+///
+/// fn _paired(header: ProofHeader, target: VerifierId) -> InboundIdentity {
+///     InboundIdentity::Direct {
+///         resource: ResourceIdentifier::parse("https://example.com/mcp").expect("a doctest resource is a resource"),
+///         authorization_server: IssuerUrl::parse("https://issuer.example.com").expect("a doctest issuer is an issuer"),
+///         key_set: KeySetLocation::File(KeySetFile::parse("/keys.json").expect("a doctest path is a path")),
+///         algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
+///         token_type: RequiredTokenType::access_token(),
+///         address_claim: AddressClaim::VerifiedEmail,
+///         pairing: Some(GatewayPairing::new(header, target)),
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InboundIdentity {
     /// This deployment is the resource server. It validates the caller's token itself: signature,
@@ -347,15 +501,10 @@ pub enum InboundIdentity {
         token_type: RequiredTokenType,
         /// Which claim names the caller's address. See [`AddressClaim`].
         address_claim: AddressClaim,
-        /// The header the caller's own token arrives in, instead of `Authorization`. Present only
-        /// paired with `requires_gateway` - `github.com/telekom/sutura#2089`.
-        token_header: Option<ProofHeader>,
-        /// The id of a `behind-gateway` entry whose own assertion must also be present, in
-        /// `Authorization`, on the same request. The one named exception to the rule that a request
-        /// presenting credentials in two configured locations is refused - see
-        /// `crate::settings::admission::verifier_refusals` for what makes the pairing admissible, and
-        /// `sutura_http::InboundGate` for how the second check never becomes the caller.
-        requires_gateway: Option<sutura_domain::identity::VerifierId>,
+        /// The paired gateway requirement, where this verifier's own token header is paired with a
+        /// `behind-gateway` entry - `github.com/telekom/sutura#2089`. See [`GatewayPairing`] for why
+        /// a half-written pairing is unrepresentable rather than merely refused.
+        pairing: Option<GatewayPairing>,
     },
     /// A fronting component authenticated the caller. This deployment validates a **signed identity
     /// assertion** the component issued, and derives the subject from that assertion's own claims
@@ -602,16 +751,15 @@ impl InboundIdentity {
                 ref algorithms,
                 ref token_type,
                 ref address_claim,
-                ref token_header,
-                ..
+                ref pairing,
             } => TokenRequirement {
                 // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it -
-                // unless `token_header` names a different one, paired with `requires_gateway`. That is
-                // what makes `security.access_token` and the default and this mode a collision on one
-                // header, refused at startup - see `NotFitToServe::DeploymentTokenSharesTheHeader`.
+                // unless `pairing` names a different one. That is what makes `security.access_token`
+                // and the default and this mode a collision on one header, refused at startup - see
+                // `NotFitToServe::DeploymentTokenSharesTheHeader`.
                 max_token_bytes: resource.max_token_bytes(),
-                location: match *token_header {
-                    Some(ref header) => TokenLocation::Header { name: header },
+                location: match *pairing {
+                    Some(ref pairing) => TokenLocation::Header { name: &pairing.header },
                     None => TokenLocation::AuthorizationBearer,
                 },
                 mode: sutura_domain::identity::VerifierMode::Direct,

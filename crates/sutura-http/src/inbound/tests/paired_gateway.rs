@@ -221,6 +221,22 @@ async fn the_real_builder_admits_a_valid_pairing_but_refuses_the_gateway_token_p
     ));
 }
 
+/// The absent-assertion refusal `an_absent_gateway_assertion_refuses_the_whole_request` already
+/// proves against the test-seam gate, proven again here through the real builder: a valid caller
+/// token with no gateway assertion at all must fail the pairing `from_verifiers_with_outbound`
+/// itself attached, not just the one `with_required_gateway` hands a test.
+#[tokio::test]
+async fn the_real_builder_refuses_a_caller_token_missing_its_gateway_assertion() {
+    let fixture = real_paired_gate();
+    let gate = &fixture.gate;
+    let caller_token = signed_for(&fixture.caller_issuer, "a-user@example.com");
+    let headers = header_named(TOKEN_HEADER, &caller_token);
+    assert!(matches!(
+        gate.establish(&headers, Instant::now()).await,
+        Err(TokenRejected::GatewayAssertionRequired(_))
+    ));
+}
+
 /// Review item 1: a token the GATEWAY issuer signed, placed in the caller's own `x-user-token`
 /// header, beside a valid gateway assertion in `Authorization`. The caller slot is routed by the
 /// `staff` verifier's own issuer/audience, which the gateway issuer never satisfies, so this must

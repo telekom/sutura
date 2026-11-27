@@ -136,10 +136,10 @@ pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
 pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::governance::SpendBudget;
 pub use crate::inbound::{
-    AddressClaim, ClaimName, ClientId, ExtraScopeClaims, GrantedScopes, InboundIdentity, InboundVerifier, InvalidAlgorithms,
-    InvalidInboundValue, InvalidMcpPath, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, KeySetMaxStale, KeySetUrl, McpPath,
-    PinnedAlgorithms, ProofHeader, ProofLifetime, RequestPathPrefix, RequiredTokenType, ResourceIdentifier, SigningAlgorithm,
-    TokenAudience, TokenLocation, TokenRequirement, TokenType, TransitBinding, TransitProof,
+    AddressClaim, ClaimName, ClientId, ExtraScopeClaims, GatewayPairing, GrantedScopes, InboundIdentity, InboundVerifier,
+    InvalidAlgorithms, InvalidInboundValue, InvalidMcpPath, IssuerUrl, KeyFamily, KeySetFile, KeySetLocation, KeySetMaxStale,
+    KeySetUrl, McpPath, PinnedAlgorithms, ProofHeader, ProofLifetime, RequestPathPrefix, RequiredTokenType, ResourceIdentifier,
+    SigningAlgorithm, TokenAudience, TokenLocation, TokenRequirement, TokenType, TransitBinding, TransitProof,
 };
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 pub use crate::operator::{
