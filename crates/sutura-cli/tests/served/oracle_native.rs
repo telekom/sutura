@@ -204,25 +204,12 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             &[],
         )
         .join("\n");
-        // Every other production path reads the server's real ORA-01017 over the encrypted
-        // channel. This login attempt always uses `tier.legacy_user` (the legacy-verifier
-        // account), so on native encryption specifically the server sends its login-failure
-        // error unprotected - before this exchange's protection is in force for it - so the
-        // driver cannot decrypt it, and `transport.rs`'s `extract_packet` reports it as the
-        // shape an unauthenticated login's own refusal takes, never as decrypted, trusted data.
-        // **Limit:** this is observed only for the legacy account on native encryption in CI;
-        // every other path (the modern account, or TCPS) still surfaces the real ORA-01017.
-        if tier.channel.starts_with("transport_mode: native-encryption") {
-            assert!(
-                refused.contains("a DATA packet during login did not authenticate"),
-                "the {path} must name the unreadable login refusal, not a generic transport message: {refused}"
-            );
-        } else {
-            assert!(
-                refused.contains("ORA-01017"),
-                "the {path} must refuse the wrong password: {refused}"
-            );
-        }
+        // On native encryption the server reports this failure after a break/reset, so reading
+        // its real ORA-01017 here proves the MAC ratchet across that reset matches the server's.
+        assert!(
+            refused.contains("ORA-01017"),
+            "the {path} must refuse the wrong password with the server's own error: {refused}"
+        );
     }
 }
 
