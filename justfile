@@ -618,6 +618,12 @@ fuzz seconds="300" target="":
 fuzz-smoke:
     bash nix/run-fuzz.sh smoke
 
+# Compile the fuzz targets only - no fuzzing, no cache writes. Named apart from `cargo xtask
+# check-fuzz` (wiring only, compiles nothing). `ci.yml`'s `fuzz-compile` job (#2095) runs this
+# same app; `nix/fuzz-compile.nix` carries why it is separate from `fuzz` above.
+fuzz-compile:
+    nix run .#fuzz-compile
+
 # ------------------------------------------------------------------ tooling ---
 
 # Scan the whole worktree for secrets. The hook already covers each commit.

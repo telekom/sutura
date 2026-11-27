@@ -230,6 +230,7 @@
         # rest, including why the seam is here rather than at the checks.
         apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain; };
         fuzzRunner = import ./nix/fuzz.nix { inherit pkgs toolchain; };
+        fuzzCompileRunner = import ./nix/fuzz-compile.nix { inherit pkgs toolchain; };
 
         # The one crane lib, over the one pinned nightly toolchain: the native build, the cross
         # builds, every gate and every shipped artifact all run the same compiler.
@@ -1989,6 +1990,15 @@
         apps.fuzz = {
           type = "app";
           program = "${fuzzRunner}/bin/sutura-fuzz";
+        };
+
+        # `just fuzz-compile` and `ci.yml`'s `fuzz-compile` job: compile the fuzz targets, no
+        # fuzzing, no cache writes. Named apart from `cargo xtask check-fuzz` (the unrelated
+        # hygiene-sweep gate that verifies the manifest's wiring and compiles nothing).
+        # `nix/fuzz-compile.nix` carries why this is a separate app from `apps.fuzz`.
+        apps.fuzz-compile = {
+          type = "app";
+          program = "${fuzzCompileRunner}/bin/sutura-fuzz-compile";
         };
 
         # The Pulumi CLI, nix-pinned. CI adds `nix build .#pulumi`'s bin to PATH so the test-infra

@@ -77,6 +77,8 @@ pub(super) fn run_aggregator(envs: &[(&str, &str)]) -> (bool, String) {
         ("PGD_REQUIRED", "false"),
         ("SHIP_RESULT", "skipped"),
         ("SHIP_REQUIRED", "false"),
+        ("FUZZ_RESULT", "skipped"),
+        ("FUZZ_REQUIRED", "false"),
     ];
     let script = shell(
         "ci.yml",
