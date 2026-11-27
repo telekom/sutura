@@ -20,7 +20,7 @@ webui_port="${SUTURA_DEMO_WEBUI_PORT:-8080}"
 run_dir="${SUTURA_DEMO_RUN_DIR:-/run/sutura-demo}"
 
 endpoint="${SUTURA_DEMO_MODEL_ENDPOINT:?SUTURA_DEMO_MODEL_ENDPOINT is required}"
-model="${SUTURA_DEMO_MODEL:?SUTURA_DEMO_MODEL is required}"
+: "${SUTURA_DEMO_MODEL:?SUTURA_DEMO_MODEL is required}"
 acknowledged="${SUTURA_DEMO_ACKNOWLEDGE:?SUTURA_DEMO_ACKNOWLEDGE is required}"
 api_key="${SUTURA_DEMO_MODEL_API_KEY:-}"
 case "$acknowledged" in
