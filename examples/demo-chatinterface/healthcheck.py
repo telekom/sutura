@@ -116,12 +116,16 @@ def webui_tools_are_registered(port: int, tool_id: str = "sutura") -> None:
     """
     token = webui_session_token(port)
     try:
-        body = json.loads(fetch(f"http://127.0.0.1:{port}/api/v1/configs/tool_servers", token))
+        body = json.loads(
+            fetch(f"http://127.0.0.1:{port}/api/v1/configs/tool_servers", token)
+        )
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as problem:
         fail(
             f"the chat client's tool registry did not answer: {type(problem).__name__}"
         )
-    connections = body.get("TOOL_SERVER_CONNECTIONS", []) if isinstance(body, dict) else []
+    connections = (
+        body.get("TOOL_SERVER_CONNECTIONS", []) if isinstance(body, dict) else []
+    )
     ids = {
         (conn.get("info") or {}).get("id")
         for conn in connections
@@ -264,7 +268,7 @@ def main() -> None:
         latch = os.path.join(run_dir, "external-readiness-ok")
         if not os.path.exists(latch):
             model_endpoint_is_reachable()
-            webui_tools_are_registered(webui_port, "server:mcp:sutura")
+            webui_tools_are_registered(webui_port)
             mcp_lists_tools_for_the_token(sutura_port, token)
             with open(latch, "a", encoding="ascii") as marker:
                 marker.write("ok\n")
