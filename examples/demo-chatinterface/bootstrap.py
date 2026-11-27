@@ -134,7 +134,7 @@ def _get_token() -> str | None:
         if token:
             _log("admin account created")
             return token
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001, S110
         pass
 
     try:
