@@ -49,7 +49,10 @@ pub(super) fn number_and_zone_types(fixture: &Fixture) {
             .execute(&format!("GRANT SELECT ON {table} TO {}", fixture.reader), &[])
             .unwrap();
     }
+    // TYPE_KEYS, created by the CTAS right above, is read later by the federated join below in
+    // the same dictionary read-only snapshot as TYPE_EVENTS - probe both, not just the first.
     readable_snapshot(fixture, "SELECT ID FROM TYPE_EVENTS WHERE ID = 0");
+    readable_snapshot(fixture, "SELECT ID FROM TYPE_KEYS WHERE ID = 0");
     let absent = fixture.settings("").replace("table: EVENTS", "table: TYPE_EVENTS");
     let log = refused_to_start(Environment::Development, written("oracle-number-policy-absent", &absent), &[]).join("\n");
     assert!(
