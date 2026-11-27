@@ -3073,7 +3073,7 @@ authenticates the deployment, and every question runs with the access of the dep
 <td><code>transit_request_path_prefix</code></td>
 <td>string</td>
 <td>see below</td>
-<td>The alternative to <code>transit_audience</code>: the <code>requestPath</code> of the assertion must start with this</td>
+<td>The alternative to <code>transit_audience</code>: the <code>requestPath</code> of the assertion must start with this or equal it without the trailing <code>/</code></td>
 </tr>
 <tr>
 <td><code>transit_audience_absent_because</code></td>
@@ -3170,8 +3170,8 @@ start with both or with neither. A gateway that signs no <code>aud</code> claim 
 assertion to the provider through a <code>requestPath</code> claim uses <code>transit_request_path_prefix</code> (a
 path that starts and ends with exactly one <code>/</code>) and must also give
 <code>transit_audience_absent_because</code>, the written reason <code>transit_audience</code> is absent. sutura then
-refuses an assertion whose <code>requestPath</code> is missing or does not start with the configured prefix,
-and refuses one that carries an <code>aud</code> claim at all - this mode never compares one, so admitting it
+refuses an assertion whose <code>requestPath</code> is missing, or neither starts with the configured
+prefix nor equals it without its trailing <code>/</code> (the bare base path), and refuses one that carries an <code>aud</code> claim at all - this mode never compares one, so admitting it
 would be an unchecked second binding.</p>
 <p>This binding is only as strong as the gateway's own path routing: sutura never sees the request the
 caller made to the gateway, only the <code>requestPath</code> the gateway wrote into the assertion. Every

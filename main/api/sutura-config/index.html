@@ -2914,12 +2914,12 @@ short-lived, and a proof claiming more is refused.</p>
 zero would refuse every proof - a way of turning the mode off that reads like a tuning value.</p>
 <h2 id="use-requestpathprefix"><code>use RequestPathPrefix</code><a class="headerlink" href="#use-requestpathprefix" title="Permanent link">&para;</a></h2>
 <p>An absolute path, stored with a leading and a trailing <code>/</code>, that a <code>requestPath</code> claim must start
-with.</p>
+with or equal without that trailing <code>/</code>.</p>
 <p><strong>Why the trailing <code>/</code> is part of the type and not a comparison detail.</strong> Without it, the prefix
 <code>/hub/app/v1</code> would also match <code>/hub/app/v1evil/mcp</code> - a sibling route the gateway dispatches to a
-different provider, whose name merely extends ours as a string. Requiring the trailing slash on
-the <em>stored</em> value means <code>Self::matches</code> is a plain <code>str::starts_with</code> and the boundary is
-never a detail a caller of this type could get wrong.</p>
+different provider, whose name merely extends ours as a string. With the slash stored,
+<code>Self::matches</code> is a <code>starts_with</code> on it plus one exact comparison for the bare path, and the
+boundary is never a detail a caller of this type could get wrong.</p>
 <h2 id="use-requiredtokentype"><code>use RequiredTokenType</code><a class="headerlink" href="#use-requiredtokentype" title="Permanent link">&para;</a></h2>
 <p>Which class of token this deployment will accept, out of the <code>typ</code> header.</p>
 <p><strong>Two variants because the check has to be switchable and must not be switchable by silence.</strong> The
@@ -4859,7 +4859,7 @@ written acknowledgement that this deployment chose it deliberately rather than b
 <h4 id="variants_16">Variants<a class="headerlink" href="#variants_16" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Audience</code> - <code>aud</code> must equal this, byte for byte.</li>
-<li><code>RequestPath</code> - No <code>aud</code> claim exists to check: <code>requestPath</code> must start with <code>prefix</code> instead.</li>
+<li><code>RequestPath</code> - No <code>aud</code> claim exists to check: <code>requestPath</code> must lie under <code>prefix</code> instead (see <code>RequestPathPrefix::matches</code>).</li>
 </ul>
 <h4 id="implements_37">Implements<a class="headerlink" href="#implements_37" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
@@ -5006,7 +5006,7 @@ of these against - see that variant's documentation.</p>
 is built with. Carried from the <code>InboundIdentity</code> variant, never inferred from <code>location</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-170-1"><a id="__codelineno-170-1" name="__codelineno-170-1" href="#__codelineno-170-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">request_path_prefix</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="na">inbound</span><span class="w"> </span><span class="n">RequestPathPrefix</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The prefix a <code>requestPath</code> claim must start with - <code>Some</code> only where <code>Self::audience</code> is
+<p>The prefix a <code>requestPath</code> claim must lie under - <code>Some</code> only where <code>Self::audience</code> is
 <code>None</code>, because <code>TransitBinding::RequestPath</code> is the only configuration with no <code>aud</code> to
 check and this is what binds the assertion to this provider instead.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-171-1"><a id="__codelineno-171-1" name="__codelineno-171-1" href="#__codelineno-171-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">resource</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="na">inbound</span><span class="w"> </span><span class="n">ResourceIdentifier</span><span class="o">&gt;</span>
@@ -5130,12 +5130,12 @@ using the issuer's <em>public</em> key as the HMAC secret verifies, if the valid
 symmetric algorithm. There is no variant here that could.</p>
 <h3 id="use-requestpathprefix_1"><code>use RequestPathPrefix</code><a class="headerlink" href="#use-requestpathprefix_1" title="Permanent link">&para;</a></h3>
 <p>An absolute path, stored with a leading and a trailing <code>/</code>, that a <code>requestPath</code> claim must start
-with.</p>
+with or equal without that trailing <code>/</code>.</p>
 <p><strong>Why the trailing <code>/</code> is part of the type and not a comparison detail.</strong> Without it, the prefix
 <code>/hub/app/v1</code> would also match <code>/hub/app/v1evil/mcp</code> - a sibling route the gateway dispatches to a
-different provider, whose name merely extends ours as a string. Requiring the trailing slash on
-the <em>stored</em> value means <code>Self::matches</code> is a plain <code>str::starts_with</code> and the boundary is
-never a detail a caller of this type could get wrong.</p>
+different provider, whose name merely extends ours as a string. With the slash stored,
+<code>Self::matches</code> is a <code>starts_with</code> on it plus one exact comparison for the bare path, and the
+boundary is never a detail a caller of this type could get wrong.</p>
 <h3 id="use-extrascopeclaims_1"><code>use ExtraScopeClaims</code><a class="headerlink" href="#use-extrascopeclaims_1" title="Permanent link">&para;</a></h3>
 <p>Which claims beside <code>scope</code> grant scopes in <code>direct</code>: Entra's <code>scp</code> for a delegated token and
 <code>roles</code> for an app-only one. A closed set, and empty unless the deployment names it.</p>

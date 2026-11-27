@@ -2799,9 +2799,10 @@ alone. Two settings decide whether the verified subject is true, and only the op
    of the gateway.</li>
 </ol>
 <p>Some gateways sign an assertion with no <code>aud</code> claim at all, and instead bind it to the provider through a <code>requestPath</code>
-claim that must start with the provider's own route prefix. For that gateway, set <code>transit_request_path_prefix</code> instead
+claim that must lie under the provider's own route prefix. For that gateway, set <code>transit_request_path_prefix</code> instead
 of <code>transit_audience</code>, and <code>transit_audience_absent_because</code> with the reason <code>transit_audience</code> is absent. sutura then
-refuses an assertion whose <code>requestPath</code> is missing or does not start with the configured prefix. The two settings are
+refuses an assertion whose <code>requestPath</code> is missing, or neither starts with the configured prefix nor is the prefix
+without its trailing <code>/</code> (the provider's bare base path, which a gateway's catalog hands to clients). The two settings are
 mutually exclusive: giving both, or neither with <code>security.inbound.mode: behind-gateway</code>, refuses the configuration at
 startup. sutura refuses an assertion that carries an <code>aud</code> claim at all in this mode, rather than ignore one it never
 compares.</p>
@@ -2810,7 +2811,8 @@ check never sees the request the caller made to the gateway, only what the gatew
 forwarding it. The gateway itself - not any provider - signs the assertion for whichever provider it dispatches to,
 and sutura trusts whatever <code>requestPath</code> the gateway wrote: there is no cryptographic separation between sibling
 providers behind one issuer, only the gateway's own path-dispatch logic deciding which assertion each provider
-receives. Rule 1 above still applies in full. Also,
+receives. Admitting the bare base path assumes the gateway routes that exact path to this provider, as it does the
+paths under it. Rule 1 above still applies in full. Also,
 <code>transit_audience</code> is what <a href="../integrations/identity/#settings-for-behind-gateway">the host allowlist</a> derives a host
 entry from; <code>transit_request_path_prefix</code> contributes none, so set <code>server.allowed_hosts</code> explicitly when using it.</p>
 <h2 id="who-the-caller-is">Who the caller is<a class="headerlink" href="#who-the-caller-is" title="Permanent link">&para;</a></h2>
