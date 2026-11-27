@@ -44,7 +44,9 @@ class Filter:
         body["tool_ids"] = tool_ids
         return body
 
-    def outlet(self, body: dict[str, Any], __user: dict | None = None) -> dict[str, Any]:
+    def outlet(
+        self, body: dict[str, Any], __user: dict | None = None
+    ) -> dict[str, Any]:
         """Collapse verify-sql blocks into <details> so they fold by default."""
         messages: list[dict[str, Any]] = body.get("messages") or []
         for message in messages:
