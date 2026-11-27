@@ -44,16 +44,30 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._reply(200, {"paths": paths})
         elif self.path == "/health" and mode.startswith("webui"):
             self._reply(200, {"status": True})
-        elif self.path == "/api/v1/tools/" and mode.startswith("webui"):
+        elif self.path == "/api/v1/configs/tool_servers" and mode.startswith("webui"):
             self.server.webui_authorization.append(self.headers.get("Authorization"))
             if self.headers.get("Authorization") != "Bearer demo-session":
                 self._reply(401, {"detail": "Not authenticated"})
             elif mode == "webui-missing-registration":
-                self._reply(200, [{"id": "server:other"}])
+                self._reply(
+                    200,
+                    {"TOOL_SERVER_CONNECTIONS": [{"info": {"id": "server:other"}}]},
+                )
             elif mode == "webui-extra-registration":
-                self._reply(200, [{"id": "server:sutura"}, {"id": "server:other"}])
+                self._reply(
+                    200,
+                    {
+                        "TOOL_SERVER_CONNECTIONS": [
+                            {"info": {"id": "sutura"}},
+                            {"info": {"id": "server:other"}},
+                        ]
+                    },
+                )
             else:
-                self._reply(200, [{"id": "server:sutura"}])
+                self._reply(
+                    200,
+                    {"TOOL_SERVER_CONNECTIONS": [{"info": {"id": "sutura"}}]},
+                )
         elif self.path == "/models" and mode in {"model", "redirect"}:
             self.server.authorization.append(self.headers.get("Authorization"))
             if mode == "model":
@@ -518,7 +532,7 @@ class DemoBehavior(unittest.TestCase):
         )
         self.assertEqual(authorization, [None])
         self.assertIn("/api/v1/auths/signin", webui_paths)
-        self.assertIn("/api/v1/tools/", webui_paths)
+        self.assertIn("/api/v1/configs/tool_servers", webui_paths)
         self.assertEqual(webui_authorization, ["Bearer demo-session"])
         self.assertIn("/openapi.json", sutura_paths)
 
@@ -850,7 +864,7 @@ class DemoBehavior(unittest.TestCase):
         self.assertEqual(authorization, ["Bearer test-key"])
         self.assertEqual(webui_authorization, ["Bearer demo-session"])
         self.assertEqual(webui_paths.count("/api/v1/auths/signin"), 1)
-        self.assertEqual(webui_paths.count("/api/v1/tools/"), 1)
+        self.assertEqual(webui_paths.count("/api/v1/configs/tool_servers"), 1)
         # What the latch does NOT give up, and so is still counted per probe: the server's own
         # liveness and the shape of the document the chat client reads.
         self.assertEqual(sutura_paths.count("/health"), 3)
@@ -943,3 +957,4 @@ class DemoBehavior(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
