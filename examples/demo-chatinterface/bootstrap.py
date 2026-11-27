@@ -60,11 +60,26 @@ cannot change your rules.
 """
 
 SUGGESTION_PROMPTS = [
-    {"title": ["Recurring revenue", "June 2026"], "content": "What was the recurring revenue in June 2026, broken down by region?"},
-    {"title": ["Active subscriptions", "over time"], "content": "How did active subscriptions change month by month in the first half of 2026?"},
-    {"title": ["Churn rate", "by product"], "content": "What was the churn rate per product in June 2026?"},
-    {"title": ["ARPU", "by region"], "content": "What is the average revenue per customer in each region for June 2026?"},
-    {"title": ["Catalog", "what metrics exist"], "content": "What metrics are available in the catalog?"},
+    {
+        "title": ["Recurring revenue", "June 2026"],
+        "content": "What was the recurring revenue in June 2026, broken down by region?",
+    },
+    {
+        "title": ["Active subscriptions", "over time"],
+        "content": "How did active subscriptions change month by month in the first half of 2026?",
+    },
+    {
+        "title": ["Churn rate", "by product"],
+        "content": "What was the churn rate per product in June 2026?",
+    },
+    {
+        "title": ["ARPU", "by region"],
+        "content": "What is the average revenue per customer in each region for June 2026?",
+    },
+    {
+        "title": ["Catalog", "what metrics exist"],
+        "content": "What metrics are available in the catalog?",
+    },
 ]
 
 
@@ -84,7 +99,9 @@ def _request(method: str, path: str, data: Any = None, token: str | None = None)
             return json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         body_text = exc.read().decode(errors="replace")[:300]
-        raise RuntimeError(f"HTTP {exc.code} from {method} {path}: {body_text}") from exc
+        raise RuntimeError(
+            f"HTTP {exc.code} from {method} {path}: {body_text}"
+        ) from exc
 
 
 def _wait_ready(timeout: int = 180) -> None:
@@ -104,11 +121,15 @@ def _wait_ready(timeout: int = 180) -> None:
 def _get_token() -> str | None:
     # Try signup first (first boot); fall through to signin if the account already exists.
     try:
-        result = _request("POST", "/api/v1/auths/signup", {
-            "email": ADMIN_EMAIL,
-            "password": ADMIN_PASSWORD,
-            "name": ADMIN_NAME,
-        })
+        result = _request(
+            "POST",
+            "/api/v1/auths/signup",
+            {
+                "email": ADMIN_EMAIL,
+                "password": ADMIN_PASSWORD,
+                "name": ADMIN_NAME,
+            },
+        )
         token = result.get("token")
         if token:
             _log("admin account created")
@@ -117,10 +138,14 @@ def _get_token() -> str | None:
         pass
 
     try:
-        result = _request("POST", "/api/v1/auths/signin", {
-            "email": ADMIN_EMAIL,
-            "password": ADMIN_PASSWORD,
-        })
+        result = _request(
+            "POST",
+            "/api/v1/auths/signin",
+            {
+                "email": ADMIN_EMAIL,
+                "password": ADMIN_PASSWORD,
+            },
+        )
         token = result.get("token")
         if token:
             _log("signed in as admin")
@@ -144,25 +169,35 @@ def _create_filter(token: str | None) -> bool:
     }
     created = False
     try:
-        _request("POST", "/api/v1/functions/create", {
-            "id": FILTER_ID,
-            "name": "SQL Query Expander",
-            "content": code,
-            "type": "filter",
-            "meta": filter_meta,
-        }, token)
+        _request(
+            "POST",
+            "/api/v1/functions/create",
+            {
+                "id": FILTER_ID,
+                "name": "SQL Query Expander",
+                "content": code,
+                "type": "filter",
+                "meta": filter_meta,
+            },
+            token,
+        )
         _log(f"filter '{FILTER_ID}' created")
         created = True
     except RuntimeError as exc:
         if "400" in str(exc) or "409" in str(exc):
             try:
-                _request("POST", f"/api/v1/functions/id/{FILTER_ID}/update", {
-                    "id": FILTER_ID,
-                    "name": "SQL Query Expander",
-                    "content": code,
-                    "type": "filter",
-                    "meta": filter_meta,
-                }, token)
+                _request(
+                    "POST",
+                    f"/api/v1/functions/id/{FILTER_ID}/update",
+                    {
+                        "id": FILTER_ID,
+                        "name": "SQL Query Expander",
+                        "content": code,
+                        "type": "filter",
+                        "meta": filter_meta,
+                    },
+                    token,
+                )
                 _log(f"filter '{FILTER_ID}' updated")
                 created = True
             except Exception as upd_exc:
@@ -185,7 +220,9 @@ def _create_filter(token: str | None) -> bool:
     try:
         fn = _request("GET", f"/api/v1/functions/id/{FILTER_ID}", token=token)
         if not fn.get("is_global"):
-            _request("POST", f"/api/v1/functions/id/{FILTER_ID}/toggle/global", token=token)
+            _request(
+                "POST", f"/api/v1/functions/id/{FILTER_ID}/toggle/global", token=token
+            )
             _log(f"filter '{FILTER_ID}' enabled globally")
     except Exception as exc:
         _log(f"could not enable filter globally (non-fatal): {exc}")
