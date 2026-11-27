@@ -59,10 +59,10 @@ def fetch(url: str, token: str | None = None, timeout: float = 4.0) -> bytes:
 
 
 def webui_session_token(port: int) -> str:
-    """Sign in through the pinned no-auth flow before reading the protected registry."""
+    """Sign in as the demo admin that bootstrap.py creates."""
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/api/v1/auths/signin",
-        data=json.dumps({"email": "", "password": ""}).encode(),
+        data=json.dumps({"email": "demo@demo.local", "password": "demo"}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -107,20 +107,27 @@ def model_endpoint_is_reachable() -> None:
         )
 
 
-def webui_tools_are_registered(port: int, tool_id: str = "server:sutura") -> None:
-    """Require Open WebUI's persisted tool registry to expose the sutura server."""
+def webui_tools_are_registered(port: int, tool_id: str = "sutura") -> None:
+    """Require Open WebUI's tool-server registry to expose the sutura server.
+
+    Open WebUI ≥ 0.13 exposes external OpenAPI/MCP connections at
+    /api/v1/configs/tool_servers (not /api/v1/tools/, which lists Python plugins).
+    The connection's info.id is what we match against.
+    """
     token = webui_session_token(port)
     try:
-        tools = json.loads(fetch(f"http://127.0.0.1:{port}/api/v1/tools/", token))
+        body = json.loads(fetch(f"http://127.0.0.1:{port}/api/v1/configs/tool_servers", token))
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as problem:
         fail(
             f"the chat client's tool registry did not answer: {type(problem).__name__}"
         )
-    if not any(
-        tool.get("id") == tool_id or tool.get("name") == tool_id
-        for tool in tools
-        if isinstance(tool, dict)
-    ):
+    connections = body.get("TOOL_SERVER_CONNECTIONS", []) if isinstance(body, dict) else []
+    ids = {
+        (conn.get("info") or {}).get("id")
+        for conn in connections
+        if isinstance(conn, dict)
+    }
+    if tool_id not in ids:
         fail(f"the chat client's tool registry does not list {tool_id}")
 
 
@@ -312,3 +319,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
