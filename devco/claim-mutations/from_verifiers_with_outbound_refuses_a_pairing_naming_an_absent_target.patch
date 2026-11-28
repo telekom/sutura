@@ -1,0 +1,21 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 7669f835f..b55969236 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -409,13 +409,9 @@ impl InboundGate {
+             let target_gate = if let Some(shared) = built_targets.get(target_id) {
+                 Arc::clone(shared)
+             } else {
+-                let target_declaration = declarations
+-                    .iter()
+-                    .find(|candidate| candidate.id() == target_id)
+-                    .ok_or_else(|| InboundNotUsable::RequiresGatewayTargetMissing {
+-                        verifier: declaration.id().clone(),
+-                        target: target_id.clone(),
+-                    })?;
++                let Some(target_declaration) = declarations.iter().find(|candidate| candidate.id() == target_id) else {
++                    continue;
++                };
+                 let newly_built = Arc::new(build(target_declaration)?);
+                 built_targets.insert(target_id, Arc::clone(&newly_built));
+                 newly_built

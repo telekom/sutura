@@ -150,7 +150,8 @@ pub enum RouterNotBuilt {
     #[error(
         "security.inbound.mode is `{mode}` and no inbound identity gate was attached to the service \
          state, so nothing would verify a caller's token. The composition root builds one with \
-         `InboundGate::from_declaration` and attaches it with `ServiceState::with_inbound_identity`"
+         `InboundGate::from_verifiers_with_outbound` and attaches it with \
+         `ServiceState::with_inbound_identity`"
     )]
     InboundIdentityNotAttached { mode: &'static str },
     /// A route under the version prefix that `crate::capability::governed` names no capability for.

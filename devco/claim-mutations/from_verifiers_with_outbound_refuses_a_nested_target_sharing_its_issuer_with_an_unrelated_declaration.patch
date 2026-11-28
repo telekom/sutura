@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 7669f835f..4f261ede5 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -368,7 +368,7 @@ impl InboundGate {
+         // an unrelated standalone declaration and have its own pairing silently misattached to that
+         // declaration's slot instead of refusing. See [`InboundNotUsable::DuplicateVerifierIssuer`].
+         let mut by_issuer: BTreeMap<&str, &sutura_domain::identity::VerifierId> = BTreeMap::new();
+-        for declaration in declarations {
++        for declaration in declarations.iter().filter(|declaration| !required_targets.contains(declaration.id())) {
+             let issuer = declaration.issuer().as_str();
+             if let Some(earlier) = by_issuer.insert(issuer, declaration.id()) {
+                 return Err(InboundNotUsable::DuplicateVerifierIssuer {
