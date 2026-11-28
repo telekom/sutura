@@ -1,4 +1,19 @@
 ''
+def watch_records(raw, stopped=False):
+    decoder, records = json.JSONDecoder(), []
+    while raw.strip():
+        try:
+            record, end = decoder.raw_decode(raw.lstrip())
+        except json.JSONDecodeError:
+            # kubectl writes one compact record per line; the kill that stopped the watch can
+            # cut only the last one short. A malformed record before it still fails.
+            if stopped and "\n" not in raw.strip():
+                break
+            raise
+        records.append(record)
+        raw = raw.lstrip()[end:]
+    return records
+
 with subtest("a real busy UID survives one controlled idle-first removal"):
     pool(min=2, max=2, warm=0, idleAfterSeconds=0)
     settled(2)
@@ -65,9 +80,10 @@ with subtest("a real busy UID survives one controlled idle-first removal"):
                 return False
             return any(r["type"] == "DELETED" and r["object"]["metadata"]["uid"] == idle["metadata"]["uid"] for r in records)
         eventually(deletion_seen, 30)
-        machine.succeed('kill "$(cat /tmp/deletions.pid)"')
+        machine.succeed('pid="$(cat /tmp/deletions.pid)"; kill "$pid"; '
+                        'for _ in $(seq 100); do kill -0 "$pid" 2>/dev/null || exit 0; sleep 0.1; done; exit 1')
         watching = False
-        records = watch_records(machine.succeed("cat /tmp/deletions.json"))
+        records = watch_records(machine.succeed("cat /tmp/deletions.json"), stopped=True)
         costs = {p["metadata"]["uid"]: [] for p in [busy, idle]}
         for record in records:
             pod = record["object"]
