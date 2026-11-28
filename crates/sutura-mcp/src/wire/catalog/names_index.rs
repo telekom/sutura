@@ -286,6 +286,7 @@ pub(super) fn physical_schema_candidates(
         ModelContent {
             name: String::from(model.name().as_str()),
             table: model.table().to_string(),
+            source: String::from(model.source().as_str()),
             relationships: relationships.remove(model.name()).unwrap_or_default(),
             description: Carried::under(prose, model.description()),
             columns: model

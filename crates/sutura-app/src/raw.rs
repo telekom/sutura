@@ -276,7 +276,14 @@ where
             || Ok(refusal(RawRefusalReason::StatementFailed)),
             |source| pass_through(&mut legs, statement, source),
         ),
-        Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
+        // A reference resolved only by naming its source explicitly: `statement` is not
+        // admission-checked text at a single source, so it never reaches `pass_through` even
+        // where an unprefixed `NotPlanned` with nothing yet run would (unlike that case, this
+        // never falls through) - and an unprefixed `NotPlanned` that already ran a leg has no
+        // single-source retry left to take either.
+        Some(Err(StatementStopped::SourcePrefixRefused | StatementStopped::NotPlanned)) => {
+            Ok(refusal(RawRefusalReason::StatementFailed))
+        }
         Some(Err(StatementStopped::AnswerTooLarge)) => Ok(refusal(RawRefusalReason::ResultTooLarge)),
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
@@ -827,3 +834,17 @@ mod cube_policy_search;
 #[cfg(test)]
 #[cfg(feature = "sql")]
 mod planned_refusals;
+
+/// A reference resolved only by naming its source explicitly must refuse rather than fall through
+/// to the single-source pass-through. Declared here rather than in `tests.rs`, so the base run,
+/// which restores this file, does not compile it - it names `StatementStopped::SourcePrefixRefused`,
+/// the variant this fix adds.
+#[cfg(test)]
+mod prefix_refusal;
+
+/// A source this caller's scope does not list stays unreachable even named explicitly, proved
+/// through the real resolver rather than a fixture. Declared here rather than in `tests.rs`, so
+/// the base run, which restores this file, does not compile it.
+#[cfg(test)]
+#[cfg(feature = "sql")]
+mod unlisted_source;

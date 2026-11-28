@@ -52,7 +52,7 @@ fn physical_models_are_listed_only_when_enabled_on_both_tool_halves() {
 
     let bundle = testing::bundle();
     let view = ScopedView::everything(&bundle);
-    let model_label = "model orders (table orders)";
+    let model_label = "model orders (table orders, source local)";
     let model_description = "Orders, one row per order.";
     let disabled = CatalogContent::of_with_physical_schema(&view, CatalogProse::Quoted, None, false, None, None, None);
     let disabled_json = serde_json::to_value(&disabled).expect("the catalog serializes");

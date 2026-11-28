@@ -211,6 +211,12 @@ pub enum StatementStopped<S> {
     /// The statement did not plan, was not a query, or a leg's rows did not fit its table. The
     /// engine's words name columns, so they reach the log and never this value.
     NotPlanned,
+    /// A reference named its source explicitly (`source.schema.table`) and the statement still did
+    /// not plan. The application answers this like [`Self::NotPlanned`] except for one thing it
+    /// must refuse: falling back to the caller's original text against a single source, because
+    /// that source-prefixed reference is not admission-checked text - sent verbatim, it would read
+    /// `source.X` at a source that has no notion of `source` being a sutura concept.
+    SourcePrefixRefused,
     /// The local part of the plan outgrew the working set.
     AnswerTooLarge,
     /// Planning or the local part of the plan ran past the request's deadline.
