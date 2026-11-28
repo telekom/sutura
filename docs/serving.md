@@ -277,7 +277,25 @@ Input uses DataFusion SQL, including `LIMIT` instead of `FETCH FIRST`. Double qu
 identifier. Unquoted physical table and column names fold to uppercase at an Oracle source and
 lowercase at other sources; SQL aliases follow the planner's lowercase folding unless quoted.
 Physical metadata is preserved, so an Oracle table or column declared with mixed or lowercase names
-needs its exact quoted name. A name that resolves to different sources is refused.
+needs its exact quoted name. A table is named by its physical path (`table`, `schema.table`) or
+that path prefixed with the listed source it lives at (`source.table`, `source.schema.table`); both
+readings are always tried, never one only once the other has failed, so an unprefixed name two
+listed sources both carry stays refused as `unknown_table` rather than picking one, and a name that
+resolves both ways at once - its own physical path, and some other table's source prefix - is
+refused the same way rather than given either reading. A name whose first segment spells a listed
+source that does not itself hold the rest of the path is not refused for that reason alone: it
+still resolves physically, wherever its full path matches a table's own, exactly as if that first
+segment were an ordinary schema or project name rather than a source id. The source
+segment compares to the source's own id unfolded by either source's dialect, so `crm.CRM.orders`
+reaches an Oracle source without quoting `crm`. A statement
+that resolved any reference only by naming its source refuses outright if it still fails to plan;
+it never falls back to running the caller's own text against a single listed source, because that
+text is not admission-checked and the source has no notion of a sutura source id. The source prefix
+is a FROM-clause reading only: a column reference whose own qualifier is longer than every
+in-scope table's path - repeating the source segment ahead of a table already named in `FROM`
+(`source.schema.table.column`), say - is refused as `unknown_column` rather than reaching the
+planner unresolved, where `DataFusion`'s own column resolution would otherwise skip the extra
+leading segment and silently bind it to the wrong table.
 
 An unresolved admitted table is `unknown_table`, and an unresolved admitted column is `unknown_column`.
 Hidden tables have the same detail as absent tables; excluded columns have the same detail as absent

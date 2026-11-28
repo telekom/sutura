@@ -31,6 +31,8 @@ pub(super) enum Inadmissible {
     Unadmitted,
     #[error("a source answered {answered} columns for a schema of {expected}")]
     WidthMismatch { answered: usize, expected: usize },
+    #[error("the final source text still carries sutura's internal collision marker")]
+    InternalNameLeaked,
 }
 
 pub(super) fn duplicate_names(schema: &Schema) -> bool {
@@ -119,7 +121,15 @@ where
 /// Read with the source's backslash escapes: a `BigQuery` or `ClickHouse` literal escapes its
 /// backslash and quote. Every other source reads a literal as `GenericDialect` does, whose grammar
 /// also takes what the planner writes there, such as an aggregate `FILTER` for Oracle.
+///
+/// Backstop: `sql` is refused outright if it still carries `\u{1}`, the separator
+/// [`super::resolve::registered_leaf`] mangles a collision's internal registration name with. No
+/// rewrite path should ever leave that character in a leg's final text - a source has no notion of
+/// it - but every gap in those rewrites still lands here before a source ever opens.
 fn checked(sql: &str, dialect: TypeDialect) -> Result<(), Inadmissible> {
+    if sql.contains('\u{1}') {
+        return Err(Inadmissible::InternalNameLeaked);
+    }
     let reader = match dialect {
         TypeDialect::BigQuery | TypeDialect::ClickHouse => super::literal::reader(dialect),
         TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::Oracle | TypeDialect::DataFusion => {

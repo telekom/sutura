@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
+--- a/crates/sutura-app/src/raw.rs
++++ b/crates/sutura-app/src/raw.rs
+@@ -327,7 +327,7 @@
+     scoped_for(pinned.get(), context)
+         .models()
+         .filter(|model| {
+-            listed.is_none_or(|listed| listed.contains(model.source())) && schemas.fell_back(model.name()).next().is_none()
++            schemas.fell_back(model.name()).next().is_none()
+         })
+         .filter_map(|model| {
+             let dialect = warehouses.get(model.source())?.type_dialect()?;

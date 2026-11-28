@@ -23,6 +23,9 @@ pub(super) enum Refused {
 
 type Resolved<T> = Result<T, Refused>;
 type Body = (Relation, Vec<Relation>);
+/// The statement's own admitted physical tables, plus whether any reference resolved only by
+/// naming its source explicitly - see [`statement`]'s own doc for what that flag then obliges.
+type ResolvedTables = Resolved<(BTreeSet<QualifiedTable>, bool)>;
 
 #[derive(Clone, Copy)]
 enum Fold {
@@ -58,7 +61,15 @@ struct Column {
 
 #[derive(Clone)]
 struct Relation {
+    /// The caller's own physical name for this relation - what a qualifier in the caller's text is
+    /// matched against, and nothing else.
     path: Vec<String>,
+    /// What [`super::session`] actually registered this relation's table under, when a column
+    /// qualifier or a wildcard this module rewrites into the AST must name it. Equal to `path`
+    /// except for a table collision-mangled under [`registered_leaf`] - rewriting a reference to
+    /// such a table by its physical name, as `path` alone would, resolves to nothing the planner
+    /// ever registered.
+    registered: Vec<String>,
     fold: Fold,
     columns: Vec<Column>,
     complete: bool,
@@ -82,7 +93,7 @@ impl Relation {
             .columns
             .iter()
             .map(|column| {
-                let mut path: Vec<_> = self.path.iter().cloned().map(quoted).collect();
+                let mut path: Vec<_> = self.registered.iter().cloned().map(quoted).collect();
                 path.push(quoted(column.name.clone()));
                 SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path))
             })
@@ -92,6 +103,7 @@ impl Relation {
     fn alias(mut self, alias: &mut TableAlias) -> Self {
         normalize(&mut alias.name);
         self.path = vec![alias.name.value.clone()];
+        self.registered = self.path.clone();
         self.fold = Fold::Lower;
         if !alias.columns.is_empty() {
             self.complete = true;
@@ -124,15 +136,31 @@ const fn unsupported() -> Refused {
 }
 
 /// Quoted paths and schemas remain exact; an unquoted Oracle component folds up, all others down.
-pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
+///
+/// A table's own physical path resolves first, exactly as before; only when nothing matches it does
+/// that same path prefixed with the sutura source it lives at (`source.schema.table` beside
+/// `schema.table`, `source.table` beside `table`) get tried - one caller-facing syntax, not a second
+/// one gated behind a flag, and never the reason an unprefixed path two sources share stops
+/// resolving on its own. The prefix only selects among `tables`, which is already the caller's
+/// listed and permitted set: a source segment naming anything else matches no candidate and falls
+/// through to the same [`Refused::UnknownTable`] as an unknown schema or table does, so nothing
+/// about which other sources exist leaks through it. The source segment compares case-preserved,
+/// never folded by the candidate's dialect - a sutura source name is not a column or table
+/// identifier at that source, so `crm.CRM.orders` reaches an Oracle source without quoting.
+///
+/// The returned flag is `true` once any reference in the statement resolved only through the prefix
+/// reading: the caller text that follows is no longer admission-checked on its own (a source name is
+/// not a thing the source itself knows), so a caller of this module must not treat a later failure
+/// the same as an ordinary one that never named a source.
+pub(super) fn statement(statement: &mut Statement, tables: &[StatementTable]) -> ResolvedTables {
     resolved(statement, tables, false)
 }
 
-pub(super) fn explicit_statement(statement: &mut Statement, tables: &[StatementTable]) -> Resolved<BTreeSet<QualifiedTable>> {
+pub(super) fn explicit_statement(statement: &mut Statement, tables: &[StatementTable]) -> ResolvedTables {
     resolved(statement, tables, true)
 }
 
-fn resolved(statement: &mut Statement, tables: &[StatementTable], explicit: bool) -> Resolved<BTreeSet<QualifiedTable>> {
+fn resolved(statement: &mut Statement, tables: &[StatementTable], explicit: bool) -> ResolvedTables {
     let Statement::Query(query) = statement else {
         return Err(Refused::Unsupported(SqlConstruct::NonQuery));
     };
@@ -140,18 +168,21 @@ fn resolved(statement: &mut Statement, tables: &[StatementTable], explicit: bool
         tables,
         physical: BTreeSet::new(),
         explicit,
+        prefixed: false,
     };
     drop(resolver.query(query, &[], &[])?);
     if resolver.physical.is_empty() {
         return Err(Refused::Unsupported(SqlConstruct::SelectWithoutTable));
     }
-    Ok(resolver.physical)
+    Ok((resolver.physical, resolver.prefixed))
 }
 
 struct Resolver<'a> {
     tables: &'a [StatementTable],
     physical: BTreeSet<QualifiedTable>,
     explicit: bool,
+    /// Whether any reference so far resolved only by naming its source explicitly.
+    prefixed: bool,
 }
 
 impl Resolver<'_> {
@@ -249,7 +280,7 @@ impl Resolver<'_> {
                             let identifiers = identifiers(name)?;
                             let relation = unique(scope.iter().filter(|relation| relation.matches(&identifiers)))?
                                 .ok_or_else(unsupported)?;
-                            *name = object_name(&relation.path);
+                            *name = object_name(&relation.registered);
                             complete &= relation.complete;
                             columns.extend(relation.columns.clone());
                         }
@@ -267,6 +298,7 @@ impl Resolver<'_> {
                 rest?;
                 let outputs = Relation {
                     path: Vec::new(),
+                    registered: Vec::new(),
                     fold: Fold::Lower,
                     columns,
                     complete,
@@ -288,6 +320,7 @@ impl Resolver<'_> {
                 Ok((
                     Relation {
                         path: Vec::new(),
+                        registered: Vec::new(),
                         fold: Fold::Lower,
                         columns: Vec::new(),
                         complete: false,
@@ -371,23 +404,14 @@ impl Resolver<'_> {
             } => {
                 let path = identifiers(name)?;
                 if let Some(cte) = unique(ctes.iter().filter(|cte| path.len() == 1 && cte.matches(&path)))? {
-                    *name = object_name(&cte.path);
+                    *name = object_name(&cte.registered);
                     (cte.clone(), alias)
                 } else {
-                    let mut candidates = self.tables.iter().filter(|table| {
-                        let physical = table_path(table);
-                        path.len() == physical.len()
-                            && path
-                                .iter()
-                                .zip(physical)
-                                .all(|(ident, name)| Fold::of(table.dialect()).name(ident) == name)
-                    });
-                    let table = candidates.next().ok_or(Refused::UnknownTable)?;
-                    if candidates.next().is_some() {
-                        return Err(Refused::UnknownTable);
-                    }
+                    let (table, prefixed) = resolve_table(self.tables, &path)?;
+                    self.prefixed |= prefixed;
                     let path = table_path(table);
-                    *name = object_name(&path);
+                    let registered = registered_path(self.tables, table);
+                    *name = object_name(&registered);
                     self.physical.insert(table.table().clone());
                     let fold = Fold::of(table.dialect());
                     let columns = table
@@ -402,6 +426,7 @@ impl Resolver<'_> {
                     (
                         Relation {
                             path,
+                            registered,
                             fold,
                             columns,
                             complete: true,
@@ -437,6 +462,57 @@ impl Resolver<'_> {
     }
 }
 
+/// Does `path` name `table`'s own physical path, folding an unquoted segment the same way `table`'s
+/// path already does - per `table`'s dialect, since that is the convention a federated statement
+/// already applies per-candidate?
+fn matches_physical(table: &StatementTable, path: &[Ident]) -> bool {
+    let physical = table_path(table);
+    let fold = Fold::of(table.dialect());
+    path.len() == physical.len() && path.iter().zip(&physical).all(|(ident, name)| fold.name(ident) == *name)
+}
+
+/// Does `path` name `table`'s physical path prefixed with the sutura source it lives at?
+///
+/// The source segment is a sutura name, not a column or table identifier at `table`'s source, so it
+/// compares case-preserved - never folded by `table`'s dialect, or `crm.CRM.orders` could not reach
+/// an Oracle source without quoting.
+fn matches_prefixed(table: &StatementTable, path: &[Ident]) -> bool {
+    let physical = table_path(table);
+    let fold = Fold::of(table.dialect());
+    path.split_first().is_some_and(|(source, rest)| {
+        source.value == table.source().as_str()
+            && rest.len() == physical.len()
+            && rest.iter().zip(&physical).all(|(ident, name)| fold.name(ident) == *name)
+    })
+}
+
+/// `path`'s table among `tables`: matched against every candidate's own physical path and, always,
+/// against the same path prefixed with the table's source - both phases run unconditionally, never
+/// short-circuited on the first one matching.
+///
+/// Ambiguity within either phase refuses, same as before: an unprefixed reference to a path two
+/// sources share still refuses as unknown rather than silently picking one. A match in BOTH phases
+/// also refuses, even when each phase alone is unambiguous: `crm.orders` naming both a physical
+/// `crm.orders` table and the `orders` table at a source literally named `crm` does not pick the
+/// physical reading, and neither does a 3-part name that is both a project-qualified `a.b.c` and a
+/// source-prefixed `b.c` at a source named `a` - a reference is resolved only when exactly one phase
+/// claims it. The second element of the result is whether the match came from the prefixed phase.
+fn resolve_table<'a>(tables: &'a [StatementTable], path: &[Ident]) -> Resolved<(&'a StatementTable, bool)> {
+    let mut physical = tables.iter().filter(|table| matches_physical(table, path));
+    let first_physical = physical.next();
+    if first_physical.is_some() && physical.next().is_some() {
+        return Err(Refused::UnknownTable);
+    }
+    let mut prefixed = tables.iter().filter(|table| matches_prefixed(table, path));
+    let first_prefixed = prefixed.next();
+    match (first_physical, first_prefixed) {
+        (Some(table), None) => Ok((table, false)),
+        (None, Some(_)) if prefixed.next().is_some() => Err(Refused::UnknownTable),
+        (None, Some(table)) => Ok((table, true)),
+        (Some(_), Some(_)) | (None, None) => Err(Refused::UnknownTable),
+    }
+}
+
 fn table_path(table: &StatementTable) -> Vec<String> {
     let mut path = Vec::new();
     if let Some(qualifier) = table.table().qualifier() {
@@ -446,6 +522,32 @@ fn table_path(table: &StatementTable) -> Vec<String> {
         path.push(String::from(qualifier.dataset().as_str()));
     }
     path.push(String::from(table.table().name().as_str()));
+    path
+}
+
+/// The physical leaf [`super::session`] registers `table` under: mangled with its source when
+/// another admitted table shares the same physical path at a different source, since a session's
+/// single per-path catalog slot cannot otherwise hold both. `\u{1}` is not a character any source's
+/// own leaf carries, so the mangled leaf never coincides with an unrelated table's own name, and a
+/// caller can never type it - the mangled form is reachable only by this module's own rewrite.
+pub(super) fn registered_leaf(tables: &[StatementTable], table: &StatementTable) -> String {
+    let leaf = String::from(table.table().name().as_str());
+    let colliding = tables
+        .iter()
+        .any(|other| other.table() == table.table() && other.source() != table.source());
+    if colliding {
+        format!("{}\u{1}{leaf}", table.source().as_str())
+    } else {
+        leaf
+    }
+}
+
+/// `table`'s physical path with its leaf replaced by [`registered_leaf`] - the path the AST must
+/// name for the planner to resolve to the catalog slot `session` actually registered `table` under.
+pub(super) fn registered_path(tables: &[StatementTable], table: &StatementTable) -> Vec<String> {
+    let mut path = table_path(table);
+    path.pop();
+    path.push(registered_leaf(tables, table));
     path
 }
 
@@ -551,6 +653,24 @@ impl<'a, 'b> Expressions<'a, 'b> {
             }
             _ => return Ok(()),
         };
+        // DataFusion's own column resolution (`Column::resolved_eq`) skips a leading qualifier
+        // segment once a reference carries more of them than a matched relation's own path does,
+        // the same leniency `resolve_table`'s source prefix earns deliberately for a TABLE
+        // reference - here it is never earned, so a qualifier longer than every in-scope relation's
+        // own path can only bind by that leniency, silently landing on the wrong table's column
+        // (`geo.reporting.shipments.shipment_id`, with only `crm`'s table in scope, binding to
+        // `crm`'s own `shipment_id`). Refuse it outright rather than let it reach the engine
+        // unresolved.
+        let ceiling = self
+            .scope
+            .iter()
+            .chain(self.outer)
+            .map(|relation| relation.path.len())
+            .max()
+            .unwrap_or(0);
+        if qualifier.len() > ceiling {
+            return Err(Refused::UnknownColumn);
+        }
         if qualifier.is_empty()
             && let Some(outputs) = self.outputs
             && let Some(output) = column(&[], ident, std::slice::from_ref(outputs))?
@@ -570,7 +690,7 @@ impl<'a, 'b> Expressions<'a, 'b> {
                     None => unique(self.outer.iter().filter(|relation| relation.matches(qualifier)))?,
                 };
                 if let Some(relation) = relation {
-                    for (ident, name) in qualifier.iter_mut().rev().zip(relation.path.iter().rev()) {
+                    for (ident, name) in qualifier.iter_mut().rev().zip(relation.registered.iter().rev()) {
                         *ident = quoted(name.clone());
                     }
                 }

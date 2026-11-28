@@ -21,7 +21,8 @@
 //! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
 //! | a value built outside the working set can still be large: a string doubled through each common table expression, or a `CAST` to a fixed-size list of a length the caller spells | the pool charges only what operators reserve, and a constant is folded while planning; the session leaves out only the functions whose output length the caller spells or multiplies, and neither an operator nor a SQL type is a function |
 //! | a statement of more than `MOST_OPERATORS` operator tokens is refused, however shallow it is | the count is taken over the text, before any tree is built, because `recursive_protection` grows the stack for the parser, planner and optimizer but not for an expression's `Display`, `Clone` or `Drop` |
-//! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
+//! | a path two listed sources both carry resolves only under the one whose source the caller names, `source.schema.table` | an unprefixed `schema.table` would not say which source the caller meant |
+//! | a reference that only resolved by naming its source refuses `answer_sql`'s fallback to the caller's own text against a single source | that text is not admission-checked - the source would see `source.X` literally |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | Oracle's scalar function and cast vocabulary differs from the engine's | unsupported spellings are refused by the source; this is no complete Oracle expression translator |
 //! | value-dependent uses of an explicit NUMBER-to-Utf8 mapping run unchanged at one Oracle source or are refused before credentials open | no local lexical answer is returned; source scalar syntax still belongs to Oracle |
@@ -33,36 +34,28 @@
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Instant;
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
-use datafusion::catalog::Session;
-use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
-use datafusion::common::{DataFusionError, ExprSchema as _, plan_datafusion_err, plan_err};
-use datafusion::config::ConfigOptions;
-use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
+use datafusion::common::tree_node::TreeNodeRecursion;
+use datafusion::common::{DataFusionError, TableReference, plan_datafusion_err, plan_err};
+use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider};
 use datafusion::error::Result as Planned;
 use datafusion::execution::{SessionStateBuilder, SessionStateDefaults};
-use datafusion::logical_expr::{Expr, Extension, Filter, LogicalPlan, Projection, ScalarUDF, TableSource};
-use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
-use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_plan::ExecutionPlan;
-use datafusion::physical_plan::coop::CooperativeExec;
+use datafusion::logical_expr::{Expr, LogicalPlan, Projection, ScalarUDF};
+use datafusion::optimizer::Optimizer;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
 use datafusion::sql::parser::Statement as EngineStatement;
 use datafusion::sql::sqlparser::dialect::GenericDialect;
 use datafusion::sql::sqlparser::keywords::Keyword;
 use datafusion::sql::sqlparser::parser::Parser;
 use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
-use datafusion_federation::{
-    FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
-    FederationPlanner, FederationProvider, get_table_source,
-};
+use datafusion_federation::{FederatedQueryPlanner, FederatedTableProviderAdaptor, FederationOptimizerRule};
 use sutura_domain::model::{ProjectName, QualifiedTable, SourceName};
-use sutura_domain::plan::{PolicyRead, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
+use sutura_domain::plan::{StatementLegs, StatementQuestion, StatementStopped, StatementTable};
 use sutura_domain::raw::{RawStatement, SqlConstruct};
 use sutura_domain::warehouse::RawRows;
 use sutura_domain::warehouse::arrow::of_rows;
@@ -76,21 +69,73 @@ use crate::pool::{self, WorkingSet};
 /// `T`, planned, alongside why a raw prefilter could not push it down - never both at once.
 type UnparsedWith<T> = Planned<(T, Option<sutura_domain::catalog::PrefilterIneligible>)>;
 
+mod cut;
 mod literal;
 mod oracle;
 mod projection;
 mod pushdown;
 mod resolve;
+mod rewrite;
 mod text;
 mod text_prefilter;
 mod unparse;
 mod unparse_error;
 
+use cut::{Cutter, Fetched, Source, Table, Yielding};
 use unparse::written;
 use unparse_error::{field_not_found, unprojected_agg, unquotable};
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
+///
+/// `prefixed` is computed once, by this function's own tracked body, and read only after it
+/// returns: a `StatementStopped::NotPlanned` it produced then reads as
+/// `StatementStopped::SourcePrefixRefused` instead whenever any reference resolved only by naming
+/// its source explicitly, so a planning failure past that point can never fall back to the
+/// caller's own, not-admission-checked text against a single source.
+///
+/// `answer_tracked` returns rows from one of three exits - the whole statement, a federated
+/// combine, or the numeric Oracle path - and any of them can still carry a collision's mangled
+/// registration leaf in a column's own name, baked in by an unaliased computed column's
+/// auto-generated display text rather than kept as separate, rewritable relation metadata. This is
+/// the one place that leaf is swept from a row answer's column labels, read after `answer_tracked`
+/// has already picked whichever exit it took.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
+where
+    L: StatementLegs,
+{
+    let renames = rewrite::renames_of(question.tables());
+    let mut prefixed = false;
+    answer_tracked(combiner, question, legs, &mut prefixed)
+        .map(|rows| unmangled_rows(rows, &renames))
+        .map_err(|stopped| {
+            if prefixed && matches!(stopped, StatementStopped::NotPlanned) {
+                StatementStopped::SourcePrefixRefused
+            } else {
+                stopped
+            }
+        })
+}
+
+/// `rows`' own column labels, with every mangled registration leaf `renames` carries replaced by
+/// the physical name it mangles.
+fn unmangled_rows(rows: RawRows, renames: &[(String, TableReference)]) -> RawRows {
+    if renames.is_empty() {
+        return rows;
+    }
+    let (columns, rows) = rows.into_parts();
+    let columns = columns
+        .into_iter()
+        .map(|name| rewrite::unmangled_name(&name, renames))
+        .collect();
+    RawRows::of(columns, rows)
+}
+
+fn answer_tracked<L>(
+    combiner: &DataFusionCombiner,
+    question: StatementQuestion<'_>,
+    legs: &mut L,
+    prefixed: &mut bool,
+) -> Answered<L::Stop>
 where
     L: StatementLegs,
 {
@@ -100,22 +145,25 @@ where
     let fetched = Arc::new(Fetched::default());
     let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
     let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
-    let (plan, numeric_operations, native_schema) =
-        within(runtime, question.deadline(), planned(&context, question.statement(), &tables))
-            .ok_or(StatementStopped::DeadlineExceeded)?
-            .map_err(|cause| match cause {
-                PlanningStopped::Refused(refused) => stopped(refused),
-                PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
-                PlanningStopped::Engine(cause) => {
-                    let fallback = unplanned("the statement did not plan", &cause);
-                    if field_not_found(&cause) {
-                        StatementStopped::UnknownColumn
-                    } else {
-                        fallback
-                    }
-                }
-            })?;
-    let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause))?;
+    let (plan, numeric_operations, native_schema) = within(
+        runtime,
+        question.deadline(),
+        planned(&context, question.statement(), &tables, prefixed),
+    )
+    .ok_or(StatementStopped::DeadlineExceeded)?
+    .map_err(|cause| match cause {
+        PlanningStopped::Refused(refused) => stopped(refused),
+        PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
+        PlanningStopped::Engine(cause) => {
+            let fallback = unplanned("the statement did not plan", &cause);
+            if field_not_found(&cause) {
+                StatementStopped::UnknownColumn
+            } else {
+                fallback
+            }
+        }
+    })?;
+    let parts = cut::parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause))?;
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
     if sources.len() > 1 && !question.federation_allowed() {
         return Err(StatementStopped::SpansMoreThanOneSource);
@@ -128,15 +176,31 @@ where
         if native_tables.iter().any(|table| table.dialect() != TypeDialect::Oracle) {
             return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
         }
-        // Re-resolve the admitted input against this source alone: optimization can remove a
-        // second source, but that must never authorize its original table under this credential.
+        // Re-resolve the admitted input against only what the validated plan actually scanned at
+        // this source, not every table merely admitted there: optimization can prune a reference
+        // whole (a dead common table expression, a second source), and an admitted-but-unscanned
+        // table must never be re-admitted through this second, source-only pass.
+        let scanned: BTreeSet<QualifiedTable> = parts
+            .iter()
+            .filter(|part| &part.source == source)
+            .map(|part| part.scan_tables(&tables))
+            .collect::<Planned<Vec<_>>>()
+            .map_err(|cause| unplanned("a part's scan did not resolve", &cause))?
+            .into_iter()
+            .flatten()
+            .collect();
+        let native_tables: Vec<_> = native_tables
+            .into_iter()
+            .filter(|table| scanned.contains(table.table()))
+            .collect();
         let mut native = Parser::parse_sql(&GenericDialect, question.statement().as_str())
             .map_err(|cause| unplanned("the numeric statement did not parse", &cause))?;
         let [native] = native.as_mut_slice() else {
             return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
         };
-        let scans = resolve::explicit_statement(native, &native_tables)
+        let (scans, native_prefixed) = resolve::explicit_statement(native, &native_tables)
             .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
+        *prefixed |= native_prefixed;
         let read: Vec<_> = native_tables
             .into_iter()
             .filter(|table| scans.contains(table.table()))
@@ -156,12 +220,12 @@ where
         }
         let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
         legs.open(&sources, [(&native, TypeDialect::Oracle)])?;
-        let rows = legs.run_planned(source, &native, &scans, policy_of(&parts), ineligible)?;
+        let rows = legs.run_planned(source, &native, &scans, cut::policy_of(&parts), ineligible)?;
         return projection::output(&native_schema, rows)
             .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
     }
     // A bare marked scan still needs fitting to its declared text representation.
-    let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
+    let whole = cut::part_of(&plan).is_some_and(|part| !cut::number_text(part.plan().schema().inner()));
     let statements = parts
         .iter()
         .map(|part| {
@@ -178,23 +242,29 @@ where
             .map(|(part, (statement, _ineligible, _tables))| (statement, part.dialect)),
     )?;
     let mut leaves = Vec::with_capacity(parts.len());
-    for (part, (statement, ineligible, tables)) in parts.into_iter().zip(&statements) {
+    for (part, (statement, ineligible, scan_tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
-            .run_planned(&part.source, statement, tables, part.policy, *ineligible)
+            .run_planned(&part.source, statement, scan_tables, part.policy, *ineligible)
             .inspect_err(|stopped| {
                 if matches!(stopped, StatementStopped::Leg(_)) {
                     tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
                 }
             })?;
         if whole {
-            return projection::output(part.plan.schema().inner(), rows)
+            // `part.plan`'s own schema still carries a collision's mangled registration leaf; an
+            // unaliased computed column's auto-generated name bakes that qualifier into the field
+            // name itself, so the caller must read it off the rewritten plan, the same one its text
+            // was unparsed from, rather than the plan as planned.
+            let physical = rewrite::physically_qualified(&part.plan, &tables)
+                .map_err(|cause| unplanned("the source output did not rewrite", &cause))?;
+            return projection::output(physical.schema().inner(), rows)
                 .map_err(|cause| unplanned("the source output did not fit", &cause));
         }
         let batches =
             fitted(&rows, part.plan.schema().inner()).map_err(|cause| unplanned("a leg did not fit its part", &cause))?;
         leaves.push((part.plan, batches));
     }
-    if fetched.0.set(leaves).is_err() {
+    if fetched.set(leaves).is_err() {
         return Err(StatementStopped::NotPlanned);
     }
     let local = within(runtime, question.deadline(), async {
@@ -230,354 +300,24 @@ where
     runtime.block_on(async { tokio::time::timeout(left, work).await.ok() })
 }
 
-/// Wraps every node, not only the leaves the default rule wraps, so each batch any operator yields
-/// spends the task's budget and the deadline's timer is polled between them.
-#[derive(Debug)]
-struct Yielding;
-
-impl PhysicalOptimizerRule for Yielding {
-    fn optimize(&self, plan: Arc<dyn ExecutionPlan>, _: &ConfigOptions) -> Planned<Arc<dyn ExecutionPlan>> {
-        plan.transform_up(|node| {
-            let wrapped: Arc<dyn ExecutionPlan> = Arc::new(CooperativeExec::new(node));
-            Ok(Transformed::yes(wrapped))
-        })
-        .map(|wrapped| wrapped.data)
-    }
-
-    fn name(&self) -> &'static str {
-        "sutura_statement_yielding"
-    }
-
-    fn schema_check(&self) -> bool {
-        true
-    }
-}
-
-/// Each part's plan beside the rows its leg came back with.
-type Leaves = Vec<(LogicalPlan, Vec<RecordBatch>)>;
-
-/// One listed source, as the federation rule sees it: two tables' scans fuse when their sources do.
-struct Source {
-    name: SourceName,
-    cut: Arc<Optimizer>,
-}
-
-impl FederationProvider for Source {
-    fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    fn compute_context(&self) -> Option<String> {
-        None
-    }
-
-    fn optimizer(&self) -> Option<Arc<Optimizer>> {
-        Some(Arc::clone(&self.cut))
-    }
-}
-
-/// A table of a listed source, typed by its pinned schema. It is never scanned here.
-struct Table {
-    source: Arc<Source>,
-    schema: SchemaRef,
-}
-
-impl TableSource for Table {
-    fn schema(&self) -> SchemaRef {
-        Arc::clone(&self.schema)
-    }
-}
-
-impl FederatedTableSource for Table {
-    fn federation_provider(&self) -> Arc<dyn FederationProvider> {
-        Arc::<Source>::clone(&self.source)
-    }
-}
-
-/// Each part's plan beside the rows its leg came back with, set once every leg has run.
-#[derive(Debug, Default)]
-struct Fetched(OnceLock<Leaves>);
-
-#[async_trait::async_trait]
-impl FederationPlanner for Fetched {
-    async fn plan_federation(&self, node: &FederatedPlanNode, _: &dyn Session) -> Planned<Arc<dyn ExecutionPlan>> {
-        let Some((_, batches)) = self
-            .0
-            .get()
-            .and_then(|parts| parts.iter().find(|(plan, _)| plan == node.plan()))
-        else {
-            return plan_err!("a part of the plan was planned before its leg ran");
-        };
-        let leaf: Arc<dyn ExecutionPlan> =
-            MemorySourceConfig::try_new_exec(core::slice::from_ref(batches), Arc::clone(node.plan().schema().inner()), None)?;
-        Ok(leaf)
-    }
-}
-
-/// The rule a source's sub-plan is handed to: it makes the sub-plan a leaf, planned over its leg's rows.
-#[derive(Debug)]
-struct Cutter(Arc<Fetched>, TypeDialect, bool);
-
-fn number_text(schema: &SchemaRef) -> bool {
-    schema
-        .fields()
-        .iter()
-        .any(|field| field.metadata().get("sutura:unbounded_number").map(String::as_str) == Some("utf8"))
-}
-
-/// Passthrough projections preserve the mapped representation. Value-dependent uses cannot run
-/// locally as text; inspect inputs because their column can be absent from the output.
-fn number_text_safe(plan: &LogicalPlan) -> Planned<bool> {
-    if let LogicalPlan::Distinct(datafusion::logical_expr::Distinct::All(input)) = plan {
-        return Ok(!number_text(input.schema().inner()));
-    }
-    let mut safe = true;
-    plan.apply_expressions(|expression| {
-        if matches!(plan, LogicalPlan::Projection(_))
-            && (matches!(expression, Expr::Column(_))
-                || matches!(expression, Expr::Alias(alias) if matches!(alias.expr.as_ref(), Expr::Column(_))))
-        {
-            return Ok(TreeNodeRecursion::Continue);
-        }
-        expression.apply(|part| {
-            if let Expr::Column(column) = part {
-                for input in plan.inputs() {
-                    safe &= input
-                        .schema()
-                        .field_from_column(column)
-                        .or_else(|_| input.schema().field_with_unqualified_name(&column.name))
-                        .map_or_else(
-                            |_| !number_text(input.schema().inner()),
-                            |field| field.metadata().get("sutura:unbounded_number").map(String::as_str) != Some("utf8"),
-                        );
-                }
-            }
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-        Ok(TreeNodeRecursion::Continue)
-    })?;
-    Ok(safe)
-}
-
-impl OptimizerRule for Cutter {
-    fn name(&self) -> &'static str {
-        "sutura_statement_cut"
-    }
-
-    fn rewrite(&self, plan: LogicalPlan, _: &dyn OptimizerConfig) -> Planned<Transformed<LogicalPlan>> {
-        let mut already_cut = false;
-        plan.apply_with_subqueries(|node| {
-            already_cut |= part_of(node).is_some();
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-        if already_cut {
-            return Ok(Transformed::no(plan));
-        }
-        let leaf = |plan| {
-            let planner: Arc<dyn FederationPlanner> = Arc::<Fetched>::clone(&self.0);
-            Transformed::yes(LogicalPlan::Extension(Extension {
-                node: Arc::new(FederatedPlanNode::new(plan, planner)),
-            }))
-        };
-        plan.transform_down_with_subqueries(|node| {
-            let filtered_scan = pushdown::is_filtered_scan(&node);
-            if self.2 && !filtered_scan && !matches!(node, LogicalPlan::TableScan(_)) {
-                return Ok(Transformed::no(node));
-            }
-            let (mut safe, mut scans) = (true, false);
-            node.apply_with_subqueries(|input| {
-                scans |= matches!(input, LogicalPlan::TableScan(_));
-                safe &= number_text_safe(input)?;
-                // Keep Cube joins local while the same cut pushes their supported children down.
-                if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {
-                    safe = false;
-                }
-                Ok(if safe {
-                    TreeNodeRecursion::Continue
-                } else {
-                    TreeNodeRecursion::Stop
-                })
-            })?;
-            if !safe || !scans {
-                return Ok(Transformed::no(node));
-            }
-            if self.2
-                && let LogicalPlan::Filter(filter) = &node
-            {
-                let Some(scan) = pushdown::cube_scan(filter)? else {
-                    return Ok(Transformed::no(node));
-                };
-                let cut = leaf(scan);
-                let kept = LogicalPlan::Filter(Filter::try_new(filter.predicate.clone(), Arc::new(cut.data))?);
-                return Ok(Transformed::new(kept, true, TreeNodeRecursion::Jump));
-            }
-            let node = if matches!(&node, LogicalPlan::TableScan(_)) {
-                let columns = node.schema().columns().into_iter().map(Expr::Column).collect();
-                LogicalPlan::Projection(Projection::try_new(columns, Arc::new(node))?)
-            } else {
-                node
-            };
-            let cut = leaf(node);
-            Ok(Transformed::new(cut.data, true, TreeNodeRecursion::Jump))
-        })
-    }
-}
-
-/// A sub-plan one source answers.
-struct Part {
-    plan: LogicalPlan,
-    source: SourceName,
-    dialect: TypeDialect,
-    policy: PolicyRead,
-}
-
-/// Whether a scan of `plan` projects a column under a text policy. Cube's policy runs here over the
-/// rows its leg answers; supported conjuncts on columns without a policy narrow those rows at Cube.
-fn policy_read(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<PolicyRead> {
-    let mut reads = false;
-    plan.apply_with_subqueries(|node| {
-        if let LogicalPlan::TableScan(scan) = node {
-            reads |= text::reads_policy(scan.projected_schema.inner());
-        }
-        Ok(TreeNodeRecursion::Continue)
-    })?;
-    Ok(match (reads, dialect) {
-        (false, _) => PolicyRead::Unread,
-        (true, TypeDialect::Cube) => PolicyRead::Locally,
-        (true, _) => PolicyRead::AtSource,
-    })
-}
-
-impl Part {
-    fn scan_tables(&self, admitted: &[StatementTable]) -> Planned<BTreeSet<QualifiedTable>> {
-        let mut tables = BTreeSet::new();
-        self.plan.apply_with_subqueries(|node| {
-            if let LogicalPlan::TableScan(scan) = node {
-                let Some(table) = admitted.iter().find(|table| {
-                    let (catalog, schema) = table.table().qualifier().map_or(("", ""), |qualifier| {
-                        (
-                            qualifier.project().map_or("", ProjectName::as_str),
-                            qualifier.dataset().as_str(),
-                        )
-                    });
-                    table.source() == &self.source
-                        && table.table().name().as_str() == scan.table_name.table()
-                        && schema == scan.table_name.schema().unwrap_or("")
-                        && catalog == scan.table_name.catalog().unwrap_or("")
-                }) else {
-                    return plan_err!("a part scans a table outside its admitted source");
-                };
-                tables.insert(table.table().clone());
-            }
-            Ok(TreeNodeRecursion::Continue)
-        })?;
-        Ok(tables)
-    }
-
-    /// The part in its source's dialect: as planned when it is the `whole` statement, otherwise
-    /// with its columns labelled `c0..cn`, so the rows can be read by position and checked by name.
-    fn statement(&self, whole: bool, tables: &[StatementTable], output_schema: &Schema) -> UnparsedWith<RawStatement> {
-        let scanned = self.scan_tables(tables)?;
-        let read: Vec<_> = tables
-            .iter()
-            .filter(|table| table.source() == &self.source && scanned.contains(table.table()))
-            .cloned()
-            .collect();
-        let full_lobs = read.iter().any(text::oracle_lobs);
-        if full_lobs && !whole {
-            return plan_err!("Oracle text-policy LOB operators must run wholly at the source");
-        }
-        let (text, ineligible) = if whole && !full_lobs && !projection::duplicate_names(self.plan.schema().inner()) {
-            written(&self.plan, self.dialect, &read)?
-        } else {
-            written(&labelled(&self.plan)?, self.dialect, &read)?
-        };
-        let text = if full_lobs {
-            text::bounded_oracle_rows(&text, output_schema, &read)?
-        } else {
-            text
-        };
-        RawStatement::parse(text)
-            .map_err(|cause| plan_datafusion_err!("{cause}"))
-            .map(|statement| (statement, ineligible))
-    }
-}
-
-/// The first part that reads a column under a text policy, or `Unread` when none does.
-fn policy_of(parts: &[Part]) -> PolicyRead {
-    parts
-        .iter()
-        .map(|part| part.policy)
-        .find(|read| read.is_read())
-        .unwrap_or(PolicyRead::Unread)
-}
-
-fn part_of(plan: &LogicalPlan) -> Option<&FederatedPlanNode> {
-    let LogicalPlan::Extension(extension) = plan else {
-        return None;
-    };
-    extension.node.as_any().downcast_ref()
-}
-
-/// Every distinct part of `plan`, subqueries included, each with the source and dialect it runs in.
-fn parts(plan: &LogicalPlan, tables: &[StatementTable]) -> Planned<Vec<Part>> {
-    let mut parts: Vec<Part> = Vec::new();
-    plan.apply_with_subqueries(|node| {
-        if let Some(cut) = part_of(node)
-            && !parts.iter().any(|part| &part.plan == cut.plan())
-        {
-            let name = source_of(cut.plan())?;
-            let Some(table) = tables.iter().find(|table| table.source().as_str() == name) else {
-                return plan_err!("a part of the plan reads a source the question does not carry");
-            };
-            parts.push(Part {
-                plan: cut.plan().clone(),
-                source: table.source().clone(),
-                dialect: table.dialect(),
-                policy: policy_read(cut.plan(), table.dialect())?,
-            });
-        }
-        Ok(TreeNodeRecursion::Continue)
-    })?;
-    if parts.is_empty() {
-        return plan_err!("the statement reads no table of a listed source");
-    }
-    Ok(parts)
-}
-
-/// The one source `part` reads, subqueries included. The rule does not look inside an `EXISTS`, so
-/// a part can hold a second source's table, and such a part is refused rather than sent to either.
-fn source_of(part: &LogicalPlan) -> Planned<String> {
-    let mut names = BTreeSet::new();
-    part.apply_with_subqueries(|node| {
-        if let LogicalPlan::TableScan(scan) = node
-            && let Some(table) = get_table_source(&scan.source)?
-        {
-            names.insert(table.federation_provider().name().to_owned());
-        }
-        Ok(TreeNodeRecursion::Continue)
-    })?;
-    let mut names = names.into_iter();
-    match (names.next(), names.next()) {
-        (Some(name), None) => Ok(name),
-        (None, _) => plan_err!("a part of the plan reads no table"),
-        (Some(_), Some(_)) => plan_err!("a part of the plan reads more than one source"),
-    }
-}
-
 /// One caller-scoped registration view, shared by the session, resolver and source-part lookup.
+///
+/// Distinct by `(source, table)`, not by the physical path alone: a path two listed sources both
+/// carry is kept once per source, each still reachable through that source's `session` catalog slot
+/// via [`resolve::registered_leaf`]'s mangled registration - only a model sharing both its table and
+/// its source merges here, exactly as before.
 fn registered_tables(tables: &[StatementTable]) -> Planned<Vec<StatementTable>> {
     let mut registered = BTreeSet::new();
     let mut admitted = Vec::new();
     for table in tables {
-        if !registered.insert(table.table())
-            || tables
-                .iter()
-                .any(|other| other.table() == table.table() && other.source() != table.source())
-        {
+        if !registered.insert((table.source(), table.table())) {
             continue;
         }
-        let visible = || tables.iter().filter(|other| other.table() == table.table());
+        let visible = || {
+            tables
+                .iter()
+                .filter(|other| other.table() == table.table() && other.source() == table.source())
+        };
         if visible().any(|other| other.dialect() != table.dialect()) {
             return plan_err!("models of one physical table disagree on its dialect");
         }
@@ -653,7 +393,7 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
             source,
             schema: Arc::clone(table.schema()),
         }));
-        schema.register_table(table.table().name().as_str().to_owned(), Arc::new(provider))?;
+        schema.register_table(resolve::registered_leaf(tables, table), Arc::new(provider))?;
     }
     Ok(context)
 }
@@ -698,10 +438,15 @@ fn admitted() -> Vec<Arc<ScalarUDF>> {
 const MOST_OPERATORS: usize = 1024;
 
 /// `statement`'s optimized plan, refused unless it is one query of at most [`MOST_OPERATORS`].
+///
+/// `prefixed` is set once resolution matches any reference only by naming its source explicitly,
+/// even when a later step in this function still fails - the caller must know that before it
+/// decides whether a planning failure may fall back to the statement's own text.
 async fn planned(
     context: &SessionContext,
     statement: &RawStatement,
     tables: &[StatementTable],
+    prefixed: &mut bool,
 ) -> Result<(LogicalPlan, bool, SchemaRef), PlanningStopped> {
     let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
         .tokenize()
@@ -747,7 +492,8 @@ async fn planned(
     let [statement] = statements.as_mut_slice() else {
         return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
     };
-    drop(resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?);
+    let (_, statement_prefixed) = resolve::statement(statement, tables).map_err(PlanningStopped::Refused)?;
+    *prefixed = statement_prefixed;
     let Some(statement) = statements.pop() else {
         return Err(PlanningStopped::Refused(resolve::Refused::Unsupported(SqlConstruct::Query)));
     };
@@ -769,7 +515,7 @@ async fn planned(
     options.verify_plan(&plan)?;
     let mut numeric_operations = false;
     plan.apply_with_subqueries(|node| {
-        numeric_operations |= !number_text_safe(node)?;
+        numeric_operations |= !cut::number_text_safe(node)?;
         Ok(TreeNodeRecursion::Continue)
     })?;
     // Validate caller functions before registering the policy-only regex replacement.
@@ -901,6 +647,11 @@ fn fitted(rows: &RawRows, schema: &SchemaRef) -> Planned<Vec<RecordBatch>> {
 /// The caller reads only that the statement did not plan, and the log at info only which step
 /// stopped it. The engine's words can name a column or quote a value a leg read, so they are written
 /// at debug, which a deployment that logs at debug still writes.
+///
+/// [`answer`]'s own wrapper reads this as `StatementStopped::SourcePrefixRefused` instead, once any
+/// reference in the statement resolved only by naming its source explicitly: a reference that
+/// resolved that way must never let the application fall back to the caller's original,
+/// not-admission-checked text against a single source.
 fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display) -> StatementStopped<S> {
     tracing::info!("run_sql: {why}");
     tracing::debug!(%cause, "run_sql: {why}");
