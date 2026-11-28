@@ -44,8 +44,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._reply(200, {"status": "ok"})
         elif self.path == "/models":
             self._reply(200, {"data": []})
-        elif self.path == "/api/v1/tools/":
-            self._reply(200, [{"id": "server:mcp:sutura"}])
+        elif self.path == "/api/v1/configs/tool_servers":
+            self._reply(200, {"TOOL_SERVER_CONNECTIONS": [{"info": {"id": "sutura"}}]})
         elif self.path.endswith("/protocol/openid-connect/certs"):
             self._reply(200, json.loads(KEY_SET))
         else:

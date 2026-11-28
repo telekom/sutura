@@ -159,7 +159,7 @@ fi
 # so concurrent worktrees cannot replace one another's image between build and startup.
 # The chat client base image and tag. The ONLY place this is written - `examples/demo-chatinterface/Dockerfile`'s
 # matching ARG has no default, because this script is its only caller.
-base_image="openwebui/open-webui:0.11.3"
+base_image="openwebui/open-webui:0.13.5"
 registry="${SUTURA_IMAGE_REGISTRY:-docker.io}"
 worktree_key="$(printf '%s' "$root" | git hash-object --stdin)"
 export SUTURA_DEMO_IMAGE_TAG="demo-${worktree_key}"

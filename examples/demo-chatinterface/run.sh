@@ -20,7 +20,7 @@ webui_port="${SUTURA_DEMO_WEBUI_PORT:-8080}"
 run_dir="${SUTURA_DEMO_RUN_DIR:-/run/sutura-demo}"
 
 endpoint="${SUTURA_DEMO_MODEL_ENDPOINT:?SUTURA_DEMO_MODEL_ENDPOINT is required}"
-model="${SUTURA_DEMO_MODEL:?SUTURA_DEMO_MODEL is required}"
+: "${SUTURA_DEMO_MODEL:?SUTURA_DEMO_MODEL is required}"
 acknowledged="${SUTURA_DEMO_ACKNOWLEDGE:?SUTURA_DEMO_ACKNOWLEDGE is required}"
 api_key="${SUTURA_DEMO_MODEL_API_KEY:-}"
 case "$acknowledged" in
@@ -177,13 +177,10 @@ export SUTURA_ENVIRONMENT="development"
 # remain authoritative over a reused named volume, so persisted database values cannot override this
 # environment. This also makes the registration observed by healthcheck deterministic.
 export ENABLE_PERSISTENT_CONFIG="false"
+export WEBUI_NAME="Demo"
 export OPENAI_API_BASE_URL="$endpoint"
 export OPENAI_API_KEY="$api_key"
-export DEFAULT_MODELS="$model"
-# A single-user demo: no signup, no login. The port is loopback-bound by the compose block, so this
-# is one person on one machine, which is the deployment this page describes and no more.
-export WEBUI_AUTH="false"
-export ENABLE_SIGNUP="false"
+export DEFAULT_MODELS="demo"
 # The tool connection, in the NATIVE OpenAPI shape - no plugin: `type: openapi`, the server's
 # loopback URL, `path: openapi.json`, a bearer `auth_type`, and `config.enable`. `config.enable`
 # makes the connection LOAD the document and become LISTABLE as `server:sutura`; it does NOT select
@@ -213,9 +210,14 @@ sutura_pid=$!
 ) &
 webui_pid=$!
 
+# Bootstrap: upload the SQL expander filter and create the Demo model preset once Open WebUI is ready.
+python3 /usr/local/bin/bootstrap.py &
+bootstrap_pid=$!
+
 terminate() {
     trap - TERM INT
     kill -TERM "$sutura_pid" "$webui_pid" 2>/dev/null || true
+    kill "$bootstrap_pid" 2>/dev/null || true
     wait 2>/dev/null || true
 }
 trap 'terminate; exit 143' TERM INT
