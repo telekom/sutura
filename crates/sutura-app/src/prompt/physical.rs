@@ -81,6 +81,7 @@ fn model_fragment(model: &sutura_domain::catalog::Model, prose: CatalogProse) ->
     let mut lines = vec![
         format!("\n### Model `{}`", model.name()),
         format!("- Table: `{}`", model.table()),
+        format!("- Source: `{}`", model.source()),
     ];
     if prose.is_quoted() && !model.description().is_empty() {
         lines.push(String::from("- Description (untrusted catalog prose):"));
