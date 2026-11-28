@@ -7,10 +7,38 @@ use datafusion::sql::sqlparser::ast::{
     Expr, Ident, JoinConstraint, JoinOperator, ObjectName, ObjectNamePart, Query, SelectItem, SelectItemQualifiedWildcardKind,
     SetExpr, Statement, TableAlias, TableFactor, TableWithJoins, VisitMut as _, VisitorMut,
 };
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer};
 use sutura_domain::model::QualifiedTable;
 use sutura_domain::plan::StatementTable;
 use sutura_domain::raw::SqlConstruct;
 use sutura_domain::warehouse::schema::TypeDialect;
+
+/// Whether `statement` spells an admitted table's source followed by `.` anywhere - the shape a
+/// source-prefixed reference has - read from its tokens, so it answers for text resolution never
+/// reached: a failure before planning leaves nothing else that shows the text names no source.
+/// Text that does not tokenize answers yes for the same reason.
+pub(super) fn names_a_source(statement: &str, tables: &[StatementTable]) -> bool {
+    let Ok(tokens) = Tokenizer::new(&GenericDialect {}, statement).tokenize() else {
+        return true;
+    };
+    let mut tokens = tokens
+        .iter()
+        .filter(|token| !matches!(token, Token::Whitespace(_)))
+        .peekable();
+    while let Some(token) = tokens.next() {
+        // The parser takes a quoted string as a name part too, so `'crm'.t` is a prefix as well.
+        let spelled = match token {
+            Token::Word(word) => word.value.as_str(),
+            Token::SingleQuotedString(text) | Token::DoubleQuotedString(text) => text.as_str(),
+            _ => continue,
+        };
+        if matches!(tokens.peek(), Some(Token::Period)) && tables.iter().any(|table| table.source().as_str() == spelled) {
+            return true;
+        }
+    }
+    false
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Refused {
