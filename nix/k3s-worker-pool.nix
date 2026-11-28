@@ -649,14 +649,6 @@ pkgs.testers.runNixOSTest {
         evidence["startup-refusals"] = startup_refusals
         machine.succeed("kubectl delete pod " + q(label) + " --wait=true")
 
-    def watch_records(raw):
-        decoder, records = json.JSONDecoder(), []
-        while raw.strip():
-            record, end = decoder.raw_decode(raw.lstrip())
-            records.append(record)
-            raw = raw.lstrip()[end:]
-        return records
-
     ${network.script { dbHost = nodes.db.networking.primaryIPAddress; dbTwoHost = nodes.db2.networking.primaryIPAddress; }}
 
     start_all()
