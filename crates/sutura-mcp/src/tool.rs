@@ -105,14 +105,19 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
              lowercase folding. Name a table by its own path (`table`, `schema.table`) or prefix \
              that path with the listed source it lives at (`source.table`, `source.schema.table`) \
              to say which source explicitly, compared to that source's own id unfolded - the \
-             prefix only picks among sources already listed for this tool, never a wider one, and \
-             is tried only once the unprefixed path matches no listed source; a path two listed \
-             sources both carry reaches each one only by its prefix, and stays refused unprefixed, \
-             and a path that resolves BOTH ways at once - unprefixed and by some other table's \
-             prefix - is refused rather than given to the unprefixed reading. A statement answered \
+             prefix only picks among sources already listed for this tool, never a wider one. \
+             Both the unprefixed and the prefixed reading are always tried, never one only once \
+             the other has failed; a path two listed sources both carry stays refused unprefixed \
+             rather than picking one, and a path that resolves BOTH ways at once - its own \
+             unprefixed path, and some other table's source prefix - is refused rather than given \
+             either reading. A path whose first segment names a listed source that does not itself \
+             hold the rest of it is not refused for that reason alone: it still resolves \
+             unprefixed, wherever its full path matches a table's own. A statement answered \
              only by naming a source refuses outright rather than falling back to any other source \
-             if it still fails to plan. The prefix is not read in a \
-             column reference (`source.schema.table.column`). Naming each admitted table's source, \
+             if it still fails to plan. A column reference whose own qualifier is longer than \
+             every table in scope - repeating the source prefix ahead of a table already named in \
+             FROM (`source.schema.table.column`), say - is refused rather than reaching the \
+             planner unresolved. Naming each admitted table's source, \
              so a table reference can use the prefix, is what describe_catalog's physical-schema \
              listing and prompt.list_physical_schema both do once the operator enables it - neither \
              names a source otherwise. Each part runs at its \

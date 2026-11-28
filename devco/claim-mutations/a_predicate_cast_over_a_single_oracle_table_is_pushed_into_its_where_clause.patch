@@ -1,8 +1,10 @@
-diff --git a/crates/sutura-exec-datafusion/src/combine/statement.rs b/crates/sutura-exec-datafusion/src/combine/statement.rs
-index 992581478..a62753152 100644
---- a/crates/sutura-exec-datafusion/src/combine/statement.rs
-+++ b/crates/sutura-exec-datafusion/src/combine/statement.rs
-@@ -392,6 +392,9 @@ impl OptimizerRule for Cutter {
+diff --git a/crates/sutura-exec-datafusion/src/combine/statement/cut.rs b/crates/sutura-exec-datafusion/src/combine/statement/cut.rs
+--- a/crates/sutura-exec-datafusion/src/combine/statement/cut.rs
++++ b/crates/sutura-exec-datafusion/src/combine/statement/cut.rs
+@@ -194,9 +194,12 @@
+                 scans |= matches!(input, LogicalPlan::TableScan(_));
+                 safe &= number_text_safe(input)?;
+                 // Keep Cube joins local while the same cut pushes their supported children down.
                  if self.1 == TypeDialect::Cube && matches!(input, LogicalPlan::Join(_)) {
                      safe = false;
                  }

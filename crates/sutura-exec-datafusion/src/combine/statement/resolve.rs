@@ -653,6 +653,24 @@ impl<'a, 'b> Expressions<'a, 'b> {
             }
             _ => return Ok(()),
         };
+        // DataFusion's own column resolution (`Column::resolved_eq`) skips a leading qualifier
+        // segment once a reference carries more of them than a matched relation's own path does,
+        // the same leniency `resolve_table`'s source prefix earns deliberately for a TABLE
+        // reference - here it is never earned, so a qualifier longer than every in-scope relation's
+        // own path can only bind by that leniency, silently landing on the wrong table's column
+        // (`geo.reporting.shipments.shipment_id`, with only `crm`'s table in scope, binding to
+        // `crm`'s own `shipment_id`). Refuse it outright rather than let it reach the engine
+        // unresolved.
+        let ceiling = self
+            .scope
+            .iter()
+            .chain(self.outer)
+            .map(|relation| relation.path.len())
+            .max()
+            .unwrap_or(0);
+        if qualifier.len() > ceiling {
+            return Err(Refused::UnknownColumn);
+        }
         if qualifier.is_empty()
             && let Some(outputs) = self.outputs
             && let Some(output) = column(&[], ident, std::slice::from_ref(outputs))?

@@ -31,6 +31,7 @@ mod oracle;
 mod oracle_prefilter;
 mod policy_search;
 mod prefilter_property;
+mod projection;
 mod raw_condition;
 #[cfg(test)]
 mod registration;

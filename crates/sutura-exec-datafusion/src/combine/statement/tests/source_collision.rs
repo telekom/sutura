@@ -16,11 +16,15 @@ use datafusion::datasource::memory::MemorySchemaProvider;
 use super::*;
 
 /// `crm` and `geo` each hold their own `reporting.shipments`, under the same physical path - the
-/// shape `registered_tables` used to drop entirely rather than keep either.
-fn with_reporting_shipments_at_both_crm_and_geo() -> (Vec<StatementTable>, Engines) {
+/// shape `registered_tables` used to drop entirely rather than keep either. `crm_shipment_ids` is
+/// the row count a caller needs: most shapes need only one row, but a `HAVING`/`ORDER
+/// BY`/reordered-select-list shape over a non-trivial aggregate needs more than one, to tell it
+/// apart from a single-row case that would pass regardless of whether a parent node actually
+/// resolved the aggregate's own output column.
+fn with_reporting_shipments_at_crm_and_geo(crm_shipment_ids: Vec<i64>) -> (Vec<StatementTable>, Engines) {
     let crm_shipments = RecordBatch::try_new(
         Arc::new(Schema::new(vec![Field::new("shipment_id", DataType::Int64, false)])),
-        vec![Arc::new(Int64Array::from(vec![42])) as ArrayRef],
+        vec![Arc::new(Int64Array::from(crm_shipment_ids)) as ArrayRef],
     )
     .expect("the crm shipments fixture is rectangular");
     let geo_shipments = RecordBatch::try_new(
@@ -57,6 +61,11 @@ fn with_reporting_shipments_at_both_crm_and_geo() -> (Vec<StatementTable>, Engin
         ));
     }
     (tables, legs)
+}
+
+/// A single-row [`with_reporting_shipments_at_crm_and_geo`].
+fn with_reporting_shipments_at_both_crm_and_geo() -> (Vec<StatementTable>, Engines) {
+    with_reporting_shipments_at_crm_and_geo(vec![42])
 }
 
 /// A collision held by two sources answers through either three-part name, at its own source's own
@@ -113,6 +122,31 @@ fn a_two_part_collision_refuses_while_each_three_part_name_still_answers_at_its_
         "{unprefixed:?}"
     );
     assert_eq!(legs.ran, [named("crm"), named("geo")], "the refused call opened nothing new");
+}
+
+/// `DataFusion`'s own column resolution (`Column::resolved_eq`) skips a leading qualifier segment
+/// once a reference carries more of them than a matched relation's own path does - the leniency a
+/// TABLE reference earns deliberately through its own source prefix, but a column reference never
+/// does. With only `crm`'s table in scope, a column qualified `geo.reporting.shipments.shipment_id`
+/// has one segment more than `crm`'s own two-part path, so it must refuse as an unknown column
+/// rather than reach the engine unresolved and silently bind to `crm`'s own `shipment_id`.
+#[test]
+fn a_column_qualifier_longer_than_every_in_scope_relation_path_refuses_as_unknown() {
+    let (tables, mut legs) = with_reporting_shipments_at_both_crm_and_geo();
+
+    let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &RawStatement::parse("select geo.reporting.shipments.shipment_id from crm.reporting.shipments")
+                .expect("a bounded query"),
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(matches!(answer, Some(Err(StatementStopped::UnknownColumn))), "{answer:?}");
+    assert!(legs.ran.is_empty(), "a refused column must not reach a source");
 }
 
 /// `crm` is both a source id (holding the bare table `orders`) and, at a different source
@@ -349,6 +383,165 @@ fn an_unaliased_computed_column_over_a_colliding_table_is_named_from_its_physica
         assert!(
             !column.contains('\u{1}'),
             "a column name leaked sutura's internal collision marker: {column}"
+        );
+    }
+}
+
+/// Like [`with_reporting_shipments_at_both_crm_and_geo`], but `crm` holds two shipment rows - see
+/// [`with_reporting_shipments_at_crm_and_geo`] for why that makes an aggregate over them
+/// non-trivial.
+fn with_two_crm_shipments_colliding_with_geo() -> (Vec<StatementTable>, Engines) {
+    with_reporting_shipments_at_crm_and_geo(vec![42, 100])
+}
+
+/// A parent node above an unaliased aggregate over a colliding table can refer to the aggregate's
+/// own output column by its auto-generated display name (`count(shipment_id)`, say) rather than by
+/// a table-qualified `Expr::Column` - that name embeds the mangled registration leaf as literal
+/// text, not as separate, rewritable relation metadata. `rename_expressions` used to rewrite only a
+/// column's `relation`, so once `recompute_schema` changed the aggregate's own field name to the
+/// physical one, an unqualified parent reference naming the old, mangled text no longer resolved -
+/// `Projection::try_new`/`Filter::try_new` refused the whole statement.
+///
+/// Each of these shapes puts that reference in a different parent node: a `Projection` computing
+/// over the aggregate's output, a `Filter` built from `HAVING`, a `Sort` built from `ORDER BY`, and
+/// a `Projection` whose select list is ordered differently from the aggregate's own group/aggregate
+/// column order.
+#[test]
+fn an_unqualified_reference_to_an_aggregates_own_output_over_a_colliding_table_still_answers() {
+    let (tables, mut legs) = with_two_crm_shipments_colliding_with_geo();
+
+    for (sql, expected) in [
+        (
+            "select count(shipment_id) + 1 from crm.reporting.shipments",
+            vec![vec![sutura_domain::warehouse::Value::Integer(3)]],
+        ),
+        (
+            "select count(*) from crm.reporting.shipments having count(*) > 1",
+            vec![vec![sutura_domain::warehouse::Value::Integer(2)]],
+        ),
+        (
+            "select count(shipment_id) from crm.reporting.shipments order by count(shipment_id)",
+            vec![vec![sutura_domain::warehouse::Value::Integer(2)]],
+        ),
+        (
+            "select count(shipment_id), shipment_id from crm.reporting.shipments group by shipment_id order by shipment_id",
+            vec![
+                vec![
+                    sutura_domain::warehouse::Value::Integer(1),
+                    sutura_domain::warehouse::Value::Integer(42),
+                ],
+                vec![
+                    sutura_domain::warehouse::Value::Integer(1),
+                    sutura_domain::warehouse::Value::Integer(100),
+                ],
+            ],
+        ),
+    ] {
+        let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+            StatementQuestion::new(
+                &RawStatement::parse(sql).expect("a bounded query"),
+                &tables,
+                false,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!("{sql}: {answer:?}");
+        };
+        assert_eq!(rows.rows(), expected, "{sql}");
+    }
+}
+
+/// Like [`with_two_crm_shipments_colliding_with_geo`], but `crm`'s own table is Oracle-dialect and
+/// carries a column the numeric-text path treats specially (`sutura:unbounded_number`) alongside a
+/// LOB marker (`sutura:oracle_lob`) that forces the numeric exit's own "labelled" branch -
+/// `text::native_oracle_rows` - rather than its literal-spelling one, which never relabels through
+/// `native_schema` at all.
+fn with_an_oracle_shipments_table_colliding_with_geo() -> (Vec<StatementTable>, Engines) {
+    let crm_shipments = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("shipment_id", DataType::Int64, false),
+            Field::new("amount", DataType::Int64, false),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![1, 2])) as ArrayRef,
+            Arc::new(Int64Array::from(vec![500, 700])) as ArrayRef,
+        ],
+    )
+    .expect("the crm shipments fixture is rectangular");
+    let geo_shipments = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("shipment_id", DataType::Int64, false)])),
+        vec![Arc::new(Int64Array::from(vec![7])) as ArrayRef],
+    )
+    .expect("the geo shipments fixture is rectangular");
+    let legs = Engines::new(None);
+    for (source, batch) in [(named("crm"), &crm_shipments), (named("geo"), &geo_shipments)] {
+        let context = legs.at.get(&source).expect("a fake session");
+        drop(
+            context
+                .catalog("datafusion")
+                .expect("the fake's default catalog")
+                .register_schema("reporting", Arc::new(MemorySchemaProvider::new()))
+                .expect("the reporting schema registers"),
+        );
+        drop(
+            context
+                .register_batch(TableReference::partial("reporting", "shipments"), batch.clone())
+                .expect("the shipments table registers"),
+        );
+    }
+    let amount_metadata = std::collections::HashMap::from([
+        (String::from("sutura:unbounded_number"), String::from("utf8")),
+        (String::from("sutura:oracle_lob"), String::from("clob")),
+    ]);
+    let crm_schema = Arc::new(Schema::new(vec![
+        Field::new("shipment_id", DataType::Int64, false),
+        Field::new("amount", DataType::Utf8, false).with_metadata(amount_metadata),
+    ]));
+    let mut tables = tables();
+    for (source, dialect, schema) in [
+        (named("crm"), TypeDialect::Oracle, crm_schema),
+        (named("geo"), TypeDialect::Postgres, geo_shipments.schema()),
+    ] {
+        tables.push(StatementTable::new(
+            source,
+            QualifiedTable::parse("reporting.shipments").expect("a dataset-qualified table"),
+            dialect,
+            schema,
+        ));
+    }
+    (tables, legs)
+}
+
+/// The numeric Oracle exit's own "labelled" branch answers through `projection::output(&native_schema,
+/// rows)`, using the schema of the first, un-rewritten plan - over a colliding table, an unaliased
+/// computed column's auto-generated name there still carries the mangled registration leaf, the
+/// same leak [`an_unaliased_computed_column_over_a_colliding_table_is_named_from_its_physical_path`]
+/// catches on the whole and federated exits. `answer`'s own `unmangled_rows` must sweep this exit
+/// too, applied once after `answer_tracked` returns regardless of which of the three exits it took.
+#[test]
+fn an_unaliased_computed_column_over_a_colliding_table_on_the_numeric_oracle_exit_is_named_from_its_physical_path() {
+    let (tables, mut legs) = with_an_oracle_shipments_table_colliding_with_geo();
+
+    let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &RawStatement::parse("select min(amount) from crm.reporting.shipments").expect("a bounded query"),
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    let Some(Ok(rows)) = answer else {
+        panic!("{answer:?}");
+    };
+    for column in rows.columns() {
+        assert!(
+            !column.contains('\u{1}'),
+            "a column name leaked sutura's internal collision marker on the numeric Oracle exit: {column}"
         );
     }
 }

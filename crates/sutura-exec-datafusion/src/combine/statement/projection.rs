@@ -340,14 +340,4 @@ mod tests {
         assert!(matches!(other_text, Err(StatementStopped::NotPlanned)), "{other_text:?}");
         assert_eq!(legs.ran, 0);
     }
-
-    #[test]
-    fn a_leg_statement_carrying_the_internal_collision_marker_is_refused_before_it_opens() {
-        let sources = BTreeSet::from([source()]);
-        let mangled = RawStatement::parse("SELECT id FROM \"source\u{1}items\"").unwrap();
-        let mut legs = Legs::default();
-        let result = Guarded::new(&mut legs).open(&sources, [(&mangled, TypeDialect::DataFusion)]);
-        assert!(matches!(result, Err(StatementStopped::NotPlanned)), "{result:?}");
-        assert_eq!(legs.opened, 0);
-    }
 }

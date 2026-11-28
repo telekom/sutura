@@ -12,14 +12,6 @@ use sutura_domain::plan::StatementTable;
 
 use super::resolve;
 
-/// `plan` with every mangled registration leaf rewritten back to its table's real physical
-/// reference: the source's own planner has no notion of a `source.schema.table` prefix, nor of
-/// this collision's disambiguation.
-///
-/// A `TableScan`'s own `table_name`/`projected_schema` and the column expressions it and its
-/// ancestors qualify by that name are rewritten. Subquery scans are reached too
-/// (`transform_up_with_subqueries`), and so is a correlated subquery's own outer-reference column
-/// (`Expr::OuterReferenceColumn`), rewritten the same way as a plain `Expr::Column`.
 /// Every mangled registration leaf this question's tables carry, beside the physical reference it
 /// stands for - the one list both [`physically_qualified`] and [`unmangled_name`] rewrite from.
 pub(super) fn renames_of(tables: &[StatementTable]) -> Vec<(String, TableReference)> {
@@ -31,6 +23,14 @@ pub(super) fn renames_of(tables: &[StatementTable]) -> Vec<(String, TableReferen
         .collect()
 }
 
+/// `plan` with every mangled registration leaf rewritten back to its table's real physical
+/// reference: the source's own planner has no notion of a `source.schema.table` prefix, nor of
+/// this collision's disambiguation.
+///
+/// A `TableScan`'s own `table_name`/`projected_schema` and the column expressions it and its
+/// ancestors qualify by that name are rewritten. Subquery scans are reached too
+/// (`transform_up_with_subqueries`), and so is a correlated subquery's own outer-reference column
+/// (`Expr::OuterReferenceColumn`), rewritten the same way as a plain `Expr::Column`.
 pub(super) fn physically_qualified(plan: &LogicalPlan, tables: &[StatementTable]) -> Planned<LogicalPlan> {
     let renames = renames_of(tables);
     if renames.is_empty() {
@@ -55,10 +55,15 @@ pub(super) fn physically_qualified(plan: &LogicalPlan, tables: &[StatementTable]
             };
             // `map_expressions` (inside `rename_expressions`) rewrites a node's own expressions but
             // never its STORED schema - a `Projection`/`Aggregate`/`Window`/`Join` keeps the pre-rename
-            // qualifier there otherwise, and a caller reading the plan's schema (rather than unparsing
-            // it) would still see the mangled registration leaf. `recompute_schema` is a no-op for a
-            // `TableScan` (already rebuilt above) and for any node whose schema does not depend on its
-            // own expressions, so calling it on every node here costs nothing beyond the rebuild.
+            // qualifier there otherwise. Worse than stale metadata: an unaliased computed column's
+            // schema field NAME is derived from the plan's `Display`, so a parent node that refers to
+            // it by that name (not by `Expr::Column` relation/name, but as the literal text DataFusion
+            // generated) still carries the mangled leaf baked into a string until the schema is
+            // recomputed. `recompute_schema` is a no-op for a `TableScan` (already rebuilt above) and
+            // for any node whose schema does not depend on its own expressions; for one that does, it
+            // is why `rename_expressions` below must also rewrite a column's own NAME, not only its
+            // `relation` - otherwise this recompute changes the child's display name out from under a
+            // parent's still-mangled textual reference to it.
             rename_expressions(node, &renames)?.map_data(LogicalPlan::recompute_schema)
         })
         .map(|transformed| transformed.data)
@@ -81,6 +86,14 @@ fn physical_reference(table: &StatementTable) -> TableReference {
 /// `node`'s own direct expressions, with every column qualified by a mangled registration leaf
 /// rewritten to that table's real physical reference. A correlated subquery's outer-reference
 /// column is rewritten the same way, carrying its field reference back through unchanged.
+///
+/// A column's own NAME is rewritten too, not only its `relation`: an unqualified reference to a
+/// child `Aggregate`'s auto-generated display column (a parent `Projection`/`Filter` naming
+/// `count(shipment_id)` by that literal text, for instance) carries the mangled leaf directly in
+/// the name string rather than as separate relation metadata, and `resolve`'s own column binding
+/// matches that text. Leaving it unrewritten here means `recompute_schema` changes the child's
+/// name out from under a parent reference that still spells the old, mangled one -
+/// `Projection::try_new`/`Filter::try_new` then refuse the plan as an unresolved column.
 fn rename_expressions(node: LogicalPlan, renames: &[(String, TableReference)]) -> Planned<Transformed<LogicalPlan>> {
     node.map_expressions(|expr| {
         expr.transform_up(|expr| {
@@ -93,15 +106,26 @@ fn rename_expressions(node: LogicalPlan, renames: &[(String, TableReference)]) -
                 Some(field) => Expr::OuterReferenceColumn(field, column),
                 None => Expr::Column(column),
             };
-            let mapped = column
+            let relation_changed = if let Some((_, physical)) = column
                 .relation
                 .as_ref()
-                .and_then(|relation| renames.iter().find(|(mangled, _)| mangled.as_str() == relation.table()));
-            let Some((_, physical)) = mapped else {
-                return Ok(Transformed::no(rebuild(column)));
+                .and_then(|relation| renames.iter().find(|(mangled, _)| mangled.as_str() == relation.table()))
+            {
+                column.relation = Some(physical.clone());
+                true
+            } else {
+                false
             };
-            column.relation = Some(physical.clone());
-            Ok(Transformed::yes(rebuild(column)))
+            let unmangled = unmangled_name(&column.name, renames);
+            let name_changed = unmangled != column.name;
+            if name_changed {
+                column.name = unmangled;
+            }
+            if relation_changed || name_changed {
+                Ok(Transformed::yes(rebuild(column)))
+            } else {
+                Ok(Transformed::no(rebuild(column)))
+            }
         })
     })
 }
