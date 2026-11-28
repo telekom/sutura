@@ -91,7 +91,10 @@ use unparse_error::{field_not_found, unprojected_agg, unquotable};
 /// returns: a `StatementStopped::NotPlanned` it produced then reads as
 /// `StatementStopped::SourcePrefixRefused` instead whenever any reference resolved only by naming
 /// its source explicitly, so a planning failure past that point can never fall back to the
-/// caller's own, not-admission-checked text against a single source.
+/// caller's own, not-admission-checked text against a single source. Any `NotPlanned` also reads
+/// that way whenever the text spells an admitted source followed by `.`
+/// ([`resolve::names_a_source`]): before resolution runs - a runtime, registration or session
+/// failure, or a statement over the operator bound - nothing else shows the text names no source.
 ///
 /// `answer_tracked` returns rows from one of three exits - the whole statement, a federated
 /// combine, or the numeric Oracle path - and any of them can still carry a collision's mangled
@@ -104,11 +107,14 @@ where
     L: StatementLegs,
 {
     let renames = rewrite::renames_of(question.tables());
+    let (statement, tables) = (question.statement(), question.tables());
     let mut prefixed = false;
     answer_tracked(combiner, question, legs, &mut prefixed)
         .map(|rows| unmangled_rows(rows, &renames))
         .map_err(|stopped| {
-            if prefixed && matches!(stopped, StatementStopped::NotPlanned) {
+            if matches!(stopped, StatementStopped::NotPlanned)
+                && (prefixed || resolve::names_a_source(statement.as_str(), tables))
+            {
                 StatementStopped::SourcePrefixRefused
             } else {
                 stopped

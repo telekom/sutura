@@ -189,3 +189,66 @@ fn a_prefixed_reference_that_fails_to_plan_refuses_the_source_prefix_not_a_plain
     assert!(legs.opened.is_empty(), "a refused prefix opens nothing: {:?}", legs.opened);
     assert!(legs.ran.is_empty(), "a refused prefix runs nothing: {:?}", legs.ran);
 }
+
+/// `sql` answered over `tables` by a fresh combiner.
+fn stops(tables: &[StatementTable], legs: &mut Engines, sql: &str) -> StatementAnswer<SourceName> {
+    let statement = RawStatement::parse(sql).expect("a bounded query");
+    DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        legs,
+    )
+}
+
+/// A statement over the operator bound stops before resolution runs, so nothing recorded whether
+/// it names a source. Spelling `crm.` - bare, double-quoted or single-quoted, each of which the
+/// parser reads as a name part - refuses it as `SourcePrefixRefused`, which never falls back to the
+/// caller's text at a single source; the same bound over a bare reference stays a plain
+/// `NotPlanned`.
+#[test]
+fn a_prefixed_statement_over_the_operator_bound_refuses_the_source_prefix() {
+    let (tables, mut legs) = with_a_dataset_qualified_table_at_crm();
+    let values = (0..1100).map(|value| value.to_string()).collect::<Vec<_>>().join(", ");
+    for source in ["crm", "\"crm\"", "'crm'"] {
+        let prefixed = format!("select shipment_id from {source}.reporting.shipments where shipment_id in ({values})");
+        let answer = stops(&tables, &mut legs, &prefixed);
+        assert!(
+            matches!(answer, Some(Err(StatementStopped::SourcePrefixRefused))),
+            "{source}: {answer:?}"
+        );
+    }
+    let bare = format!("select customer_id from dim_customer where customer_id in ({values})");
+    let answer = stops(&tables, &mut legs, &bare);
+    assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
+    assert!(legs.opened.is_empty(), "nothing was opened: {:?}", legs.opened);
+    assert!(legs.ran.is_empty(), "no leg ran: {:?}", legs.ran);
+}
+
+/// Registration stops before resolution too: two models of one physical table at `crm` that
+/// disagree on its dialect. A statement spelling `crm.` is refused as `SourcePrefixRefused`; a bare
+/// one stays a plain `NotPlanned`.
+#[test]
+fn a_prefixed_statement_whose_tables_do_not_register_refuses_the_source_prefix() {
+    let (mut tables, mut legs) = with_a_dataset_qualified_table_at_crm();
+    let shipments = tables.last().expect("the fixture's shipments table").clone();
+    tables.push(StatementTable::new(
+        shipments.source().clone(),
+        shipments.table().clone(),
+        TypeDialect::Postgres,
+        Arc::clone(shipments.schema()),
+    ));
+    let answer = stops(&tables, &mut legs, "select shipment_id from crm.reporting.shipments");
+    assert!(
+        matches!(answer, Some(Err(StatementStopped::SourcePrefixRefused))),
+        "{answer:?}"
+    );
+    let answer = stops(&tables, &mut legs, "select customer_id from dim_customer");
+    assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
+    assert!(legs.opened.is_empty(), "nothing was opened: {:?}", legs.opened);
+    assert!(legs.ran.is_empty(), "no leg ran: {:?}", legs.ran);
+}
