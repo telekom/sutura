@@ -281,14 +281,16 @@ needs its exact quoted name. A table is named by its physical path (`table`, `sc
 that path prefixed with the listed source it lives at (`source.table`, `source.schema.table`); the
 physical reading is tried first, and the source-prefixed reading only once nothing physical
 matches, so an unprefixed name two listed sources both carry stays refused as `unknown_table`
-rather than picking one. The source segment compares to the source's own id unfolded by either
-source's dialect, so `doku.DOKU.X` reaches an Oracle source without quoting `doku`. A statement
+rather than picking one; a name that resolves BOTH ways at once - unprefixed, and by some other
+table's prefix - is refused the same way rather than given to the unprefixed reading. The source
+segment compares to the source's own id unfolded by either source's dialect, so `crm.CRM.orders`
+reaches an Oracle source without quoting `crm`. A statement
 that resolved any reference only by naming its source refuses outright if it still fails to plan;
 it never falls back to running the caller's own text against a single listed source, because that
 text is not admission-checked and the source has no notion of a sutura source id. The prefix is a
 FROM-clause reading only: a column reference that itself carries the source segment
-(`source.schema.table.column`) is not resolved against it and typically fails at the source instead
-of refusing cleanly here.
+(`source.schema.table.column`) is not resolved against it, so it reaches the planner unchanged and
+fails there, as an ordinary unresolved reference, before any source runs.
 
 An unresolved admitted table is `unknown_table`, and an unresolved admitted column is `unknown_column`.
 Hidden tables have the same detail as absent tables; excluded columns have the same detail as absent

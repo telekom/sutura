@@ -61,7 +61,15 @@ struct Column {
 
 #[derive(Clone)]
 struct Relation {
+    /// The caller's own physical name for this relation - what a qualifier in the caller's text is
+    /// matched against, and nothing else.
     path: Vec<String>,
+    /// What [`super::session`] actually registered this relation's table under, when a column
+    /// qualifier or a wildcard this module rewrites into the AST must name it. Equal to `path`
+    /// except for a table collision-mangled under [`registered_leaf`] - rewriting a reference to
+    /// such a table by its physical name, as `path` alone would, resolves to nothing the planner
+    /// ever registered.
+    registered: Vec<String>,
     fold: Fold,
     columns: Vec<Column>,
     complete: bool,
@@ -85,7 +93,7 @@ impl Relation {
             .columns
             .iter()
             .map(|column| {
-                let mut path: Vec<_> = self.path.iter().cloned().map(quoted).collect();
+                let mut path: Vec<_> = self.registered.iter().cloned().map(quoted).collect();
                 path.push(quoted(column.name.clone()));
                 SelectItem::UnnamedExpr(Expr::CompoundIdentifier(path))
             })
@@ -95,6 +103,7 @@ impl Relation {
     fn alias(mut self, alias: &mut TableAlias) -> Self {
         normalize(&mut alias.name);
         self.path = vec![alias.name.value.clone()];
+        self.registered = self.path.clone();
         self.fold = Fold::Lower;
         if !alias.columns.is_empty() {
             self.complete = true;
@@ -137,7 +146,7 @@ const fn unsupported() -> Refused {
 /// through to the same [`Refused::UnknownTable`] as an unknown schema or table does, so nothing
 /// about which other sources exist leaks through it. The source segment compares case-preserved,
 /// never folded by the candidate's dialect - a sutura source name is not a column or table
-/// identifier at that source, so `doku.DOKU.X` reaches an Oracle source without quoting.
+/// identifier at that source, so `crm.CRM.orders` reaches an Oracle source without quoting.
 ///
 /// The returned flag is `true` once any reference in the statement resolved only through the prefix
 /// reading: the caller text that follows is no longer admission-checked on its own (a source name is
@@ -271,7 +280,7 @@ impl Resolver<'_> {
                             let identifiers = identifiers(name)?;
                             let relation = unique(scope.iter().filter(|relation| relation.matches(&identifiers)))?
                                 .ok_or_else(unsupported)?;
-                            *name = object_name(&relation.path);
+                            *name = object_name(&relation.registered);
                             complete &= relation.complete;
                             columns.extend(relation.columns.clone());
                         }
@@ -289,6 +298,7 @@ impl Resolver<'_> {
                 rest?;
                 let outputs = Relation {
                     path: Vec::new(),
+                    registered: Vec::new(),
                     fold: Fold::Lower,
                     columns,
                     complete,
@@ -310,6 +320,7 @@ impl Resolver<'_> {
                 Ok((
                     Relation {
                         path: Vec::new(),
+                        registered: Vec::new(),
                         fold: Fold::Lower,
                         columns: Vec::new(),
                         complete: false,
@@ -393,13 +404,14 @@ impl Resolver<'_> {
             } => {
                 let path = identifiers(name)?;
                 if let Some(cte) = unique(ctes.iter().filter(|cte| path.len() == 1 && cte.matches(&path)))? {
-                    *name = object_name(&cte.path);
+                    *name = object_name(&cte.registered);
                     (cte.clone(), alias)
                 } else {
                     let (table, prefixed) = resolve_table(self.tables, &path)?;
                     self.prefixed |= prefixed;
                     let path = table_path(table);
-                    *name = object_name(&registered_path(self.tables, table));
+                    let registered = registered_path(self.tables, table);
+                    *name = object_name(&registered);
                     self.physical.insert(table.table().clone());
                     let fold = Fold::of(table.dialect());
                     let columns = table
@@ -414,6 +426,7 @@ impl Resolver<'_> {
                     (
                         Relation {
                             path,
+                            registered,
                             fold,
                             columns,
                             complete: true,
@@ -461,8 +474,8 @@ fn matches_physical(table: &StatementTable, path: &[Ident]) -> bool {
 /// Does `path` name `table`'s physical path prefixed with the sutura source it lives at?
 ///
 /// The source segment is a sutura name, not a column or table identifier at `table`'s source, so it
-/// compares case-preserved - never folded by `table`'s dialect, or `doku.DOKU.X` could not reach an
-/// Oracle source without quoting.
+/// compares case-preserved - never folded by `table`'s dialect, or `crm.CRM.orders` could not reach
+/// an Oracle source without quoting.
 fn matches_prefixed(table: &StatementTable, path: &[Ident]) -> bool {
     let physical = table_path(table);
     let fold = Fold::of(table.dialect());
@@ -473,29 +486,31 @@ fn matches_prefixed(table: &StatementTable, path: &[Ident]) -> bool {
     })
 }
 
-/// `path`'s table among `tables`: resolved first against every candidate's own physical path, and
-/// only when that phase matches nothing, against the same path prefixed with the table's source.
+/// `path`'s table among `tables`: matched against every candidate's own physical path and, always,
+/// against the same path prefixed with the table's source - both phases run unconditionally, never
+/// short-circuited on the first one matching.
 ///
-/// Ambiguity within either phase refuses, and the second phase runs only once the first has matched
-/// nothing - so a source prefix can only select among candidates no physical path already claims,
-/// and an unprefixed reference to a path two sources share still refuses as unknown rather than
-/// silently picking one. The second element of the result is whether the match came from the
-/// prefixed phase.
+/// Ambiguity within either phase refuses, same as before: an unprefixed reference to a path two
+/// sources share still refuses as unknown rather than silently picking one. A match in BOTH phases
+/// also refuses, even when each phase alone is unambiguous: `crm.orders` naming both a physical
+/// `crm.orders` table and the `orders` table at a source literally named `crm` does not pick the
+/// physical reading, and neither does a 3-part name that is both a project-qualified `a.b.c` and a
+/// source-prefixed `b.c` at a source named `a` - a reference is resolved only when exactly one phase
+/// claims it. The second element of the result is whether the match came from the prefixed phase.
 fn resolve_table<'a>(tables: &'a [StatementTable], path: &[Ident]) -> Resolved<(&'a StatementTable, bool)> {
     let mut physical = tables.iter().filter(|table| matches_physical(table, path));
-    if let Some(table) = physical.next() {
-        return if physical.next().is_some() {
-            Err(Refused::UnknownTable)
-        } else {
-            Ok((table, false))
-        };
-    }
-    let mut prefixed = tables.iter().filter(|table| matches_prefixed(table, path));
-    let table = prefixed.next().ok_or(Refused::UnknownTable)?;
-    if prefixed.next().is_some() {
+    let first_physical = physical.next();
+    if first_physical.is_some() && physical.next().is_some() {
         return Err(Refused::UnknownTable);
     }
-    Ok((table, true))
+    let mut prefixed = tables.iter().filter(|table| matches_prefixed(table, path));
+    let first_prefixed = prefixed.next();
+    match (first_physical, first_prefixed) {
+        (Some(table), None) => Ok((table, false)),
+        (None, Some(_)) if prefixed.next().is_some() => Err(Refused::UnknownTable),
+        (None, Some(table)) => Ok((table, true)),
+        (Some(_), Some(_)) | (None, None) => Err(Refused::UnknownTable),
+    }
 }
 
 fn table_path(table: &StatementTable) -> Vec<String> {
@@ -657,7 +672,7 @@ impl<'a, 'b> Expressions<'a, 'b> {
                     None => unique(self.outer.iter().filter(|relation| relation.matches(qualifier)))?,
                 };
                 if let Some(relation) = relation {
-                    for (ident, name) in qualifier.iter_mut().rev().zip(relation.path.iter().rev()) {
+                    for (ident, name) in qualifier.iter_mut().rev().zip(relation.registered.iter().rev()) {
                         *ident = quoted(name.clone());
                     }
                 }

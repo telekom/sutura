@@ -117,9 +117,10 @@ fn a_two_part_collision_refuses_while_each_three_part_name_still_answers_at_its_
 
 /// `crm` is both a source id (holding the bare table `orders`) and, at a different source
 /// (`finance`), a dataset name holding its own `orders` - the shape a caller could misread as the
-/// source prefix `crm.orders` rather than the schema-qualified physical path it already is. The
-/// two-part form keeps resolving the physical path first, exactly as before; the three-part form
-/// reaches the same table by naming its source explicitly.
+/// source prefix `crm.orders` rather than the schema-qualified physical path it already is.
+/// `crm.orders` now names both readings at once (finance's physical `crm.orders` and crm's own
+/// prefixed bare `orders`), so it refuses rather than silently picking the physical one; the
+/// three-part form reaches finance's table unambiguously, by naming its source explicitly.
 fn with_crm_as_both_a_source_and_a_schema() -> (Vec<StatementTable>, Engines) {
     let crm_orders = RecordBatch::try_new(
         Arc::new(Schema::new(vec![Field::new("order_id", DataType::Int64, false)])),
@@ -170,7 +171,7 @@ fn with_crm_as_both_a_source_and_a_schema() -> (Vec<StatementTable>, Engines) {
 }
 
 #[test]
-fn a_two_part_overlap_resolves_the_physical_schema_and_a_three_part_form_reaches_the_same_table() {
+fn a_two_part_overlap_refuses_while_the_three_part_form_reaches_the_table_unambiguously() {
     let (tables, mut legs) = with_crm_as_both_a_source_and_a_schema();
 
     let two_part = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
@@ -183,11 +184,8 @@ fn a_two_part_overlap_resolves_the_physical_schema_and_a_three_part_form_reaches
         ),
         &mut legs,
     );
-    let Some(Ok(rows)) = two_part else {
-        panic!("{two_part:?}");
-    };
-    assert_eq!(rows.rows(), [vec![sutura_domain::warehouse::Value::Integer(9)]]);
-    assert_eq!(legs.ran, [named("finance")]);
+    assert!(matches!(two_part, Some(Err(StatementStopped::UnknownTable))), "{two_part:?}");
+    assert_eq!(legs.ran, [], "the refused call opens nothing");
 
     let three_part = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
         StatementQuestion::new(
@@ -203,5 +201,188 @@ fn a_two_part_overlap_resolves_the_physical_schema_and_a_three_part_form_reaches
         panic!("{three_part:?}");
     };
     assert_eq!(rows.rows(), [vec![sutura_domain::warehouse::Value::Integer(9)]]);
-    assert_eq!(legs.ran, [named("finance"), named("finance")]);
+    assert_eq!(legs.ran, [named("finance")]);
+}
+
+/// The same overlap one level deeper: `a.b.c` is both `finance`'s own project-qualified physical
+/// path and `a`'s own dataset-qualified `b.c`, read through the source prefix. Neither phase is
+/// ambiguous on its own - each finds exactly one table - so the ambiguity only shows up once both
+/// phases run unconditionally, which is the whole point of refusing rather than keeping the first
+/// phase that happens to match something.
+#[test]
+fn a_three_part_reference_ambiguous_between_a_project_path_and_a_source_prefix_refuses() {
+    let tables = vec![
+        StatementTable::new(
+            named("finance"),
+            QualifiedTable::parse("a.b.c").expect("a project-qualified fixture table"),
+            TypeDialect::DuckDb,
+            customers().schema(),
+        ),
+        StatementTable::new(
+            named("a"),
+            QualifiedTable::parse("b.c").expect("a dataset-qualified fixture table"),
+            TypeDialect::DuckDb,
+            customers().schema(),
+        ),
+    ];
+    let mut legs = Engines::new(None);
+
+    let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &RawStatement::parse("select customer_id from a.b.c").expect("a bounded query"),
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(matches!(answer, Some(Err(StatementStopped::UnknownTable))), "{answer:?}");
+    assert_eq!(legs.ran, [], "the refused call opens nothing");
+}
+
+/// A bare or dataset-qualified column reference to a colliding table's own leaf must rewrite to
+/// that table's registered (mangled) name, which `Relation::path` vs. `Relation::registered`
+/// exists to keep separate from the physical path two sources share - rewriting against the
+/// physical path, as a single shared field once did, resolves to nothing the planner registered.
+#[test]
+fn a_qualified_column_on_a_colliding_table_still_answers_at_its_own_source() {
+    let (tables, mut legs) = with_reporting_shipments_at_both_crm_and_geo();
+
+    for sql in [
+        "select shipments.shipment_id from crm.reporting.shipments",
+        "select reporting.shipments.shipment_id from crm.reporting.shipments",
+    ] {
+        let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+            StatementQuestion::new(
+                &RawStatement::parse(sql).expect("a bounded query"),
+                &tables,
+                false,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
+            &mut legs,
+        );
+        let Some(Ok(rows)) = answer else {
+            panic!("{sql}: {answer:?}");
+        };
+        assert_eq!(rows.rows(), [vec![sutura_domain::warehouse::Value::Integer(42)]], "{sql}");
+    }
+}
+
+/// A qualified wildcard over a colliding table expands to that table's own columns, rewritten the
+/// same way as a qualified column - `shipments.*` must reach `crm`'s own registered leaf, not the
+/// bare physical path neither source alone owns once both are admitted.
+#[test]
+fn a_qualified_wildcard_on_a_colliding_table_expands_its_own_columns() {
+    let (tables, mut legs) = with_reporting_shipments_at_both_crm_and_geo();
+
+    let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &RawStatement::parse("select shipments.* from crm.reporting.shipments").expect("a bounded query"),
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    let Some(Ok(rows)) = answer else {
+        panic!("{answer:?}");
+    };
+    assert_eq!(rows.rows(), [vec![sutura_domain::warehouse::Value::Integer(42)]]);
+    assert_eq!(legs.ran, [named("crm")]);
+}
+
+/// An unaliased computed column over a colliding table must be named from its physical path, not
+/// sutura's own mangled registration leaf - the caller's own column name is an output of the answer,
+/// not a detail of how two sources sharing a physical table stay distinguishable while planning.
+/// Running wholly at one source is covered here as a smoke test: for this unaliased, non-duplicate
+/// shape the leg's own text is unaliased already, so `projection::output` passes its answer through
+/// unchanged regardless of which schema it was given - `rewrite::tests::
+/// an_unaliased_aggregate_over_a_colliding_table_recomputes_its_schema_field_name` is what actually
+/// discriminates that call site, directly, since no SQL shape reaches it through the full combiner
+/// without also tripping a duplicate-projection-name refusal in `DataFusion`'s own planner -
+/// `DataFusion` combining a source's rows with a second source's locally is the shape this test
+/// does discriminate.
+#[test]
+fn an_unaliased_computed_column_over_a_colliding_table_is_named_from_its_physical_path() {
+    let (tables, mut legs) = with_reporting_shipments_at_both_crm_and_geo();
+
+    let at_one_source = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &RawStatement::parse("select count(shipments.shipment_id) from crm.reporting.shipments").expect("a bounded query"),
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    let Some(Ok(rows)) = at_one_source else {
+        panic!("{at_one_source:?}");
+    };
+    for column in rows.columns() {
+        assert!(
+            !column.contains('\u{1}'),
+            "a column name leaked sutura's internal collision marker: {column}"
+        );
+    }
+
+    let combined_locally = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &RawStatement::parse(
+                "select count(shipments.shipment_id), count(dim_region.sales_area) from crm.reporting.shipments cross join dim_region",
+            )
+            .expect("a bounded query"),
+            &tables,
+            true,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    let Some(Ok(rows)) = combined_locally else {
+        panic!("{combined_locally:?}");
+    };
+    for column in rows.columns() {
+        assert!(
+            !column.contains('\u{1}'),
+            "a column name leaked sutura's internal collision marker: {column}"
+        );
+    }
+}
+
+/// A qualified `JOIN ... ON` naming a colliding table must rewrite every occurrence of the
+/// qualifier in the condition, not only the one in the `FROM` clause - otherwise the generated leg
+/// statement still carries the bare physical name and fails to parse at its own source. The
+/// condition correlates a column on each side so `dim_customer` is actually projected, not scanned
+/// for existence alone.
+#[test]
+fn a_qualified_join_on_against_a_colliding_table_rewrites_the_condition_too() {
+    let (tables, mut legs) = with_reporting_shipments_at_both_crm_and_geo();
+
+    let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &RawStatement::parse(
+                "select shipments.shipment_id from crm.reporting.shipments join dim_customer \
+                 on shipments.shipment_id > dim_customer.customer_id",
+            )
+            .expect("a bounded query"),
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    let Some(Ok(rows)) = answer else {
+        panic!("{answer:?}");
+    };
+    assert_eq!(
+        rows.rows(),
+        std::iter::repeat_n(vec![sutura_domain::warehouse::Value::Integer(42)], 4).collect::<Vec<_>>(),
+        "one shipment row (id 42) crossed with dim_customer's four rows, all four customer ids below 42"
+    );
+    assert_eq!(legs.ran, [named("crm")]);
 }

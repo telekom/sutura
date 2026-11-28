@@ -92,28 +92,52 @@ use unparse::written;
 use unparse_error::{field_not_found, unprojected_agg, unquotable};
 
 /// Answers `question`: its statement planned over its tables, each source's part run by `legs`.
+///
+/// `prefixed` is computed once, by this function's own tracked body, and read only after it
+/// returns: a `StatementStopped::NotPlanned` it produced then reads as
+/// `StatementStopped::SourcePrefixRefused` instead whenever any reference resolved only by naming
+/// its source explicitly, so a planning failure past that point can never fall back to the
+/// caller's own, not-admission-checked text against a single source.
 pub(super) fn answer<L>(combiner: &DataFusionCombiner, question: StatementQuestion<'_>, legs: &mut L) -> Answered<L::Stop>
 where
     L: StatementLegs,
 {
-    let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause, false))?;
+    let mut prefixed = false;
+    answer_tracked(combiner, question, legs, &mut prefixed).map_err(|stopped| {
+        if prefixed && matches!(stopped, StatementStopped::NotPlanned) {
+            StatementStopped::SourcePrefixRefused
+        } else {
+            stopped
+        }
+    })
+}
+
+fn answer_tracked<L>(
+    combiner: &DataFusionCombiner,
+    question: StatementQuestion<'_>,
+    legs: &mut L,
+    prefixed: &mut bool,
+) -> Answered<L::Stop>
+where
+    L: StatementLegs,
+{
+    let runtime = combiner.runtime().map_err(|cause| unplanned("no runtime", &cause))?;
     let working_set = working_set_of(question.working_set_bytes());
     let mut legs = projection::Guarded::new(legs);
     let fetched = Arc::new(Fetched::default());
-    let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause, false))?;
-    let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause, false))?;
-    let mut prefixed = false;
+    let tables = registered_tables(question.tables()).map_err(|cause| unplanned("no admitted schema", &cause))?;
+    let context = session(&tables, &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
     let (plan, numeric_operations, native_schema) = within(
         runtime,
         question.deadline(),
-        planned(&context, question.statement(), &tables, &mut prefixed),
+        planned(&context, question.statement(), &tables, prefixed),
     )
     .ok_or(StatementStopped::DeadlineExceeded)?
     .map_err(|cause| match cause {
         PlanningStopped::Refused(refused) => stopped(refused),
         PlanningStopped::Engine(cause) if unquotable(&cause) => stopped(resolve::Refused::UnquotableName),
         PlanningStopped::Engine(cause) => {
-            let fallback = unplanned("the statement did not plan", &cause, prefixed);
+            let fallback = unplanned("the statement did not plan", &cause);
             if field_not_found(&cause) {
                 StatementStopped::UnknownColumn
             } else {
@@ -121,7 +145,7 @@ where
             }
         }
     })?;
-    let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause, prefixed))?;
+    let parts = parts(&plan, &tables).map_err(|cause| unplanned("the plan did not cut", &cause))?;
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
     if sources.len() > 1 && !question.federation_allowed() {
         return Err(StatementStopped::SpansMoreThanOneSource);
@@ -134,39 +158,53 @@ where
         if native_tables.iter().any(|table| table.dialect() != TypeDialect::Oracle) {
             return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
         }
-        // Re-resolve the admitted input against this source alone: optimization can remove a
-        // second source, but that must never authorize its original table under this credential.
+        // Re-resolve the admitted input against only what the validated plan actually scanned at
+        // this source, not every table merely admitted there: optimization can prune a reference
+        // whole (a dead common table expression, a second source), and an admitted-but-unscanned
+        // table must never be re-admitted through this second, source-only pass.
+        let scanned: BTreeSet<QualifiedTable> = parts
+            .iter()
+            .filter(|part| &part.source == source)
+            .map(|part| part.scan_tables(&tables))
+            .collect::<Planned<Vec<_>>>()
+            .map_err(|cause| unplanned("a part's scan did not resolve", &cause))?
+            .into_iter()
+            .flatten()
+            .collect();
+        let native_tables: Vec<_> = native_tables
+            .into_iter()
+            .filter(|table| scanned.contains(table.table()))
+            .collect();
         let mut native = Parser::parse_sql(&GenericDialect, question.statement().as_str())
-            .map_err(|cause| unplanned("the numeric statement did not parse", &cause, prefixed))?;
+            .map_err(|cause| unplanned("the numeric statement did not parse", &cause))?;
         let [native] = native.as_mut_slice() else {
             return Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText));
         };
         let (scans, native_prefixed) = resolve::explicit_statement(native, &native_tables)
             .map_err(|_cause| StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText))?;
-        prefixed |= native_prefixed;
+        *prefixed |= native_prefixed;
         let read: Vec<_> = native_tables
             .into_iter()
             .filter(|table| scans.contains(table.table()))
             .collect();
         let ineligible = oracle::native(native)
             .and_then(|()| text::apply_to(native, &read, TypeDialect::Oracle))
-            .map_err(|cause| unwritten("the numeric statement did not unparse", &cause, prefixed))?;
+            .map_err(|cause| unwritten("the numeric statement did not unparse", &cause))?;
         let text = if read.iter().any(text::oracle_lobs) || projection::duplicate_names(&native_schema) {
             text::native_oracle_rows(native, &native_schema, &read)
         } else {
             literal::spelled(native, TypeDialect::Oracle)
         }
-        .map_err(|cause| unwritten("the numeric statement did not unparse", &cause, prefixed))?;
+        .map_err(|cause| unwritten("the numeric statement did not unparse", &cause))?;
         // The caller's own names were read at its tokens; this reads those the resolver wrote.
         if !literal::quotable_names(&text, TypeDialect::Oracle) {
             return Err(stopped(resolve::Refused::UnquotableName));
         }
-        let native =
-            RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause, prefixed))?;
-        legs.open(&sources, [(&native, TypeDialect::Oracle)], prefixed)?;
-        let rows = legs.run_planned(source, &native, &scans, policy_of(&parts), ineligible, prefixed)?;
+        let native = RawStatement::parse(text).map_err(|cause| unplanned("the numeric statement was not bounded", &cause))?;
+        legs.open(&sources, [(&native, TypeDialect::Oracle)])?;
+        let rows = legs.run_planned(source, &native, &scans, policy_of(&parts), ineligible)?;
         return projection::output(&native_schema, rows)
-            .map_err(|cause| unplanned("the numeric source output did not fit", &cause, prefixed));
+            .map_err(|cause| unplanned("the numeric source output did not fit", &cause));
     }
     // A bare marked scan still needs fitting to its declared text representation.
     let whole = part_of(&plan).is_some_and(|part| !number_text(part.plan().schema().inner()));
@@ -177,38 +215,39 @@ where
             Ok((statement, ineligible, part.scan_tables(&tables)?))
         })
         .collect::<Planned<Vec<_>>>()
-        .map_err(|cause| unwritten("a part did not unparse", &cause, prefixed))?;
+        .map_err(|cause| unwritten("a part did not unparse", &cause))?;
     legs.open(
         &sources,
         parts
             .iter()
             .zip(&statements)
             .map(|(part, (statement, _ineligible, _tables))| (statement, part.dialect)),
-        prefixed,
     )?;
     let mut leaves = Vec::with_capacity(parts.len());
-    for (part, (statement, ineligible, tables)) in parts.into_iter().zip(&statements) {
+    for (part, (statement, ineligible, scan_tables)) in parts.into_iter().zip(&statements) {
         let rows = legs
-            .run_planned(&part.source, statement, tables, part.policy, *ineligible, prefixed)
+            .run_planned(&part.source, statement, scan_tables, part.policy, *ineligible)
             .inspect_err(|stopped| {
                 if matches!(stopped, StatementStopped::Leg(_)) {
                     tracing::debug!(source = %part.source, statement = statement.as_str(), "run_sql: a source part did not run");
                 }
             })?;
         if whole {
-            return projection::output(part.plan.schema().inner(), rows)
-                .map_err(|cause| unplanned("the source output did not fit", &cause, prefixed));
+            // `part.plan`'s own schema still carries a collision's mangled registration leaf; an
+            // unaliased computed column's auto-generated name bakes that qualifier into the field
+            // name itself, so the caller must read it off the rewritten plan, the same one its text
+            // was unparsed from, rather than the plan as planned.
+            let physical = rewrite::physically_qualified(&part.plan, &tables)
+                .map_err(|cause| unplanned("the source output did not rewrite", &cause))?;
+            return projection::output(physical.schema().inner(), rows)
+                .map_err(|cause| unplanned("the source output did not fit", &cause));
         }
-        let batches = fitted(&rows, part.plan.schema().inner())
-            .map_err(|cause| unplanned("a leg did not fit its part", &cause, prefixed))?;
+        let batches =
+            fitted(&rows, part.plan.schema().inner()).map_err(|cause| unplanned("a leg did not fit its part", &cause))?;
         leaves.push((part.plan, batches));
     }
     if fetched.0.set(leaves).is_err() {
-        return Err(if prefixed {
-            StatementStopped::SourcePrefixRefused
-        } else {
-            StatementStopped::NotPlanned
-        });
+        return Err(StatementStopped::NotPlanned);
     }
     let local = within(runtime, question.deadline(), async {
         let frame = context
@@ -221,12 +260,20 @@ where
     let answered = match local {
         Ok(answered) => answered,
         Err(CombineError::Exhausted { .. }) => return Err(StatementStopped::AnswerTooLarge),
-        Err(cause) => return Err(unplanned("the local part did not run", &cause, prefixed)),
+        Err(cause) => return Err(unplanned("the local part did not run", &cause)),
     };
     let (columns, rows) = answered
         .to_rows()
-        .map_err(|cause| unplanned("the answer did not read as rows", &cause, prefixed))?
+        .map_err(|cause| unplanned("the answer did not read as rows", &cause))?
         .into_parts();
+    // A federation leaf (one `Part`'s own `FederatedPlanNode`) is opaque to the top-level `plan`
+    // combining it locally, so an unaliased computed column reading through it is still named from
+    // the un-rewritten plan - the mangled leaf can only be swept out of the final name's own text.
+    let renames = rewrite::renames_of(&tables);
+    let columns = columns
+        .into_iter()
+        .map(|name| rewrite::unmangled_name(&name, &renames))
+        .collect();
     Ok(RawRows::of(columns, rows))
 }
 
@@ -850,14 +897,14 @@ enum PlanningStopped {
 
 /// Why a source statement was not written: a name it could not quote, the unparser's own gap
 /// against one of its aggregate rewrites, or else `why`.
-fn unwritten<S>(why: &str, cause: &DataFusionError, prefixed: bool) -> StatementStopped<S> {
+fn unwritten<S>(why: &str, cause: &DataFusionError) -> StatementStopped<S> {
     if unquotable(cause) {
         stopped(resolve::Refused::UnquotableName)
     } else if let Some(column) = unprojected_agg(cause) {
         tracing::debug!(column, "run_sql: the unparser could not name an aggregate rewrite's column");
         StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)
     } else {
-        unplanned(why, cause, prefixed)
+        unplanned(why, cause)
     }
 }
 
@@ -929,17 +976,14 @@ fn fitted(rows: &RawRows, schema: &SchemaRef) -> Planned<Vec<RecordBatch>> {
 /// stopped it. The engine's words can name a column or quote a value a leg read, so they are written
 /// at debug, which a deployment that logs at debug still writes.
 ///
-/// `prefixed` reports [`StatementStopped::SourcePrefixRefused`] instead: a reference that resolved
-/// only by naming its source must never let the application fall back to the caller's original,
+/// [`answer`]'s own wrapper reads this as `StatementStopped::SourcePrefixRefused` instead, once any
+/// reference in the statement resolved only by naming its source explicitly: a reference that
+/// resolved that way must never let the application fall back to the caller's original,
 /// not-admission-checked text against a single source.
-fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display, prefixed: bool) -> StatementStopped<S> {
+fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display) -> StatementStopped<S> {
     tracing::info!("run_sql: {why}");
     tracing::debug!(%cause, "run_sql: {why}");
-    if prefixed {
-        StatementStopped::SourcePrefixRefused
-    } else {
-        StatementStopped::NotPlanned
-    }
+    StatementStopped::NotPlanned
 }
 
 /// Declared here rather than in `combine::tests`, because this file is new: the base run removes it,

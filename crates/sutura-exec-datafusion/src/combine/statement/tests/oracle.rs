@@ -381,6 +381,92 @@ fn mapped_numbers_use_numeric_source_semantics_or_refuse_before_opening() {
     }
 }
 
+/// The numeric path re-resolves the caller's raw text a second time, against every table merely
+/// admitted at the single surviving source - not against what the first, validated plan actually
+/// proved it scans. A table named only inside a common table expression the final `SELECT` never
+/// references is optimized out of that first plan entirely, so it never reaches `sources` or
+/// `parts`, yet it was still admitted at `geo` alongside `dim_region`: unless the second pass is
+/// restricted to what the first plan's parts actually scanned, `dim_other` resolves anyway and its
+/// `WITH` clause rides along, verbatim, in the SQL text handed to the live Oracle engine - a table
+/// the request was never proven to read. This must refuse instead, the same as naming an unrelated
+/// table that spans a second source.
+#[test]
+fn a_dead_cte_naming_a_table_the_plan_never_scanned_refuses_the_numeric_path() {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, false),
+        Field::new("sales_area", DataType::Utf8, false).with_metadata(std::collections::HashMap::from([(
+            String::from("sutura:unbounded_number"),
+            String::from("utf8"),
+        )])),
+    ]));
+    let physical = RecordBatch::try_from_iter([
+        (
+            "region",
+            Arc::new(StringArray::from(vec!["e", "d", "c", "b", "a"])) as ArrayRef,
+        ),
+        (
+            "sales_area",
+            Arc::new(Int64Array::from(vec![9, 10, 95, 960, 4000])) as ArrayRef,
+        ),
+    ])
+    .expect("the source stores physical numbers");
+    let other = RecordBatch::try_from_iter([("secret", Arc::new(StringArray::from(vec!["s0", "s1"])) as ArrayRef)])
+        .expect("the other fixture is rectangular");
+    let tables = [
+        StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("table"),
+            TypeDialect::Oracle,
+            Arc::clone(&schema),
+        ),
+        StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_other").expect("table"),
+            TypeDialect::Oracle,
+            other.schema(),
+        ),
+    ];
+    let mut legs = OracleLegs {
+        engines: Engines::new(None),
+        statements: Vec::new(),
+    };
+    drop(
+        legs.engines
+            .at
+            .insert(named("geo"), holding(&[("dim_region", physical), ("dim_other", other)])),
+    );
+    let sql = r#"with unused as (select "secret" from "dim_other") select "sales_area" from "dim_region" where "sales_area" > 9 order by "sales_area""#;
+    let statement = RawStatement::parse(sql).expect("a bounded query");
+    let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            true,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(
+        matches!(
+            answer,
+            Some(Err(StatementStopped::UnsupportedSyntax(SqlConstruct::NumberText)))
+        ),
+        "{answer:?}: {:?}",
+        legs.statements
+    );
+    assert!(
+        legs.engines.opened.is_empty(),
+        "an unscanned table named in a dead CTE must not open credentials: {:?}",
+        legs.engines.opened
+    );
+    assert!(
+        legs.statements.is_empty(),
+        "an unscanned table named in a dead CTE must not reach the source: {:?}",
+        legs.statements
+    );
+}
+
 #[test]
 fn mapped_number_tables_push_unrelated_operators_and_safe_children_in_every_dialect() {
     let schema = Arc::new(Schema::new(vec![

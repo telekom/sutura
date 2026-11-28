@@ -160,3 +160,32 @@ fn a_known_source_without_the_named_schema_or_table_is_also_unknown_table() {
     assert!(legs.opened.is_empty(), "nothing was opened: {:?}", legs.opened);
     assert!(legs.ran.is_empty(), "no leg ran: {:?}", legs.ran);
 }
+
+/// A source-prefixed reference that otherwise fails to plan must not fall back to running the
+/// caller's raw text against the single source it names - that text still carries the
+/// `source.schema.table` prefix, which is a sutura concept the source's own planner has no notion
+/// of. `lpad` is excluded from the session's admitted scalar functions, so the statement never
+/// builds a plan, and the resolver has already set `prefixed` by the time that failure surfaces:
+/// this proves the real combiner answers `SourcePrefixRefused`, not a plain `NotPlanned` that a
+/// caller might read as safe to retry verbatim, and that no leg ever opens or runs for it.
+#[test]
+fn a_prefixed_reference_that_fails_to_plan_refuses_the_source_prefix_not_a_plain_not_planned() {
+    let (tables, mut legs) = with_a_dataset_qualified_table_at_crm();
+    let statement = RawStatement::parse("select lpad(shipment_id, 3) from crm.reporting.shipments").expect("a bounded query");
+    let answer = DataFusionCombiner::new().expect("the combiner builds").answer_statement(
+        StatementQuestion::new(
+            &statement,
+            &tables,
+            false,
+            UNBOUNDED,
+            opened(Duration::ZERO, Duration::from_secs(60)),
+        ),
+        &mut legs,
+    );
+    assert!(
+        matches!(answer, Some(Err(StatementStopped::SourcePrefixRefused))),
+        "{answer:?}"
+    );
+    assert!(legs.opened.is_empty(), "a refused prefix opens nothing: {:?}", legs.opened);
+    assert!(legs.ran.is_empty(), "a refused prefix runs nothing: {:?}", legs.ran);
+}

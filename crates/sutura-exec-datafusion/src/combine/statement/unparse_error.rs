@@ -61,7 +61,7 @@ mod tests {
             datafusion::common::DataFusionError::External(Box::new(datafusion::sql::unparser::UnprojectableAggregateColumn {
                 column: "count(DISTINCT test.b)".to_owned(),
             }));
-        let stopped: StatementStopped<()> = super::super::unwritten("a part did not unparse", &cause, false);
+        let stopped: StatementStopped<()> = super::super::unwritten("a part did not unparse", &cause);
         assert!(
             matches!(stopped, StatementStopped::UnsupportedSyntax(SqlConstruct::AggregateRewrite)),
             "{stopped:?}"

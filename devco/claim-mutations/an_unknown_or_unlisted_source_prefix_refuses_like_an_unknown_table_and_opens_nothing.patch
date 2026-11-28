@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs b/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs
+index 8cd8b89cf..8dd363cf8 100644
+--- a/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs
++++ b/crates/sutura-exec-datafusion/src/combine/statement/resolve.rs
+@@ -480,7 +480,7 @@ fn matches_prefixed(table: &StatementTable, path: &[Ident]) -> bool {
+     let physical = table_path(table);
+     let fold = Fold::of(table.dialect());
+     path.split_first().is_some_and(|(source, rest)| {
+-        source.value == table.source().as_str()
++        true
+             && rest.len() == physical.len()
+             && rest.iter().zip(&physical).all(|(ident, name)| fold.name(ident) == *name)
+     })

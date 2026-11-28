@@ -31,6 +31,8 @@ pub(super) enum Inadmissible {
     Unadmitted,
     #[error("a source answered {answered} columns for a schema of {expected}")]
     WidthMismatch { answered: usize, expected: usize },
+    #[error("the final source text still carries sutura's internal collision marker")]
+    InternalNameLeaked,
 }
 
 pub(super) fn duplicate_names(schema: &Schema) -> bool {
@@ -87,11 +89,10 @@ where
         &mut self,
         sources: &BTreeSet<SourceName>,
         statements: impl IntoIterator<Item = (&'a RawStatement, TypeDialect)>,
-        prefixed: bool,
     ) -> Stopped<(), L::Stop> {
         for (statement, dialect) in statements {
             checked(statement.as_str(), dialect)
-                .map_err(|cause| super::unplanned("the final source projection was not admitted", &cause, prefixed))?;
+                .map_err(|cause| super::unplanned("the final source projection was not admitted", &cause))?;
             self.admitted.insert(statement.as_str().to_owned());
         }
         self.legs.open(sources).map_err(StatementStopped::Leg)
@@ -104,13 +105,11 @@ where
         tables: &BTreeSet<QualifiedTable>,
         policy: PolicyRead,
         ineligible: Option<PrefilterIneligible>,
-        prefixed: bool,
     ) -> Stopped<RawRows, L::Stop> {
         if !self.admitted.contains(statement.as_str()) {
             return Err(super::unplanned(
                 "a source statement ran unadmitted",
                 &Inadmissible::Unadmitted,
-                prefixed,
             ));
         }
         self.legs
@@ -122,7 +121,15 @@ where
 /// Read with the source's backslash escapes: a `BigQuery` or `ClickHouse` literal escapes its
 /// backslash and quote. Every other source reads a literal as `GenericDialect` does, whose grammar
 /// also takes what the planner writes there, such as an aggregate `FILTER` for Oracle.
+///
+/// Backstop: `sql` is refused outright if it still carries `\u{1}`, the separator
+/// [`super::resolve::registered_leaf`] mangles a collision's internal registration name with. No
+/// rewrite path should ever leave that character in a leg's final text - a source has no notion of
+/// it - but every gap in those rewrites still lands here before a source ever opens.
 fn checked(sql: &str, dialect: TypeDialect) -> Result<(), Inadmissible> {
+    if sql.contains('\u{1}') {
+        return Err(Inadmissible::InternalNameLeaked);
+    }
     let reader = match dialect {
         TypeDialect::BigQuery | TypeDialect::ClickHouse => super::literal::reader(dialect),
         TypeDialect::Postgres | TypeDialect::Cube | TypeDialect::DuckDb | TypeDialect::Oracle | TypeDialect::DataFusion => {
@@ -303,7 +310,6 @@ mod tests {
             let result = Guarded::new(&mut legs).open(
                 &sources,
                 statements.iter().map(|statement| (statement, TypeDialect::DataFusion)),
-                false,
             );
             assert!(matches!(result, Err(StatementStopped::NotPlanned)), "{result:?}");
             assert_eq!(legs.opened, 0);
@@ -312,9 +318,9 @@ mod tests {
         let mut legs = Legs::default();
         let admitted = RawStatement::parse("SELECT count(*) FROM items").unwrap();
         let mut guarded = Guarded::new(&mut legs);
-        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)], false).unwrap();
+        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
         guarded
-            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None, false)
+            .run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None)
             .unwrap();
         assert_eq!(legs.opened, 1);
         assert_eq!(legs.ran, 1);
@@ -327,11 +333,21 @@ mod tests {
         let other = RawStatement::parse("SELECT id FROM other_items").unwrap();
         let mut legs = Legs::default();
         let mut guarded = Guarded::new(&mut legs);
-        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None, false);
+        let before_open = guarded.run_planned(&source(), &admitted, &BTreeSet::new(), PolicyRead::Unread, None);
         assert!(matches!(before_open, Err(StatementStopped::NotPlanned)), "{before_open:?}");
-        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)], false).unwrap();
-        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread, None, false);
+        guarded.open(&sources, [(&admitted, TypeDialect::DataFusion)]).unwrap();
+        let other_text = guarded.run_planned(&source(), &other, &BTreeSet::new(), PolicyRead::Unread, None);
         assert!(matches!(other_text, Err(StatementStopped::NotPlanned)), "{other_text:?}");
         assert_eq!(legs.ran, 0);
+    }
+
+    #[test]
+    fn a_leg_statement_carrying_the_internal_collision_marker_is_refused_before_it_opens() {
+        let sources = BTreeSet::from([source()]);
+        let mangled = RawStatement::parse("SELECT id FROM \"source\u{1}items\"").unwrap();
+        let mut legs = Legs::default();
+        let result = Guarded::new(&mut legs).open(&sources, [(&mangled, TypeDialect::DataFusion)]);
+        assert!(matches!(result, Err(StatementStopped::NotPlanned)), "{result:?}");
+        assert_eq!(legs.opened, 0);
     }
 }

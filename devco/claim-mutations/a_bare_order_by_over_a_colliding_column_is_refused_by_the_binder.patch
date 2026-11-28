@@ -1,11 +1,11 @@
---- a/crates/sutura-exec-datafusion/src/combine/statement.rs	2026-11-28 00:03:47.389724000 +0100
-+++ b/crates/sutura-exec-datafusion/src/combine/statement.rs	2026-11-28 00:03:47.397759288 +0100
-@@ -938,7 +938,7 @@
-     if prefixed {
-         StatementStopped::SourcePrefixRefused
-     } else {
--        StatementStopped::NotPlanned
-+        StatementStopped::AnswerTooLarge
-     }
+--- a/crates/sutura-exec-datafusion/src/combine/statement.rs
++++ b/crates/sutura-exec-datafusion/src/combine/statement.rs
+@@ -951,7 +951,7 @@
+ fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display) -> StatementStopped<S> {
+     tracing::info!("run_sql: {why}");
+     tracing::debug!(%cause, "run_sql: {why}");
+-    StatementStopped::NotPlanned
++    StatementStopped::AnswerTooLarge
  }
- 
+
+ /// Declared here rather than in `combine::tests`, because this file is new: the base run removes it,
